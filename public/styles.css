@@ -1874,6 +1874,7 @@ a:focus-visible {
 .analysis-body ol {
   margin: 6px 0 0 18px;
   padding: 0;
+  list-style-position: outside;
 }
 
 .analysis-body li {
@@ -2534,8 +2535,8 @@ a.list-title:hover {
 .modal {
   width: min(980px, 92vw);
   max-height: 86vh;
-  background: var(--surface-1);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: #111822;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: var(--radius-lg);
   box-shadow: 0 30px 80px rgba(3, 8, 14, 0.55);
   display: flex;
@@ -2543,6 +2544,7 @@ a.list-title:hover {
   overflow: hidden;
   transform: translateY(12px) scale(0.98);
   transition: transform 0.2s ease, opacity 0.2s ease;
+  color: #fff;
 }
 
 .modal-overlay.open .modal {
@@ -2555,13 +2557,13 @@ a.list-title:hover {
   justify-content: space-between;
   gap: 16px;
   padding: 20px 24px 14px;
-  background: var(--surface-2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  background: #111822;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 .modal-body {
   padding: 18px 24px 24px;
-  background: var(--panel-glass);
+  background: #121b26;
   overflow: auto;
 }
 
@@ -2572,8 +2574,8 @@ a.list-title:hover {
 }
 
 .modal-card {
-  background: rgba(22, 30, 40, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(19, 28, 40, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--radius-md);
   padding: 16px;
   box-shadow: var(--shadow-soft);
@@ -2585,35 +2587,51 @@ a.list-title:hover {
   letter-spacing: 1.3px;
   text-transform: uppercase;
   margin-bottom: 8px;
-  color: var(--text);
+  color: #fff;
 }
 
 .modal-card p {
   margin: 0;
-  color: var(--text);
+  color: #fff;
   font-size: 14px;
   line-height: 1.6;
 }
 
 .modal-card strong {
-  color: var(--text);
+  color: #fff;
 }
 
 .modal .panel-title {
-  color: var(--text);
+  color: #fff;
 }
 
 .modal .panel-sub {
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.8);
 }
 
 [data-theme="light"] .modal-header {
-  border-bottom: 1px solid rgba(12, 24, 36, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 [data-theme="light"] .modal-card {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(12, 24, 36, 0.2);
+  background: rgba(19, 28, 40, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+[data-theme="light"] .modal {
+  background: #111822;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.modal a,
+.modal a:hover {
+  color: #fff;
+}
+
+.modal .chip,
+.modal .btn {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .modal-nav {

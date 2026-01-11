@@ -2572,11 +2572,12 @@ function formatInline(text) {
 }
 
 function formatBriefingText(text) {
-  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const cleanedText = String(text || '').replace(/```[\s\S]*?```/g, '').trim();
+  const lines = cleanedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   let html = '';
   let listType = null;
   lines.forEach((line) => {
-    const unordered = /^[-*•]\s+/.test(line);
+    const unordered = /^[-*•‣–—]\s*/.test(line);
     const ordered = /^\d+[.)]\s+/.test(line);
     if (unordered || ordered) {
       const type = ordered ? 'ol' : 'ul';
@@ -2588,7 +2589,7 @@ function formatBriefingText(text) {
         listType = type;
         html += `<${type}>`;
       }
-      const content = line.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
+      const content = line.replace(/^[-*•‣–—]\s*/, '').replace(/^\d+[.)]\s+/, '');
       html += `<li>${formatInline(content)}</li>`;
       return;
     }
