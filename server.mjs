@@ -1,0 +1,430 @@
+import http from 'http';
+import { mkdirSync, readFile, readFileSync, writeFileSync, existsSync } from 'fs';
+import { dirname, extname, join, normalize } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const ROOT = normalize(join(__dirname, 'public'));
+const DATA = normalize(join(__dirname, 'data', 'feeds.json'));
+const GEO_CACHE_PATH = normalize(join(__dirname, 'analysis', 'geo', 'geocode_cache.json'));
+
+const feedsConfig = JSON.parse(readFileSync(DATA, 'utf8'));
+const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
+const cache = new Map();
+let geoCache = {};
+let lastGeocodeAt = 0;
+const OPENAI_URL = 'https://api.openai.com/v1/responses';
+const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
+
+const mimeTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon'
+};
+
+function loadLocalFeed(feed) {
+  if (!feed.localPath) return null;
+  const filePath = normalize(join(__dirname, feed.localPath));
+  if (!filePath.startsWith(__dirname)) return null;
+  if (!existsSync(filePath)) return null;
+  const ext = extname(filePath).toLowerCase();
+  const contentType = mimeTypes[ext] || 'text/plain; charset=utf-8';
+  const body = readFileSync(filePath, 'utf8');
+  return {
+    id: feed.id,
+    fetchedAt: Date.now(),
+    contentType,
+    body,
+    httpStatus: 200
+  };
+}
+
+function sendJson(res, status, payload) {
+  const body = JSON.stringify(payload);
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
+  res.end(body);
+}
+
+function notFound(res) {
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Not Found');
+}
+
+function safePath(urlPath) {
+  const cleaned = urlPath === '/' ? '/index.html' : urlPath;
+  const resolved = normalize(join(ROOT, cleaned));
+  if (!resolved.startsWith(ROOT)) return null;
+  return resolved;
+}
+
+function buildUrl(template, params = {}) {
+  let url = template;
+  Object.entries(params).forEach(([key, value]) => {
+    url = url.replaceAll(`{{${key}}}`, encodeURIComponent(value ?? ''));
+  });
+  return url;
+}
+
+function loadGeoCache() {
+  if (existsSync(GEO_CACHE_PATH)) {
+    try {
+      geoCache = JSON.parse(readFileSync(GEO_CACHE_PATH, 'utf8'));
+    } catch (err) {
+      geoCache = {};
+    }
+  }
+}
+
+function saveGeoCache() {
+  mkdirSync(join(__dirname, 'analysis', 'geo'), { recursive: true });
+  writeFileSync(GEO_CACHE_PATH, JSON.stringify(geoCache, null, 2));
+}
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
+async function geocodeQuery(query) {
+  const key = query.toLowerCase();
+  if (geoCache[key]) {
+    return { ...geoCache[key], cached: true };
+  }
+
+  const now = Date.now();
+  const delta = now - lastGeocodeAt;
+  if (delta < 1100) {
+    await new Promise((resolve) => setTimeout(resolve, 1100 - delta));
+  }
+  lastGeocodeAt = Date.now();
+
+  const geoUrl = new URL('https://nominatim.openstreetmap.org/search');
+  geoUrl.searchParams.set('format', 'json');
+  geoUrl.searchParams.set('limit', '1');
+  geoUrl.searchParams.set('q', query);
+
+  const response = await fetchWithTimeout(geoUrl.toString(), {
+    headers: {
+      'User-Agent': appConfig.userAgent,
+      'Accept': 'application/json'
+    }
+  }, FETCH_TIMEOUT_MS);
+
+  if (!response.ok) {
+    throw new Error(`Geocode failed (${response.status})`);
+  }
+
+  const data = await response.json();
+  const result = data?.[0];
+  if (!result) {
+    const payload = { query, notFound: true };
+    geoCache[key] = payload;
+    saveGeoCache();
+    return payload;
+  }
+
+  const payload = {
+    query,
+    lat: Number(result.lat),
+    lon: Number(result.lon),
+    displayName: result.display_name
+  };
+  geoCache[key] = payload;
+  saveGeoCache();
+  return payload;
+}
+
+async function handleChat(payload, apiKey) {
+  if (!apiKey) {
+    return { status: 401, body: { error: 'missing_api_key', message: 'Provide an OpenAI API key.' } };
+  }
+
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  const model = payload.model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const temperature = Number.isFinite(payload.temperature) ? payload.temperature : 0.2;
+  const context = payload.context ? JSON.stringify(payload.context) : '';
+
+  const input = [
+    {
+      role: 'system',
+      content: 'You are the Situation Room assistant. Use only the provided context. Keep responses concise, actionable, and include feed/source names when referencing signals. If data is missing, say so explicitly.'
+    }
+  ];
+
+  if (context) {
+    input.push({
+      role: 'system',
+      content: `Context snapshot: ${context}`
+    });
+  }
+
+  input.push(...messages);
+
+  const response = await fetch(OPENAI_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ model, input, temperature })
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    return { status: response.status, body: { error: 'openai_error', message: data.error?.message || 'OpenAI request failed.' } };
+  }
+
+  const text = data.output_text
+    || data.output?.map((item) => item.content?.map((c) => c.text).join('')).join('')
+    || '';
+
+  return {
+    status: 200,
+    body: {
+      id: data.id,
+      model: data.model,
+      text,
+      usage: data.usage || null
+    }
+  };
+}
+
+function applyKey(url, feed, key, keyParam, keyHeader) {
+  if (!key) return { url, headers: {} };
+  const header = keyHeader || feed.keyHeader;
+  if (header) {
+    return { url, headers: { [header]: key } };
+  }
+  const param = keyParam || feed.keyParam;
+  if (param) {
+    const parsed = new URL(url);
+    parsed.searchParams.set(param, key);
+    return { url: parsed.toString(), headers: {} };
+  }
+  return { url, headers: {} };
+}
+
+function applyProxy(url, proxy) {
+  if (!proxy) return url;
+  if (proxy === 'allorigins') {
+    return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  }
+  if (proxy === 'jina') {
+    const stripped = url.replace(/^https?:\/\//, '');
+    return `https://r.jina.ai/http://${stripped}`;
+  }
+  return url;
+}
+
+async function fetchWithFallbacks(url, headers, proxies = []) {
+  let primaryResponse = null;
+  try {
+    primaryResponse = await fetchWithTimeout(url, { headers }, FETCH_TIMEOUT_MS);
+    if (primaryResponse.ok) return primaryResponse;
+  } catch (err) {
+    primaryResponse = null;
+  }
+
+  const fallbackUrls = [];
+  if (url.startsWith('https://')) {
+    fallbackUrls.push(`http://${url.slice('https://'.length)}`);
+  }
+  proxies.forEach((proxy) => {
+    fallbackUrls.push(applyProxy(url, proxy));
+  });
+
+  let lastResponse = primaryResponse;
+  let lastError = null;
+  for (const fallbackUrl of fallbackUrls) {
+    try {
+      const response = await fetchWithTimeout(fallbackUrl, { headers }, FETCH_TIMEOUT_MS);
+      if (response.ok) return response;
+      lastResponse = lastResponse || response;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (lastResponse) return lastResponse;
+  if (lastError) throw lastError;
+  throw new Error('fetch_failed');
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader } = {}) {
+  const cacheKey = `${feed.id}:${query || ''}`;
+  const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
+  const cached = cache.get(cacheKey);
+  if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
+    return cached;
+  }
+
+  const localPayload = loadLocalFeed(feed);
+  if (localPayload) {
+    cache.set(cacheKey, localPayload);
+    return localPayload;
+  }
+
+  if (feed.requiresKey && !key) {
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'requires_key', message: 'API key required for this feed.' })
+    };
+  }
+
+  if (feed.requiresConfig && !feed.url) {
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'requires_config', message: 'Feed URL not configured.' })
+    };
+  }
+
+  const finalQuery = feed.supportsQuery ? (query || feed.defaultQuery || '') : undefined;
+  const baseUrl = feed.supportsQuery ? buildUrl(feed.url, { query: finalQuery, key }) : buildUrl(feed.url, { key });
+  const applied = applyKey(baseUrl, feed, key, keyParam, keyHeader);
+  const headers = {
+    'User-Agent': appConfig.userAgent,
+    'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9'
+  };
+  const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
+  const response = await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList);
+  const contentType = response.headers.get('content-type') || 'text/plain';
+  const body = await response.text();
+
+  const payload = {
+    id: feed.id,
+    fetchedAt: Date.now(),
+    contentType,
+    body,
+    httpStatus: response.status
+  };
+  cache.set(cacheKey, payload);
+  return payload;
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (url.pathname === '/api/feeds') {
+    const sanitized = feedsConfig.feeds.map((feed) => ({
+      ...feed,
+      url: feed.requiresKey ? feed.url : feed.url
+    }));
+    return sendJson(res, 200, { app: feedsConfig.app, feeds: sanitized });
+  }
+
+  if (url.pathname === '/api/feed') {
+    const id = url.searchParams.get('id');
+    const query = url.searchParams.get('query') || undefined;
+    const force = url.searchParams.get('force') === '1';
+    const key = url.searchParams.get('key') || undefined;
+    const keyParam = url.searchParams.get('keyParam') || undefined;
+    const keyHeader = url.searchParams.get('keyHeader') || undefined;
+    const feed = feedsConfig.feeds.find((f) => f.id === id);
+    if (!feed) {
+      return sendJson(res, 404, { error: 'unknown_feed', id });
+    }
+
+    try {
+      const payload = await fetchFeed(feed, { query, force, key, keyParam, keyHeader });
+      return sendJson(res, 200, payload);
+    } catch (error) {
+      const extra = error?.cause?.code || error?.code;
+      const message = [error?.message, extra].filter(Boolean).join(' ');
+      return sendJson(res, 502, { error: 'fetch_failed', message: message || 'fetch failed' });
+    }
+  }
+
+  if (url.pathname === '/api/geocode') {
+    const query = url.searchParams.get('q');
+    if (!query) {
+      return sendJson(res, 400, { error: 'missing_query' });
+    }
+    try {
+      const payload = await geocodeQuery(query);
+      return sendJson(res, 200, payload);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'geocode_failed', message: error.message });
+    }
+  }
+
+  if (url.pathname === '/api/chat' && req.method === 'POST') {
+    try {
+      const raw = await readRequestBody(req);
+      const payload = JSON.parse(raw || '{}');
+      const apiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
+      const result = await handleChat(payload, apiKey);
+      return sendJson(res, result.status, result.body);
+    } catch (error) {
+      return sendJson(res, 400, { error: 'invalid_request', message: error.message });
+    }
+  }
+
+  if (url.pathname === '/api/snapshot' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body || '{}');
+        const dir = join(__dirname, 'analysis', 'denario', 'snapshots');
+        mkdirSync(dir, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filePath = join(dir, `snapshot-${stamp}.json`);
+        writeFileSync(filePath, JSON.stringify(parsed, null, 2));
+        return sendJson(res, 200, { saved: true, path: filePath });
+      } catch (error) {
+        return sendJson(res, 400, { error: 'invalid_json', message: error.message });
+      }
+    });
+    return;
+  }
+
+  const filePath = safePath(url.pathname);
+  if (!filePath) return notFound(res);
+
+  readFile(filePath, (err, data) => {
+    if (err) return notFound(res);
+    const ext = extname(filePath).toLowerCase();
+    res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+
+const PORT = 5173;
+const HOST = '127.0.0.1';
+server.listen(PORT, HOST, () => {
+  console.log(`The Situation Room running at http://localhost:${PORT}`);
+});
+
+loadGeoCache();

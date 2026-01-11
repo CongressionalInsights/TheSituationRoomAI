@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Situation Room</title>
+  <meta name="description" content="Unified situational awareness." />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+  <meta property="og:title" content="The Situation Room" />
+  <meta property="og:description" content="Unified situational awareness." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="OGimage.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="The Situation Room" />
+  <meta name="twitter:description" content="Unified situational awareness." />
+  <meta name="twitter:image" content="OGimage.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;500;600;700&family=Syne:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-map" viewBox="0 0 24 24">
+      <path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2z"></path>
+      <path d="M9 4v14M15 6v14"></path>
+    </symbol>
+    <symbol id="icon-ticker" viewBox="0 0 24 24">
+      <path d="M4 19h16"></path>
+      <path d="M4 16l5-6 4 4 7-9"></path>
+    </symbol>
+    <symbol id="icon-command" viewBox="0 0 24 24">
+      <path d="M4 7h16M4 12h16M4 17h16"></path>
+      <circle cx="9" cy="7" r="2"></circle>
+      <circle cx="15" cy="12" r="2"></circle>
+      <circle cx="7" cy="17" r="2"></circle>
+    </symbol>
+    <symbol id="icon-signal" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="7"></circle>
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M12 5v7l4 4"></path>
+    </symbol>
+    <symbol id="icon-news" viewBox="0 0 24 24">
+      <path d="M6 4h9l3 3v13H6z"></path>
+      <path d="M9 10h6M9 14h6M9 18h4"></path>
+    </symbol>
+    <symbol id="icon-finance" viewBox="0 0 24 24">
+      <path d="M4 19h16"></path>
+      <path d="M6 19V10M11 19V6M16 19v-8M20 19v-4"></path>
+    </symbol>
+    <symbol id="icon-crypto" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8"></circle>
+      <path d="M9 10h6M9 14h6"></path>
+    </symbol>
+    <symbol id="icon-hazard" viewBox="0 0 24 24">
+      <path d="M12 4l8 14H4z"></path>
+      <path d="M12 9v4"></path>
+      <circle cx="12" cy="17" r="1"></circle>
+    </symbol>
+    <symbol id="icon-local" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="7"></circle>
+      <circle cx="12" cy="12" r="2"></circle>
+    </symbol>
+    <symbol id="icon-policy" viewBox="0 0 24 24">
+      <path d="M7 4h8l3 3v13H7z"></path>
+      <path d="M9 12l2 2 4-4"></path>
+    </symbol>
+    <symbol id="icon-cyber" viewBox="0 0 24 24">
+      <path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"></path>
+      <path d="M10 12h4"></path>
+      <path d="M12 10v4"></path>
+    </symbol>
+    <symbol id="icon-agri" viewBox="0 0 24 24">
+      <path d="M5 18c6-1 10-5 14-12-8 2-12 6-14 12z"></path>
+      <path d="M8 14l4 4"></path>
+    </symbol>
+    <symbol id="icon-research" viewBox="0 0 24 24">
+      <path d="M9 3h6"></path>
+      <path d="M10 3v6l-4 7a4 4 0 0 0 3.5 6h5a4 4 0 0 0 3.5-6l-4-7V3"></path>
+      <path d="M9 13h6"></path>
+    </symbol>
+    <symbol id="icon-space" viewBox="0 0 24 24">
+      <path d="M12 4l2.5 5 5.5 2-5.5 2L12 18l-2.5-5L4 11l5.5-2z"></path>
+    </symbol>
+    <symbol id="icon-energy" viewBox="0 0 24 24">
+      <path d="M13 2L5 14h6l-1 8 8-12h-6z"></path>
+    </symbol>
+    <symbol id="icon-health" viewBox="0 0 24 24">
+      <path d="M10 4h4v4h4v4h-4v4h-4v-4H6V8h4z"></path>
+    </symbol>
+    <symbol id="icon-travel" viewBox="0 0 24 24">
+      <path d="M3 13l18-7-4 7 4 7-18-7 6-2z"></path>
+    </symbol>
+    <symbol id="icon-transport" viewBox="0 0 24 24">
+      <path d="M3 8h11v7H3z"></path>
+      <path d="M14 10h4l3 3v2h-7z"></path>
+      <circle cx="7" cy="17" r="2"></circle>
+      <circle cx="17" cy="17" r="2"></circle>
+    </symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24">
+      <path d="M12 7v-3M12 20v-3M7 12H4M20 12h-3M16.5 7.5l2-2M5.5 18.5l2-2M16.5 16.5l2 2M5.5 5.5l2 2"></path>
+      <circle cx="12" cy="12" r="3"></circle>
+    </symbol>
+  </svg>
+  <div class="app" data-theme="system">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="logo.png" alt="The Situation Room — Unified situational awareness" />
+      </div>
+      <div class="status">
+        <span class="status-dot"></span>
+        <span id="statusText">Live</span>
+      </div>
+      <div class="top-controls">
+        <button class="btn ghost" id="exportSnapshot">Export Snapshot</button>
+        <button class="btn ghost" id="refreshNow">Refresh Now</button>
+        <button class="btn ghost" id="aboutOpen">About</button>
+        <div class="segmented" id="scopeToggle">
+          <button class="seg active" data-scope="global">Global</button>
+          <button class="seg" data-scope="us">US</button>
+          <button class="seg" data-scope="local">Local</button>
+        </div>
+        <div class="age-toggle">
+          <span class="age-label">Window</span>
+          <div class="segmented small" id="ageToggle">
+            <button class="seg" data-age="1">24h</button>
+            <button class="seg" data-age="7">7d</button>
+            <button class="seg active" data-age="30">30d</button>
+          </div>
+        </div>
+        <button class="btn" id="settingsToggle">Settings</button>
+      </div>
+    </header>
+
+    <main class="grid" id="panelGrid">
+      <section class="panel map-panel" data-panel="map" data-category="geo">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-geo"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg></span>Geo Layer</div>
+            <div class="panel-sub">Live incidents & events</div>
+          </div>
+          <div class="panel-actions">
+            <button class="chip" id="geoLocateBtn">Locate Me</button>
+            <button class="chip chip-toggle" id="travelTickerBtn">Travel Ticker</button>
+            <button class="chip" id="mapLegendBtn">Legend</button>
+          </div>
+        </div>
+        <div class="map-wrap">
+          <div id="mapBase" class="map-base"></div>
+          <canvas id="mapCanvas"></canvas>
+          <div class="map-tooltip" id="mapTooltip"></div>
+          <div class="map-empty" id="mapEmpty">No geo signals yet.</div>
+          <div class="map-travel-ticker" id="travelTicker">
+            <div class="map-travel-label">Travel Advisories</div>
+            <div class="map-travel-track" id="travelTickerTrack"></div>
+          </div>
+          <div class="map-detail" id="mapDetail">
+            <div class="map-detail-head">
+              <div>
+                <div class="map-detail-title">Signals</div>
+                <div class="map-detail-meta" id="mapDetailMeta">--</div>
+              </div>
+              <button class="chip" id="mapDetailClose">Close</button>
+            </div>
+            <div class="map-detail-list" id="mapDetailList"></div>
+          </div>
+          <div class="map-overlay" id="mapLegend">
+            <div class="legend-title">Legend</div>
+            <label class="legend-item"><input id="legendWeather" name="legendWeather" type="checkbox" data-layer="weather" checked /> <span class="legend-dot dot-weather"></span> Weather</label>
+            <label class="legend-item"><input id="legendDisaster" name="legendDisaster" type="checkbox" data-layer="disaster" checked /> <span class="legend-dot dot-disaster"></span> Disasters</label>
+            <label class="legend-item"><input id="legendSpace" name="legendSpace" type="checkbox" data-layer="space" checked /> <span class="legend-dot dot-space"></span> Space Weather</label>
+            <label class="legend-item"><input id="legendTravel" name="legendTravel" type="checkbox" data-layer="travel" checked /> <span class="legend-dot dot-travel"></span> Travel Advisories</label>
+            <label class="legend-item"><input id="legendTransport" name="legendTransport" type="checkbox" data-layer="transport" checked /> <span class="legend-dot dot-transport"></span> Transport</label>
+            <label class="legend-item"><input id="legendNews" name="legendNews" type="checkbox" data-layer="news" checked /> <span class="legend-dot dot-geo"></span> Geo-tagged News</label>
+            <label class="legend-item"><input id="legendLocal" name="legendLocal" type="checkbox" data-layer="local" checked /> <span class="legend-dot dot-local"></span> Local Radius</label>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel ticker-panel" data-panel="ticker" data-category="finance">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-finance"><svg class="icon" aria-hidden="true"><use href="#icon-ticker"></use></svg></span>Market Ticker</div>
+            <div class="panel-sub">Major prices, macro signals, crypto heat</div>
+          </div>
+          <div class="panel-actions">
+            <button class="chip chip-toggle ticker-builder-toggle" data-target="ticker">Add Ticker</button>
+          </div>
+        </div>
+        <div class="ticker-builder" data-builder="ticker">
+          <div class="ticker-builder-row">
+            <label class="sr-only" for="tickerTypeMain">Ticker type</label>
+            <select id="tickerTypeMain" name="tickerTypeMain" class="select ticker-type">
+              <option value="equity">Equity</option>
+              <option value="market">Market</option>
+              <option value="crypto">Crypto</option>
+            </select>
+            <label class="sr-only" for="tickerQueryMain">Ticker search</label>
+            <input id="tickerQueryMain" name="tickerQueryMain" class="ticker-query" type="text" placeholder="AAPL, TSLA, SPX, BTC, Ethereum" />
+            <button class="btn ghost ticker-add">Add</button>
+          </div>
+          <div class="ticker-builder-hint">Smart search uses Stooq (equities/indices) + CoinPaprika (crypto). Examples: AAPL, ^SPX, BTC.</div>
+          <div class="ticker-builder-status" role="status"></div>
+          <div class="ticker-watchlist" data-watchlist="ticker"></div>
+        </div>
+        <div class="ticker" id="tickerBar">
+          <div class="ticker-track" id="tickerTrack"></div>
+        </div>
+      </section>
+
+      <section class="panel finance-spotlight-panel" data-panel="finance-spotlight" data-category="finance">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-finance"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg></span>Finance Spotlight</div>
+            <div class="panel-sub">Macro + market signals in focus</div>
+          </div>
+          <div class="panel-actions">
+            <button class="chip chip-toggle ticker-builder-toggle" data-target="spotlight">Add Ticker</button>
+          </div>
+        </div>
+        <div class="ticker-builder" data-builder="spotlight">
+          <div class="ticker-builder-row">
+            <label class="sr-only" for="tickerTypeSpotlight">Ticker type</label>
+            <select id="tickerTypeSpotlight" name="tickerTypeSpotlight" class="select ticker-type">
+              <option value="equity">Equity</option>
+              <option value="market">Market</option>
+              <option value="crypto">Crypto</option>
+            </select>
+            <label class="sr-only" for="tickerQuerySpotlight">Ticker search</label>
+            <input id="tickerQuerySpotlight" name="tickerQuerySpotlight" class="ticker-query" type="text" placeholder="AAPL, TSLA, SPX, BTC, Ethereum" />
+            <button class="btn ghost ticker-add">Add</button>
+          </div>
+          <div class="ticker-builder-hint">Add custom tickers to spotlight cards and the ticker bar.</div>
+          <div class="ticker-builder-status" role="status"></div>
+          <div class="ticker-watchlist" data-watchlist="spotlight"></div>
+        </div>
+        <div class="finance-spotlight-grid" id="financeSpotlight"></div>
+      </section>
+
+      <section class="panel command-panel" data-panel="command" data-category="control">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-analysis"><svg class="icon" aria-hidden="true"><use href="#icon-command"></use></svg></span>Command Center</div>
+            <div class="panel-sub">Search, briefing, filters</div>
+          </div>
+        </div>
+        <div class="command-grid">
+          <div class="search-wrap">
+            <label for="searchInput">Unified Search</label>
+            <div class="search-row">
+              <label class="sr-only" for="feedScope">Search scope</label>
+              <select id="feedScope" name="feedScope" class="select"></select>
+              <input id="searchInput" name="searchInput" type="text" placeholder="Search across categories or pick a specific feed" />
+              <button class="btn ghost" id="searchBtn">Search</button>
+            </div>
+            <div class="search-hint" id="searchHint">AI query translation is on. Search adapts to each source.</div>
+            <div class="saved-searches" id="savedSearches">
+              <button class="chip" data-query="Hurricane alerts">Hurricane</button>
+              <button class="chip" data-query="Cyber vulnerability exploited">Cyber</button>
+              <button class="chip" data-query="EIA petroleum prices">Energy</button>
+              <button class="chip" data-query="Local emergency advisory">Local</button>
+              <button class="chip" data-query="Travel health notice">Travel</button>
+            </div>
+            <div class="search-filters" id="categoryFilters"></div>
+            <div class="search-results" id="searchResults">
+              <div class="search-results-head">
+                <div>
+                  <div class="search-results-title">Search Results</div>
+                  <div class="search-results-meta" id="searchResultsMeta">Awaiting query</div>
+                </div>
+                <button class="chip" id="searchResultsClose">Close</button>
+              </div>
+              <div class="list search-results-list" id="searchResultsList"></div>
+            </div>
+            <div class="analysis-chat">
+              <div class="analysis-chat-header">
+                <div>
+                  <div class="analysis-chat-title">Situational Analysis</div>
+                  <div class="analysis-chat-sub">Chat-style briefing and quick questions.</div>
+                </div>
+                <button class="chip" id="analysisRun">Briefing</button>
+              </div>
+              <div class="chat-wrap compact">
+                <div class="chat-log" id="chatLog">
+                  <div class="chat-bubble system">Connect an AI provider to enable live responses.</div>
+                </div>
+                <div class="chat-input">
+                  <label class="sr-only" for="chatInput">Ask about a feed or situation</label>
+                  <input id="chatInput" name="chatInput" type="text" placeholder="Ask about a feed or situation..." />
+                  <button class="btn ghost" id="chatSend">Send</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel signals-panel" data-panel="signals" data-category="analysis">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-analysis"><svg class="icon" aria-hidden="true"><use href="#icon-signal"></use></svg></span>Signal Deck</div>
+            <div class="panel-sub">Coverage, momentum, anomalies</div>
+          </div>
+          <div class="panel-actions">
+            <span class="chip chip-status" id="signalHealthChip">Feed Health: --</span>
+          </div>
+        </div>
+        <div class="signal-grid">
+          <div class="signal-card">
+            <div class="signal-label">Global Activity</div>
+            <div class="signal-value" id="globalActivity">--</div>
+            <div class="signal-meta" id="globalActivityMeta">Awaiting feeds</div>
+          </div>
+          <div class="signal-card">
+            <div class="signal-label">News Saturation</div>
+            <div class="signal-value" id="newsSaturation">--</div>
+            <div class="signal-meta" id="newsSaturationMeta">Awaiting feeds</div>
+          </div>
+          <div class="signal-card">
+            <div class="signal-label">Local Events</div>
+            <div class="signal-value" id="localEvents">--</div>
+            <div class="signal-meta" id="localEventsMeta">Awaiting location</div>
+          </div>
+          <div class="signal-card">
+            <div class="signal-label">Market Pulse</div>
+            <div class="signal-value" id="marketPulse">--</div>
+            <div class="signal-meta" id="marketPulseMeta">Awaiting feeds</div>
+          </div>
+        </div>
+        <div class="analysis-output" id="analysisOutput">
+          <div class="analysis-title">AI Analysis</div>
+          <div class="analysis-body">Pull data or run analysis to generate a briefing.</div>
+        </div>
+      </section>
+
+      <section class="panel news-panel" data-panel="news" data-category="news">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-news"><svg class="icon" aria-hidden="true"><use href="#icon-news"></use></svg></span>News Layer</div>
+            <div class="panel-sub">Deduped clusters across sources</div>
+          </div>
+          <div class="panel-actions">
+            <button class="chip" id="newsSort">Sort: Impact</button>
+          </div>
+        </div>
+        <div class="list" id="newsList"></div>
+      </section>
+
+      <section class="panel finance-panel" data-panel="finance" data-category="finance">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-finance"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg></span>Finance & Policy</div>
+            <div class="panel-sub">Macro, debt, disclosures</div>
+          </div>
+        </div>
+        <div class="panel-tabs" id="financeTabs">
+          <button class="tab active" data-tab="markets">Markets</button>
+          <button class="tab" data-tab="regulatory">Regulatory</button>
+        </div>
+        <div class="list tab-panel active" id="financeMarketsList"></div>
+        <div class="list tab-panel" id="financePolicyList"></div>
+      </section>
+
+      <section class="panel crypto-panel" data-panel="crypto" data-category="crypto">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-crypto"><svg class="icon" aria-hidden="true"><use href="#icon-crypto"></use></svg></span>Crypto / Web3</div>
+            <div class="panel-sub">Market heat & chain signals</div>
+          </div>
+        </div>
+        <div class="list" id="cryptoList"></div>
+      </section>
+
+      <section class="panel disaster-panel" data-panel="hazards" data-category="hazards">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-geo"><svg class="icon" aria-hidden="true"><use href="#icon-hazard"></use></svg></span>Hazards & Weather</div>
+            <div class="panel-sub">Natural events + alerts</div>
+          </div>
+        </div>
+        <div class="list" id="disasterList"></div>
+      </section>
+
+      <section class="panel local-panel" data-panel="local" data-category="local">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-local"><svg class="icon" aria-hidden="true"><use href="#icon-local"></use></svg></span>Local Lens</div>
+            <div class="panel-sub">What’s near you</div>
+          </div>
+        </div>
+        <div class="list" id="localList"></div>
+      </section>
+
+      <section class="panel policy-panel" data-panel="policy" data-category="gov">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-policy"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg></span>Policy & Government</div>
+            <div class="panel-sub">Disclosures, regs, public intel</div>
+          </div>
+        </div>
+        <div class="list" id="policyList"></div>
+      </section>
+
+      <section class="panel cyber-panel" data-panel="cyber" data-category="cyber">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-cyber"><svg class="icon" aria-hidden="true"><use href="#icon-cyber"></use></svg></span>Cyber Pulse</div>
+            <div class="panel-sub">Known exploited vulns</div>
+          </div>
+        </div>
+        <div class="list" id="cyberList"></div>
+      </section>
+
+      <section class="panel agriculture-panel" data-panel="agriculture" data-category="agriculture">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-agri"><svg class="icon" aria-hidden="true"><use href="#icon-agri"></use></svg></span>Agriculture</div>
+            <div class="panel-sub">Reports, supply, yields</div>
+          </div>
+        </div>
+        <div class="list" id="agricultureList"></div>
+      </section>
+
+      <section class="panel research-panel" data-panel="research" data-category="research">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-research"><svg class="icon" aria-hidden="true"><use href="#icon-research"></use></svg></span>Research Watch</div>
+            <div class="panel-sub">arXiv + open science</div>
+          </div>
+        </div>
+        <div class="list" id="researchList"></div>
+      </section>
+
+      <section class="panel space-panel" data-panel="space" data-category="space">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-space"><svg class="icon" aria-hidden="true"><use href="#icon-space"></use></svg></span>Space Weather</div>
+            <div class="panel-sub">Solar + geomagnetic signals</div>
+          </div>
+        </div>
+        <div class="list" id="spaceList"></div>
+      </section>
+
+      <section class="panel energy-map-panel" data-panel="energy-map" data-category="energy">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-energy"><svg class="icon" aria-hidden="true"><use href="#icon-energy"></use></svg></span>Energy Map</div>
+            <div class="panel-sub">Residential electricity price (cents/kWh)</div>
+          </div>
+        </div>
+        <div class="energy-map-wrap">
+          <div id="energyMap"></div>
+          <div class="energy-map-legend" id="energyMapLegend"></div>
+          <div class="energy-map-empty" id="energyMapEmpty">Add your EIA API key to load the energy map.</div>
+        </div>
+      </section>
+
+      <section class="panel energy-panel" data-panel="energy" data-category="energy">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-energy"><svg class="icon" aria-hidden="true"><use href="#icon-energy"></use></svg></span>Energy</div>
+            <div class="panel-sub">EIA Today in Energy</div>
+          </div>
+        </div>
+        <div class="list" id="energyList"></div>
+      </section>
+
+      <section class="panel health-panel" data-panel="health" data-category="health">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-health"><svg class="icon" aria-hidden="true"><use href="#icon-health"></use></svg></span>Health</div>
+            <div class="panel-sub">Public health updates</div>
+          </div>
+        </div>
+        <div class="list" id="healthList"></div>
+      </section>
+
+      <section class="panel transport-panel" data-panel="transport" data-category="transport">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-transport"><svg class="icon" aria-hidden="true"><use href="#icon-transport"></use></svg></span>Transport & Logistics</div>
+            <div class="panel-sub">Aviation, maritime, rail</div>
+          </div>
+        </div>
+        <div class="list" id="transportList"></div>
+      </section>
+
+    </main>
+
+    <aside class="settings" id="settingsPanel">
+      <div class="settings-header">
+        <div>
+          <div class="panel-title"><span class="panel-icon tone-policy"><svg class="icon" aria-hidden="true"><use href="#icon-settings"></use></svg></span>Settings</div>
+          <div class="panel-sub">Refresh, theme, location</div>
+        </div>
+        <button class="btn ghost" id="settingsClose">Close</button>
+      </div>
+      <div class="status-compact settings-status" id="statusCompact">
+        <div class="status-compact-head">
+          <div>
+            <div class="status-title">System Status</div>
+            <div class="status-sub">Refresh, geo, feed health</div>
+          </div>
+          <button class="chip" id="statusToggle">Hide</button>
+        </div>
+        <div class="status-items">
+          <div class="status-item">
+            <span>Refresh</span>
+            <strong id="refreshValue">60 min</strong>
+          </div>
+          <div class="status-item">
+            <span>Geo Mode</span>
+            <strong id="geoValue">System</strong>
+          </div>
+          <div class="status-item">
+            <span>Feed Health</span>
+            <strong id="healthValue">Initializing</strong>
+          </div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <label for="refreshRange">Refresh Interval (minutes)</label>
+        <input id="refreshRange" name="refreshRange" type="range" min="1" max="60" step="1" />
+        <div class="settings-value" id="refreshRangeValue">60</div>
+      </div>
+      <div class="settings-section">
+        <label>Theme</label>
+        <div class="segmented" id="themeToggle">
+          <button class="seg" data-theme="dark">Dark</button>
+          <button class="seg" data-theme="light">Light</button>
+          <button class="seg active" data-theme="system">System</button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <label>AI Query Translation</label>
+        <label class="toggle-row">
+          <span>Use AI to translate searches per feed</span>
+          <input type="checkbox" id="aiTranslateToggle" name="aiTranslateToggle" />
+        </label>
+      </div>
+      <div class="settings-section">
+        <label>Content Language</label>
+        <div class="segmented" id="languageToggle">
+          <button class="seg active" data-language="en">English</button>
+          <button class="seg" data-language="translate">Translate</button>
+          <button class="seg" data-language="all">All</button>
+        </div>
+        <div class="settings-note">Translate uses your AI key; English hides non-English items.</div>
+      </div>
+      <div class="settings-section">
+        <label for="maxAgeRange">Max Age (days)</label>
+        <input id="maxAgeRange" name="maxAgeRange" type="range" min="1" max="30" step="1" />
+        <div class="settings-value" id="maxAgeValue">30 days</div>
+      </div>
+      <div class="settings-section">
+        <label for="radiusRange">Local Radius (km)</label>
+        <input id="radiusRange" name="radiusRange" type="range" min="25" max="500" step="25" />
+        <div class="settings-value" id="radiusRangeValue">150</div>
+      </div>
+      <div class="settings-section">
+        <label>Panels</label>
+        <div class="panel-toggles" id="panelToggles"></div>
+        <button class="btn ghost" id="resetLayout">Reset Layout</button>
+      </div>
+      <div class="settings-section">
+        <div class="key-compact" id="keySection">
+          <div class="key-compact-head">
+            <div>
+              <div class="status-title">API Keys</div>
+              <div class="status-sub">Manage shared and per-feed access</div>
+            </div>
+            <button class="chip" id="keyToggle">Hide</button>
+          </div>
+          <div class="key-compact-body" id="keyCompactBody">
+            <div class="key-manager" id="keyManager"></div>
+          </div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <label>Notes</label>
+        <div class="settings-note">
+          Update custom feeds in <code>data/feeds.json</code>. Keys live in the API Keys section.
+        </div>
+      </div>
+      <div class="settings-section">
+        <label>Help</label>
+        <div class="settings-note">Need a quick start or key list?</div>
+        <button class="btn ghost" id="aboutOpenSettings">Open About & Setup Guide</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="modal-overlay" id="aboutOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+      <div class="modal-header">
+        <div>
+          <div class="panel-title" id="aboutTitle">About The Situation Room</div>
+          <div class="panel-sub">Sources, setup, and how to use the dashboard</div>
+        </div>
+        <button class="btn ghost" id="aboutClose">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-grid">
+          <section class="modal-card">
+            <div class="modal-card-title">What this is</div>
+            <p>
+              The Situation Room is a unified situational awareness dashboard that fuses news, hazards, policy, finance, and geo‑tagged signals into a single operational view. It is built for fast scanning, strong signal density, and resilience when individual feeds fail.
+            </p>
+          </section>
+          <section class="modal-card">
+            <div class="modal-card-title">Where the data comes from</div>
+            <p>
+              NOAA/NWS alerts, USGS earthquakes, NASA EONET, CDC travel notices, EIA energy data, BLS & US Treasury releases, CISA KEV, OpenSky aviation, CoinPaprika crypto markets, arXiv research, and curated RSS sources (BBC, Guardian, PBS, Google News, etc.).
+            </p>
+          </section>
+          <section class="modal-card">
+            <div class="modal-card-title">How to use it</div>
+            <p>
+              Start with Global/US/Local scopes. Use the map to explore incidents and the Signal Deck for momentum. Search across categories, or add custom tickers for finance/crypto. Refresh on demand or change the interval in Settings.
+            </p>
+          </section>
+          <section class="modal-card">
+            <div class="modal-card-title">Navigation & controls</div>
+            <p>
+              The top bar is your command line: export a snapshot, force refresh, switch scopes, and tune the time window. Settings houses layout, theme, keys, and help.
+            </p>
+            <div class="modal-nav">
+              <span class="chip">Export Snapshot</span>
+              <span class="chip">Refresh Now</span>
+              <span class="chip">Global</span>
+              <span class="chip">US</span>
+              <span class="chip">Local</span>
+              <span class="chip">24h</span>
+              <span class="chip">7d</span>
+              <span class="chip">30d</span>
+              <span class="chip">Settings</span>
+            </div>
+          </section>
+          <section class="modal-card">
+            <div class="modal-card-title">Keys you may need</div>
+            <p>
+              <strong>OpenAI</strong> (AI analysis + query translation), <strong>EIA</strong> (energy map + series), <strong>data.gov</strong> (FOIA + GovInfo), <strong>OpenAQ</strong> (air quality), <strong>NASA FIRMS</strong> (fire data).
+            </p>
+          </section>
+          <section class="modal-card">
+            <div class="modal-card-title">Resilience</div>
+            <p>
+              Each feed fetches independently with timeouts, caching, and fallback proxies. If a source fails, the rest of the dashboard continues to update. Feed health is surfaced in Settings and the Signal Deck.
+            </p>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
