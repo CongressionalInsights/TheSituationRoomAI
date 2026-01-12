@@ -4,41 +4,43 @@
   --radius-lg: 26px;
   --radius-md: 18px;
   --radius-sm: 12px;
-  --shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
-  --shadow-soft: 0 16px 40px rgba(4, 10, 16, 0.35);
+  --shadow: 0 24px 60px rgba(2, 8, 14, 0.48);
+  --shadow-soft: 0 14px 36px rgba(4, 10, 16, 0.32);
+  --panel-stroke: rgba(255, 255, 255, 0.08);
+  --panel-highlight: rgba(136, 215, 255, 0.12);
   --grid-gap: 22px;
 }
 
 [data-theme="dark"] {
   --bg: #05070b;
   --bg-soft: #0f1622;
-  --panel: rgba(16, 24, 34, 0.96);
-  --panel-glass: rgba(18, 26, 36, 0.94);
-  --border: rgba(170, 194, 220, 0.32);
+  --panel: rgba(14, 22, 32, 0.96);
+  --panel-glass: rgba(18, 27, 38, 0.95);
+  --border: rgba(170, 194, 220, 0.28);
   --text: #f9fbff;
-  --muted: #d0d9e6;
+  --muted: #c6d4e6;
   --accent: #9ef6a4;
   --accent-2: #88d7ff;
   --accent-3: #ffd27a;
   --warn: #ffcf7a;
   --danger: #ff8b8b;
-  --surface-1: rgba(20, 30, 42, 0.96);
-  --surface-2: rgba(16, 24, 34, 0.88);
-  --surface-3: rgba(12, 18, 26, 0.76);
+  --surface-1: rgba(18, 26, 36, 0.96);
+  --surface-2: rgba(16, 24, 34, 0.9);
+  --surface-3: rgba(12, 18, 26, 0.78);
   --surface-4: rgba(10, 16, 22, 0.9);
   --focus-ring: rgba(136, 215, 255, 0.95);
   --focus-glow: rgba(136, 215, 255, 0.32);
-  --grid-line: rgba(128, 170, 195, 0.14);
+  --grid-line: rgba(128, 170, 195, 0.12);
 }
 
 [data-theme="light"] {
   --bg: #f1f4f8;
   --bg-soft: #e7edf3;
   --panel: rgba(255, 255, 255, 0.94);
-  --panel-glass: rgba(255, 255, 255, 0.86);
+  --panel-glass: rgba(255, 255, 255, 0.92);
   --border: rgba(17, 33, 47, 0.2);
   --text: #0b1118;
-  --muted: #374656;
+  --muted: #2e3d4f;
   --accent: #0a8f67;
   --accent-2: #0a6fb4;
   --accent-3: #e79618;
@@ -46,8 +48,8 @@
   --danger: #c24646;
   --surface-1: rgba(255, 255, 255, 0.98);
   --surface-2: rgba(246, 250, 255, 0.96);
-  --surface-3: rgba(235, 242, 249, 0.94);
-  --surface-4: rgba(228, 237, 246, 0.92);
+  --surface-3: rgba(235, 242, 249, 0.96);
+  --surface-4: rgba(228, 237, 246, 0.96);
   --focus-ring: rgba(12, 111, 180, 0.9);
   --focus-glow: rgba(12, 111, 180, 0.2);
   --grid-line: rgba(16, 34, 50, 0.1);
@@ -137,7 +139,11 @@ body::before {
   gap: 20px;
   padding: 12px 16px;
   border-radius: var(--radius-lg);
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
+  background: linear-gradient(120deg, rgba(136, 215, 255, 0.08), transparent 45%),
+    var(--panel-glass);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(14px);
 }
 
 .brand {
@@ -250,13 +256,14 @@ body::before {
   font-weight: 600;
   font-size: 13px;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 12px 24px rgba(5, 10, 16, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  box-shadow: 0 14px 26px rgba(5, 10, 16, 0.38);
 }
 
 .btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 18px 28px rgba(5, 10, 16, 0.5);
+  box-shadow: 0 20px 32px rgba(5, 10, 16, 0.55);
+  filter: brightness(1.05);
 }
 
 .btn.ghost {
@@ -365,11 +372,12 @@ a:focus-visible {
   flex: 1;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-soft);
+  border: 1px solid rgba(138, 176, 210, 0.3);
+  background: var(--surface-3);
   color: var(--text);
   font-family: var(--font-body);
   font-size: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .select {
@@ -378,8 +386,8 @@ a:focus-visible {
 }
 
 .analysis-chat {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 60%), var(--surface-2);
+  border: 1px solid rgba(138, 176, 210, 0.3);
   border-radius: var(--radius-md);
   padding: 14px;
   display: flex;
@@ -453,7 +461,7 @@ a:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 0 14px;
-  background: var(--surface-3);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 70%), var(--surface-3);
   max-height: 0;
   opacity: 0;
   overflow: hidden;
@@ -565,8 +573,8 @@ a:focus-visible {
   justify-content: space-between;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-3);
+  border: 1px solid rgba(138, 176, 210, 0.25);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 70%), var(--surface-3);
   font-size: 12px;
 }
 
@@ -586,8 +594,8 @@ a:focus-visible {
 }
 
 .panel {
-  background: var(--panel-glass);
-  border: 1px solid var(--border);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.04), transparent 55%), var(--panel-glass);
+  border: 1px solid var(--panel-stroke);
   border-radius: var(--radius-lg);
   padding: 18px 20px;
   box-shadow: var(--shadow);
@@ -598,6 +606,17 @@ a:focus-visible {
   position: relative;
   overflow: hidden;
   animation: rise 0.6s ease both;
+}
+
+.panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  border-top-color: var(--panel-highlight);
+  pointer-events: none;
+  opacity: 0.7;
 }
 
 .panel-resize-handle {
@@ -663,14 +682,15 @@ a:focus-visible {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(122, 215, 255, 0.06), transparent 55%);
+  background: radial-gradient(circle at top left, rgba(122, 215, 255, 0.14), transparent 55%),
+    radial-gradient(circle at bottom right, rgba(255, 209, 106, 0.08), transparent 45%);
   pointer-events: none;
-  opacity: 0;
+  opacity: 0.2;
   transition: opacity 0.25s ease;
 }
 
 .panel:hover::before {
-  opacity: 1;
+  opacity: 0.55;
 }
 
 .panel:nth-child(2) { animation-delay: 0.05s; }
@@ -695,6 +715,8 @@ a:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(136, 176, 210, 0.15);
 }
 
 .panel-title {
@@ -951,7 +973,7 @@ a:focus-visible {
 }
 
 .chip {
-  background: transparent;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 6px 12px;
@@ -959,7 +981,8 @@ a:focus-visible {
   cursor: pointer;
   text-decoration: none;
   font-size: 11px;
-  transition: border 0.2s ease, color 0.2s ease;
+  transition: border 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 8px 16px rgba(6, 12, 18, 0.12);
 }
 
 .chip.loading {
@@ -988,6 +1011,8 @@ a:focus-visible {
 .chip:hover {
   border-color: rgba(156, 255, 138, 0.6);
   color: var(--text);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 18px rgba(6, 12, 18, 0.18);
 }
 
 .chip-status {
@@ -1966,17 +1991,18 @@ a:focus-visible {
 .list-item {
   border-radius: var(--radius-md);
   padding: 14px 16px;
-  border: 1px solid var(--border);
-  background: rgba(16, 24, 34, 0.82);
+  border: 1px solid rgba(138, 176, 210, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 70%), var(--surface-2);
   display: flex;
   flex-direction: column;
   gap: 6px;
-  transition: transform 0.2s ease, border 0.2s ease;
+  transition: transform 0.2s ease, border 0.2s ease, box-shadow 0.2s ease;
 }
 
 .list-item:hover {
   transform: translateY(-2px);
-  border-color: rgba(122, 215, 255, 0.4);
+  border-color: rgba(122, 215, 255, 0.55);
+  box-shadow: 0 12px 24px rgba(5, 10, 16, 0.2);
 }
 
 .list-title {
@@ -2681,8 +2707,8 @@ a.list-title:hover {
 .modal {
   width: min(980px, 92vw);
   max-height: 86vh;
-  background: #111822;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 60%), #111822;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--radius-lg);
   box-shadow: 0 30px 80px rgba(3, 8, 14, 0.55);
   display: flex;
@@ -2720,8 +2746,8 @@ a.list-title:hover {
 }
 
 .modal-card {
-  background: rgba(19, 28, 40, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 65%), rgba(19, 28, 40, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: var(--radius-md);
   padding: 16px;
   box-shadow: var(--shadow-soft);
