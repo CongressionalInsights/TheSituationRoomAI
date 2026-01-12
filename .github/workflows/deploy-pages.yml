@@ -11,6 +11,9 @@ on:
       - README.md
       - public/config.js
 
+permissions:
+  contents: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
