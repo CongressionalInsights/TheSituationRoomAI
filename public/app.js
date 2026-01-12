@@ -128,6 +128,7 @@ const elements = {
   cryptoList: document.getElementById('cryptoList'),
   disasterList: document.getElementById('disasterList'),
   localList: document.getElementById('localList'),
+  predictionList: document.getElementById('predictionList'),
   policyList: document.getElementById('policyList'),
   cyberList: document.getElementById('cyberList'),
   agricultureList: document.getElementById('agricultureList'),
@@ -222,6 +223,7 @@ const defaultPanelSizes = {
   hazards: { cols: 4 },
   local: { cols: 8 },
   community: { cols: 6 },
+  prediction: { cols: 4 },
   policy: { cols: 4 },
   cyber: { cols: 4 },
   agriculture: { cols: 4 },
@@ -257,6 +259,7 @@ const categoryLabels = {
   finance: 'Finance',
   gov: 'Government',
   crypto: 'Crypto / Web3',
+  prediction: 'Prediction Markets',
   disaster: 'Disasters',
   weather: 'Weather',
   space: 'Space',
@@ -271,13 +274,14 @@ const categoryLabels = {
   infrastructure: 'Infrastructure',
   local: 'Local'
 };
-const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
+const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'prediction', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
 const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health']);
 const listDefaults = {
   newsList: 30,
   financeMarketsList: 20,
   financePolicyList: 20,
   cryptoList: 20,
+  predictionList: 20,
   disasterList: 20,
   localList: 20,
   policyList: 20,
@@ -2095,6 +2099,58 @@ const parseEiaSeries = (data, feed) => {
   return [];
 };
 
+const parsePolymarketMarkets = (data, feed) => {
+  const markets = Array.isArray(data) ? data : (data?.markets || data?.data || []);
+  if (!Array.isArray(markets) || !markets.length) return [];
+  const toNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+  const parseArray = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  const sorted = [...markets].sort((a, b) => {
+    const aVol = toNumber(a.volume24hr ?? a.volume) || 0;
+    const bVol = toNumber(b.volume24hr ?? b.volume) || 0;
+    return bVol - aVol;
+  });
+  return sorted.slice(0, 60).map((market) => {
+    const outcomes = parseArray(market.outcomes);
+    const prices = parseArray(market.outcomePrices);
+    const yesIndex = outcomes.findIndex((entry) => String(entry).toLowerCase() === 'yes');
+    const pickedIndex = yesIndex >= 0 ? yesIndex : 0;
+    const price = prices[pickedIndex] !== undefined ? Number(prices[pickedIndex]) : null;
+    const probability = Number.isFinite(price) ? Math.round(price * 100) : null;
+    const outcomeLabel = outcomes[pickedIndex] || 'Yes';
+    const volume24 = toNumber(market.volume24hr) || toNumber(market.volume24hrClob) || toNumber(market.volume) || 0;
+    const liquidity = toNumber(market.liquidity) || toNumber(market.liquidityClob) || 0;
+    const metaParts = [];
+    if (probability !== null) metaParts.push(`${outcomeLabel}: ${probability}%`);
+    if (volume24) metaParts.push(`24h Vol ${formatCompactCurrency(volume24)}`);
+    if (liquidity) metaParts.push(`Liq ${formatCompactCurrency(liquidity)}`);
+    const end = market.endDate || market.endDateIso;
+    if (end) metaParts.push(`Ends ${new Date(end).toLocaleDateString('en-US')}`);
+    const updated = market.updatedAt || market.createdAt || market.startDate || market.endDate;
+    return {
+      title: market.question || market.title || 'Polymarket Market',
+      url: market.slug ? `https://polymarket.com/market/${market.slug}` : 'https://polymarket.com/',
+      summary: metaParts.join(' • '),
+      publishedAt: updated ? Date.parse(updated) : Date.now(),
+      source: 'Polymarket',
+      category: feed.category,
+      value: probability !== null ? probability : null,
+      alertType: 'Prediction'
+    };
+  });
+};
+
 const parseStooqCsv = (text, feed) => {
   if (!text) return [];
   const lines = text.trim().split(/\r?\n/);
@@ -2204,6 +2260,7 @@ const feedParsers = {
   'energy-eia': parseEiaSeries,
   'energy-eia-brent': parseEiaSeries,
   'energy-eia-ng': parseEiaSeries,
+  'polymarket-markets': parsePolymarketMarkets,
   'stooq-quote': parseStooqCsv,
   'transport-opensky': (data, feed) => {
     const states = Array.isArray(data?.states) ? data.states : [];
@@ -3362,6 +3419,8 @@ function getPanelTimestamp(panelId) {
       return latestFromCategories(['finance', 'energy', 'gov', 'cyber', 'agriculture']);
     case 'crypto':
       return latestFromCategories(['crypto']);
+    case 'prediction':
+      return latestFromCategories(['prediction']);
     case 'hazards':
       return latestFromCategories(['disaster', 'weather', 'space']);
     case 'local':
@@ -4725,6 +4784,7 @@ function renderAllPanels() {
   renderCombined(['finance', 'energy'], elements.financeMarketsList);
   renderCombined(['gov', 'cyber', 'agriculture'], elements.financePolicyList);
   renderCategory('crypto', elements.cryptoList);
+  renderCategory('prediction', elements.predictionList);
   renderCombined(['disaster', 'weather', 'space'], elements.disasterList);
   renderCategory('gov', elements.policyList);
   renderCategory('cyber', elements.cyberList);
@@ -4747,6 +4807,7 @@ function initInfiniteScroll() {
     { id: 'financeMarketsList', getItems: () => getCombinedItems(['finance', 'energy']) },
     { id: 'financePolicyList', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
     { id: 'cryptoList', getItems: () => getCategoryItems('crypto').items },
+    { id: 'predictionList', getItems: () => getCategoryItems('prediction').items },
     { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
     { id: 'localList', getItems: () => getLocalItemsForPanel() },
     { id: 'policyList', getItems: () => getCategoryItems('gov').items },

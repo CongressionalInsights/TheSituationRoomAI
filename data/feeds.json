@@ -336,6 +336,15 @@
       "tags": ["us", "energy"]
     },
     {
+      "id": "polymarket-markets",
+      "name": "Polymarket Markets (Gamma)",
+      "category": "prediction",
+      "format": "json",
+      "url": "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=60&order=volume24hr",
+      "ttlMinutes": 10,
+      "tags": ["prediction", "markets", "web3"]
+    },
+    {
       "id": "transport-opensky",
       "name": "OpenSky Air Traffic",
       "category": "transport",

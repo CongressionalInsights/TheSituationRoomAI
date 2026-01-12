@@ -939,6 +939,7 @@ a:focus-visible {
 .panel-icon.tone-analysis { background: rgba(255, 209, 106, 0.9); }
 .panel-icon.tone-news { background: rgba(255, 184, 76, 0.9); }
 .panel-icon.tone-crypto { background: rgba(142, 110, 255, 0.9); }
+.panel-icon.tone-prediction { background: rgba(90, 230, 210, 0.9); }
 .panel-icon.tone-policy { background: rgba(255, 140, 140, 0.85); }
 .panel-icon.tone-space { background: rgba(140, 107, 255, 0.85); }
 .panel-icon.tone-health { background: rgba(255, 155, 88, 0.85); }
