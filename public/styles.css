@@ -1852,6 +1852,8 @@ a:focus-visible {
 .dot-travel { background: #ffc457; }
 .dot-transport { background: #5ee8a0; }
 .dot-health { background: #6dd1ff; }
+.dot-security { background: #ff9063; }
+.dot-infra { background: #84beff; }
 
 .map-tooltip {
   position: absolute;

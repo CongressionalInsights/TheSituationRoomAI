@@ -48,6 +48,8 @@ const state = {
       health: true,
       travel: true,
       transport: true,
+      security: true,
+      infrastructure: true,
       local: true
     }
   },
@@ -262,9 +264,11 @@ const categoryLabels = {
   health: 'Health',
   travel: 'Travel',
   transport: 'Transport',
+  security: 'Security',
+  infrastructure: 'Infrastructure',
   local: 'Local'
 };
-const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'local'];
+const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
 const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health']);
 const severityLabels = [
   { min: 8, label: 'Great' },
@@ -1807,6 +1811,9 @@ function parseJson(text, feed) {
       return parseGenericCsv(text, feed);
     }
     const data = JSON.parse(text);
+    if (feed.format === 'arcgis') {
+      return parseArcGisGeoJson(data, feed);
+    }
     if (feedParsers[feed.id]) return feedParsers[feed.id](data, feed);
     if (feed.isCustom) return parseGenericJsonFeed(data, feed);
     return [];
@@ -1851,6 +1858,93 @@ function parseGenericJsonFeed(data, feed) {
       geo
     };
   });
+}
+
+function parseArcGisGeoJson(data, feed) {
+  const features = Array.isArray(data?.features) ? data.features : [];
+  const pickFirst = (obj, keys = []) => {
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null && String(obj[key]).trim() !== '') {
+        return obj[key];
+      }
+    }
+    return null;
+  };
+  const toDate = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') {
+      if (value > 1e12) return value;
+      if (value > 1e9) return value * 1000;
+    }
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+  const inferDate = (props) => {
+    const candidates = [
+      'reported_date', 'report_date', 'reportdate', 'incident_date', 'event_date', 'date', 'datetime',
+      'timestamp', 'time', 'created_date', 'created', 'updated_date', 'updated', 'last_updated', 'last_update',
+      'edit_date', 'start_date', 'end_date'
+    ];
+    const direct = pickFirst(props, candidates);
+    if (direct) return toDate(direct);
+    for (const key of Object.keys(props || {})) {
+      const lower = key.toLowerCase();
+      if (lower.includes('date') || lower.includes('time') || lower.includes('updated')) {
+        const value = toDate(props[key]);
+        if (value) return value;
+      }
+    }
+    return null;
+  };
+  const inferTitle = (props) => pickFirst(props, [
+    'title', 'name', 'incident', 'event', 'type', 'category', 'hazard', 'summary', 'description'
+  ]) || feed.name;
+  const inferSummary = (props) => pickFirst(props, [
+    'summary', 'description', 'details', 'notes', 'comments', 'status', 'headline'
+  ]) || '';
+  const inferAlertType = (props) => pickFirst(props, [
+    'alert_type', 'event', 'type', 'category', 'hazard', 'incident_type'
+  ]);
+  const inferSeverity = (props) => pickFirst(props, [
+    'severity', 'sig', 'significance', 'priority', 'status'
+  ]);
+  const inferLocation = (props) => pickFirst(props, [
+    'location', 'loc_desc', 'area_desc', 'place', 'city', 'county', 'state', 'country', 'region'
+  ]);
+
+  return features.slice(0, 250).map((feature) => {
+    const props = feature?.properties || feature?.attributes || {};
+    const title = inferTitle(props);
+    const summary = inferSummary(props);
+    const publishedAt = inferDate(props) || Date.now();
+    const alertType = inferAlertType(props);
+    const severity = inferSeverity(props);
+    const location = inferLocation(props);
+    let geo = geometryToPoint(feature.geometry);
+    if (!geo) {
+      const lat = pickFirst(props, ['latitude', 'lat', 'y']);
+      const lon = pickFirst(props, ['longitude', 'lon', 'x']);
+      if (lat !== null && lon !== null) {
+        const nlat = Number(lat);
+        const nlon = Number(lon);
+        if (!Number.isNaN(nlat) && !Number.isNaN(nlon)) {
+          geo = { lat: nlat, lon: nlon };
+        }
+      }
+    }
+    return {
+      title,
+      url: props.url || props.link || '',
+      summary,
+      publishedAt,
+      source: feed.name,
+      category: feed.category,
+      geo,
+      alertType,
+      severity,
+      location
+    };
+  }).filter((item) => item.geo);
 }
 
 function parseGenericCsv(text, feed) {
@@ -2205,6 +2299,23 @@ function geometryToPoint(geometry) {
   if (!geometry || !geometry.coordinates) return null;
   if (geometry.type === 'Point') {
     return { lat: geometry.coordinates[1], lon: geometry.coordinates[0] };
+  }
+  if (geometry.type === 'MultiPoint') {
+    const coords = geometry.coordinates;
+    if (!coords?.length) return null;
+    return { lat: coords[0][1], lon: coords[0][0] };
+  }
+  if (geometry.type === 'LineString') {
+    const coords = geometry.coordinates;
+    if (!coords?.length) return null;
+    const mid = coords[Math.floor(coords.length / 2)];
+    return { lat: mid[1], lon: mid[0] };
+  }
+  if (geometry.type === 'MultiLineString') {
+    const coords = geometry.coordinates?.[0];
+    if (!coords?.length) return null;
+    const mid = coords[Math.floor(coords.length / 2)];
+    return { lat: mid[1], lon: mid[0] };
   }
   const coords = geometry.type === 'Polygon'
     ? geometry.coordinates[0]
@@ -4331,6 +4442,8 @@ function getLayerForItem(item) {
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.category === 'travel') return 'travel';
   if (item.category === 'transport') return 'transport';
+  if (item.category === 'security') return 'security';
+  if (item.category === 'infrastructure') return 'infrastructure';
   if (item.category === 'weather') return 'weather';
   if (item.category === 'disaster') return 'disaster';
   if (item.category === 'space') return 'space';
@@ -4344,6 +4457,8 @@ function getLayerColor(layer) {
   if (layer === 'space') return 'rgba(140,107,255,0.9)';
   if (layer === 'travel') return 'rgba(255,196,87,0.95)';
   if (layer === 'transport') return 'rgba(94,232,160,0.9)';
+  if (layer === 'security') return 'rgba(255,144,99,0.92)';
+  if (layer === 'infrastructure') return 'rgba(132,190,255,0.9)';
   if (layer === 'health') return 'rgba(109,209,255,0.9)';
   return 'rgba(255,184,76,0.9)';
 }
@@ -4359,6 +4474,8 @@ function getSignalType(item) {
   if (item.category === 'space') return 'space';
   if (item.category === 'health') return 'health';
   if (item.category === 'transport') return 'transport';
+  if (item.category === 'security') return 'security';
+  if (item.category === 'infrastructure') return 'infrastructure';
   return 'news';
 }
 
@@ -4371,6 +4488,8 @@ function getSignalIcon(type) {
   if (type === 'weather') return 'W';
   if (type === 'disaster') return 'D';
   if (type === 'space') return 'S';
+  if (type === 'security') return 'C';
+  if (type === 'infrastructure') return 'I';
   return 'N';
 }
 

@@ -364,6 +364,96 @@
       "tags": ["global", "travel", "geo"]
     },
     {
+      "id": "arcgis-border-crisis",
+      "name": "Border Crisis Incident Tracker (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Border_Crisis_Incident_Tracker/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "security", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-kinetic-oconus",
+      "name": "Kinetic Events (OCONUS) (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/KineticActivitiesTrackerOCONUS/FeatureServer/21/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["global", "security", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-kinetic-domestic",
+      "name": "Kinetic Events (Domestic) (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Domestic_Terrorism_Tracker/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "security", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-drone-reports",
+      "name": "Drone Reports (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Drone_Reports/FeatureServer/23/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["global", "security", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-logistics-shortages",
+      "name": "Logistical Shortages (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Logistical_Shortages_and_Concerns/FeatureServer/25/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["global", "security", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-noaa-severe",
+      "name": "NOAA Severe Thunderstorm Warnings (ArcGIS)",
+      "category": "weather",
+      "format": "arcgis",
+      "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/NOAA_short_term_warnings_v1/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 15,
+      "tags": ["us", "weather", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-noaa-tornado",
+      "name": "NOAA Tornado Warnings (ArcGIS)",
+      "category": "weather",
+      "format": "arcgis",
+      "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/NOAA_short_term_warnings_v1/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 15,
+      "tags": ["us", "weather", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-noaa-flood",
+      "name": "NOAA Flash Flood Warnings (ArcGIS)",
+      "category": "weather",
+      "format": "arcgis",
+      "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/NOAA_short_term_warnings_v1/FeatureServer/2/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 15,
+      "tags": ["us", "weather", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-hms-fire",
+      "name": "NOAA HMS Fire Detections (ArcGIS)",
+      "category": "disaster",
+      "format": "arcgis",
+      "url": "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/NOAA_Satellite_Fire_Detections_(v1)/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 30,
+      "tags": ["global", "disaster", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-power-plants",
+      "name": "US Power Plants (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Power_Plants_in_the_US/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 1440,
+      "tags": ["us", "infrastructure", "geo", "arcgis"]
+    },
+    {
       "id": "govinfo-rss",
       "name": "GovInfo RSS (custom feed URL)",
       "category": "gov",
