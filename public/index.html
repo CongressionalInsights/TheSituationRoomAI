@@ -593,7 +593,23 @@
           <label>Custom Feeds</label>
           <button class="chip" id="customFeedToggle">Add Feed</button>
         </div>
+        <div class="custom-feed-tools">
+          <button class="btn ghost" id="customFeedExport" type="button">Export JSON</button>
+          <button class="btn ghost" id="customFeedImportToggle" type="button">Import JSON</button>
+        </div>
         <div class="custom-feed-list" id="customFeedList"></div>
+        <div class="custom-feed-json hidden" id="customFeedJsonPanel" aria-hidden="true">
+          <div class="form-row">
+            <label for="customFeedJson">Feed JSON</label>
+            <textarea id="customFeedJson" name="customFeedJson" rows="6" placeholder='[ { "name": "My Feed", "url": "https://example.com/rss", "category": "news", "format": "rss" } ]'></textarea>
+          </div>
+          <div class="custom-feed-buttons">
+            <button class="btn ghost" id="customFeedJsonCopy" type="button">Copy</button>
+            <button class="btn ghost" id="customFeedJsonApply" type="button">Apply</button>
+          </div>
+          <div class="custom-feed-status" id="customFeedJsonStatus">Paste JSON to import feeds, or export to share.</div>
+          <div class="settings-note">Export copies a snippet you can paste into <code>data/feeds.json</code>. Import accepts an array of feeds or a <code>{"feeds": [...]}</code> object.</div>
+        </div>
         <div class="custom-feed-form hidden" id="customFeedForm" aria-hidden="true">
           <div class="form-row">
             <label for="customFeedName">Name</label>

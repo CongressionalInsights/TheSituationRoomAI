@@ -2147,6 +2147,41 @@ a.list-title:hover {
   gap: 10px;
 }
 
+.custom-feed-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.custom-feed-json {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-feed-json.hidden {
+  display: none;
+}
+
+.custom-feed-json textarea {
+  min-height: 140px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(6, 10, 16, 0.08);
+  color: var(--text);
+  font-size: 12px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+[data-theme="dark"] .custom-feed-json textarea {
+  background: rgba(6, 10, 16, 0.5);
+}
+
 .custom-feed-row {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

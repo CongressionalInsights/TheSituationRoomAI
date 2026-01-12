@@ -176,6 +176,13 @@ const elements = {
   financeTabs: document.getElementById('financeTabs')
   ,
   customFeedToggle: document.getElementById('customFeedToggle'),
+  customFeedExport: document.getElementById('customFeedExport'),
+  customFeedImportToggle: document.getElementById('customFeedImportToggle'),
+  customFeedJsonPanel: document.getElementById('customFeedJsonPanel'),
+  customFeedJson: document.getElementById('customFeedJson'),
+  customFeedJsonCopy: document.getElementById('customFeedJsonCopy'),
+  customFeedJsonApply: document.getElementById('customFeedJsonApply'),
+  customFeedJsonStatus: document.getElementById('customFeedJsonStatus'),
   customFeedList: document.getElementById('customFeedList'),
   customFeedForm: document.getElementById('customFeedForm'),
   customFeedName: document.getElementById('customFeedName'),
@@ -938,6 +945,109 @@ function toggleCustomFeedForm(open) {
   if (!open) {
     editingCustomFeedId = null;
   }
+}
+
+function toggleCustomFeedJsonPanel(open) {
+  if (!elements.customFeedJsonPanel) return;
+  elements.customFeedJsonPanel.classList.toggle('hidden', !open);
+  elements.customFeedJsonPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+}
+
+function sanitizeCustomFeedObject(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const name = String(raw.name || '').trim();
+  const url = String(raw.url || '').trim();
+  if (!name || !url || !/^https?:\/\//i.test(url)) return null;
+  const category = raw.category || 'news';
+  const format = raw.format || 'rss';
+  const proxy = raw.proxy || '';
+  const tags = Array.isArray(raw.tags) ? raw.tags.filter(Boolean) : [];
+  const supportsQuery = Boolean(raw.supportsQuery);
+  const defaultQuery = supportsQuery ? String(raw.defaultQuery || '') : '';
+  const requiresKey = Boolean(raw.requiresKey);
+  const keyParam = requiresKey ? String(raw.keyParam || 'api_key') : undefined;
+  const keyHeader = requiresKey ? String(raw.keyHeader || '') : undefined;
+  const ttlMinutes = Number.isFinite(Number(raw.ttlMinutes)) ? Number(raw.ttlMinutes) : 60;
+  const id = raw.id || hashString(`${name}:${url}`);
+  return {
+    id,
+    name,
+    url,
+    category,
+    format,
+    proxy: proxy || undefined,
+    tags,
+    supportsQuery,
+    defaultQuery,
+    requiresKey,
+    keyParam,
+    keyHeader,
+    ttlMinutes,
+    isCustom: true,
+    keySource: 'client'
+  };
+}
+
+function exportCustomFeedsJson() {
+  if (!elements.customFeedJson) return;
+  const payload = state.customFeeds.map((feed) => ({
+    id: feed.id,
+    name: feed.name,
+    url: feed.url,
+    category: feed.category,
+    format: feed.format,
+    proxy: feed.proxy,
+    tags: feed.tags,
+    supportsQuery: feed.supportsQuery,
+    defaultQuery: feed.defaultQuery,
+    requiresKey: feed.requiresKey,
+    keyParam: feed.keyParam,
+    keyHeader: feed.keyHeader,
+    ttlMinutes: feed.ttlMinutes
+  }));
+  elements.customFeedJson.value = JSON.stringify(payload, null, 2);
+  toggleCustomFeedJsonPanel(true);
+  if (elements.customFeedJsonStatus) {
+    elements.customFeedJsonStatus.textContent = payload.length ? 'Exported feeds to JSON.' : 'No custom feeds to export.';
+  }
+}
+
+function applyCustomFeedsJson() {
+  if (!elements.customFeedJson) return;
+  const raw = elements.customFeedJson.value.trim();
+  if (!raw) {
+    if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = 'Paste JSON to import feeds.';
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = 'Invalid JSON. Please check the format.';
+    return;
+  }
+  const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed.feeds) ? parsed.feeds : [];
+  if (!list.length) {
+    if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = 'No feeds found in the JSON payload.';
+    return;
+  }
+  const sanitized = list.map(sanitizeCustomFeedObject).filter(Boolean);
+  if (!sanitized.length) {
+    if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = 'No valid feeds found. Check name and URL fields.';
+    return;
+  }
+  const byId = new Map(state.customFeeds.map((feed) => [feed.id, feed]));
+  sanitized.forEach((feed) => {
+    byId.set(feed.id, feed);
+  });
+  state.customFeeds = Array.from(byId.values());
+  saveCustomFeeds();
+  state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
+  buildCustomFeedList();
+  buildFeedOptions();
+  buildKeyManager();
+  refreshAll(true);
+  if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = `Imported ${sanitized.length} feed${sanitized.length === 1 ? '' : 's'}.`;
 }
 
 function resetCustomFeedForm(feed) {
@@ -5083,6 +5193,33 @@ function initEvents() {
         resetCustomFeedForm();
       }
       toggleCustomFeedForm(isHidden);
+    });
+  }
+  if (elements.customFeedExport) {
+    elements.customFeedExport.addEventListener('click', () => {
+      exportCustomFeedsJson();
+    });
+  }
+  if (elements.customFeedImportToggle) {
+    elements.customFeedImportToggle.addEventListener('click', () => {
+      const isHidden = elements.customFeedJsonPanel?.classList.contains('hidden');
+      toggleCustomFeedJsonPanel(isHidden);
+    });
+  }
+  if (elements.customFeedJsonCopy) {
+    elements.customFeedJsonCopy.addEventListener('click', async () => {
+      if (!elements.customFeedJson) return;
+      try {
+        await navigator.clipboard.writeText(elements.customFeedJson.value || '');
+        if (elements.customFeedStatus) elements.customFeedStatus.textContent = 'Copied feed JSON to clipboard.';
+      } catch (error) {
+        if (elements.customFeedStatus) elements.customFeedStatus.textContent = 'Copy failed. Select and copy manually.';
+      }
+    });
+  }
+  if (elements.customFeedJsonApply) {
+    elements.customFeedJsonApply.addEventListener('click', () => {
+      applyCustomFeedsJson();
     });
   }
   if (elements.customFeedCancel) {
