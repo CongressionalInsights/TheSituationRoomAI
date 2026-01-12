@@ -60,6 +60,7 @@ Static mode limits:
 - AI chat requires a server proxy. Without it, the briefing panel falls back to the cached `analysis.json` when available.
 - You can enable **Live Search** to query GDELT + Google News directly on static hosting.
 - If **Super Monitor Mode** is enabled, the browser will attempt live fetches for keyless feeds and merge them with cached data.
+- If FOIA.gov is temporarily unavailable, the cache builder will fall back to the last published FOIA snapshot on GitHub Pages.
 
 ### Configure static mode (default)
 `public/config.js` sets `staticMode = true` when served from `*.github.io`. No extra configuration is required for GitHub Pages.

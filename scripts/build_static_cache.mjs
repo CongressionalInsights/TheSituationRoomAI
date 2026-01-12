@@ -6,6 +6,11 @@ const FEEDS_PATH = join(ROOT, 'data', 'feeds.json');
 const OUT_DIR = join(ROOT, 'public', 'data');
 const FEED_DIR = join(OUT_DIR, 'feeds');
 const TIMEOUT_MS = 12000;
+const DEFAULT_LIVE_BASE = 'https://congressionalinsights.github.io/TheSituationRoomAI';
+const LIVE_BASE = process.env.SR_LIVE_BASE
+  || (process.env.GITHUB_REPOSITORY
+    ? `https://${process.env.GITHUB_REPOSITORY.split('/')[0].toLowerCase()}.github.io/${process.env.GITHUB_REPOSITORY.split('/')[1]}`
+    : DEFAULT_LIVE_BASE);
 
 const feedsConfig = JSON.parse(await readFile(FEEDS_PATH, 'utf8'));
 const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
@@ -204,6 +209,20 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOU
   throw new Error('fetch_failed');
 }
 
+async function fetchLiveFallback(feedId) {
+  if (!feedId) return null;
+  const url = `${LIVE_BASE}/data/feeds/${feedId}.json?ts=${Date.now()}`;
+  try {
+    const response = await fetchWithTimeout(url, {}, 10000);
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (!payload || payload.error) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 async function writeJson(path, payload) {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(payload, null, 2));
@@ -248,6 +267,12 @@ async function buildFeedPayload(feed) {
   if (!response.ok) {
     payload.error = `http_${response.status}`;
     payload.message = `HTTP ${response.status}`;
+  }
+  if (payload.error && feed.id === 'foia-api') {
+    const fallback = await fetchLiveFallback(feed.id);
+    if (fallback) {
+      return { ...fallback, fallback: true };
+    }
   }
   return payload;
 }

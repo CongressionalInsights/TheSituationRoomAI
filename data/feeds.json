@@ -475,6 +475,7 @@
       "keyGroup": "api.data.gov",
       "keyHeader": "X-API-Key",
       "lockKeyHeader": true,
+      "timeoutMs": 20000,
       "url": "https://api.foia.gov/api/agency_components",
       "ttlMinutes": 1440,
       "tags": ["us", "gov", "key"]
