@@ -414,7 +414,7 @@
       "keySource": "server",
       "keyHeader": "X-API-Key",
       "lockKeyHeader": true,
-      "url": "https://api.openaq.org/v2/locations?limit=20",
+      "url": "https://api.openaq.org/v3/locations?limit=20",
       "ttlMinutes": 60,
       "tags": ["global", "health", "key"]
     },

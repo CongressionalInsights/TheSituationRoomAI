@@ -1614,6 +1614,34 @@ const feedParsers = {
     source: 'Blockstream',
     category: feed.category
   }]),
+  'openaq-api': (data, feed) => {
+    const rows = Array.isArray(data?.results) ? data.results : [];
+    if (!rows.length) return [];
+    return rows.slice(0, 12).map((row) => {
+      const coords = row.coordinates || {};
+      const lat = Number(coords.latitude ?? coords.lat);
+      const lon = Number(coords.longitude ?? coords.lon);
+      const hasGeo = Number.isFinite(lat) && Number.isFinite(lon);
+      const locality = row.locality || row.city || row.name;
+      const country = row.country?.name || row.country?.code || row.country;
+      const provider = row.provider?.name || row.provider || 'OpenAQ';
+      const parameters = Array.isArray(row.parameters) ? row.parameters.map((p) => p.name || p.parameter).filter(Boolean) : [];
+      const summaryParts = [];
+      if (country) summaryParts.push(country);
+      if (parameters.length) summaryParts.push(`Sensors: ${parameters.slice(0, 4).join(', ')}`);
+      return {
+        title: locality ? `${locality}` : 'Air Quality Station',
+        url: row.id ? `https://api.openaq.org/v3/locations/${row.id}` : 'https://openaq.org/',
+        summary: summaryParts.length ? summaryParts.join(' | ') : 'Air quality station update.',
+        publishedAt: row.updatedAt ? Date.parse(row.updatedAt) : Date.now(),
+        source: provider,
+        category: feed.category,
+        alertType: 'Air Quality',
+        regionTag: country,
+        geo: hasGeo ? { lat, lon } : null
+      };
+    });
+  },
   'treasury-debt': (data, feed) => (data.data || []).map((row) => ({
     title: `Debt to the Penny (${row.record_date})`,
     url: 'https://fiscaldata.treasury.gov/',
