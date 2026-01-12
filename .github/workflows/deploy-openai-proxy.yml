@@ -41,7 +41,10 @@ jobs:
           echo -n "$OPEN_AI" | gcloud secrets versions add openai-api-key --data-file=-
       - name: Update OpenAI proxy service
         run: |
+          cat > /tmp/sr-openai-env.yaml <<EOF
+          ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
+          EOF
           gcloud run services update "$SERVICE_NAME" \
             --region "$REGION" \
             --set-secrets OPENAI_API_KEY=openai-api-key:latest \
-            --update-env-vars ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
+            --env-vars-file /tmp/sr-openai-env.yaml
