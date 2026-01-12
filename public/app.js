@@ -26,6 +26,7 @@ const state = {
   translationInFlight: new Set(),
   staticAnalysis: null,
   customTickers: [],
+  energyMarket: {},
   listLimits: {},
   settings: {
     refreshMinutes: 60,
@@ -2546,9 +2547,32 @@ function formatTickerValue(ticker) {
   return ticker.isIndex ? formatCompactNumber(ticker.value) : formatCompactCurrency(ticker.value);
 }
 
+function extractStooqAsOf(summary = '') {
+  if (!summary) return '';
+  const parts = summary.split('|');
+  if (parts.length < 2) return '';
+  return parts[1].trim();
+}
+
 function buildCustomTickerItems() {
-  if (!state.customTickers.length) return [];
-  return state.customTickers.map((ticker) => {
+  const watchlist = state.settings.tickerWatchlist || [];
+  if (!watchlist.length && !state.customTickers.length) return [];
+  const resolved = new Map();
+  state.customTickers.forEach((ticker) => {
+    const key = getTickerKey({ type: ticker.type, lookup: ticker.lookup || ticker.symbol || ticker.label || '' });
+    resolved.set(key, ticker);
+  });
+  return watchlist.map((entry) => {
+    const key = getTickerKey(entry);
+    const ticker = resolved.get(key);
+    if (!ticker) {
+      return {
+        text: `${entry.label || entry.symbol}: --`,
+        url: entry.url || '',
+        change: null,
+        pending: true
+      };
+    }
     const valueText = formatTickerValue(ticker);
     const deltaText = Number.isFinite(ticker.delta) ? `${ticker.delta > 0 ? '+' : ''}${ticker.delta.toFixed(2)}%` : '';
     const parts = [`${ticker.label}: ${valueText}`];
@@ -2697,11 +2721,41 @@ function renderWatchlistChips() {
   });
 }
 
+async function refreshEnergyMarketQuotes() {
+  const [wti, gas] = await Promise.all([
+    fetchStooqQuote('cl.f'),
+    fetchStooqQuote('ng.f')
+  ]);
+  const next = {};
+  if (wti?.value) {
+    next.wti = {
+      label: 'WTI Crude',
+      value: wti.value,
+      delta: Number.isFinite(wti.deltaPct) ? wti.deltaPct : null,
+      url: wti.url,
+      asOf: extractStooqAsOf(wti.summary || ''),
+      symbol: wti.symbol
+    };
+  }
+  if (gas?.value) {
+    next.gas = {
+      label: 'Nat Gas',
+      value: gas.value,
+      delta: Number.isFinite(gas.deltaPct) ? gas.deltaPct : null,
+      url: gas.url,
+      asOf: extractStooqAsOf(gas.summary || ''),
+      symbol: gas.symbol
+    };
+  }
+  state.energyMarket = next;
+}
+
 async function refreshCustomTickers() {
   const watchlist = state.settings.tickerWatchlist || [];
   if (!watchlist.length) {
     state.customTickers = [];
     renderWatchlistChips();
+    await refreshEnergyMarketQuotes();
     return;
   }
   const results = await Promise.all(watchlist.map(async (entry) => {
@@ -2714,7 +2768,9 @@ async function refreshCustomTickers() {
         delta: Number.isFinite(quote.delta) ? quote.delta : null,
         url: quote.url,
         type: entry.type,
-        isIndex: false
+        isIndex: false,
+        lookup: entry.lookup,
+        symbol: entry.symbol
       };
     }
     const quote = await fetchStooqQuote(entry.lookup);
@@ -2725,11 +2781,14 @@ async function refreshCustomTickers() {
       delta: Number.isFinite(quote.deltaPct) ? quote.deltaPct : null,
       url: quote.url,
       type: entry.type,
-      isIndex: entry.isIndex || entry.symbol?.startsWith('^') || quote.symbol?.startsWith('^')
+      isIndex: entry.isIndex || entry.symbol?.startsWith('^') || quote.symbol?.startsWith('^'),
+      lookup: entry.lookup,
+      symbol: entry.symbol || quote.symbol
     };
   }));
   state.customTickers = results.filter(Boolean);
   renderWatchlistChips();
+  await refreshEnergyMarketQuotes();
 }
 
 function setTickerBuilderStatus(builder, message, tone) {
@@ -2763,8 +2822,10 @@ async function handleTickerAdd(builder) {
     state.settings.tickerWatchlist = [...(state.settings.tickerWatchlist || []), resolved];
     saveSettings();
     queryInput.value = '';
-    setTickerBuilderStatus(builder, 'Added to watchlist.', 'success');
+    setTickerBuilderStatus(builder, 'Added. Fetching quote…', 'success');
     await refreshCustomTickers();
+    const resolvedNow = state.customTickers.some((ticker) => getTickerKey({ type: ticker.type, lookup: ticker.lookup || ticker.symbol || ticker.label || '' }) === key);
+    setTickerBuilderStatus(builder, resolvedNow ? 'Added to watchlist.' : 'Added, quote pending. Will refresh shortly.', resolvedNow ? 'success' : 'error');
     renderTicker();
     renderFinanceSpotlight();
   } catch (err) {
@@ -2813,15 +2874,20 @@ function buildFinanceKPIs() {
     });
   }
 
+  const marketWti = state.energyMarket?.wti;
   const wti = pickFirst('energy-eia');
-  if (wti?.value) {
+  if (marketWti?.value || wti?.value) {
+    const sourceItem = marketWti?.value ? marketWti : wti;
+    const meta = marketWti?.value
+      ? (marketWti.asOf ? `Market ${marketWti.asOf}` : 'Market')
+      : wti.summary.split(':')[0];
     kpis.push({
       label: 'WTI Crude',
-      value: formatCompactCurrency(wti.value),
-      meta: wti.summary.split(':')[0],
-      delta: Number.isFinite(wti.deltaPct) ? wti.deltaPct : null,
-      source: wti.source,
-      url: wti.url,
+      value: formatCompactCurrency(sourceItem.value),
+      meta,
+      delta: Number.isFinite(sourceItem.delta ?? sourceItem.deltaPct) ? (sourceItem.delta ?? sourceItem.deltaPct) : null,
+      source: sourceItem.source || (marketWti?.value ? 'Stooq' : wti.source),
+      url: sourceItem.url || wti.url,
       category: 'energy'
     });
   }
@@ -2839,15 +2905,20 @@ function buildFinanceKPIs() {
     });
   }
 
+  const marketGas = state.energyMarket?.gas;
   const gas = pickFirst('energy-eia-ng');
-  if (gas?.value) {
+  if (marketGas?.value || gas?.value) {
+    const sourceItem = marketGas?.value ? marketGas : gas;
+    const meta = marketGas?.value
+      ? (marketGas.asOf ? `Market ${marketGas.asOf}` : 'Market')
+      : gas.summary.split(':')[0];
     kpis.push({
       label: 'Nat Gas',
-      value: formatCompactCurrency(gas.value),
-      meta: gas.summary.split(':')[0],
-      delta: Number.isFinite(gas.deltaPct) ? gas.deltaPct : null,
-      source: gas.source,
-      url: gas.url,
+      value: formatCompactCurrency(sourceItem.value),
+      meta,
+      delta: Number.isFinite(sourceItem.delta ?? sourceItem.deltaPct) ? (sourceItem.delta ?? sourceItem.deltaPct) : null,
+      source: sourceItem.source || (marketGas?.value ? 'Stooq' : gas.source),
+      url: sourceItem.url || gas.url,
       category: 'energy'
     });
   }
@@ -2890,14 +2961,34 @@ function buildFinanceKPIs() {
     });
   }
 
-  const custom = state.customTickers.map((ticker) => ({
-    label: ticker.label || ticker.symbol,
-    value: formatTickerValue(ticker),
-    meta: ticker.type === 'crypto' ? '24h' : 'Session',
-    delta: Number.isFinite(ticker.delta) ? ticker.delta : null,
-    url: ticker.url,
-    category: ticker.type === 'crypto' ? 'crypto' : 'finance'
-  }));
+  const watchlist = state.settings.tickerWatchlist || [];
+  const resolved = new Map();
+  state.customTickers.forEach((ticker) => {
+    const key = getTickerKey({ type: ticker.type, lookup: ticker.lookup || ticker.symbol || ticker.label || '' });
+    resolved.set(key, ticker);
+  });
+  const custom = watchlist.map((entry) => {
+    const key = getTickerKey(entry);
+    const ticker = resolved.get(key);
+    if (!ticker) {
+      return {
+        label: entry.label || entry.symbol,
+        value: '--',
+        meta: 'Awaiting quote',
+        delta: null,
+        url: entry.url || '',
+        category: entry.type === 'crypto' ? 'crypto' : 'finance'
+      };
+    }
+    return {
+      label: ticker.label || ticker.symbol,
+      value: formatTickerValue(ticker),
+      meta: ticker.type === 'crypto' ? '24h' : 'Session',
+      delta: Number.isFinite(ticker.delta) ? ticker.delta : null,
+      url: ticker.url,
+      category: ticker.type === 'crypto' ? 'crypto' : 'finance'
+    };
+  });
 
   const seen = new Set();
   const merged = [...custom, ...kpis].filter((entry) => {
@@ -3343,6 +3434,20 @@ function buildTickerItems() {
 
   const items = [];
   buildCustomTickerItems().forEach((custom) => items.push(custom));
+  const marketWti = state.energyMarket?.wti;
+  const marketGas = state.energyMarket?.gas;
+  const pushMarket = (entry, label) => {
+    if (!entry?.value) return;
+    const valueText = formatCompactCurrency(entry.value);
+    const meta = entry.asOf ? `Market ${entry.asOf}` : 'Market';
+    items.push({
+      text: `${label}: ${valueText} • ${meta}`,
+      url: entry.url,
+      change: Number.isFinite(entry.delta) ? entry.delta : null
+    });
+  };
+  pushMarket(marketWti, 'WTI Crude');
+  pushMarket(marketGas, 'Nat Gas');
   const pushItem = (item, fallbackTitle) => {
     if (!item) return;
     const title = item.translatedTitle || item.title || fallbackTitle;
@@ -3356,9 +3461,9 @@ function buildTickerItems() {
 
   pushItem(pickFirst('treasury-debt'), 'US Debt');
   pushItem(pickFirst('bls-cpi'), 'US CPI');
-  pushItem(pickFirst('energy-eia'), 'WTI Crude');
+  if (!marketWti?.value) pushItem(pickFirst('energy-eia'), 'WTI Crude');
   pushItem(pickFirst('energy-eia-brent'), 'Brent Crude');
-  pushItem(pickFirst('energy-eia-ng'), 'Nat Gas');
+  if (!marketGas?.value) pushItem(pickFirst('energy-eia-ng'), 'Nat Gas');
   pushItem(pickFirst('coinpaprika-global'), 'Crypto Market Cap');
   ['BTC', 'ETH'].forEach((symbol) => pushItem(pickSymbol(symbol), symbol));
   pushItem(pickFirst('blockstream-mempool'), 'Bitcoin Mempool');
