@@ -1525,6 +1525,24 @@ function deriveKeyStatus(payload) {
   return 'error';
 }
 
+function normalizeOpenAIError(err) {
+  const message = (err?.message || '').toString();
+  const lower = message.toLowerCase();
+  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('cors')) {
+    return {
+      status: 'error',
+      message: 'Browser blocked the request (CORS). Key saved; use local server or a proxy.'
+    };
+  }
+  if (lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) {
+    return { status: 'invalid', message: message || 'Invalid API key' };
+  }
+  if (lower.includes('rate') || lower.includes('429')) {
+    return { status: 'rate_limited', message: message || 'Rate limited' };
+  }
+  return { status: 'error', message: message || 'OpenAI error' };
+}
+
 async function testFeedKey(feed, statusEl) {
   const keyConfig = getKeyConfig(feed);
   if (!keyConfig.key) {
@@ -1550,7 +1568,8 @@ async function testFeedKey(feed, statusEl) {
         setKeyStatus(feed.id, 'error', statusEl, 'No response');
       }
     } catch (err) {
-      setKeyStatus(feed.id, 'invalid', statusEl, err.message);
+      const { status, message } = normalizeOpenAIError(err);
+      setKeyStatus(feed.id, status, statusEl, message);
     }
     return;
   }
