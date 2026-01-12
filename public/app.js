@@ -178,6 +178,8 @@ const elements = {
   customFeedToggle: document.getElementById('customFeedToggle'),
   customFeedExport: document.getElementById('customFeedExport'),
   customFeedImportToggle: document.getElementById('customFeedImportToggle'),
+  customFeedDownload: document.getElementById('customFeedDownload'),
+  customFeedOpen: document.getElementById('customFeedOpen'),
   customFeedJsonPanel: document.getElementById('customFeedJsonPanel'),
   customFeedJson: document.getElementById('customFeedJson'),
   customFeedJsonCopy: document.getElementById('customFeedJsonCopy'),
@@ -1010,6 +1012,25 @@ function exportCustomFeedsJson() {
   if (elements.customFeedJsonStatus) {
     elements.customFeedJsonStatus.textContent = payload.length ? 'Exported feeds to JSON.' : 'No custom feeds to export.';
   }
+}
+
+function getCustomFeedsExportString() {
+  const payload = state.customFeeds.map((feed) => ({
+    id: feed.id,
+    name: feed.name,
+    url: feed.url,
+    category: feed.category,
+    format: feed.format,
+    proxy: feed.proxy,
+    tags: feed.tags,
+    supportsQuery: feed.supportsQuery,
+    defaultQuery: feed.defaultQuery,
+    requiresKey: feed.requiresKey,
+    keyParam: feed.keyParam,
+    keyHeader: feed.keyHeader,
+    ttlMinutes: feed.ttlMinutes
+  }));
+  return JSON.stringify(payload, null, 2);
 }
 
 function applyCustomFeedsJson() {
@@ -5217,6 +5238,29 @@ function initEvents() {
   if (elements.customFeedExport) {
     elements.customFeedExport.addEventListener('click', () => {
       exportCustomFeedsJson();
+    });
+  }
+  if (elements.customFeedDownload) {
+    elements.customFeedDownload.addEventListener('click', () => {
+      const jsonText = elements.customFeedJson?.value?.trim() || getCustomFeedsExportString();
+      const blob = new Blob([jsonText], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'custom-feeds.json';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      if (elements.customFeedJsonStatus) {
+        elements.customFeedJsonStatus.textContent = 'Downloaded custom feeds JSON.';
+      }
+    });
+  }
+  if (elements.customFeedOpen) {
+    elements.customFeedOpen.addEventListener('click', () => {
+      const url = getAssetUrl('data/feeds.json');
+      window.open(url, '_blank', 'noopener');
     });
   }
   if (elements.customFeedImportToggle) {

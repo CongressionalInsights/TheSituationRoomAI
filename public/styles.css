@@ -2153,6 +2153,11 @@ a.list-title:hover {
   gap: 8px;
 }
 
+.custom-feed-tools .btn {
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
 .custom-feed-json {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
