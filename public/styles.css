@@ -2252,7 +2252,8 @@ a.list-title:hover {
   gap: 8px;
 }
 
-.settings-section label {
+.settings-section label,
+.settings-label {
   color: var(--text);
   font-weight: 600;
   letter-spacing: 0.2px;
