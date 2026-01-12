@@ -11,5 +11,7 @@ window.SR_CONFIG = window.SR_CONFIG || {};
   const host = window.location.hostname || '';
   if (host.endsWith('.github.io')) {
     window.SR_CONFIG.staticMode = true;
+    window.SR_CONFIG.openAiProxy = window.SR_CONFIG.openAiProxy
+      || 'https://situation-room-openai-382918878290.us-central1.run.app/api/chat';
   }
 })();

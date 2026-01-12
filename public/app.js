@@ -297,6 +297,14 @@ const criticalFeedIds = [
   'energy-eia-ng',
   'eia-today'
 ];
+
+function countCriticalIssues(results) {
+  return results.filter((result) => {
+    if (!result?.feed?.id || !criticalFeedIds.includes(result.feed.id)) return false;
+    if (result.error === 'requires_key' || result.error === 'requires_config' || result.error === 'missing_server_key') return false;
+    return result.error || (result.httpStatus && result.httpStatus >= 400);
+  }).length;
+}
 const usStateCodes = new Set([
   'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
   'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
@@ -329,6 +337,9 @@ function loadSettings() {
       if (typeof state.settings.liveSearch !== 'boolean') {
         state.settings.liveSearch = true;
       }
+      if (typeof state.settings.superMonitor !== 'boolean') {
+        state.settings.superMonitor = isStaticMode();
+      }
       if (!Array.isArray(state.settings.tickerWatchlist)) {
         state.settings.tickerWatchlist = [];
       }
@@ -338,6 +349,7 @@ function loadSettings() {
       state.settings.showTravelTicker = true;
       state.settings.showKeys = true;
       state.settings.liveSearch = true;
+      state.settings.superMonitor = isStaticMode();
       state.settings.tickerWatchlist = [];
     }
   }
@@ -511,7 +523,7 @@ function updateDataFreshBadge() {
   if (!elements.dataFresh) return;
   let stamp = state.lastFetch;
   if (isStaticMode()) {
-    stamp = state.lastBuildAt || state.lastFetch;
+    stamp = state.settings.superMonitor ? state.lastFetch : (state.lastBuildAt || state.lastFetch);
   }
   if (!stamp) {
     elements.dataFresh.textContent = 'Data fresh';
@@ -520,10 +532,12 @@ function updateDataFreshBadge() {
   }
   const relative = toRelativeTime(stamp);
   elements.dataFresh.textContent = isStaticMode()
-    ? `Cache ${relative}`
+    ? (state.settings.superMonitor ? `Live ${relative}` : `Cache ${relative}`)
     : `Data ${relative}`;
   const exact = new Date(stamp).toLocaleString();
-  elements.dataFresh.title = isStaticMode() ? `Cache built ${exact}` : `Last fetch ${exact}`;
+  elements.dataFresh.title = isStaticMode()
+    ? (state.settings.superMonitor ? `Live fetch ${exact}` : `Cache built ${exact}`)
+    : `Last fetch ${exact}`;
 }
 
 function loadPanelState() {
@@ -1295,8 +1309,8 @@ function buildKeyManager(filterCategory) {
     const note = document.createElement('div');
     note.className = 'settings-note';
     note.textContent = state.settings.superMonitor
-      ? 'Super Monitor Mode is active. Browser-only keys are enabled for custom feeds. OpenAI requires a proxy on GitHub Pages.'
-      : 'Static mode is active. Feeds load from the published cache. Optional: add your OpenAI key below to enable Super Monitor Mode (proxy required on GitHub Pages).';
+      ? 'Super Monitor Mode is active. Live fetches run for keyless feeds, plus custom feeds with browser keys. OpenAI requires a proxy on GitHub Pages.'
+      : 'Static mode is active. Feeds load from the published cache. Optional: enable Super Monitor Mode to pull live keyless feeds (proxy required for OpenAI).';
     elements.keyManager.appendChild(note);
     if (!state.settings.superMonitor) {
       displayFeeds = displayFeeds.filter((feed) => feed.id === 'openai');
@@ -2245,7 +2259,7 @@ const feedParsers = {
       if (parameters.length) summaryParts.push(`Sensors: ${parameters.slice(0, 4).join(', ')}`);
       return {
         title: locality ? `${locality}` : 'Air Quality Station',
-        url: row.id ? `https://api.openaq.org/v3/locations/${row.id}` : 'https://openaq.org/',
+        url: row.id ? `https://openaq.org/locations/${row.id}` : 'https://openaq.org/',
         summary: summaryParts.length ? summaryParts.join(' | ') : 'Air quality station update.',
         publishedAt: row.updatedAt ? Date.parse(row.updatedAt) : Date.now(),
         source: provider,
@@ -2990,6 +3004,9 @@ async function fetchFeed(feed, query, force = false) {
 
 function applyCustomProxy(url, proxy) {
   if (!proxy) return url;
+  if (Array.isArray(proxy)) {
+    return applyCustomProxy(url, proxy[0]);
+  }
   if (proxy === 'allorigins') {
     return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
   }
@@ -2998,6 +3015,16 @@ function applyCustomProxy(url, proxy) {
     return `https://r.jina.ai/http://${stripped}`;
   }
   return url;
+}
+
+function shouldFetchLiveInStatic(feed) {
+  if (!isStaticMode() || !state.settings.superMonitor) return false;
+  if (feed.keySource === 'server') return false;
+  if (feed.requiresKey) {
+    const keyConfig = getKeyConfig(feed);
+    if (!keyConfig.key) return false;
+  }
+  return true;
 }
 
 function applyQueryToUrl(url, query) {
@@ -3018,7 +3045,6 @@ async function fetchCustomFeedDirect(feed, query) {
     parsed.searchParams.set(keyConfig.keyParam, keyConfig.key);
     url = parsed.toString();
   }
-  url = applyCustomProxy(url, feed.proxy);
 
   const headers = {};
   if (keyConfig.key && keyConfig.keyHeader) {
@@ -3026,18 +3052,42 @@ async function fetchCustomFeedDirect(feed, query) {
   }
 
   try {
-    const response = await fetch(url, { headers });
-    const body = await response.text();
-    const items = response.ok
+    const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
+    const candidates = [url, ...proxyList.map((proxy) => applyCustomProxy(url, proxy))];
+    let lastResponse = null;
+    for (const candidate of candidates) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const response = await fetch(candidate, { headers });
+        lastResponse = response;
+        if (!response.ok) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const body = await response.text();
+        const items = feed.format === 'rss' ? parseRss(body, feed) : parseJson(body, feed);
+        const enriched = items.map((item) => ({ ...item, tags: feed.tags || [], feedId: feed.id, feedName: feed.name }));
+        return {
+          feed,
+          items: enriched,
+          error: null,
+          errorMessage: null,
+          httpStatus: response.status,
+          fetchedAt: Date.now()
+        };
+      } catch (err) {
+        // try next candidate
+      }
+    }
+    const body = lastResponse ? await lastResponse.text() : '';
+    const items = lastResponse && lastResponse.ok
       ? (feed.format === 'rss' ? parseRss(body, feed) : parseJson(body, feed))
       : [];
     const enriched = items.map((item) => ({ ...item, tags: feed.tags || [], feedId: feed.id, feedName: feed.name }));
     return {
       feed,
       items: enriched,
-      error: response.ok ? null : `http_${response.status}`,
-      errorMessage: response.ok ? null : `HTTP ${response.status}`,
-      httpStatus: response.status,
+      error: lastResponse?.ok ? null : (lastResponse ? `http_${lastResponse.status}` : 'fetch_failed'),
+      errorMessage: lastResponse?.ok ? null : (lastResponse ? `HTTP ${lastResponse.status}` : 'fetch failed'),
+      httpStatus: lastResponse?.status || 0,
       fetchedAt: Date.now()
     };
   } catch (err) {
@@ -5019,8 +5069,18 @@ async function refreshAll(force = false) {
       await loadStaticAnalysis();
       await loadStaticBuild();
     }
-    const results = await Promise.all(state.feeds.map((feed) => {
+    const results = await Promise.all(state.feeds.map(async (feed) => {
       const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
+      if (shouldFetchLiveInStatic(feed)) {
+        try {
+          const live = await fetchCustomFeedDirect(feed, query);
+          if (!live.error) return live;
+          const fallback = await fetchFeed(feed, query, force);
+          return fallback;
+        } catch {
+          // fall through to static cache
+        }
+      }
       return fetchFeed(feed, query, force).catch(() => ({
         feed,
         items: [],
@@ -5052,10 +5112,7 @@ async function refreshAll(force = false) {
     state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
     state.lastFetch = Date.now();
     updateDataFreshBadge();
-    const issueCount = results.filter((result) => {
-      if (result.error === 'requires_key' || result.error === 'requires_config' || result.error === 'missing_server_key') return false;
-      return result.error || (result.httpStatus && result.httpStatus >= 400);
-    }).length;
+    const issueCount = countCriticalIssues(results);
     setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
 
     renderAllPanels();
@@ -5135,10 +5192,10 @@ async function retryFailedFeeds() {
   }
 
   renderFeedHealth();
-  const issueCount = Object.values(state.feedStatus).filter((status) => {
-    if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return false;
-    return status.error || (status.httpStatus && status.httpStatus >= 400);
-  }).length;
+  const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
+    feed,
+    ...state.feedStatus[feed.id]
+  })));
   setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
   state.retryingFeeds = false;
 }

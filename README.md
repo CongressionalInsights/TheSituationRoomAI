@@ -59,12 +59,16 @@ Static mode limits:
 - Search queries are limited to the cached/default feed queries.
 - AI chat requires a server proxy. Without it, the briefing panel falls back to the cached `analysis.json` when available.
 - You can enable **Live Search** to query GDELT + Google News directly on static hosting.
+- If **Super Monitor Mode** is enabled, the browser will attempt live fetches for keyless feeds and merge them with cached data.
 
 ### Configure static mode (default)
 `public/config.js` sets `staticMode = true` when served from `*.github.io`. No extra configuration is required for GitHub Pages.
 
 ## OpenAI proxy (Cloud Run on GCP)
 To enable OpenAI chat on the live GitHub Pages site, deploy the proxy in `gcp/openai-proxy/` and set `window.SR_CONFIG.openAiProxy`.
+This repo is already wired to use:
+`https://situation-room-openai-382918878290.us-central1.run.app/api/chat`
+when served from `*.github.io`.
 
 ### Deploy steps
 ```bash
@@ -75,30 +79,23 @@ gcloud beta billing projects link situationroom-ai-20260112 --billing-account=01
 # enable APIs
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com
 
-# store the OpenAI key in Secret Manager
-echo -n "YOUR_OPENAI_KEY" | gcloud secrets create openai-key --data-file=-
-gcloud secrets add-iam-policy-binding openai-key \\
-  --member="serviceAccount:$(gcloud projects describe situationroom-ai-20260112 --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \\
-  --role="roles/secretmanager.secretAccessor"
-
 # deploy the proxy (from repo root)
-gcloud run deploy situationroom-openai-proxy \\
+gcloud run deploy situation-room-openai \\
   --source gcp/openai-proxy \\
   --region us-central1 \\
   --allow-unauthenticated \\
-  --set-env-vars ALLOWED_ORIGINS=\"https://congressionalinsights.github.io,http://localhost:5173\" \\
-  --set-secrets OPENAI_API_KEY=openai-key:latest
+  --env-vars-file /tmp/sr-openai-env.yaml
 ```
 
 ### Wire the proxy into the UI
-Edit `public/config.js`:
+Edit `public/config.js` if you deploy to a different URL:
 ```js
 window.SR_CONFIG = window.SR_CONFIG || {};
 window.SR_CONFIG.openAiProxy = 'https://<your-cloud-run-url>/api/chat';
 ```
 
 Notes:
-- The proxy accepts a user key via `x-openai-key` (so users can override), otherwise it uses the server key.
+- The proxy accepts a user key via `x-openai-key` (so users can override). If no key is supplied, it will only work if you attach a server key.
 - If billing quota blocks project creation, either increase quota or provide a different billing account.
 
 ## Optional: server-side proxy (advanced)

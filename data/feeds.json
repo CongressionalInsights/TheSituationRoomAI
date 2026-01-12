@@ -140,7 +140,7 @@
       "category": "disaster",
       "format": "rss",
       "proxy": ["allorigins", "jina"],
-      "url": "https://gdacs.org/Default.aspx/Knowledge/Knowledge/Alerts/xml/rss.xml",
+      "url": "https://www.gdacs.org/xml/rss.xml",
       "timeoutMs": 20000,
       "ttlMinutes": 30,
       "tags": ["global", "disaster", "geo"]
