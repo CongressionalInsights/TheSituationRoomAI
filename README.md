@@ -69,6 +69,7 @@ window.SR_CONFIG = {
   basePath: '/TheSituationRoomAI'
 };
 ```
+By default, `config.js` will auto-target `https://situation-room-proxy.<org>.workers.dev` when served from `*.github.io` (override if your Worker URL differs).
 
 ## Deployment
 1) Add Cloudflare secrets to GitHub:
