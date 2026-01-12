@@ -21,7 +21,7 @@ Then open `http://localhost:5173`.
 ## API keys (in-app)
 - Open Settings → API Keys.
 - For local/server mode, paste your OpenAI key (BYO key) for chat + briefing.
-- OpenAI keys are stored locally in browser storage and sent only to the `/api/chat` proxy.
+- OpenAI keys are stored locally in browser storage. On GitHub Pages they are forwarded to the proxy (see below) via `x-openai-key`.
 
 ## Panels & layout
 - Drag panels to reorder.
@@ -57,13 +57,52 @@ GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snap
 Static mode limits:
 - The **Refresh Now** button reloads cached JSON; it does not re-fetch live data.
 - Search queries are limited to the cached/default feed queries.
-- AI chat requires a server proxy (not available on pure static hosting). The briefing panel uses the cached `analysis.json` when available.
+- AI chat requires a server proxy. Without it, the briefing panel falls back to the cached `analysis.json` when available.
+- You can enable **Live Search** to query GDELT + Google News directly on static hosting.
 
 ### Configure static mode (default)
 `public/config.js` sets `staticMode = true` when served from `*.github.io`. No extra configuration is required for GitHub Pages.
 
+## OpenAI proxy (Cloud Run on GCP)
+To enable OpenAI chat on the live GitHub Pages site, deploy the proxy in `gcp/openai-proxy/` and set `window.SR_CONFIG.openAiProxy`.
+
+### Deploy steps
+```bash
+# create a project (must be lowercase / unique)
+gcloud projects create situationroom-ai-20260112 --name="SituationRoom"
+gcloud beta billing projects link situationroom-ai-20260112 --billing-account=014C72-E3E5EE-C38A59
+
+# enable APIs
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com
+
+# store the OpenAI key in Secret Manager
+echo -n "YOUR_OPENAI_KEY" | gcloud secrets create openai-key --data-file=-
+gcloud secrets add-iam-policy-binding openai-key \\
+  --member="serviceAccount:$(gcloud projects describe situationroom-ai-20260112 --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \\
+  --role="roles/secretmanager.secretAccessor"
+
+# deploy the proxy (from repo root)
+gcloud run deploy situationroom-openai-proxy \\
+  --source gcp/openai-proxy \\
+  --region us-central1 \\
+  --allow-unauthenticated \\
+  --set-env-vars ALLOWED_ORIGINS=\"https://congressionalinsights.github.io,http://localhost:5173\" \\
+  --set-secrets OPENAI_API_KEY=openai-key:latest
+```
+
+### Wire the proxy into the UI
+Edit `public/config.js`:
+```js
+window.SR_CONFIG = window.SR_CONFIG || {};
+window.SR_CONFIG.openAiProxy = 'https://<your-cloud-run-url>/api/chat';
+```
+
+Notes:
+- The proxy accepts a user key via `x-openai-key` (so users can override), otherwise it uses the server key.
+- If billing quota blocks project creation, either increase quota or provide a different billing account.
+
 ## Optional: server-side proxy (advanced)
-If you later add a runtime proxy, you can disable static mode and point the UI at your `/api/*` backend by setting `window.SR_CONFIG.apiBase` in `public/config.js`. This repo includes a Cloudflare Worker implementation in `worker/` for optional use.
+If you later add a full runtime backend, you can disable static mode and point the UI at your `/api/*` backend by setting `window.SR_CONFIG.apiBase` in `public/config.js`. This repo includes a Cloudflare Worker implementation in `worker/` for optional use.
 
 ## Troubleshooting
 - "Feed API unreachable" → static cache failed to build; check the GitHub Actions logs.

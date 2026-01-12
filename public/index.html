@@ -273,8 +273,8 @@
             <label for="searchInput">Unified Search</label>
             <div class="search-row">
               <label class="sr-only" for="feedScope">Search scope</label>
-              <select id="feedScope" name="feedScope" class="select"></select>
-              <input id="searchInput" name="searchInput" type="text" placeholder="Search across categories or pick a specific feed" />
+              <select id="feedScope" name="feedScope" class="select" aria-label="Search scope"></select>
+              <input id="searchInput" name="searchInput" type="text" placeholder="Search across categories or pick a specific feed" aria-label="Search query" />
               <button class="btn ghost" id="searchBtn" type="button">Search</button>
             </div>
             <div class="search-hint" id="searchHint">AI query translation is on. Search adapts to each source.</div>
@@ -314,7 +314,7 @@
                 </div>
                 <div class="chat-input">
                   <label class="sr-only" for="chatInput">Ask about a feed or situation</label>
-                  <input id="chatInput" name="chatInput" type="text" placeholder="Ask about a feed or situation..." />
+                  <input id="chatInput" name="chatInput" type="text" placeholder="Ask about a feed or situation..." aria-label="Chat input" />
                   <button class="btn ghost" id="chatSend">Send</button>
                 </div>
               </div>
@@ -548,7 +548,7 @@
       </div>
       <div class="settings-section">
         <label for="refreshRange">Refresh Interval (minutes)</label>
-        <input id="refreshRange" name="refreshRange" type="range" min="1" max="60" step="1" />
+        <input id="refreshRange" name="refreshRange" type="range" min="1" max="60" step="1" aria-label="Refresh interval in minutes" />
         <div class="settings-value" id="refreshRangeValue">60</div>
       </div>
       <div class="settings-section">
@@ -563,16 +563,16 @@
         <div class="settings-label">AI Query Translation</div>
         <label class="toggle-row">
           <span>Use AI to translate searches per feed</span>
-          <input type="checkbox" id="aiTranslateToggle" name="aiTranslateToggle" />
+          <input type="checkbox" id="aiTranslateToggle" name="aiTranslateToggle" aria-label="Enable AI query translation" />
         </label>
       </div>
       <div class="settings-section">
         <div class="settings-label">Super Monitor Mode</div>
         <label class="toggle-row">
-          <span>Use OpenAI key directly in browser (enables chat on static hosting)</span>
-          <input type="checkbox" id="superMonitorToggle" name="superMonitorToggle" />
+          <span>Use OpenAI key in browser (requires proxy on GitHub Pages)</span>
+          <input type="checkbox" id="superMonitorToggle" name="superMonitorToggle" aria-label="Enable Super Monitor Mode" />
         </label>
-        <div class="settings-note">Only use this on trusted devices. Your key stays in local storage.</div>
+        <div class="settings-note">Only use this on trusted devices. Your key stays in local storage. GitHub Pages needs the OpenAI proxy to run chat.</div>
       </div>
       <div class="settings-section">
         <div class="settings-label">Content Language</div>
@@ -585,12 +585,12 @@
       </div>
       <div class="settings-section">
         <label for="maxAgeRange">Max Age (days)</label>
-        <input id="maxAgeRange" name="maxAgeRange" type="range" min="1" max="30" step="1" />
+        <input id="maxAgeRange" name="maxAgeRange" type="range" min="1" max="30" step="1" aria-label="Max age in days" />
         <div class="settings-value" id="maxAgeValue">30 days</div>
       </div>
       <div class="settings-section">
         <label for="radiusRange">Local Radius (km)</label>
-        <input id="radiusRange" name="radiusRange" type="range" min="25" max="500" step="25" />
+        <input id="radiusRange" name="radiusRange" type="range" min="25" max="500" step="25" aria-label="Local radius in kilometers" />
         <div class="settings-value" id="radiusRangeValue">150</div>
       </div>
       <div class="settings-section">

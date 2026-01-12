@@ -34,6 +34,10 @@ export function isStaticMode() {
   return STATIC_MODE;
 }
 
+export function getOpenAiProxy() {
+  return rawConfig.openAiProxy || '';
+}
+
 function mapStatic(path) {
   if (path.startsWith('/api/feeds')) {
     return `${STATIC_BASE}/feeds.json`;

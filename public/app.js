@@ -1,4 +1,4 @@
-import { apiFetch, apiJson, getAssetUrl, isStaticMode } from './services/api.js';
+import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy } from './services/api.js';
 
 const LAYOUT_VERSION = 3;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
@@ -515,9 +515,15 @@ function updateDataFreshBadge() {
   }
   if (!stamp) {
     elements.dataFresh.textContent = 'Data fresh';
+    elements.dataFresh.removeAttribute('title');
     return;
   }
-  elements.dataFresh.textContent = `Data ${toRelativeTime(stamp)}`;
+  const relative = toRelativeTime(stamp);
+  elements.dataFresh.textContent = isStaticMode()
+    ? `Cache ${relative}`
+    : `Data ${relative}`;
+  const exact = new Date(stamp).toLocaleString();
+  elements.dataFresh.title = isStaticMode() ? `Cache built ${exact}` : `Last fetch ${exact}`;
 }
 
 function loadPanelState() {
@@ -1289,8 +1295,8 @@ function buildKeyManager(filterCategory) {
     const note = document.createElement('div');
     note.className = 'settings-note';
     note.textContent = state.settings.superMonitor
-      ? 'Super Monitor Mode is active. Browser-only keys are enabled for custom feeds and OpenAI.'
-      : 'Static mode is active. Feeds load from the published cache. Optional: add your OpenAI key below to enable Super Monitor Mode (browser chat + AI translation).';
+      ? 'Super Monitor Mode is active. Browser-only keys are enabled for custom feeds. OpenAI requires a proxy on GitHub Pages.'
+      : 'Static mode is active. Feeds load from the published cache. Optional: add your OpenAI key below to enable Super Monitor Mode (proxy required on GitHub Pages).';
     elements.keyManager.appendChild(note);
     if (!state.settings.superMonitor) {
       displayFeeds = displayFeeds.filter((feed) => feed.id === 'openai');
@@ -1569,14 +1575,14 @@ function normalizeOpenAIError(err) {
   if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('cors')) {
     return {
       status: 'error',
-      message: 'Browser blocked the request (CORS). Key saved; use local server or a proxy.'
+      message: 'Browser blocked the request (CORS). Key saved; use a proxy for live chat.'
     };
   }
   if ((lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) && !isStaticMode()) {
     return { status: 'invalid', message: message || 'Invalid API key' };
   }
   if (lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) {
-    return { status: 'error', message: 'OpenAI request blocked on static hosting. Use local server for live chat.' };
+    return { status: 'error', message: 'OpenAI request blocked on static hosting. Use a proxy for live chat.' };
   }
   if (lower.includes('rate') || lower.includes('429')) {
     return { status: 'rate_limited', message: message || 'Rate limited' };
@@ -1590,14 +1596,22 @@ async function testFeedKey(feed, statusEl) {
     keyConfig.key = keyConfig.key.trim();
   }
   if (!keyConfig.key) {
+    if (feed.id === 'openai' && getOpenAiProxy()) {
+      setKeyStatus(feed.id, 'ok', statusEl, 'Using proxy key');
+      return;
+    }
     setKeyStatus(feed.id, 'missing', statusEl, 'Missing API key');
     return;
   }
   setKeyStatus(feed.id, 'testing', statusEl, 'Testing key...');
 
   if (feed.id === 'openai') {
-    if (isStaticMode() && !state.settings.superMonitor) {
-      setKeyStatus(feed.id, 'missing', statusEl, 'Enable Super Monitor Mode to test.');
+    if (isStaticMode() && !getOpenAiProxy()) {
+      if (!state.settings.superMonitor) {
+        setKeyStatus(feed.id, 'missing', statusEl, 'Enable Super Monitor Mode to test.');
+        return;
+      }
+      setKeyStatus(feed.id, 'ok', statusEl, 'Key saved. Static hosting cannot validate without a proxy.');
       return;
     }
     try {
@@ -1674,7 +1688,7 @@ function dedupeItems(items) {
   const seen = new Set();
   const deduped = [];
   items.forEach((item) => {
-    const key = canonicalUrl(item.url || '') || normalizeTitle(item.title || '');
+    const key = item._dedupeKey || canonicalUrl(item.url || '') || normalizeTitle(item.title || '');
     if (!key) {
       deduped.push(item);
       return;
@@ -2238,7 +2252,8 @@ const feedParsers = {
         category: feed.category,
         alertType: 'Air Quality',
         regionTag: country,
-        geo: hasGeo ? { lat, lon } : null
+        geo: hasGeo ? { lat, lon } : null,
+        mapOnly: true
       };
     });
   },
@@ -2546,15 +2561,20 @@ async function fetchStooqQuote(symbol) {
   if (!feed) return null;
   if (isStaticMode()) {
     const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
-    try {
-      const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
-      if (!response.ok) return null;
-      const text = await response.text();
-      const parsed = parseStooqCsv(text, feed);
-      return parsed?.[0] || null;
-    } catch {
-      return null;
+    const proxies = ['allorigins', 'jina'];
+    for (const proxy of proxies) {
+      try {
+        const proxied = applyCustomProxy(url, proxy);
+        const response = await fetch(proxied);
+        if (!response.ok) continue;
+        const text = await response.text();
+        const parsed = parseStooqCsv(text, feed);
+        if (parsed?.[0]) return parsed[0];
+      } catch {
+        // try next proxy
+      }
     }
+    return null;
   }
   const result = await fetchFeed(feed, symbol, true);
   return result.items?.[0] || null;
@@ -3425,6 +3445,8 @@ function getAnalysisSignature() {
     items.length,
     latest,
     state.clusters.length,
+    state.lastFetch || 0,
+    state.lastBuildAt || 0,
     state.settings.scope,
     state.settings.radiusKm,
     state.settings.languageMode
@@ -3686,15 +3708,14 @@ function renderList(container, items, { withCoverage = false } = {}) {
     const summary = document.createElement('div');
     summary.className = 'list-summary';
     const isNewsList = contextId === 'newsList';
-    const rawSummaryText = item.summary || stripHtml(item.summaryHtml || '');
-    if (item.translatedSummary) {
-      summary.textContent = item.translatedSummary;
-    } else if (item.summaryHtml && !isNewsList) {
+    const rawSummaryText = stripHtml(item.summaryHtml || item.summary || '').trim();
+    if (isNewsList) {
+      const baseText = item.translatedSummary || rawSummaryText;
+      summary.textContent = truncateText(baseText, 240);
+    } else if (item.summaryHtml) {
       summary.innerHTML = sanitizeHtml(item.summaryHtml);
     } else {
-      summary.textContent = isNewsList
-        ? truncateText(rawSummaryText, 240)
-        : rawSummaryText;
+      summary.textContent = item.translatedSummary || rawSummaryText;
     }
 
     div.appendChild(title);
@@ -3718,8 +3739,8 @@ function renderNews(clusters) {
   const items = clusters.slice(0, 6).map((cluster, index) => ({
     title: cluster.primary.title,
     source: Array.from(cluster.sources).slice(0, 2).join(', '),
-    summary: index < 3 ? cluster.primary.summary : '',
-    summaryHtml: index < 3 ? cluster.primary.summaryHtml : '',
+    summary: index < 3 ? truncateText(stripHtml(cluster.primary.summaryHtml || cluster.primary.summary || ''), 240) : '',
+    summaryHtml: '',
     publishedAt: cluster.updatedAt,
     coverage: cluster.sources.size,
     url: cluster.primary.url,
@@ -3891,15 +3912,36 @@ async function callOpenAIDirect({ messages, context, temperature = 0.2, model } 
 }
 
 async function callAssistant({ messages, context, temperature = 0.2, model } = {}) {
-  if (isStaticMode() && !state.settings.superMonitor) {
+  const proxyUrl = getOpenAiProxy();
+  const key = (state.keys.openai?.key || '').trim();
+  if (proxyUrl) {
+    const payload = {
+      messages: Array.isArray(messages) ? messages : [],
+      context,
+      temperature
+    };
+    if (model) payload.model = model;
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    if (key) headers['x-openai-key'] = key;
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.message || data.error);
+    }
+    return (data.text || '').trim();
+  }
+
+  if (isStaticMode()) {
     throw new Error('assistant_unavailable');
   }
-  const key = (state.keys.openai?.key || '').trim();
   if (!key) {
     throw new Error('missing_api_key');
-  }
-  if (isStaticMode() && state.settings.superMonitor) {
-    return callOpenAIDirect({ messages, context, temperature, model });
   }
   const payload = {
     messages: Array.isArray(messages) ? messages : [],
@@ -4000,6 +4042,7 @@ async function runAiAnalysis({ emitChat = true } = {}) {
     return;
   }
   setAnalysisOutput('Generating AI briefing...');
+  const progressBubble = emitChat ? appendChatBubble('Generating briefing…', 'system') : null;
   try {
     const text = await callAssistant({
       messages: [{
@@ -4011,9 +4054,23 @@ async function runAiAnalysis({ emitChat = true } = {}) {
     });
     const cleaned = text || 'No response yet.';
     setAnalysisOutput(cleaned);
-    if (emitChat) appendChatBubble(cleaned, 'assistant');
+    if (emitChat) {
+      if (progressBubble) {
+        progressBubble.className = 'chat-bubble assistant';
+        progressBubble.innerHTML = formatBriefingText(cleaned);
+      } else {
+        appendChatBubble(cleaned, 'assistant');
+      }
+    }
   } catch (err) {
-    setAnalysisOutput('AI briefing failed. Showing heuristic analysis.');
+    const fallbackMessage = err?.message === 'assistant_unavailable'
+      ? 'AI briefing requires a proxy on GitHub Pages. Showing heuristic analysis.'
+      : 'AI briefing failed. Showing heuristic analysis.';
+    setAnalysisOutput(fallbackMessage);
+    if (progressBubble) {
+      progressBubble.className = 'chat-bubble system';
+      progressBubble.innerHTML = formatBriefingText(fallbackMessage);
+    }
     generateAnalysis(emitChat);
   } finally {
     elements.analysisRun.disabled = false;
@@ -4027,7 +4084,11 @@ async function runAiAnalysis({ emitChat = true } = {}) {
 function appendChatBubble(text, role) {
   const bubble = document.createElement('div');
   bubble.className = `chat-bubble ${role}`;
-  bubble.textContent = text;
+  if (role === 'assistant' || role === 'system') {
+    bubble.innerHTML = formatBriefingText(text);
+  } else {
+    bubble.textContent = text;
+  }
   elements.chatLog.appendChild(bubble);
   elements.chatLog.scrollTop = elements.chatLog.scrollHeight;
   return bubble;
@@ -4060,7 +4121,7 @@ async function sendChatMessage() {
     if (err.message === 'missing_api_key') {
       typing.textContent = 'Add an OpenAI API key in Settings.';
     } else if (err.message === 'assistant_unavailable') {
-      typing.textContent = 'AI analysis is unavailable in static mode. Enable a server proxy to use chat.';
+      typing.textContent = 'AI chat requires a proxy on GitHub Pages.';
     } else {
       typing.textContent = `Assistant error: ${err.message}`;
     }
@@ -4156,10 +4217,10 @@ function getMapItems() {
 }
 
 function renderLocal() {
-  let items = getLocalItems();
+  let items = getLocalItems().filter((item) => !item.mapOnly);
   if (!items.length) {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
-      .filter((item) => item.tags?.includes('us'))
+      .filter((item) => item.tags?.includes('us') && !item.mapOnly)
       .slice(0, 6);
   }
   renderList(elements.localList, items.slice(0, 6));
@@ -4170,6 +4231,12 @@ function renderCategory(category, container) {
   if (!items.length && globalFallbackCategories.has(category)) {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
       .filter((item) => item.category === category);
+  }
+  const originalItems = items;
+  items = items.filter((item) => !item.mapOnly);
+  if (category === 'health' && !items.length && originalItems.length) {
+    container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
+    return;
   }
   if (category === 'health' && items.length) {
     if (state.settings.mapLayers.health) {
@@ -4195,7 +4262,13 @@ function renderCategory(category, container) {
 function renderCombined(categories, container) {
   let items = state.scopedItems.filter((item) => categories.includes(item.category));
   if (categories.includes('weather') || categories.includes('disaster') || categories.includes('space')) {
-    items = dedupeItems(items);
+    items = dedupeItems(items.map((item) => ({
+      ...item,
+      _dedupeKey: `${normalizeTitle(item.alertType || '')}|${normalizeTitle(item.title || '')}|${normalizeTitle(item.location || item.geoLabel || '')}`
+    }))).map((item) => {
+      const { _dedupeKey, ...rest } = item;
+      return rest;
+    });
   }
   renderList(container, items.slice(0, 6));
 }
@@ -4380,7 +4453,7 @@ function renderTravelTicker() {
       const parts = [];
       if (item.severity) parts.push(`<span class="map-travel-chip">${item.severity}</span>`);
       if (item.regionTag) parts.push(`<span class="map-travel-chip">${item.regionTag}</span>`);
-      parts.push(`<span class="map-travel-text">${item.title}</span>`);
+      parts.push(`<span class="map-travel-text">${truncateText(item.title || '', 120)}</span>`);
       link.innerHTML = parts.join('');
       group.appendChild(link);
     });
@@ -4894,13 +4967,21 @@ function updateChatStatus() {
     bubble.className = 'chat-bubble system';
     elements.chatLog.prepend(bubble);
   }
+  const key = state.keys.openai?.key;
   if (isStaticMode()) {
+    const proxyUrl = getOpenAiProxy();
+    if (proxyUrl) {
+      bubble.textContent = key
+        ? 'AI connected via proxy (using your key).'
+        : 'AI connected via proxy. Add a key to override.';
+      return;
+    }
     if (state.settings.superMonitor) {
       bubble.textContent = state.keys.openai?.key
-        ? 'Super Monitor Mode: OpenAI is enabled in-browser.'
-        : 'Super Monitor Mode is on. Add an OpenAI key to enable chat.';
+        ? 'Super Monitor Mode: OpenAI key stored (proxy required on GitHub Pages).'
+        : 'Super Monitor Mode is on. Add an OpenAI key; chat still needs a proxy.';
     } else {
-      bubble.textContent = 'Static mode: AI chat is unavailable. Briefings use the cached snapshot when available.';
+      bubble.textContent = 'Static mode: AI chat needs a proxy. Briefings use the cached snapshot when available.';
     }
     return;
   }
