@@ -3516,10 +3516,14 @@ function renderCategory(category, container) {
       .filter((item) => item.category === category);
   }
   if (category === 'health' && items.length) {
-    const uniqueFeeds = new Set(items.map((item) => item.feedId));
-    if (uniqueFeeds.size === 1 && uniqueFeeds.has('openaq-api') && state.settings.mapLayers.health) {
-      container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
-      return;
+    if (state.settings.mapLayers.health) {
+      const nonAir = items.filter((item) => item.feedId !== 'openaq-api');
+      if (nonAir.length) {
+        items = nonAir;
+      } else {
+        container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
+        return;
+      }
     }
   }
   if (category === 'crypto') {
