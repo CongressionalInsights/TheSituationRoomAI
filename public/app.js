@@ -38,7 +38,7 @@ const state = {
     showStatus: true,
     showTravelTicker: true,
     showKeys: true,
-    liveSearch: false,
+    liveSearch: true,
     tickerWatchlist: [],
     mapLayers: {
       weather: true,
@@ -323,7 +323,7 @@ function loadSettings() {
         state.settings.showKeys = true;
       }
       if (typeof state.settings.liveSearch !== 'boolean') {
-        state.settings.liveSearch = false;
+        state.settings.liveSearch = true;
       }
       if (!Array.isArray(state.settings.tickerWatchlist)) {
         state.settings.tickerWatchlist = [];
@@ -333,7 +333,7 @@ function loadSettings() {
       state.settings.showStatus = true;
       state.settings.showTravelTicker = true;
       state.settings.showKeys = true;
-      state.settings.liveSearch = false;
+      state.settings.liveSearch = true;
       state.settings.tickerWatchlist = [];
     }
   }
