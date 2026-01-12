@@ -20,7 +20,7 @@ Then open `http://localhost:5173`.
 
 ## API keys (in-app)
 - Open Settings → API Keys.
-- Paste your OpenAI key (BYO key) for chat + briefing.
+- For local/server mode, paste your OpenAI key (BYO key) for chat + briefing.
 - OpenAI keys are stored locally in browser storage and sent only to the `/api/chat` proxy.
 
 ## Panels & layout
@@ -36,7 +36,7 @@ Then open `http://localhost:5173`.
 - **Export Snapshot** downloads a JSON snapshot and saves a copy to `analysis/denario/snapshots/`.
 
 ## AI assistant + analysis
-- Add your OpenAI key under **OpenAI Assistant** in Settings → API Keys.
+- Add your OpenAI key under **OpenAI Assistant** in Settings → API Keys for local/server mode.
 - Chat, AI briefings, and AI query translation use `/api/chat` (OpenAI Responses API).
 - Optional: set `OPENAI_API_KEY` on the server if you prefer not to send the key from the browser.
 
@@ -51,11 +51,13 @@ GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snap
   - `EIA`
   - `NASA_FIRMS`
   - `OPEN_AQ`
+  - `OPEN_AI` (optional, enables build-time AI briefing cache)
+  - `analysis.json` is generated at build time if `OPEN_AI` is set.
 
 Static mode limits:
 - The **Refresh Now** button reloads cached JSON; it does not re-fetch live data.
 - Search queries are limited to the cached/default feed queries.
-- AI chat requires a server proxy (not available on pure static hosting).
+- AI chat requires a server proxy (not available on pure static hosting). The briefing panel uses the cached `analysis.json` when available.
 
 ### Configure static mode (default)
 `public/config.js` sets `staticMode = true` when served from `*.github.io`. No extra configuration is required for GitHub Pages.

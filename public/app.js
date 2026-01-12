@@ -21,6 +21,7 @@ const state = {
   searchCategories: [],
   translationCache: {},
   translationInFlight: new Set(),
+  staticAnalysis: null,
   customTickers: [],
   settings: {
     refreshMinutes: 60,
@@ -224,7 +225,7 @@ const categoryLabels = {
   local: 'Local'
 };
 const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'local'];
-const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel']);
+const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health']);
 const severityLabels = [
   { min: 8, label: 'Great' },
   { min: 7, label: 'Major' },
@@ -356,6 +357,25 @@ function loadGeoCache() {
 
 function saveGeoCache() {
   localStorage.setItem('situationRoomGeoCache', JSON.stringify(state.geoCache));
+}
+
+async function loadStaticAnalysis() {
+  if (!isStaticMode()) return null;
+  try {
+    const url = getAssetUrl(`/data/analysis.json?ts=${Date.now()}`);
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error('analysis_fetch_failed');
+    const payload = await response.json();
+    if (!payload || !payload.text) {
+      state.staticAnalysis = null;
+      return null;
+    }
+    state.staticAnalysis = payload;
+    return payload;
+  } catch (err) {
+    state.staticAnalysis = null;
+    return null;
+  }
 }
 
 function loadPanelState() {
@@ -794,7 +814,7 @@ function getKeyFeeds() {
     .filter((feed) => !isServerManagedKey(feed))
     .filter((feed) => feed.requiresKey || feed.keyParam || feed.keyHeader || (feed.tags || []).includes('key'))
     .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || docsMap[feed.id] }));
-  if (!keyFeeds.find((feed) => feed.id === 'openai')) {
+  if (!isStaticMode() && !keyFeeds.find((feed) => feed.id === 'openai')) {
     keyFeeds.unshift({
       id: 'openai',
       name: 'OpenAI Assistant',
@@ -850,6 +870,17 @@ function buildKeyManager(filterCategory) {
   header.appendChild(title);
   header.appendChild(actions);
   elements.keyManager.appendChild(header);
+
+  if (isStaticMode()) {
+    const note = document.createElement('div');
+    note.className = 'settings-note';
+    note.textContent = 'Static mode is active. API keys are not used in the browser; data comes from the published cache. OpenAI briefings are generated at build time if OPEN_AI is configured in GitHub Actions.';
+    elements.keyManager.appendChild(note);
+    if (!displayFeeds.length) {
+      elements.keyManager.innerHTML += '<div class="settings-note">No client-side keys are required for this deployment.</div>';
+    }
+    return;
+  }
 
   const serverManaged = state.feeds.filter((feed) => isServerManagedKey(feed));
   if (serverManaged.length) {
@@ -2950,7 +2981,7 @@ function renderList(container, items, { withCoverage = false } = {}) {
 }
 
 function renderNews(clusters) {
-  const items = clusters.map((cluster) => ({
+  const items = clusters.slice(0, 12).map((cluster) => ({
     title: cluster.primary.title,
     source: Array.from(cluster.sources).slice(0, 2).join(', '),
     summary: cluster.primary.summary,
@@ -3124,6 +3155,11 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
 }
 
 function generateAnalysis(emitChat = false) {
+  if (isStaticMode() && state.staticAnalysis?.text) {
+    const stamp = state.staticAnalysis.generatedAt ? `\n\nUpdated ${toRelativeTime(state.staticAnalysis.generatedAt)}` : '';
+    setAnalysisOutput(`${state.staticAnalysis.text}${stamp}`);
+    return;
+  }
   const totalItems = state.scopedItems.length;
   const newsClusters = state.clusters.length;
   const localCount = getLocalItems().length;
@@ -4035,6 +4071,10 @@ function updateChatStatus() {
     bubble.className = 'chat-bubble system';
     elements.chatLog.prepend(bubble);
   }
+  if (isStaticMode()) {
+    bubble.textContent = 'Static mode: AI chat is unavailable. Briefings use the cached snapshot when available.';
+    return;
+  }
   bubble.textContent = state.keys.openai?.key
     ? 'AI connected. Ask a question or request a briefing.'
     : 'Connect an AI provider to enable live responses.';
@@ -4065,6 +4105,9 @@ async function refreshAll(force = false) {
   setRefreshing(true);
   setHealth('Fetching feeds');
   try {
+    if (isStaticMode()) {
+      await loadStaticAnalysis();
+    }
     const results = await Promise.all(state.feeds.map((feed) => {
       const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
       return fetchFeed(feed, query, force).catch(() => ({
@@ -4605,6 +4648,7 @@ async function init() {
   if (params.has('about') || window.location.hash === '#about') {
     toggleAbout(true);
   }
+  await loadStaticAnalysis();
   await refreshAll();
   startAutoRefresh();
 }

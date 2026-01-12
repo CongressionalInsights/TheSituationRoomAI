@@ -52,11 +52,118 @@ function applyKey(url, feed, key) {
   return { url, headers: {} };
 }
 
-async function fetchWithTimeout(url, headers = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+function decodeHtml(value) {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, '\'')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+}
+
+function decodeJsonString(value) {
   try {
-    const response = await fetch(url, { headers, signal: controller.signal });
+    return JSON.parse(`"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+  } catch {
+    return value;
+  }
+}
+
+function extractTitlesFromPayload(feed, payload) {
+  if (!payload?.body) return [];
+  const titles = new Set();
+  const source = payload.body;
+  const feedName = (feed?.name || '').toLowerCase();
+
+  const pushTitle = (raw) => {
+    const cleaned = decodeHtml(decodeJsonString(raw))
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned || cleaned.length < 8 || cleaned.length > 180) return;
+    const lower = cleaned.toLowerCase();
+    if (feedName && lower.includes(feedName) && cleaned.length - feedName.length < 12) return;
+    if (lower.includes('rss') && cleaned.length < 24) return;
+    titles.add(cleaned);
+  };
+
+  const titleRegex = /<title[^>]*>([^<]{4,200})<\/title>/gi;
+  for (const match of source.matchAll(titleRegex)) {
+    pushTitle(match[1]);
+  }
+
+  const jsonTitleRegex = /"title"\s*:\s*"([^"]{4,200})"/g;
+  for (const match of source.matchAll(jsonTitleRegex)) {
+    pushTitle(match[1]);
+  }
+
+  return Array.from(titles);
+}
+
+async function buildAnalysis(feedPayloads) {
+  const allTitles = [];
+  feedPayloads.forEach(({ feed, payload }) => {
+    extractTitlesFromPayload(feed, payload).forEach((title) => allTitles.push(title));
+  });
+  const uniqueTitles = Array.from(new Set(allTitles)).slice(0, 60);
+  const generatedAt = new Date().toISOString();
+
+  const fallback = {
+    generatedAt,
+    source: 'fallback',
+    text: uniqueTitles.length
+      ? `Top signals:\n${uniqueTitles.slice(0, 8).map((title) => `- ${title}`).join('\n')}`
+      : 'No signals available for briefing.'
+  };
+
+  const openaiKey = process.env.OPEN_AI || process.env.OPENAI_API_KEY;
+  if (!openaiKey || uniqueTitles.length < 4) {
+    return fallback;
+  }
+
+  const prompt = `Provide a concise situational briefing based on these headlines. Return 3 bullet sections with short labels.\n\nHeadlines:\n${uniqueTitles.map((title) => `- ${title}`).join('\n')}`;
+  try {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        input: [
+          { role: 'system', content: 'You are an intelligence analyst. Produce a concise situational briefing with labeled bullet sections.' },
+          { role: 'user', content: prompt }
+        ],
+        max_output_tokens: 320
+      })
+    }, 20000);
+    if (!response.ok) {
+      return fallback;
+    }
+    const data = await response.json();
+    const outputText = data?.output_text
+      || (Array.isArray(data?.output)
+        ? data.output.map((item) => (item.content || []).map((c) => c.text || '').join('')).join('\n')
+        : '');
+    if (!outputText) return fallback;
+    return {
+      generatedAt,
+      source: 'openai',
+      text: outputText.trim()
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
+  const hasOptions = options && typeof options === 'object' && ('headers' in options || 'method' in options || 'body' in options);
+  const fetchOptions = hasOptions ? { ...options } : { headers: options };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
     return response;
   } finally {
     clearTimeout(timer);
@@ -194,12 +301,14 @@ async function main() {
   await mkdir(FEED_DIR, { recursive: true });
 
   const feedPayloads = [];
+  const analysisInputs = [];
   for (const feed of feedsConfig.feeds) {
     if (!feed.url && !feed.requiresConfig) continue;
     try {
       const payload = await buildFeedPayload(feed);
       await writeJson(join(FEED_DIR, `${feed.id}.json`), payload);
       feedPayloads.push({ id: feed.id, ok: !payload.error });
+      analysisInputs.push({ feed, payload });
     } catch (err) {
       const payload = {
         id: feed.id,
@@ -209,6 +318,7 @@ async function main() {
       };
       await writeJson(join(FEED_DIR, `${feed.id}.json`), payload);
       feedPayloads.push({ id: feed.id, ok: false });
+      analysisInputs.push({ feed, payload });
     }
   }
 
@@ -220,6 +330,9 @@ async function main() {
 
   const energyMap = await buildEnergyMap();
   await writeJson(join(OUT_DIR, 'energy-map.json'), energyMap);
+
+  const analysis = await buildAnalysis(analysisInputs);
+  await writeJson(join(OUT_DIR, 'analysis.json'), analysis);
 
   await writeJson(join(OUT_DIR, 'unavailable.json'), {
     error: 'static_mode',

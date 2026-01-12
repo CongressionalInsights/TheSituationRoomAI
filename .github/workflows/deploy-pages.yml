@@ -28,6 +28,7 @@ jobs:
           EIA: ${{ secrets.EIA }}
           NASA_FIRMS: ${{ secrets.NASA_FIRMS }}
           OPEN_AQ: ${{ secrets.OPEN_AQ }}
+          OPEN_AI: ${{ secrets.OPEN_AI }}
         run: node scripts/build_static_cache.mjs
       - name: Publish static site
         uses: peaceiris/actions-gh-pages@v3
