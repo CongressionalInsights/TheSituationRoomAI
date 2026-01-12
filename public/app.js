@@ -190,7 +190,7 @@ const defaultPanelSizes = {
 };
 
 const stopwords = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have']);
-const allowedSummaryTags = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'ul', 'ol', 'li', 'span', 'a', 'font']);
+const allowedSummaryTags = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'span', 'a', 'font']);
 const docsMap = {
   openai: 'https://platform.openai.com/api-keys'
 };
@@ -1693,6 +1693,14 @@ function stripHtml(input) {
   return doc.body.textContent || '';
 }
 
+function truncateText(text, maxChars) {
+  if (!text) return '';
+  if (text.length <= maxChars) return text;
+  const trimmed = text.slice(0, maxChars);
+  const lastSpace = trimmed.lastIndexOf(' ');
+  return `${trimmed.slice(0, lastSpace > 80 ? lastSpace : maxChars).trim()}…`;
+}
+
 function normalizeSummary(rawDesc, rawHtml) {
   const raw = rawHtml && rawHtml !== rawDesc ? rawHtml : rawDesc;
   if (!raw) return { summary: rawDesc || '', summaryHtml: '' };
@@ -2912,12 +2920,16 @@ function renderList(container, items, { withCoverage = false } = {}) {
 
     const summary = document.createElement('div');
     summary.className = 'list-summary';
+    const isNewsList = contextId === 'newsList';
+    const rawSummaryText = item.summary || stripHtml(item.summaryHtml || '');
     if (item.translatedSummary) {
       summary.textContent = item.translatedSummary;
-    } else if (item.summaryHtml) {
+    } else if (item.summaryHtml && !isNewsList) {
       summary.innerHTML = sanitizeHtml(item.summaryHtml);
     } else {
-      summary.textContent = item.summary || '';
+      summary.textContent = isNewsList
+        ? truncateText(rawSummaryText, 240)
+        : rawSummaryText;
     }
 
     div.appendChild(title);
