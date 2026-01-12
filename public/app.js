@@ -26,6 +26,7 @@ const state = {
   translationInFlight: new Set(),
   staticAnalysis: null,
   customTickers: [],
+  listLimits: {},
   settings: {
     refreshMinutes: 60,
     theme: 'system',
@@ -270,6 +271,23 @@ const categoryLabels = {
 };
 const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
 const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health']);
+const listDefaults = {
+  newsList: 10,
+  financeMarketsList: 6,
+  financePolicyList: 6,
+  cryptoList: 6,
+  disasterList: 6,
+  localList: 6,
+  policyList: 6,
+  cyberList: 6,
+  agricultureList: 6,
+  researchList: 6,
+  spaceList: 6,
+  energyList: 6,
+  healthList: 6,
+  transportList: 6
+};
+const listPageSize = 6;
 const severityLabels = [
   { min: 8, label: 'Great' },
   { min: 7, label: 'Major' },
@@ -2451,6 +2469,22 @@ function normalizeSummary(rawDesc, rawHtml) {
   return { summary: rawDesc || decoded, summaryHtml: '' };
 }
 
+function getListLimit(id) {
+  if (!id) return 6;
+  if (!(id in state.listLimits)) {
+    state.listLimits[id] = listDefaults[id] ?? 6;
+  }
+  return state.listLimits[id];
+}
+
+function bumpListLimit(id, total) {
+  if (!id) return false;
+  const current = getListLimit(id);
+  if (current >= total) return false;
+  state.listLimits[id] = Math.min(total, current + listPageSize);
+  return true;
+}
+
 function sanitizeHtml(input) {
   if (!input) return '';
   let safeInput = input;
@@ -3734,10 +3768,15 @@ function buildListBadges(item, contextId) {
     .slice(0, 4);
 }
 
-function renderList(container, items, { withCoverage = false } = {}) {
-  container.innerHTML = '';
+function renderList(container, items, { withCoverage = false, append = false } = {}) {
+  if (!container) return;
+  if (!append) {
+    container.innerHTML = '';
+  }
   if (!items.length) {
-    container.innerHTML = '<div class="list-item">No signals yet.</div>';
+    if (!append) {
+      container.innerHTML = '<div class="list-item">No signals yet.</div>';
+    }
     return;
   }
   let rendered = 0;
@@ -3807,23 +3846,15 @@ function renderList(container, items, { withCoverage = false } = {}) {
       translateItem(item, title, summary);
     }
   });
-  if (!rendered) {
+  if (!rendered && !append) {
     container.innerHTML = '<div class="list-item">No signals yet.</div>';
   }
 }
 
 function renderNews(clusters) {
-  const items = clusters.slice(0, 6).map((cluster, index) => ({
-    title: cluster.primary.title,
-    source: Array.from(cluster.sources).slice(0, 2).join(', '),
-    summary: index < 3 ? truncateText(stripHtml(cluster.primary.summaryHtml || cluster.primary.summary || ''), 240) : '',
-    summaryHtml: '',
-    publishedAt: cluster.updatedAt,
-    coverage: cluster.sources.size,
-    url: cluster.primary.url,
-    isNonEnglish: cluster.primary.isNonEnglish
-  }));
-  renderList(elements.newsList, items, { withCoverage: true });
+  const items = buildNewsItems(clusters);
+  const limit = Math.min(getListLimit(elements.newsList?.id), items.length);
+  renderList(elements.newsList, items.slice(0, limit), { withCoverage: true });
 }
 
 function renderSignals() {
@@ -3885,6 +3916,44 @@ function renderSignals() {
     localItems: localItems.length,
     marketCount
   };
+}
+
+function buildNewsItems(clusters) {
+  return clusters.map((cluster, index) => ({
+    title: cluster.primary.title,
+    source: Array.from(cluster.sources).slice(0, 2).join(', '),
+    summary: index < 3 ? truncateText(stripHtml(cluster.primary.summaryHtml || cluster.primary.summary || ''), 240) : '',
+    summaryHtml: '',
+    publishedAt: cluster.updatedAt,
+    coverage: cluster.sources.size,
+    url: cluster.primary.url,
+    isNonEnglish: cluster.primary.isNonEnglish
+  }));
+}
+
+function getLocalItemsForPanel() {
+  let items = getLocalItems().filter((item) => !item.mapOnly);
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.tags?.includes('us') && !item.mapOnly);
+  }
+  return items;
+}
+
+function getEnergyNewsItems() {
+  let items = state.scopedItems.filter((item) => item.feedId === 'eia-today');
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.feedId === 'eia-today');
+  }
+  if (!items.length) {
+    items = state.scopedItems.filter((item) => item.category === 'energy');
+  }
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.category === 'energy');
+  }
+  return dedupeItems(items);
 }
 
 function renderFeedHealth() {
@@ -4294,16 +4363,12 @@ function getMapItems() {
 }
 
 function renderLocal() {
-  let items = getLocalItems().filter((item) => !item.mapOnly);
-  if (!items.length) {
-    items = applyLanguageFilter(applyFreshnessFilter(state.items))
-      .filter((item) => item.tags?.includes('us') && !item.mapOnly)
-      .slice(0, 6);
-  }
-  renderList(elements.localList, items.slice(0, 6));
+  const items = getLocalItemsForPanel();
+  const limit = Math.min(getListLimit(elements.localList?.id), items.length);
+  renderList(elements.localList, items.slice(0, limit));
 }
 
-function renderCategory(category, container) {
+function getCategoryItems(category) {
   let items = state.scopedItems.filter((item) => item.category === category);
   if (!items.length && globalFallbackCategories.has(category)) {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
@@ -4312,8 +4377,7 @@ function renderCategory(category, container) {
   const originalItems = items;
   items = items.filter((item) => !item.mapOnly);
   if (category === 'health' && !items.length && originalItems.length) {
-    container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
-    return;
+    return { items: [], mapOnlyNotice: true };
   }
   if (category === 'health' && items.length) {
     if (state.settings.mapLayers.health) {
@@ -4321,8 +4385,7 @@ function renderCategory(category, container) {
       if (nonAir.length) {
         items = nonAir;
       } else {
-        container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
-        return;
+        return { items: [], mapOnlyNotice: true };
       }
     }
   }
@@ -4332,11 +4395,21 @@ function renderCategory(category, container) {
   if (category === 'research') {
     items = dedupeItems(items);
   }
-  items = items.slice(0, 6);
-  renderList(container, items);
+  return { items, mapOnlyNotice: false };
 }
 
-function renderCombined(categories, container) {
+function renderCategory(category, container) {
+  if (!container) return;
+  const { items, mapOnlyNotice } = getCategoryItems(category);
+  if (mapOnlyNotice) {
+    container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
+    return;
+  }
+  const limit = Math.min(getListLimit(container.id), items.length);
+  renderList(container, items.slice(0, limit));
+}
+
+function getCombinedItems(categories) {
   let items = state.scopedItems.filter((item) => categories.includes(item.category));
   if (categories.includes('weather') || categories.includes('disaster') || categories.includes('space')) {
     items = dedupeItems(items.map((item) => ({
@@ -4347,25 +4420,21 @@ function renderCombined(categories, container) {
       return rest;
     });
   }
-  renderList(container, items.slice(0, 6));
+  return items;
+}
+
+function renderCombined(categories, container) {
+  if (!container) return;
+  const items = getCombinedItems(categories);
+  const limit = Math.min(getListLimit(container.id), items.length);
+  renderList(container, items.slice(0, limit));
 }
 
 function renderEnergyNews() {
   if (!elements.energyList) return;
-  let items = state.scopedItems.filter((item) => item.feedId === 'eia-today');
-  if (!items.length) {
-    items = applyLanguageFilter(applyFreshnessFilter(state.items))
-      .filter((item) => item.feedId === 'eia-today');
-  }
-  if (!items.length) {
-    items = state.scopedItems.filter((item) => item.category === 'energy');
-  }
-  if (!items.length) {
-    items = applyLanguageFilter(applyFreshnessFilter(state.items))
-      .filter((item) => item.category === 'energy');
-  }
-  items = dedupeItems(items).slice(0, 6);
-  renderList(elements.energyList, items);
+  const items = getEnergyNewsItems();
+  const limit = Math.min(getListLimit(elements.energyList.id), items.length);
+  renderList(elements.energyList, items.slice(0, limit));
 }
 
 async function loadEnergyGeoJson() {
@@ -4563,6 +4632,40 @@ function renderAllPanels() {
   renderTravelTicker();
   renderFinanceSpotlight();
   updatePanelTimestamps();
+}
+
+function initInfiniteScroll() {
+  const configs = [
+    { id: 'newsList', withCoverage: true, getItems: () => buildNewsItems(state.clusters) },
+    { id: 'financeMarketsList', getItems: () => getCombinedItems(['finance', 'energy']) },
+    { id: 'financePolicyList', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
+    { id: 'cryptoList', getItems: () => getCategoryItems('crypto').items },
+    { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
+    { id: 'localList', getItems: () => getLocalItemsForPanel() },
+    { id: 'policyList', getItems: () => getCategoryItems('gov').items },
+    { id: 'cyberList', getItems: () => getCategoryItems('cyber').items },
+    { id: 'agricultureList', getItems: () => getCategoryItems('agriculture').items },
+    { id: 'researchList', getItems: () => getCategoryItems('research').items },
+    { id: 'spaceList', getItems: () => getCategoryItems('space').items },
+    { id: 'energyList', getItems: () => getEnergyNewsItems() },
+    { id: 'healthList', getItems: () => getCategoryItems('health').items },
+    { id: 'transportList', getItems: () => getCategoryItems('transport').items }
+  ];
+
+  configs.forEach((config) => {
+    const container = document.getElementById(config.id);
+    if (!container) return;
+    container.addEventListener('scroll', () => {
+      if (container.scrollTop + container.clientHeight < container.scrollHeight - 60) return;
+      const items = config.getItems();
+      if (!items || !items.length) return;
+      const current = getListLimit(config.id);
+      if (current >= items.length) return;
+      const next = Math.min(items.length, current + listPageSize);
+      state.listLimits[config.id] = next;
+      renderList(container, items.slice(current, next), { withCoverage: config.withCoverage, append: true });
+    });
+  });
 }
 
 function initMap() {
@@ -5836,6 +5939,7 @@ async function init() {
   attachKeyButtons();
   initMap();
   initEvents();
+  initInfiniteScroll();
   ensurePanelUpdateBadges();
   renderWatchlistChips();
   requestLocation();
