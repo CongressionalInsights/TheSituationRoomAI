@@ -2185,7 +2185,7 @@ const feedParsers = {
   'energy-eia-brent': parseEiaSeries,
   'energy-eia-ng': parseEiaSeries,
   'stooq-quote': parseStooqCsv,
-  'opensky-states': (data, feed) => {
+  'transport-opensky': (data, feed) => {
     const states = Array.isArray(data?.states) ? data.states : [];
     if (!states.length) return [];
     const sampled = states
@@ -4633,7 +4633,7 @@ function getSignalType(item) {
   if (item.feedId?.startsWith('arcgis-noaa-')) return 'warning';
   if (item.feedId === 'arcgis-power-plants') return 'power';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
-  if (item.feedId === 'opensky-states') return 'air';
+  if (item.feedId === 'transport-opensky') return 'air';
   if (item.category === 'travel') return 'travel';
   if (item.category === 'weather') return 'weather';
   if (item.category === 'disaster') return 'disaster';

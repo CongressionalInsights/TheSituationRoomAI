@@ -337,16 +337,6 @@
     },
     {
       "id": "transport-opensky",
-      "name": "OpenSky Network (configure)",
-      "category": "transport",
-      "format": "json",
-      "requiresConfig": true,
-      "url": "",
-      "ttlMinutes": 30,
-      "tags": ["global", "transport"]
-    },
-    {
-      "id": "opensky-states",
       "name": "OpenSky Air Traffic",
       "category": "transport",
       "format": "json",
@@ -459,8 +449,7 @@
       "name": "GovInfo RSS (custom feed URL)",
       "category": "gov",
       "format": "rss",
-      "requiresConfig": true,
-      "url": "",
+      "url": "https://www.govinfo.gov/rss/bills.xml",
       "ttlMinutes": 60,
       "tags": ["us", "gov"]
     },
