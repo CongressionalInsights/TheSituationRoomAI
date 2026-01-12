@@ -170,10 +170,10 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = []) {
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS) {
   let primaryResponse = null;
   try {
-    primaryResponse = await fetchWithTimeout(url, headers);
+    primaryResponse = await fetchWithTimeout(url, headers, timeoutMs);
     if (primaryResponse.ok) return primaryResponse;
   } catch (err) {
     primaryResponse = null;
@@ -191,7 +191,7 @@ async function fetchWithFallbacks(url, headers, proxies = []) {
   let lastError = null;
   for (const fallbackUrl of fallbackUrls) {
     try {
-      const response = await fetchWithTimeout(fallbackUrl, headers);
+      const response = await fetchWithTimeout(fallbackUrl, headers, timeoutMs);
       if (response.ok) return response;
       lastResponse = lastResponse || response;
     } catch (err) {
@@ -235,7 +235,7 @@ async function buildFeedPayload(feed) {
   };
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
-  const response = await fetchWithFallbacks(applied.url, headers, proxyList);
+  const response = await fetchWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
   const contentType = response.headers.get('content-type') || 'text/plain';
   const body = await response.text();
   const payload = {

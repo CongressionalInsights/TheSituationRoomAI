@@ -1572,8 +1572,11 @@ function normalizeOpenAIError(err) {
       message: 'Browser blocked the request (CORS). Key saved; use local server or a proxy.'
     };
   }
-  if (lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) {
+  if ((lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) && !isStaticMode()) {
     return { status: 'invalid', message: message || 'Invalid API key' };
+  }
+  if (lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) {
+    return { status: 'error', message: 'OpenAI request blocked on static hosting. Use local server for live chat.' };
   }
   if (lower.includes('rate') || lower.includes('429')) {
     return { status: 'rate_limited', message: message || 'Rate limited' };
