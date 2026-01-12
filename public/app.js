@@ -4466,6 +4466,13 @@ function getLayerColor(layer) {
 function getSignalType(item) {
   if (!item) return 'news';
   if (item.feedId === 'usgs-quakes-hour' || item.feedId === 'usgs-quakes-day') return 'quake';
+  if (item.feedId === 'arcgis-border-crisis') return 'border';
+  if (item.feedId === 'arcgis-kinetic-oconus' || item.feedId === 'arcgis-kinetic-domestic') return 'kinetic';
+  if (item.feedId === 'arcgis-drone-reports') return 'drone';
+  if (item.feedId === 'arcgis-logistics-shortages') return 'logistics';
+  if (item.feedId === 'arcgis-hms-fire') return 'fire';
+  if (item.feedId?.startsWith('arcgis-noaa-')) return 'warning';
+  if (item.feedId === 'arcgis-power-plants') return 'power';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId === 'opensky-states') return 'air';
   if (item.category === 'travel') return 'travel';
@@ -4481,6 +4488,13 @@ function getSignalType(item) {
 
 function getSignalIcon(type) {
   if (type === 'quake') return 'Q';
+  if (type === 'border') return 'B';
+  if (type === 'kinetic') return 'K';
+  if (type === 'drone') return 'V';
+  if (type === 'logistics') return 'L';
+  if (type === 'fire') return 'F';
+  if (type === 'warning') return 'W';
+  if (type === 'power') return 'P';
   if (type === 'travel') return 'T';
   if (type === 'air') return 'A';
   if (type === 'health') return 'H';
@@ -4624,10 +4638,12 @@ function drawMap() {
 
     if (zoomLevel >= 3) {
       ctx.fillStyle = '#0a0f14';
-      ctx.font = '700 10px "Atkinson Hyperlegible", sans-serif';
+      const iconText = cluster.icon || 'N';
+      const fontSize = iconText.length > 1 ? 9 : 10;
+      ctx.font = `700 ${fontSize}px "Atkinson Hyperlegible", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(cluster.icon || 'N', cluster.x, cluster.y);
+      ctx.fillText(iconText, cluster.x, cluster.y);
     }
   });
 

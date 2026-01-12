@@ -1828,6 +1828,27 @@ a:focus-visible {
   margin-bottom: 6px;
 }
 
+.legend-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(140, 170, 200, 0.18);
+}
+
+.legend-group:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.legend-group-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
 .legend-item {
   display: flex;
   align-items: center;

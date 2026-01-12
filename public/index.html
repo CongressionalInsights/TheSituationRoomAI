@@ -169,16 +169,34 @@
           </div>
           <div class="map-overlay" id="mapLegend">
             <div class="legend-title">Legend</div>
-            <label class="legend-item"><input id="legendWeather" name="legendWeather" type="checkbox" data-layer="weather" checked /> <span class="legend-dot dot-weather"></span> Weather</label>
-            <label class="legend-item"><input id="legendDisaster" name="legendDisaster" type="checkbox" data-layer="disaster" checked /> <span class="legend-dot dot-disaster"></span> Disasters</label>
-            <label class="legend-item"><input id="legendSpace" name="legendSpace" type="checkbox" data-layer="space" checked /> <span class="legend-dot dot-space"></span> Space Weather</label>
-            <label class="legend-item"><input id="legendTravel" name="legendTravel" type="checkbox" data-layer="travel" checked /> <span class="legend-dot dot-travel"></span> Travel Advisories</label>
-            <label class="legend-item"><input id="legendTransport" name="legendTransport" type="checkbox" data-layer="transport" checked /> <span class="legend-dot dot-transport"></span> Transport</label>
-            <label class="legend-item"><input id="legendSecurity" name="legendSecurity" type="checkbox" data-layer="security" checked /> <span class="legend-dot dot-security"></span> Security / Crisis</label>
-            <label class="legend-item"><input id="legendInfrastructure" name="legendInfrastructure" type="checkbox" data-layer="infrastructure" checked /> <span class="legend-dot dot-infra"></span> Infrastructure</label>
-            <label class="legend-item"><input id="legendHealth" name="legendHealth" type="checkbox" data-layer="health" checked /> <span class="legend-dot dot-health"></span> Air Quality</label>
-            <label class="legend-item"><input id="legendNews" name="legendNews" type="checkbox" data-layer="news" checked /> <span class="legend-dot dot-geo"></span> Geo-tagged News</label>
-            <label class="legend-item"><input id="legendLocal" name="legendLocal" type="checkbox" data-layer="local" checked /> <span class="legend-dot dot-local"></span> Local Radius</label>
+            <div class="legend-group">
+              <div class="legend-group-title">Hazards</div>
+              <label class="legend-item"><input id="legendWeather" name="legendWeather" type="checkbox" data-layer="weather" checked /> <span class="legend-dot dot-weather"></span> Weather</label>
+              <label class="legend-item"><input id="legendDisaster" name="legendDisaster" type="checkbox" data-layer="disaster" checked /> <span class="legend-dot dot-disaster"></span> Disasters</label>
+              <label class="legend-item"><input id="legendSpace" name="legendSpace" type="checkbox" data-layer="space" checked /> <span class="legend-dot dot-space"></span> Space Weather</label>
+            </div>
+            <div class="legend-group">
+              <div class="legend-group-title">Security & Crisis</div>
+              <label class="legend-item"><input id="legendSecurity" name="legendSecurity" type="checkbox" data-layer="security" checked /> <span class="legend-dot dot-security"></span> Security / Crisis</label>
+            </div>
+            <div class="legend-group">
+              <div class="legend-group-title">Infrastructure</div>
+              <label class="legend-item"><input id="legendInfrastructure" name="legendInfrastructure" type="checkbox" data-layer="infrastructure" checked /> <span class="legend-dot dot-infra"></span> Infrastructure</label>
+            </div>
+            <div class="legend-group">
+              <div class="legend-group-title">Mobility</div>
+              <label class="legend-item"><input id="legendTravel" name="legendTravel" type="checkbox" data-layer="travel" checked /> <span class="legend-dot dot-travel"></span> Travel Advisories</label>
+              <label class="legend-item"><input id="legendTransport" name="legendTransport" type="checkbox" data-layer="transport" checked /> <span class="legend-dot dot-transport"></span> Transport</label>
+            </div>
+            <div class="legend-group">
+              <div class="legend-group-title">Health</div>
+              <label class="legend-item"><input id="legendHealth" name="legendHealth" type="checkbox" data-layer="health" checked /> <span class="legend-dot dot-health"></span> Air Quality</label>
+            </div>
+            <div class="legend-group">
+              <div class="legend-group-title">Context</div>
+              <label class="legend-item"><input id="legendNews" name="legendNews" type="checkbox" data-layer="news" checked /> <span class="legend-dot dot-geo"></span> Geo-tagged News</label>
+              <label class="legend-item"><input id="legendLocal" name="legendLocal" type="checkbox" data-layer="local" checked /> <span class="legend-dot dot-local"></span> Local Radius</label>
+            </div>
           </div>
         </div>
       </section>
