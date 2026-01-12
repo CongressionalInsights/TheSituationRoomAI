@@ -272,6 +272,7 @@
       "name": "FDA MedWatch RSS",
       "category": "health",
       "format": "rss",
+      "proxy": "allorigins",
       "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml",
       "ttlMinutes": 180,
       "tags": ["us", "health"]
