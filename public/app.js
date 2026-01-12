@@ -1,3 +1,5 @@
+import { apiFetch, apiJson, getAssetUrl } from './services/api.js';
+
 const LAYOUT_VERSION = 2;
 
 const state = {
@@ -55,6 +57,7 @@ const state = {
   energyMapLayer: null,
   energyGeo: null,
   energyMapData: null,
+  energyMapError: null,
   energyMapFetchedAt: 0,
   refreshTimer: null,
   lastFetch: null,
@@ -189,12 +192,7 @@ const defaultPanelSizes = {
 const stopwords = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have']);
 const allowedSummaryTags = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'ul', 'ol', 'li', 'span', 'a', 'font']);
 const docsMap = {
-  openai: 'https://platform.openai.com/api-keys',
-  'energy-eia': 'https://www.eia.gov/opendata/',
-  'foia-api': 'https://www.foia.gov/developer/',
-  'govinfo-api': 'https://api.govinfo.gov/docs/',
-  'openaq-api': 'https://docs.openaq.org/',
-  'nasa-firms': 'https://firms.modaps.eosdis.nasa.gov/api/'
+  openai: 'https://platform.openai.com/api-keys'
 };
 const keyGroupLabels = {
   'api.data.gov': 'Data.gov (FOIA + GovInfo)',
@@ -787,8 +785,13 @@ function updateMapLegendUI() {
   });
 }
 
+function isServerManagedKey(feed) {
+  return feed?.keySource === 'server';
+}
+
 function getKeyFeeds() {
   const keyFeeds = state.feeds
+    .filter((feed) => !isServerManagedKey(feed))
     .filter((feed) => feed.requiresKey || feed.keyParam || feed.keyHeader || (feed.tags || []).includes('key'))
     .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || docsMap[feed.id] }));
   if (!keyFeeds.find((feed) => feed.id === 'openai')) {
@@ -804,6 +807,9 @@ function getKeyFeeds() {
 }
 
 function getKeyConfig(feed) {
+  if (isServerManagedKey(feed)) {
+    return { key: '', keyParam: '', keyHeader: '', groupId: feed.keyGroup || null, fromGroup: false, serverManaged: true };
+  }
   const localConfig = state.keys[feed.id] || {};
   const groupId = feed.keyGroup;
   const groupConfig = groupId ? state.keyGroups[groupId] || {} : {};
@@ -844,6 +850,14 @@ function buildKeyManager(filterCategory) {
   header.appendChild(title);
   header.appendChild(actions);
   elements.keyManager.appendChild(header);
+
+  const serverManaged = state.feeds.filter((feed) => isServerManagedKey(feed));
+  if (serverManaged.length) {
+    const note = document.createElement('div');
+    note.className = 'settings-note';
+    note.textContent = 'Server-managed keys: DATA_GOV, EIA, NASA_FIRMS, OPEN_AQ. Configure in the proxy.';
+    elements.keyManager.appendChild(note);
+  }
 
   const groupIds = [...new Set(displayFeeds.map((feed) => feed.keyGroup).filter(Boolean))];
   if (groupIds.length) {
@@ -1129,19 +1143,24 @@ async function testFeedKey(feed, statusEl) {
     return;
   }
 
-  const url = new URL('/api/feed', window.location.origin);
-  url.searchParams.set('id', feed.id);
-  url.searchParams.set('force', '1');
+  const params = new URLSearchParams();
+  params.set('id', feed.id);
+  params.set('force', '1');
   if (feed.supportsQuery && feed.defaultQuery) {
-    url.searchParams.set('query', feed.defaultQuery);
+    params.set('query', feed.defaultQuery);
   }
-  if (keyConfig.key) url.searchParams.set('key', keyConfig.key);
-  if (keyConfig.keyParam) url.searchParams.set('keyParam', keyConfig.keyParam);
-  if (keyConfig.keyHeader) url.searchParams.set('keyHeader', keyConfig.keyHeader);
+  if (keyConfig.key) {
+    params.set('key', keyConfig.key);
+    if (keyConfig.keyParam) params.set('keyParam', keyConfig.keyParam);
+    if (keyConfig.keyHeader) params.set('keyHeader', keyConfig.keyHeader);
+  }
 
   try {
-    const res = await fetch(url.toString());
-    const payload = await res.json();
+    const { data: payload, error } = await apiJson(`/api/feed?${params.toString()}`);
+    if (error || !payload) {
+      setKeyStatus(feed.id, 'error', statusEl, 'Feed API unreachable');
+      return;
+    }
     const derived = deriveKeyStatus(payload);
     const detail = payload.message || payload.error || (payload.httpStatus ? `HTTP ${payload.httpStatus}` : '');
     setKeyStatus(feed.id, derived, statusEl, detail);
@@ -2190,8 +2209,12 @@ async function geocodeItems(items, maxItems = 12) {
       }
 
       try {
-        const response = await fetch(`/api/geocode?q=${encodeURIComponent(candidate)}`);
-        const payload = await response.json();
+        const { data: payload, error } = await apiJson(`/api/geocode?q=${encodeURIComponent(candidate)}`);
+        if (error || !payload) {
+          state.geoCache[key] = { query: candidate, notFound: true };
+          saveGeoCache();
+          continue;
+        }
         state.geoCache[key] = payload;
         saveGeoCache();
         if (!payload.notFound && payload.lat) {
@@ -2211,18 +2234,18 @@ async function geocodeItems(items, maxItems = 12) {
 }
 
 async function fetchFeed(feed, query, force = false) {
-  const url = new URL('/api/feed', window.location.origin);
-  url.searchParams.set('id', feed.id);
-  if (query) url.searchParams.set('query', query);
-  if (force) url.searchParams.set('force', '1');
+  const params = new URLSearchParams();
+  params.set('id', feed.id);
+  if (query) params.set('query', query);
+  if (force) params.set('force', '1');
   const keyConfig = getKeyConfig(feed);
-  if (keyConfig.key) url.searchParams.set('key', keyConfig.key);
-  if (keyConfig.keyParam) url.searchParams.set('keyParam', keyConfig.keyParam);
-  if (keyConfig.keyHeader) url.searchParams.set('keyHeader', keyConfig.keyHeader);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
+  if (keyConfig.key) {
+    params.set('key', keyConfig.key);
+    if (keyConfig.keyParam) params.set('keyParam', keyConfig.keyParam);
+    if (keyConfig.keyHeader) params.set('keyHeader', keyConfig.keyHeader);
+  }
   try {
-    const res = await fetch(url.toString(), { signal: controller.signal });
+    const res = await apiFetch(`/api/feed?${params.toString()}`);
     const payload = await res.json();
     const items = payload.error ? [] : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
     const enriched = items.map((item) => ({ ...item, tags: feed.tags || [], feedId: feed.id, feedName: feed.name }));
@@ -2243,8 +2266,6 @@ async function fetchFeed(feed, query, force = false) {
       httpStatus: 0,
       fetchedAt: Date.now()
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -2654,15 +2675,6 @@ function getDistanceKm(item) {
   return haversineKm(lat, lon, item.geo.lat, item.geo.lon);
 }
 
-function getEiaKey() {
-  const groupKey = state.keyGroups?.eia?.key;
-  if (groupKey) return groupKey;
-  const direct = state.keys?.['energy-eia']?.key
-    || state.keys?.['energy-eia-brent']?.key
-    || state.keys?.['energy-eia-ng']?.key;
-  return direct || '';
-}
-
 function extractRegionFromText(text) {
   if (!text) return '';
   const upper = text.toUpperCase();
@@ -2980,7 +2992,7 @@ function renderSignals() {
   if (elements.signalHealthChip) {
     const degraded = criticalFeedIds
       .map((id) => state.feedStatus[id])
-      .filter((status) => status && status.error && status.error !== 'requires_key' && status.error !== 'requires_config');
+      .filter((status) => status && status.error && status.error !== 'requires_key' && status.error !== 'requires_config' && status.error !== 'missing_server_key');
     if (degraded.length) {
       elements.signalHealthChip.textContent = `Feed Health: Degraded (${degraded.length})`;
       elements.signalHealthChip.classList.add('degraded');
@@ -3029,6 +3041,7 @@ function renderFeedHealth() {
     meta.className = 'feed-health-meta';
     let message = entry.message;
     if (!message && entry.error === 'requires_key') message = 'Missing API key';
+    if (!message && entry.error === 'missing_server_key') message = 'Missing server API key';
     meta.textContent = message ? message : (entry.error ? entry.error : `HTTP ${entry.code}`);
     row.appendChild(name);
     row.appendChild(meta);
@@ -3080,7 +3093,7 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
   };
   if (model) payload.model = model;
 
-  const response = await fetch('/api/chat', {
+  const response = await apiFetch('/api/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -3254,7 +3267,7 @@ function exportSnapshot() {
   document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
 
-  fetch('/api/snapshot', {
+  apiFetch('/api/snapshot', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(snapshot)
@@ -3353,56 +3366,35 @@ function renderEnergyNews() {
 
 async function loadEnergyGeoJson() {
   if (state.energyGeo) return state.energyGeo;
-  const response = await fetch('/geo/us-states.geojson');
+  const response = await fetch(getAssetUrl('/geo/us-states.geojson'));
   const data = await response.json();
   state.energyGeo = data;
   return data;
 }
 
 async function fetchEnergyMapData() {
-  const key = getEiaKey();
-  if (!key) return null;
   const cacheTtl = 60 * 60 * 1000;
   if (state.energyMapData && Date.now() - state.energyMapFetchedAt < cacheTtl) {
     return state.energyMapData;
   }
-  const url = new URL('https://api.eia.gov/v2/electricity/retail-sales/data/');
-  url.searchParams.set('api_key', key);
-  url.searchParams.set('frequency', 'monthly');
-  url.searchParams.set('data[0]', 'price');
-  url.searchParams.set('facets[sectorid][]', 'RES');
-  url.searchParams.set('sort[0][column]', 'period');
-  url.searchParams.set('sort[0][direction]', 'desc');
-  url.searchParams.set('offset', '0');
-  url.searchParams.set('length', '200');
-
-  const response = await fetch(url.toString());
-  const data = await response.json();
-  const rows = Array.isArray(data?.response?.data) ? data.response.data : [];
-  const latestByState = {};
-  rows.forEach((row) => {
-    if (!row.stateid || latestByState[row.stateid]) return;
-    const value = Number(row.price);
-    if (!Number.isFinite(value)) return;
-    latestByState[row.stateid] = {
-      value,
-      period: row.period,
-      state: row.stateDescription || row.stateid
-    };
-  });
-  const values = Object.values(latestByState).map((entry) => entry.value);
-  const min = values.length ? Math.min(...values) : 0;
-  const max = values.length ? Math.max(...values) : 1;
-  const payload = {
-    period: rows[0]?.period || '',
-    units: rows[0]?.['price-units'] || 'cents/kWh',
-    values: latestByState,
-    min,
-    max
-  };
-  state.energyMapData = payload;
-  state.energyMapFetchedAt = Date.now();
-  return payload;
+  try {
+    const { data: payload, error } = await apiJson('/api/energy-map');
+    if (error || !payload) {
+      state.energyMapError = 'fetch_failed';
+      return null;
+    }
+    if (payload?.error) {
+      state.energyMapError = payload.error;
+      return null;
+    }
+    state.energyMapError = null;
+    state.energyMapData = payload;
+    state.energyMapFetchedAt = Date.now();
+    return payload;
+  } catch (err) {
+    state.energyMapError = 'fetch_failed';
+    return null;
+  }
 }
 
 function getEnergyMapColor(value, min, max) {
@@ -3417,18 +3409,21 @@ function getEnergyMapColor(value, min, max) {
 
 async function renderEnergyMap() {
   if (!elements.energyMap || !window.L) return;
-  const key = getEiaKey();
-  if (!key) {
-    if (elements.energyMapEmpty) elements.energyMapEmpty.style.display = 'flex';
-    return;
-  }
-  if (elements.energyMapEmpty) elements.energyMapEmpty.style.display = 'none';
-
   const [geo, energyData] = await Promise.all([
     loadEnergyGeoJson(),
     fetchEnergyMapData()
   ]);
-  if (!geo || !energyData) return;
+  if (!geo || !energyData) {
+    if (elements.energyMapEmpty) {
+      const message = state.energyMapError === 'missing_server_key'
+        ? 'Energy map needs the server EIA key to be configured.'
+        : 'Energy map unavailable right now.';
+      elements.energyMapEmpty.textContent = message;
+      elements.energyMapEmpty.style.display = 'flex';
+    }
+    return;
+  }
+  if (elements.energyMapEmpty) elements.energyMapEmpty.style.display = 'none';
 
   if (!state.energyMap) {
     state.energyMap = window.L.map(elements.energyMap, {
@@ -4080,7 +4075,7 @@ async function refreshAll(force = false) {
     state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
     state.lastFetch = Date.now();
     const issueCount = results.filter((result) => {
-      if (result.error === 'requires_key' || result.error === 'requires_config') return false;
+      if (result.error === 'requires_key' || result.error === 'requires_config' || result.error === 'missing_server_key') return false;
       return result.error || (result.httpStatus && result.httpStatus >= 400);
     }).length;
     setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
@@ -4163,7 +4158,7 @@ async function retryFailedFeeds() {
 
   renderFeedHealth();
   const issueCount = Object.values(state.feedStatus).filter((status) => {
-    if (status.error === 'requires_key' || status.error === 'requires_config') return false;
+    if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return false;
     return status.error || (status.httpStatus && status.httpStatus >= 400);
   }).length;
   setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
@@ -4556,9 +4551,21 @@ async function init() {
   initPanelResize();
   document.querySelectorAll('.key-chip').forEach((el) => el.remove());
 
-  const response = await fetch('/api/feeds');
-  const payload = await response.json();
-  state.feeds = payload.feeds.filter((feed) => feed.url || feed.requiresKey || feed.requiresConfig);
+  let payload;
+  try {
+    const result = await apiJson('/api/feeds');
+    payload = result.data;
+    if (result.error || !payload) {
+      throw new Error('Feed API unreachable');
+    }
+  } catch (err) {
+    setHealth('API offline');
+    if (elements.feedHealth) {
+      elements.feedHealth.innerHTML = '<div class="settings-note">Feed API unreachable. Check proxy configuration.</div>';
+    }
+    payload = { feeds: [] };
+  }
+  state.feeds = (payload.feeds || []).filter((feed) => feed.url || feed.requiresKey || feed.requiresConfig);
 
   buildFeedOptions();
   buildKeyManager();

@@ -12,6 +12,7 @@ const GEO_CACHE_PATH = normalize(join(__dirname, 'analysis', 'geo', 'geocode_cac
 const feedsConfig = JSON.parse(readFileSync(DATA, 'utf8'));
 const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
 const cache = new Map();
+const energyMapCache = { data: null, fetchedAt: 0 };
 let geoCache = {};
 let lastGeocodeAt = 0;
 const OPENAI_URL = 'https://api.openai.com/v1/responses';
@@ -230,6 +231,15 @@ function applyProxy(url, proxy) {
   return url;
 }
 
+function resolveServerKey(feed) {
+  if (feed.keySource !== 'server') return null;
+  if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
+  if (feed.keyGroup === 'eia') return process.env.EIA;
+  if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
+  return null;
+}
+
 async function fetchWithFallbacks(url, headers, proxies = []) {
   let primaryResponse = null;
   try {
@@ -275,6 +285,67 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
+async function fetchEnergyMap() {
+  const apiKey = process.env.EIA;
+  if (!apiKey) {
+    return { error: 'missing_server_key', message: 'Server EIA key required for energy map.' };
+  }
+
+  const ttlMs = 60 * 60 * 1000;
+  if (energyMapCache.data && Date.now() - energyMapCache.fetchedAt < ttlMs) {
+    return { data: energyMapCache.data };
+  }
+
+  const url = new URL('https://api.eia.gov/v2/electricity/retail-sales/data/');
+  url.searchParams.set('api_key', apiKey);
+  url.searchParams.set('frequency', 'monthly');
+  url.searchParams.set('data[0]', 'price');
+  url.searchParams.set('facets[sectorid][]', 'RES');
+  url.searchParams.set('sort[0][column]', 'period');
+  url.searchParams.set('sort[0][direction]', 'desc');
+  url.searchParams.set('offset', '0');
+  url.searchParams.set('length', '200');
+
+  const response = await fetchWithTimeout(url.toString(), {
+    headers: {
+      'User-Agent': appConfig.userAgent,
+      'Accept': 'application/json'
+    }
+  }, FETCH_TIMEOUT_MS);
+
+  if (!response.ok) {
+    return { error: 'fetch_failed', message: `EIA energy map request failed (${response.status})` };
+  }
+
+  const data = await response.json();
+  const rows = Array.isArray(data?.response?.data) ? data.response.data : [];
+  const latestByState = {};
+  rows.forEach((row) => {
+    if (!row.stateid || latestByState[row.stateid]) return;
+    const value = Number(row.price);
+    if (!Number.isFinite(value)) return;
+    latestByState[row.stateid] = {
+      value,
+      period: row.period,
+      state: row.stateDescription || row.stateid
+    };
+  });
+  const values = Object.values(latestByState).map((entry) => entry.value);
+  const min = values.length ? Math.min(...values) : 0;
+  const max = values.length ? Math.max(...values) : 1;
+  const payload = {
+    period: rows[0]?.period || '',
+    units: rows[0]?.['price-units'] || 'cents/kWh',
+    values: latestByState,
+    min,
+    max
+  };
+
+  energyMapCache.data = payload;
+  energyMapCache.fetchedAt = Date.now();
+  return { data: payload };
+}
+
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader } = {}) {
   const cacheKey = `${feed.id}:${query || ''}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
@@ -289,12 +360,17 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
     return localPayload;
   }
 
-  if (feed.requiresKey && !key) {
+  const serverKey = resolveServerKey(feed);
+  const effectiveKey = key || serverKey;
+  if (feed.requiresKey && !effectiveKey) {
     return {
       id: feed.id,
       fetchedAt: Date.now(),
       contentType: 'application/json',
-      body: JSON.stringify({ error: 'requires_key', message: 'API key required for this feed.' })
+      body: JSON.stringify({
+        error: feed.keySource === 'server' ? 'missing_server_key' : 'requires_key',
+        message: feed.keySource === 'server' ? 'Server API key required for this feed.' : 'API key required for this feed.'
+      })
     };
   }
 
@@ -308,8 +384,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   }
 
   const finalQuery = feed.supportsQuery ? (query || feed.defaultQuery || '') : undefined;
-  const baseUrl = feed.supportsQuery ? buildUrl(feed.url, { query: finalQuery, key }) : buildUrl(feed.url, { key });
-  const applied = applyKey(baseUrl, feed, key, keyParam, keyHeader);
+  const baseUrl = feed.supportsQuery
+    ? buildUrl(feed.url, { query: finalQuery, key: effectiveKey })
+    : buildUrl(feed.url, { key: effectiveKey });
+  const useClientKey = Boolean(key);
+  const applied = applyKey(baseUrl, feed, effectiveKey, useClientKey ? keyParam : undefined, useClientKey ? keyHeader : undefined);
   const headers = {
     'User-Agent': appConfig.userAgent,
     'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
@@ -364,6 +443,18 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (url.pathname === '/api/energy-map') {
+    try {
+      const result = await fetchEnergyMap();
+      if (result.error) {
+        return sendJson(res, 200, result);
+      }
+      return sendJson(res, 200, result.data);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
+    }
+  }
+
   if (url.pathname === '/api/geocode') {
     const query = url.searchParams.get('q');
     if (!query) {
@@ -381,7 +472,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const raw = await readRequestBody(req);
       const payload = JSON.parse(raw || '{}');
-      const apiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
+      const apiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY || process.env.OPEN_AI;
       const result = await handleChat(payload, apiKey);
       return sendJson(res, result.status, result.body);
     } catch (error) {

@@ -453,7 +453,7 @@
         <div class="energy-map-wrap">
           <div id="energyMap"></div>
           <div class="energy-map-legend" id="energyMapLegend"></div>
-          <div class="energy-map-empty" id="energyMapEmpty">Add your EIA API key to load the energy map.</div>
+          <div class="energy-map-empty" id="energyMapEmpty">Energy map will load once the server EIA key is configured.</div>
         </div>
       </section>
 
@@ -569,7 +569,7 @@
           <div class="key-compact-head">
             <div>
               <div class="status-title">API Keys</div>
-              <div class="status-sub">Manage shared and per-feed access</div>
+              <div class="status-sub">OpenAI key only; other providers are server-managed</div>
             </div>
             <button class="chip" id="keyToggle">Hide</button>
           </div>
@@ -581,7 +581,7 @@
       <div class="settings-section">
         <label>Notes</label>
         <div class="settings-note">
-          Update custom feeds in <code>data/feeds.json</code>. Keys live in the API Keys section.
+          Update custom feeds in <code>data/feeds.json</code>. OpenAI stays in API Keys; other provider keys are server-managed.
         </div>
       </div>
       <div class="settings-section">
@@ -641,7 +641,7 @@
           <section class="modal-card">
             <div class="modal-card-title">Keys you may need</div>
             <p>
-              <strong>OpenAI</strong> (AI analysis + query translation), <strong>EIA</strong> (energy map + series), <strong>data.gov</strong> (FOIA + GovInfo), <strong>OpenAQ</strong> (air quality), <strong>NASA FIRMS</strong> (fire data).
+              <strong>OpenAI</strong> (AI analysis + query translation) is entered in Settings. <strong>EIA</strong>, <strong>data.gov</strong>, <strong>OpenAQ</strong>, and <strong>NASA FIRMS</strong> are now server-managed via the proxy layer.
             </p>
           </section>
           <section class="modal-card">
@@ -656,6 +656,7 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="config.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
