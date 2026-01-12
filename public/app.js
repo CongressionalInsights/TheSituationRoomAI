@@ -221,6 +221,7 @@ const defaultPanelSizes = {
   crypto: { cols: 3 },
   hazards: { cols: 4 },
   local: { cols: 8 },
+  community: { cols: 6 },
   policy: { cols: 4 },
   cyber: { cols: 4 },
   agriculture: { cols: 4 },
@@ -3306,6 +3307,7 @@ function toRelativeTime(timestamp) {
 
 function ensurePanelUpdateBadges() {
   document.querySelectorAll('.panel[data-panel]').forEach((panel) => {
+    if (panel.dataset.noUpdate) return;
     const panelId = panel.dataset.panel;
     const existing = panel.querySelector(`[data-panel-update="${panelId}"]`);
     if (existing) return;

@@ -99,6 +99,10 @@
       <circle cx="7" cy="17" r="2"></circle>
       <circle cx="17" cy="17" r="2"></circle>
     </symbol>
+    <symbol id="icon-chat" viewBox="0 0 24 24">
+      <path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-4.5 3v-3H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path>
+      <path d="M8 10h8M8 13h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+    </symbol>
     <symbol id="icon-settings" viewBox="0 0 24 24">
       <path d="M12 7v-3M12 20v-3M7 12H4M20 12h-3M16.5 7.5l2-2M5.5 18.5l2-2M16.5 16.5l2 2M5.5 5.5l2 2"></path>
       <circle cx="12" cy="12" r="3"></circle>
@@ -417,6 +421,27 @@
           </div>
         </div>
         <div class="list" id="localList"></div>
+      </section>
+
+      <section class="panel community-panel" data-panel="community" data-category="community" data-no-update="true">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-analysis"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg></span>Community Channel</div>
+            <div class="panel-sub">Bitchat bridge (NYM web)</div>
+          </div>
+          <div class="panel-actions">
+            <a class="chip" href="https://app.nym.bar/" target="_blank" rel="noopener noreferrer">Open NYM</a>
+          </div>
+        </div>
+        <div class="chat-panel">
+          <div class="chat-panel-head">
+            <div class="chat-panel-title">Join: <strong>#situationroom</strong></div>
+            <div class="chat-panel-sub">Type <span class="chat-inline">/j #situationroom</span> inside the chat to connect.</div>
+          </div>
+          <div class="chat-frame-wrap">
+            <iframe class="chat-frame" title="Bitchat Channel via NYM" src="https://app.nym.bar/" loading="lazy"></iframe>
+          </div>
+        </div>
       </section>
 
       <section class="panel policy-panel" data-panel="policy" data-category="gov">
