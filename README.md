@@ -40,49 +40,33 @@ Then open `http://localhost:5173`.
 - Chat, AI briefings, and AI query translation use `/api/chat` (OpenAI Responses API).
 - Optional: set `OPENAI_API_KEY` on the server if you prefer not to send the key from the browser.
 
-## Server-side proxy + secrets (GitHub Pages)
-GitHub Pages is static, so API secrets must live in a server-side proxy. This repo includes a Cloudflare Worker that mirrors the local `/api/*` endpoints and keeps secrets out of the client bundle.
-Avoid injecting secrets into built JavaScript; they will become public.
+## GitHub Pages static mode (recommended for this repo)
+GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snapshot mode** by default. A scheduled GitHub Action pulls all feeds using repo secrets and publishes the cached results under `public/data/`. The UI reads those cached JSON files when hosted on `*.github.io`.
 
-- Worker entry: `worker/index.mjs`
-- Worker config: `wrangler.toml`
-- GitHub Actions:
-  - `deploy-worker.yml` (Cloudflare Worker)
-  - `deploy-pages.yml` (GitHub Pages)
-- Required secrets in the Worker:
+- Static cache builder: `scripts/build_static_cache.mjs`
+- Cache output: `public/data/feeds/*.json`, `public/data/feeds.json`, `public/data/energy-map.json`
+- Schedule: hourly (see `.github/workflows/deploy-pages.yml`)
+- Required repo secrets (used only during Actions):
   - `DATA_GOV`
   - `EIA`
   - `NASA_FIRMS`
   - `OPEN_AQ`
-- Optional:
-  - `OPENAI_API_KEY` or `OPEN_AI` (if you want server-side OpenAI)
-  - `ALLOWED_ORIGIN` (restrict CORS; defaults to `*`)
-  - `SNAPSHOT_KV` (KV namespace for snapshot storage)
 
-### Configure the runtime API base
-Static deployments use `public/config.js` to point the UI at the proxy.
+Static mode limits:
+- The **Refresh Now** button reloads cached JSON; it does not re-fetch live data.
+- Search queries are limited to the cached/default feed queries.
+- AI chat requires a server proxy (not available on pure static hosting).
 
-Example:
-```js
-window.SR_CONFIG = {
-  apiBase: 'https://your-worker.your-domain.workers.dev',
-  basePath: '/TheSituationRoomAI'
-};
-```
-By default, `config.js` will auto-target `https://situation-room-proxy.<org>.workers.dev` when served from `*.github.io` (override if your Worker URL differs).
+### Configure static mode (default)
+`public/config.js` sets `staticMode = true` when served from `*.github.io`. No extra configuration is required for GitHub Pages.
 
-## Deployment
-1) Add Cloudflare secrets to GitHub:
-   - `CLOUDFLARE_API_TOKEN`
-   - `CLOUDFLARE_ACCOUNT_ID`
-2) The `Deploy Worker` workflow will push secrets (`DATA_GOV`, `EIA`, `NASA_FIRMS`, `OPEN_AQ`, optional `OPEN_AI`) and deploy the Worker.
-3) Update `public/config.js` with the Worker URL if it differs from the default `situation-room-proxy.<org>.workers.dev`.
-4) The `Deploy GitHub Pages` workflow publishes `public/` to `gh-pages`.
+## Optional: server-side proxy (advanced)
+If you later add a runtime proxy, you can disable static mode and point the UI at your `/api/*` backend by setting `window.SR_CONFIG.apiBase` in `public/config.js`. This repo includes a Cloudflare Worker implementation in `worker/` for optional use.
 
 ## Troubleshooting
-- "Feed API unreachable" in Settings → the Worker URL or CORS config is wrong.
-- Energy map says the server key is missing → set `EIA` in the Worker or local env.
-- Chat errors → add OpenAI key in Settings, or set `OPENAI_API_KEY` on the proxy.
+- "Feed API unreachable" → static cache failed to build; check the GitHub Actions logs.
+- Energy map says the server key is missing → ensure `EIA` is set in repo secrets.
+- Chat errors → AI chat is unavailable in static mode without a proxy.
 
 ## Geo enrichment
 - The server geocodes inferred locations via OpenStreetMap Nominatim (`/api/geocode`).

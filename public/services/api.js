@@ -1,6 +1,7 @@
 const DEFAULT_TIMEOUT_MS = 12000;
 
 const rawConfig = typeof window !== 'undefined' ? (window.SR_CONFIG || {}) : {};
+const isGithubPages = typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
 
 function normalizeBase(value) {
   if (!value) return '';
@@ -26,9 +27,35 @@ function resolveBasePath() {
 
 const API_BASE = resolveApiBase();
 const BASE_PATH = resolveBasePath();
+const STATIC_MODE = typeof rawConfig.staticMode === 'boolean' ? rawConfig.staticMode : (isGithubPages && !rawConfig.apiBase);
+const STATIC_BASE = `${BASE_PATH}/data`;
+
+export function isStaticMode() {
+  return STATIC_MODE;
+}
+
+function mapStatic(path) {
+  if (path.startsWith('/api/feeds')) {
+    return `${STATIC_BASE}/feeds.json`;
+  }
+  if (path.startsWith('/api/energy-map')) {
+    return `${STATIC_BASE}/energy-map.json`;
+  }
+  if (path.startsWith('/api/feed')) {
+    const parsed = new URL(path, 'http://local');
+    const id = parsed.searchParams.get('id');
+    if (id) return `${STATIC_BASE}/feeds/${id}.json`;
+    return `${STATIC_BASE}/feeds.json`;
+  }
+  if (path.startsWith('/api/geocode') || path.startsWith('/api/chat') || path.startsWith('/api/snapshot')) {
+    return `${STATIC_BASE}/unavailable.json`;
+  }
+  return `${STATIC_BASE}/unavailable.json`;
+}
 
 export function getApiUrl(path) {
   if (/^https?:\/\//i.test(path)) return path;
+  if (STATIC_MODE) return mapStatic(path);
   return new URL(path, API_BASE).toString();
 }
 
@@ -42,7 +69,12 @@ export async function apiFetch(path, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(getApiUrl(path), { ...options, signal: controller.signal });
+    let url = getApiUrl(path);
+    if (STATIC_MODE && (!options.method || options.method.toUpperCase() === 'GET')) {
+      const sep = url.includes('?') ? '&' : '?';
+      url = `${url}${sep}_ts=${Date.now()}`;
+    }
+    const response = await fetch(url, { ...options, signal: controller.signal });
     return response;
   } finally {
     clearTimeout(timer);

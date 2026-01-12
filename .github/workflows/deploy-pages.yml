@@ -10,6 +10,9 @@ on:
       - logos/**
       - README.md
       - public/config.js
+      - scripts/build_static_cache.mjs
+  schedule:
+    - cron: '0 * * * *'
 
 permissions:
   contents: write
@@ -19,6 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Build static cache
+        env:
+          DATA_GOV: ${{ secrets.DATA_GOV }}
+          EIA: ${{ secrets.EIA }}
+          NASA_FIRMS: ${{ secrets.NASA_FIRMS }}
+          OPEN_AQ: ${{ secrets.OPEN_AQ }}
+        run: node scripts/build_static_cache.mjs
       - name: Publish static site
         uses: peaceiris/actions-gh-pages@v3
         with:

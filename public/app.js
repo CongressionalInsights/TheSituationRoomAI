@@ -1,4 +1,4 @@
-import { apiFetch, apiJson, getAssetUrl } from './services/api.js';
+import { apiFetch, apiJson, getAssetUrl, isStaticMode } from './services/api.js';
 
 const LAYOUT_VERSION = 2;
 
@@ -3082,6 +3082,9 @@ function buildChatContext() {
 }
 
 async function callAssistant({ messages, context, temperature = 0.2, model } = {}) {
+  if (isStaticMode()) {
+    throw new Error('assistant_unavailable');
+  }
   const key = state.keys.openai?.key;
   if (!key) {
     throw new Error('missing_api_key');
@@ -3237,7 +3240,13 @@ async function sendChatMessage() {
     typing.textContent = reply || 'No response.';
     state.chatHistory.push({ role: 'assistant', content: reply || 'No response.' });
   } catch (err) {
-    typing.textContent = err.message === 'missing_api_key' ? 'Add an OpenAI API key in Settings.' : `Assistant error: ${err.message}`;
+    if (err.message === 'missing_api_key') {
+      typing.textContent = 'Add an OpenAI API key in Settings.';
+    } else if (err.message === 'assistant_unavailable') {
+      typing.textContent = 'AI analysis is unavailable in static mode. Enable a server proxy to use chat.';
+    } else {
+      typing.textContent = `Assistant error: ${err.message}`;
+    }
   }
 }
 
@@ -3267,11 +3276,13 @@ function exportSnapshot() {
   document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
 
-  apiFetch('/api/snapshot', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(snapshot)
-  }).catch(() => {});
+  if (!isStaticMode()) {
+    apiFetch('/api/snapshot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(snapshot)
+    }).catch(() => {});
+  }
 }
 
 function applyScope(items) {
@@ -4561,7 +4572,9 @@ async function init() {
   } catch (err) {
     setHealth('API offline');
     if (elements.feedHealth) {
-      elements.feedHealth.innerHTML = '<div class="settings-note">Feed API unreachable. Check proxy configuration.</div>';
+      elements.feedHealth.innerHTML = isStaticMode()
+        ? '<div class="settings-note">Static snapshot mode: feeds load from the latest published cache.</div>'
+        : '<div class="settings-note">Feed API unreachable. Check proxy configuration.</div>';
     }
     payload = { feeds: [] };
   }
