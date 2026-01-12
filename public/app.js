@@ -1,9 +1,12 @@
 import { apiFetch, apiJson, getAssetUrl, isStaticMode } from './services/api.js';
 
 const LAYOUT_VERSION = 3;
+const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
 
 const state = {
   feeds: [],
+  baseFeeds: [],
+  customFeeds: [],
   items: [],
   scopedItems: [],
   clusters: [],
@@ -171,6 +174,25 @@ const elements = {
   financeMarketsList: document.getElementById('financeMarketsList'),
   financePolicyList: document.getElementById('financePolicyList'),
   financeTabs: document.getElementById('financeTabs')
+  ,
+  customFeedToggle: document.getElementById('customFeedToggle'),
+  customFeedList: document.getElementById('customFeedList'),
+  customFeedForm: document.getElementById('customFeedForm'),
+  customFeedName: document.getElementById('customFeedName'),
+  customFeedUrl: document.getElementById('customFeedUrl'),
+  customFeedCategory: document.getElementById('customFeedCategory'),
+  customFeedFormat: document.getElementById('customFeedFormat'),
+  customFeedProxy: document.getElementById('customFeedProxy'),
+  customFeedTags: document.getElementById('customFeedTags'),
+  customFeedSupportsQuery: document.getElementById('customFeedSupportsQuery'),
+  customFeedDefaultQuery: document.getElementById('customFeedDefaultQuery'),
+  customFeedRequiresKey: document.getElementById('customFeedRequiresKey'),
+  customFeedKeyParam: document.getElementById('customFeedKeyParam'),
+  customFeedKeyHeader: document.getElementById('customFeedKeyHeader'),
+  customFeedTtl: document.getElementById('customFeedTtl'),
+  customFeedSave: document.getElementById('customFeedSave'),
+  customFeedCancel: document.getElementById('customFeedCancel'),
+  customFeedStatus: document.getElementById('customFeedStatus')
 };
 
 const defaultPanelSizes = {
@@ -194,6 +216,8 @@ const defaultPanelSizes = {
   health: { cols: 4 },
   transport: { cols: 4 }
 };
+
+let editingCustomFeedId = null;
 
 const stopwords = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have']);
 const allowedSummaryTags = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'span', 'a', 'font']);
@@ -362,6 +386,68 @@ function loadGeoCache() {
 
 function saveGeoCache() {
   localStorage.setItem('situationRoomGeoCache', JSON.stringify(state.geoCache));
+}
+
+function loadCustomFeeds() {
+  const saved = localStorage.getItem(CUSTOM_FEEDS_KEY);
+  if (!saved) return [];
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((feed) => ({
+      ...feed,
+      tags: Array.isArray(feed.tags) ? feed.tags : [],
+      supportsQuery: Boolean(feed.supportsQuery),
+      requiresKey: Boolean(feed.requiresKey),
+      format: feed.format || 'rss',
+      category: feed.category || 'news',
+      ttlMinutes: Number(feed.ttlMinutes || 60),
+      isCustom: true,
+      keySource: 'client'
+    }));
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveCustomFeeds() {
+  localStorage.setItem(CUSTOM_FEEDS_KEY, JSON.stringify(state.customFeeds));
+}
+
+function hashString(value) {
+  let hash = 0;
+  const str = String(value || '');
+  for (let i = 0; i < str.length; i += 1) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function mergeCustomFeeds(baseFeeds, customFeeds) {
+  const merged = [...baseFeeds];
+  const existing = new Set(baseFeeds.map((feed) => feed.id));
+  let mutated = false;
+  customFeeds.forEach((feed) => {
+    let id = feed.id;
+    if (!id) {
+      id = `custom-${hashString(feed.url || feed.name)}`;
+      feed.id = id;
+      mutated = true;
+    }
+    if (existing.has(id)) {
+      const nextId = `${id}-${Math.random().toString(36).slice(2, 6)}`;
+      feed.id = nextId;
+      id = nextId;
+      mutated = true;
+    }
+    feed.isCustom = true;
+    feed.keySource = 'client';
+    existing.add(id);
+    merged.push(feed);
+  });
+  if (mutated) saveCustomFeeds();
+  return merged;
 }
 
 async function loadStaticAnalysis() {
@@ -834,6 +920,149 @@ function updateCategoryFilters() {
   }
 }
 
+function populateCustomFeedCategories() {
+  if (!elements.customFeedCategory) return;
+  elements.customFeedCategory.innerHTML = '';
+  categoryOrder.forEach((category) => {
+    const option = document.createElement('option');
+    option.value = category;
+    option.textContent = categoryLabels[category] || category;
+    elements.customFeedCategory.appendChild(option);
+  });
+}
+
+function toggleCustomFeedForm(open) {
+  if (!elements.customFeedForm) return;
+  elements.customFeedForm.classList.toggle('hidden', !open);
+  elements.customFeedForm.setAttribute('aria-hidden', open ? 'false' : 'true');
+  if (!open) {
+    editingCustomFeedId = null;
+  }
+}
+
+function resetCustomFeedForm(feed) {
+  if (!elements.customFeedForm) return;
+  const data = feed || {};
+  elements.customFeedName.value = data.name || '';
+  elements.customFeedUrl.value = data.url || '';
+  elements.customFeedCategory.value = data.category || 'news';
+  elements.customFeedFormat.value = data.format || 'rss';
+  elements.customFeedProxy.value = data.proxy || '';
+  elements.customFeedTags.value = Array.isArray(data.tags) ? data.tags.join(', ') : '';
+  elements.customFeedSupportsQuery.checked = Boolean(data.supportsQuery);
+  elements.customFeedDefaultQuery.value = data.defaultQuery || '';
+  elements.customFeedRequiresKey.checked = Boolean(data.requiresKey);
+  elements.customFeedKeyParam.value = data.keyParam || 'api_key';
+  elements.customFeedKeyHeader.value = data.keyHeader || '';
+  elements.customFeedTtl.value = data.ttlMinutes ? String(data.ttlMinutes) : '';
+  if (elements.customFeedRequiresKey) {
+    const enabled = elements.customFeedRequiresKey.checked;
+    elements.customFeedKeyParam.disabled = !enabled;
+    elements.customFeedKeyHeader.disabled = !enabled;
+  }
+  if (elements.customFeedSupportsQuery) {
+    elements.customFeedDefaultQuery.disabled = !elements.customFeedSupportsQuery.checked;
+  }
+  if (elements.customFeedStatus) {
+    elements.customFeedStatus.textContent = feed ? 'Editing custom feed.' : 'Custom feeds are stored in this browser only.';
+  }
+}
+
+function buildCustomFeedList() {
+  if (!elements.customFeedList) return;
+  elements.customFeedList.innerHTML = '';
+  if (!state.customFeeds.length) {
+    elements.customFeedList.innerHTML = '<div class="settings-note">No custom feeds yet.</div>';
+    return;
+  }
+  state.customFeeds.forEach((feed) => {
+    const row = document.createElement('div');
+    row.className = 'custom-feed-row';
+    const info = document.createElement('div');
+    info.className = 'custom-feed-info';
+    const name = document.createElement('div');
+    name.className = 'custom-feed-name';
+    name.textContent = feed.name || feed.url;
+    const meta = document.createElement('div');
+    meta.className = 'custom-feed-meta';
+    const tags = Array.isArray(feed.tags) && feed.tags.length ? `• ${feed.tags.join(', ')}` : '';
+    meta.textContent = `${feed.category || 'news'} • ${feed.format || 'rss'} ${tags}`.trim();
+    info.appendChild(name);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'custom-feed-actions';
+    const edit = document.createElement('button');
+    edit.className = 'chip';
+    edit.type = 'button';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => {
+      editingCustomFeedId = feed.id;
+      resetCustomFeedForm(feed);
+      toggleCustomFeedForm(true);
+    });
+    const remove = document.createElement('button');
+    remove.className = 'chip';
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => {
+      state.customFeeds = state.customFeeds.filter((entry) => entry.id !== feed.id);
+      saveCustomFeeds();
+      state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
+      buildCustomFeedList();
+      buildFeedOptions();
+      buildKeyManager();
+      refreshAll(true);
+    });
+    actions.appendChild(edit);
+    actions.appendChild(remove);
+
+    row.appendChild(info);
+    row.appendChild(actions);
+    elements.customFeedList.appendChild(row);
+  });
+}
+
+function collectCustomFeedForm() {
+  const name = elements.customFeedName.value.trim();
+  const url = elements.customFeedUrl.value.trim();
+  const category = elements.customFeedCategory.value;
+  const format = elements.customFeedFormat.value;
+  const proxy = elements.customFeedProxy.value || '';
+  const tags = elements.customFeedTags.value.split(',').map((tag) => tag.trim()).filter(Boolean);
+  const supportsQuery = elements.customFeedSupportsQuery.checked;
+  const defaultQuery = elements.customFeedDefaultQuery.value.trim();
+  const requiresKey = elements.customFeedRequiresKey.checked;
+  const keyParam = elements.customFeedKeyParam.value.trim() || 'api_key';
+  const keyHeader = elements.customFeedKeyHeader.value.trim();
+  const ttlMinutes = Number(elements.customFeedTtl.value || 60);
+
+  if (!name || !url) {
+    return { error: 'Name and URL are required.' };
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    return { error: 'URL must start with http:// or https://.' };
+  }
+  const feed = {
+    id: editingCustomFeedId,
+    name,
+    url,
+    category,
+    format,
+    proxy: proxy || undefined,
+    tags,
+    supportsQuery,
+    defaultQuery: supportsQuery ? defaultQuery : '',
+    requiresKey,
+    keyParam: requiresKey ? keyParam : undefined,
+    keyHeader: requiresKey ? keyHeader : undefined,
+    ttlMinutes: Number.isFinite(ttlMinutes) ? ttlMinutes : 60,
+    isCustom: true,
+    keySource: 'client'
+  };
+  return { feed };
+}
+
 function updateMapLegendUI() {
   if (!elements.mapLegend) return;
   elements.mapLegend.querySelectorAll('input[data-layer]').forEach((input) => {
@@ -911,9 +1140,13 @@ function buildKeyManager(filterCategory) {
   if (isStaticMode()) {
     const note = document.createElement('div');
     note.className = 'settings-note';
-    note.textContent = 'Static mode is active. Feeds load from the published cache. Optional: add your OpenAI key below to enable Super Monitor Mode (browser chat + AI translation).';
+    note.textContent = state.settings.superMonitor
+      ? 'Super Monitor Mode is active. Browser-only keys are enabled for custom feeds and OpenAI.'
+      : 'Static mode is active. Feeds load from the published cache. Optional: add your OpenAI key below to enable Super Monitor Mode (browser chat + AI translation).';
     elements.keyManager.appendChild(note);
-    displayFeeds = displayFeeds.filter((feed) => feed.id === 'openai');
+    if (!state.settings.superMonitor) {
+      displayFeeds = displayFeeds.filter((feed) => feed.id === 'openai');
+    }
   }
 
   const serverManaged = state.feeds.filter((feed) => isServerManagedKey(feed));
@@ -1410,13 +1643,79 @@ function parseRss(text, feed) {
 function parseJson(text, feed) {
   try {
     if (feed.format === 'csv') {
-      return feedParsers[feed.id] ? feedParsers[feed.id](text, feed) : [];
+      if (feedParsers[feed.id]) return feedParsers[feed.id](text, feed);
+      return parseGenericCsv(text, feed);
     }
     const data = JSON.parse(text);
-    return feedParsers[feed.id] ? feedParsers[feed.id](data, feed) : [];
+    if (feedParsers[feed.id]) return feedParsers[feed.id](data, feed);
+    if (feed.isCustom) return parseGenericJsonFeed(data, feed);
+    return [];
   } catch (err) {
     return [];
   }
+}
+
+function parseGenericJsonFeed(data, feed) {
+  const list = Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.entries)
+      ? data.entries
+      : Array.isArray(data?.articles)
+        ? data.articles
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+  return list.slice(0, 20).map((entry) => {
+    if (typeof entry === 'string') {
+      return {
+        title: entry,
+        url: '',
+        summary: '',
+        publishedAt: Date.now(),
+        source: feed.name,
+        category: feed.category
+      };
+    }
+    const title = entry.title || entry.name || entry.headline || 'Untitled';
+    const url = entry.url || entry.link || entry.permalink || '';
+    const summary = entry.summary || entry.description || entry.body || '';
+    const published = entry.publishedAt || entry.pubDate || entry.date || entry.updatedAt;
+    const geo = entry.geo || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null);
+    return {
+      title,
+      url,
+      summary,
+      publishedAt: published ? Date.parse(published) : Date.now(),
+      source: entry.source || feed.name,
+      category: feed.category,
+      geo
+    };
+  });
+}
+
+function parseGenericCsv(text, feed) {
+  const lines = String(text || '').trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
+  return lines.slice(1, 21).map((line) => {
+    const values = line.split(',').map((v) => v.trim());
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = values[idx];
+    });
+    const title = row.title || row.name || row.headline || values[0] || 'Untitled';
+    const url = row.url || row.link || '';
+    const summary = row.summary || row.description || '';
+    const published = row.publishedat || row.date || row.published || '';
+    return {
+      title,
+      url,
+      summary,
+      publishedAt: published ? Date.parse(published) : Date.now(),
+      source: feed.name,
+      category: feed.category
+    };
+  });
 }
 
 const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => ({
@@ -2351,6 +2650,9 @@ async function geocodeItems(items, maxItems = 12) {
 }
 
 async function fetchFeed(feed, query, force = false) {
+  if (feed.isCustom) {
+    return fetchCustomFeedDirect(feed, query);
+  }
   const params = new URLSearchParams();
   params.set('id', feed.id);
   if (query) params.set('query', query);
@@ -2373,6 +2675,70 @@ async function fetchFeed(feed, query, force = false) {
       errorMessage: payload.message,
       httpStatus: payload.httpStatus,
       fetchedAt: payload.fetchedAt
+    };
+  } catch (err) {
+    return {
+      feed,
+      items: [],
+      error: 'fetch_failed',
+      errorMessage: err.message,
+      httpStatus: 0,
+      fetchedAt: Date.now()
+    };
+  }
+}
+
+function applyCustomProxy(url, proxy) {
+  if (!proxy) return url;
+  if (proxy === 'allorigins') {
+    return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  }
+  if (proxy === 'jina') {
+    const stripped = url.replace(/^https?:\/\//, '');
+    return `https://r.jina.ai/http://${stripped}`;
+  }
+  return url;
+}
+
+function applyQueryToUrl(url, query) {
+  if (!query) return url;
+  if (url.includes('{{query}}')) {
+    return url.replaceAll('{{query}}', encodeURIComponent(query));
+  }
+  const parsed = new URL(url);
+  parsed.searchParams.set('q', query);
+  return parsed.toString();
+}
+
+async function fetchCustomFeedDirect(feed, query) {
+  const keyConfig = getKeyConfig(feed);
+  let url = applyQueryToUrl(feed.url, feed.supportsQuery ? (query || feed.defaultQuery || '') : '');
+  if (keyConfig.key && keyConfig.keyParam) {
+    const parsed = new URL(url);
+    parsed.searchParams.set(keyConfig.keyParam, keyConfig.key);
+    url = parsed.toString();
+  }
+  url = applyCustomProxy(url, feed.proxy);
+
+  const headers = {};
+  if (keyConfig.key && keyConfig.keyHeader) {
+    headers[keyConfig.keyHeader] = keyConfig.key;
+  }
+
+  try {
+    const response = await fetch(url, { headers });
+    const body = await response.text();
+    const items = response.ok
+      ? (feed.format === 'rss' ? parseRss(body, feed) : parseJson(body, feed))
+      : [];
+    const enriched = items.map((item) => ({ ...item, tags: feed.tags || [], feedId: feed.id, feedName: feed.name }));
+    return {
+      feed,
+      items: enriched,
+      error: response.ok ? null : `http_${response.status}`,
+      errorMessage: response.ok ? null : `HTTP ${response.status}`,
+      httpStatus: response.status,
+      fetchedAt: Date.now()
     };
   } catch (err) {
     return {
@@ -4709,6 +5075,59 @@ function initEvents() {
       elements.mapLegend.classList.remove('show');
     });
   }
+
+  if (elements.customFeedToggle) {
+    elements.customFeedToggle.addEventListener('click', () => {
+      const isHidden = elements.customFeedForm?.classList.contains('hidden');
+      if (isHidden) {
+        resetCustomFeedForm();
+      }
+      toggleCustomFeedForm(isHidden);
+    });
+  }
+  if (elements.customFeedCancel) {
+    elements.customFeedCancel.addEventListener('click', () => {
+      toggleCustomFeedForm(false);
+    });
+  }
+  if (elements.customFeedSave) {
+    elements.customFeedSave.addEventListener('click', () => {
+      const { feed, error } = collectCustomFeedForm();
+      if (error) {
+        if (elements.customFeedStatus) {
+          elements.customFeedStatus.textContent = error;
+        }
+        return;
+      }
+      if (editingCustomFeedId) {
+        state.customFeeds = state.customFeeds.filter((entry) => entry.id !== editingCustomFeedId);
+      }
+      if (!feed.id) {
+        feed.id = `custom-${hashString(feed.url || feed.name)}`;
+      }
+      state.customFeeds = [...state.customFeeds, feed];
+      saveCustomFeeds();
+      state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
+      buildCustomFeedList();
+      buildFeedOptions();
+      buildKeyManager();
+      toggleCustomFeedForm(false);
+      refreshAll(true);
+    });
+  }
+
+  if (elements.customFeedRequiresKey) {
+    elements.customFeedRequiresKey.addEventListener('change', () => {
+      const enabled = elements.customFeedRequiresKey.checked;
+      elements.customFeedKeyParam.disabled = !enabled;
+      elements.customFeedKeyHeader.disabled = !enabled;
+    });
+  }
+  if (elements.customFeedSupportsQuery) {
+    elements.customFeedSupportsQuery.addEventListener('change', () => {
+      elements.customFeedDefaultQuery.disabled = !elements.customFeedSupportsQuery.checked;
+    });
+  }
   if (elements.mapDetailClose) {
     elements.mapDetailClose.addEventListener('click', hideMapDetail);
   }
@@ -4761,6 +5180,7 @@ async function init() {
   loadKeyGroups();
   loadKeyStatus();
   loadGeoCache();
+  state.customFeeds = loadCustomFeeds();
   applyTheme(state.settings.theme);
   updateSettingsUI();
   loadPanelState();
@@ -4794,9 +5214,12 @@ async function init() {
     }
     payload = { feeds: [] };
   }
-  state.feeds = (payload.feeds || []).filter((feed) => feed.url || feed.requiresKey || feed.requiresConfig);
+  state.baseFeeds = (payload.feeds || []).filter((feed) => feed.url || feed.requiresKey || feed.requiresConfig);
+  state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
 
   buildFeedOptions();
+  populateCustomFeedCategories();
+  buildCustomFeedList();
   buildKeyManager();
   updateChatStatus();
   attachKeyButtons();

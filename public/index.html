@@ -589,10 +589,87 @@
         </div>
       </div>
       <div class="settings-section">
-        <label>Notes</label>
-        <div class="settings-note">
-          Update custom feeds in <code>data/feeds.json</code>. OpenAI stays in API Keys; other provider keys are server-managed.
+        <div class="settings-section-head">
+          <label>Custom Feeds</label>
+          <button class="chip" id="customFeedToggle">Add Feed</button>
         </div>
+        <div class="custom-feed-list" id="customFeedList"></div>
+        <div class="custom-feed-form hidden" id="customFeedForm" aria-hidden="true">
+          <div class="form-row">
+            <label for="customFeedName">Name</label>
+            <input id="customFeedName" name="customFeedName" type="text" placeholder="My feed name" />
+          </div>
+          <div class="form-row">
+            <label for="customFeedUrl">URL</label>
+            <input id="customFeedUrl" name="customFeedUrl" type="url" placeholder="https://example.com/feed.xml" />
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label for="customFeedCategory">Category</label>
+              <select id="customFeedCategory" name="customFeedCategory"></select>
+            </div>
+            <div class="form-row">
+              <label for="customFeedFormat">Format</label>
+              <select id="customFeedFormat" name="customFeedFormat">
+                <option value="rss">RSS/Atom</option>
+                <option value="json">JSON</option>
+                <option value="csv">CSV (simple)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label for="customFeedProxy">Proxy</label>
+              <select id="customFeedProxy" name="customFeedProxy">
+                <option value="">None</option>
+                <option value="allorigins">AllOrigins</option>
+                <option value="jina">Jina</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="customFeedTtl">Refresh (minutes)</label>
+              <input id="customFeedTtl" name="customFeedTtl" type="number" min="5" max="1440" placeholder="60" />
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="customFeedTags">Tags (comma-separated)</label>
+            <input id="customFeedTags" name="customFeedTags" type="text" placeholder="us, health, local" />
+          </div>
+          <div class="form-row">
+            <label class="toggle-row">
+              <span>Supports search query</span>
+              <input type="checkbox" id="customFeedSupportsQuery" name="customFeedSupportsQuery" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label for="customFeedDefaultQuery">Default Query</label>
+            <input id="customFeedDefaultQuery" name="customFeedDefaultQuery" type="text" placeholder="energy" />
+          </div>
+          <div class="form-row">
+            <label class="toggle-row">
+              <span>Requires API key (stored locally)</span>
+              <input type="checkbox" id="customFeedRequiresKey" name="customFeedRequiresKey" />
+            </label>
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label for="customFeedKeyParam">Key Param</label>
+              <input id="customFeedKeyParam" name="customFeedKeyParam" type="text" placeholder="api_key" />
+            </div>
+            <div class="form-row">
+              <label for="customFeedKeyHeader">Key Header</label>
+              <input id="customFeedKeyHeader" name="customFeedKeyHeader" type="text" placeholder="X-API-Key" />
+            </div>
+          </div>
+          <div class="custom-feed-actions">
+            <div class="custom-feed-status" id="customFeedStatus">Custom feeds are stored in this browser only.</div>
+            <div class="custom-feed-buttons">
+              <button class="btn ghost" id="customFeedCancel" type="button">Cancel</button>
+              <button class="btn primary" id="customFeedSave" type="button">Save Feed</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-note">Custom feeds are saved locally in your browser and are not shared.</div>
       </div>
       <div class="settings-section">
         <label>Help</label>

@@ -2134,6 +2134,89 @@ a.list-title:hover {
   font-size: 13px;
 }
 
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.custom-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-feed-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.custom-feed-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.custom-feed-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.custom-feed-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.custom-feed-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.custom-feed-form {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-feed-form.hidden {
+  display: none;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.custom-feed-status {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.custom-feed-buttons {
+  display: flex;
+  gap: 8px;
+}
+
 .settings-section label {
   color: var(--text);
   font-weight: 600;
