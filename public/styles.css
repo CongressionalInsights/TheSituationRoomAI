@@ -434,6 +434,20 @@ a:focus-visible {
   color: var(--muted);
 }
 
+.search-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.search-live-note {
+  opacity: 0.9;
+}
+
 [data-theme="light"] .search-hint,
 [data-theme="light"] .analysis-chat-sub {
   color: #48596a;

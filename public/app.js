@@ -38,6 +38,7 @@ const state = {
     showStatus: true,
     showTravelTicker: true,
     showKeys: true,
+    liveSearch: false,
     tickerWatchlist: [],
     mapLayers: {
       weather: true,
@@ -109,6 +110,7 @@ const elements = {
   searchInput: document.getElementById('searchInput'),
   searchBtn: document.getElementById('searchBtn'),
   searchHint: document.getElementById('searchHint'),
+  liveSearchToggle: document.getElementById('liveSearchToggle'),
   scopeToggle: document.getElementById('scopeToggle'),
   geoLocateBtn: document.getElementById('geoLocateBtn'),
   geoValue: document.getElementById('geoValue'),
@@ -320,6 +322,9 @@ function loadSettings() {
       if (typeof state.settings.showKeys !== 'boolean') {
         state.settings.showKeys = true;
       }
+      if (typeof state.settings.liveSearch !== 'boolean') {
+        state.settings.liveSearch = false;
+      }
       if (!Array.isArray(state.settings.tickerWatchlist)) {
         state.settings.tickerWatchlist = [];
       }
@@ -328,6 +333,7 @@ function loadSettings() {
       state.settings.showStatus = true;
       state.settings.showTravelTicker = true;
       state.settings.showKeys = true;
+      state.settings.liveSearch = false;
       state.settings.tickerWatchlist = [];
     }
   }
@@ -830,6 +836,10 @@ function updateSettingsUI() {
   updateAgeButtons();
   updateLanguageButtons();
   updateMapLegendUI();
+  if (elements.liveSearchToggle) {
+    elements.liveSearchToggle.classList.toggle('active', state.settings.liveSearch);
+    elements.liveSearchToggle.textContent = state.settings.liveSearch ? 'Live Search On' : 'Live Search Off';
+  }
 }
 
 function toggleSettings(open) {
@@ -2913,6 +2923,16 @@ function translateQuery(feed, query) {
   return query;
 }
 
+function getLiveSearchFeeds() {
+  const ids = new Set(['gdelt-doc', 'google-news-search']);
+  return state.feeds.filter((feed) => {
+    if (!feed || !feed.supportsQuery) return false;
+    if (feed.requiresKey || feed.keyParam || feed.keyHeader || feed.requiresConfig) return false;
+    if (feed.isCustom) return false;
+    return ids.has(feed.id) || (feed.tags || []).includes('search');
+  });
+}
+
 async function translateQueryAsync(feed, query) {
   if (!feed || !query) return query;
   if (!state.settings.aiTranslate || !state.keys.openai?.key) {
@@ -4920,15 +4940,33 @@ async function handleSearch() {
 
   try {
     const normalizedQuery = query.toLowerCase();
+    const liveSearchFeeds = isStaticMode() && state.settings.liveSearch ? getLiveSearchFeeds() : [];
+    const runLiveSearch = async (feeds) => {
+      if (!feeds.length) return [];
+      const results = await Promise.all(feeds.map(async (feed) => {
+        const translated = await translateQueryAsync(feed, query);
+        return fetchCustomFeedDirect(feed, translated);
+      }));
+      return results.flatMap((result) => result.items || []);
+    };
     if (state.searchCategories.length) {
       const selected = state.searchCategories;
       const filtered = state.scopedItems.filter((item) => selected.includes(item.category)).filter((item) => {
         const text = `${item.title} ${item.summary || ''}`.toLowerCase();
         return text.includes(normalizedQuery);
       });
-      const freshFiltered = applyFreshnessFilter(filtered);
+      const liveFeeds = liveSearchFeeds.filter((feed) => selected.includes(feed.category));
+      if (liveFeeds.length) {
+        elements.searchHint.textContent = 'Searching live sources...';
+      }
+      const liveItems = await runLiveSearch(liveFeeds);
+      const combined = [...filtered, ...liveItems];
+      const deduped = dedupeItems(combined);
+      const freshFiltered = applyFreshnessFilter(deduped);
       showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => categoryLabels[cat] || cat).join(', ')}`);
-      elements.searchHint.textContent = 'Showing multi-category search results.';
+      elements.searchHint.textContent = liveFeeds.length
+        ? 'Showing cached + live search results.'
+        : 'Showing multi-category search results.';
       return;
     }
 
@@ -4937,9 +4975,17 @@ async function handleSearch() {
         const text = `${item.title} ${item.summary || ''}`.toLowerCase();
         return text.includes(normalizedQuery);
       });
-      const freshFiltered = applyFreshnessFilter(filtered);
+      if (liveSearchFeeds.length) {
+        elements.searchHint.textContent = 'Searching live sources...';
+      }
+      const liveItems = await runLiveSearch(liveSearchFeeds);
+      const combined = [...filtered, ...liveItems];
+      const deduped = dedupeItems(combined);
+      const freshFiltered = applyFreshnessFilter(deduped);
       showSearchResults(freshFiltered, `${freshFiltered.length} matches across all feeds`);
-      elements.searchHint.textContent = `Showing ${freshFiltered.length} matches across all feeds.`;
+      elements.searchHint.textContent = liveSearchFeeds.length
+        ? `Showing cached + live results (${freshFiltered.length}).`
+        : `Showing ${freshFiltered.length} matches across all feeds.`;
       return;
     }
 
@@ -4949,9 +4995,18 @@ async function handleSearch() {
         const text = `${item.title} ${item.summary || ''}`.toLowerCase();
         return text.includes(normalizedQuery);
       });
-      const freshFiltered = applyFreshnessFilter(filtered);
+      const liveFeeds = liveSearchFeeds.filter((feed) => feed.category === category);
+      if (liveFeeds.length) {
+        elements.searchHint.textContent = 'Searching live sources...';
+      }
+      const liveItems = await runLiveSearch(liveFeeds);
+      const combined = [...filtered, ...liveItems];
+      const deduped = dedupeItems(combined);
+      const freshFiltered = applyFreshnessFilter(deduped);
       showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${categoryLabels[category] || category}`);
-      elements.searchHint.textContent = `Showing ${freshFiltered.length} matches in ${categoryLabels[category] || category}.`;
+      elements.searchHint.textContent = liveFeeds.length
+        ? `Showing cached + live results (${freshFiltered.length}).`
+        : `Showing ${freshFiltered.length} matches in ${categoryLabels[category] || category}.`;
       return;
     }
 
@@ -4964,10 +5019,17 @@ async function handleSearch() {
     elements.searchHint.textContent = 'Translating query...';
     const translated = await translateQueryAsync(feed, query);
     try {
-      const result = await fetchFeed(feed, translated, true);
-      const items = applyFreshnessFilter(result.items || []);
-      showSearchResults(items, `${items.length} results from ${feed.name}`);
-      elements.searchHint.textContent = `Search results from ${feed.name}.`;
+      if (liveSearchFeeds.find((entry) => entry.id === feed.id)) {
+        const result = await fetchCustomFeedDirect(feed, translated);
+        const items = applyFreshnessFilter(result.items || []);
+        showSearchResults(items, `${items.length} live results from ${feed.name}`);
+        elements.searchHint.textContent = `Live search results from ${feed.name}.`;
+      } else {
+        const result = await fetchFeed(feed, translated, true);
+        const items = applyFreshnessFilter(result.items || []);
+        showSearchResults(items, `${items.length} results from ${feed.name}`);
+        elements.searchHint.textContent = `Search results from ${feed.name}.`;
+      }
     } catch (error) {
       elements.searchHint.textContent = `Search failed for ${feed.name}.`;
       showSearchResults([], `Search failed for ${feed.name}`);
@@ -5053,6 +5115,13 @@ function initEvents() {
   elements.searchInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') handleSearch();
   });
+  if (elements.liveSearchToggle) {
+    elements.liveSearchToggle.addEventListener('click', () => {
+      state.settings.liveSearch = !state.settings.liveSearch;
+      saveSettings();
+      updateSettingsUI();
+    });
+  }
   if (elements.savedSearches) {
     elements.savedSearches.addEventListener('click', (event) => {
       const btn = event.target.closest('button[data-query]');
