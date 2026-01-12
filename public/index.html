@@ -113,6 +113,7 @@
         <span class="status-dot"></span>
         <span id="statusText">Live</span>
       </div>
+      <div class="data-fresh-badge" id="dataFresh">Data fresh</div>
       <div class="top-controls">
         <button class="btn ghost" id="exportSnapshot">Export Snapshot</button>
         <button class="btn ghost" id="refreshNow">Refresh Now</button>
@@ -173,6 +174,7 @@
             <label class="legend-item"><input id="legendSpace" name="legendSpace" type="checkbox" data-layer="space" checked /> <span class="legend-dot dot-space"></span> Space Weather</label>
             <label class="legend-item"><input id="legendTravel" name="legendTravel" type="checkbox" data-layer="travel" checked /> <span class="legend-dot dot-travel"></span> Travel Advisories</label>
             <label class="legend-item"><input id="legendTransport" name="legendTransport" type="checkbox" data-layer="transport" checked /> <span class="legend-dot dot-transport"></span> Transport</label>
+            <label class="legend-item"><input id="legendHealth" name="legendHealth" type="checkbox" data-layer="health" checked /> <span class="legend-dot dot-health"></span> Air Quality</label>
             <label class="legend-item"><input id="legendNews" name="legendNews" type="checkbox" data-layer="news" checked /> <span class="legend-dot dot-geo"></span> Geo-tagged News</label>
             <label class="legend-item"><input id="legendLocal" name="legendLocal" type="checkbox" data-layer="local" checked /> <span class="legend-dot dot-local"></span> Local Radius</label>
           </div>
@@ -539,6 +541,14 @@
           <span>Use AI to translate searches per feed</span>
           <input type="checkbox" id="aiTranslateToggle" name="aiTranslateToggle" />
         </label>
+      </div>
+      <div class="settings-section">
+        <label>Super Monitor Mode</label>
+        <label class="toggle-row">
+          <span>Use OpenAI key directly in browser (enables chat on static hosting)</span>
+          <input type="checkbox" id="superMonitorToggle" name="superMonitorToggle" />
+        </label>
+        <div class="settings-note">Only use this on trusted devices. Your key stays in local storage.</div>
       </div>
       <div class="settings-section">
         <label>Content Language</label>

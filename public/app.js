@@ -31,6 +31,7 @@ const state = {
     radiusKm: 150,
     scope: 'global',
     aiTranslate: true,
+    superMonitor: false,
     showStatus: true,
     showTravelTicker: true,
     showKeys: true,
@@ -40,6 +41,7 @@ const state = {
       disaster: true,
       space: true,
       news: true,
+      health: true,
       travel: true,
       transport: true,
       local: true
@@ -60,6 +62,7 @@ const state = {
   energyMapData: null,
   energyMapError: null,
   energyMapFetchedAt: 0,
+  lastBuildAt: null,
   refreshTimer: null,
   lastFetch: null,
   retryingFeeds: false,
@@ -75,6 +78,7 @@ const elements = {
   exportSnapshot: document.getElementById('exportSnapshot'),
   refreshNow: document.getElementById('refreshNow'),
   statusText: document.getElementById('statusText'),
+  dataFresh: document.getElementById('dataFresh'),
   refreshValue: document.getElementById('refreshValue'),
   refreshRange: document.getElementById('refreshRange'),
   refreshRangeValue: document.getElementById('refreshRangeValue'),
@@ -91,6 +95,7 @@ const elements = {
   panelToggles: document.getElementById('panelToggles'),
   resetLayout: document.getElementById('resetLayout'),
   aiTranslateToggle: document.getElementById('aiTranslateToggle'),
+  superMonitorToggle: document.getElementById('superMonitorToggle'),
   keyManager: document.getElementById('keyManager'),
   feedHealth: document.getElementById('feedHealth'),
   aboutOverlay: document.getElementById('aboutOverlay'),
@@ -376,6 +381,35 @@ async function loadStaticAnalysis() {
     state.staticAnalysis = null;
     return null;
   }
+}
+
+async function loadStaticBuild() {
+  if (!isStaticMode()) return null;
+  try {
+    const url = getAssetUrl(`/data/build.json?ts=${Date.now()}`);
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error('build_fetch_failed');
+    const payload = await response.json();
+    if (payload?.generatedAt) {
+      state.lastBuildAt = Date.parse(payload.generatedAt);
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function updateDataFreshBadge() {
+  if (!elements.dataFresh) return;
+  let stamp = state.lastFetch;
+  if (isStaticMode()) {
+    stamp = state.lastBuildAt || state.lastFetch;
+  }
+  if (!stamp) {
+    elements.dataFresh.textContent = 'Data fresh';
+    return;
+  }
+  elements.dataFresh.textContent = `Data ${toRelativeTime(stamp)}`;
 }
 
 function loadPanelState() {
@@ -674,6 +708,9 @@ function updateSettingsUI() {
   if (elements.aiTranslateToggle) {
     elements.aiTranslateToggle.checked = state.settings.aiTranslate;
   }
+  if (elements.superMonitorToggle) {
+    elements.superMonitorToggle.checked = state.settings.superMonitor;
+  }
   if (elements.statusCompact) {
     elements.statusCompact.classList.toggle('collapsed', !state.settings.showStatus);
   }
@@ -814,7 +851,7 @@ function getKeyFeeds() {
     .filter((feed) => !isServerManagedKey(feed))
     .filter((feed) => feed.requiresKey || feed.keyParam || feed.keyHeader || (feed.tags || []).includes('key'))
     .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || docsMap[feed.id] }));
-  if (!isStaticMode() && !keyFeeds.find((feed) => feed.id === 'openai')) {
+  if (!keyFeeds.find((feed) => feed.id === 'openai')) {
     keyFeeds.unshift({
       id: 'openai',
       name: 'OpenAI Assistant',
@@ -874,12 +911,9 @@ function buildKeyManager(filterCategory) {
   if (isStaticMode()) {
     const note = document.createElement('div');
     note.className = 'settings-note';
-    note.textContent = 'Static mode is active. API keys are not used in the browser; data comes from the published cache. OpenAI briefings are generated at build time if OPEN_AI is configured in GitHub Actions.';
+    note.textContent = 'Static mode is active. Feeds load from the published cache. Optional: add your OpenAI key below to enable Super Monitor Mode (browser chat + AI translation).';
     elements.keyManager.appendChild(note);
-    if (!displayFeeds.length) {
-      elements.keyManager.innerHTML += '<div class="settings-note">No client-side keys are required for this deployment.</div>';
-    }
-    return;
+    displayFeeds = displayFeeds.filter((feed) => feed.id === 'openai');
   }
 
   const serverManaged = state.feeds.filter((feed) => isServerManagedKey(feed));
@@ -1157,6 +1191,10 @@ async function testFeedKey(feed, statusEl) {
   setKeyStatus(feed.id, 'testing', statusEl, 'Testing key...');
 
   if (feed.id === 'openai') {
+    if (isStaticMode() && !state.settings.superMonitor) {
+      setKeyStatus(feed.id, 'missing', statusEl, 'Enable Super Monitor Mode to test.');
+      return;
+    }
     try {
       const result = await callAssistant({
         messages: [{ role: 'user', content: 'ping' }],
@@ -1927,6 +1965,18 @@ async function resolveTickerInput(type, input) {
 async function fetchStooqQuote(symbol) {
   const feed = state.feeds.find((entry) => entry.id === 'stooq-quote');
   if (!feed) return null;
+  if (isStaticMode()) {
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
+    try {
+      const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+      if (!response.ok) return null;
+      const text = await response.text();
+      const parsed = parseStooqCsv(text, feed);
+      return parsed?.[0] || null;
+    } catch {
+      return null;
+    }
+  }
   const result = await fetchFeed(feed, symbol, true);
   return result.items?.[0] || null;
 }
@@ -2220,7 +2270,7 @@ function renderFinanceCards(container, kpis, variant = 'spotlight') {
 
 function renderFinanceSpotlight() {
   if (!elements.financeSpotlight) return;
-  const kpis = buildFinanceKPIs();
+  const kpis = buildFinanceKPIs().slice(0, 6);
   renderFinanceCards(elements.financeSpotlight, kpis, 'spotlight');
 }
 
@@ -3009,7 +3059,7 @@ function renderList(container, items, { withCoverage = false } = {}) {
 }
 
 function renderNews(clusters) {
-  const items = clusters.slice(0, 10).map((cluster, index) => ({
+  const items = clusters.slice(0, 6).map((cluster, index) => ({
     title: cluster.primary.title,
     source: Array.from(cluster.sources).slice(0, 2).join(', '),
     summary: index < 3 ? cluster.primary.summary : '',
@@ -3096,7 +3146,7 @@ function renderFeedHealth() {
     return { id: feed.id, name: feed.name, ok, code, error: status.error, message: status.errorMessage };
   });
 
-  const issues = entries.filter((entry) => !entry.ok);
+  const issues = entries.filter((entry) => !entry.ok && entry.error !== 'requires_config');
   if (!issues.length) {
     elements.feedHealth.innerHTML = '<div class="settings-note">All feeds are healthy.</div>';
     return;
@@ -3152,13 +3202,48 @@ function buildChatContext() {
   };
 }
 
+async function callOpenAIDirect({ messages, context, temperature = 0.2, model } = {}) {
+  const key = state.keys.openai?.key;
+  if (!key) {
+    throw new Error('missing_api_key');
+  }
+  const payload = {
+    model: model || 'gpt-4o-mini',
+    input: [
+      { role: 'system', content: 'You are an intelligence assistant for a situational awareness dashboard.' },
+      ...(Array.isArray(messages) ? messages : [])
+    ],
+    temperature
+  };
+  if (context) {
+    payload.metadata = { context };
+  }
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error?.message || 'openai_error');
+  }
+  return (data?.output_text || '').trim();
+}
+
 async function callAssistant({ messages, context, temperature = 0.2, model } = {}) {
-  if (isStaticMode()) {
+  if (isStaticMode() && !state.settings.superMonitor) {
     throw new Error('assistant_unavailable');
   }
   const key = state.keys.openai?.key;
   if (!key) {
     throw new Error('missing_api_key');
+  }
+  if (isStaticMode() && state.settings.superMonitor) {
+    return callOpenAIDirect({ messages, context, temperature, model });
   }
   const payload = {
     messages: Array.isArray(messages) ? messages : [],
@@ -3415,8 +3500,13 @@ function getMapItems() {
 }
 
 function renderLocal() {
-  const items = getLocalItems().slice(0, 8);
-  renderList(elements.localList, items);
+  let items = getLocalItems();
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.tags?.includes('us'))
+      .slice(0, 6);
+  }
+  renderList(elements.localList, items.slice(0, 6));
 }
 
 function renderCategory(category, container) {
@@ -3425,19 +3515,29 @@ function renderCategory(category, container) {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
       .filter((item) => item.category === category);
   }
+  if (category === 'health' && items.length) {
+    const uniqueFeeds = new Set(items.map((item) => item.feedId));
+    if (uniqueFeeds.size === 1 && uniqueFeeds.has('openaq-api') && state.settings.mapLayers.health) {
+      container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
+      return;
+    }
+  }
   if (category === 'crypto') {
     items = [...items].sort((a, b) => Math.abs(b.change24h || 0) - Math.abs(a.change24h || 0));
   }
   if (category === 'research') {
     items = dedupeItems(items);
   }
-  items = items.slice(0, 10);
+  items = items.slice(0, 6);
   renderList(container, items);
 }
 
 function renderCombined(categories, container) {
-  const items = state.scopedItems.filter((item) => categories.includes(item.category)).slice(0, 12);
-  renderList(container, items);
+  let items = state.scopedItems.filter((item) => categories.includes(item.category));
+  if (categories.includes('weather') || categories.includes('disaster') || categories.includes('space')) {
+    items = dedupeItems(items);
+  }
+  renderList(container, items.slice(0, 6));
 }
 
 function renderEnergyNews() {
@@ -3454,7 +3554,7 @@ function renderEnergyNews() {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
       .filter((item) => item.category === 'energy');
   }
-  items = dedupeItems(items).slice(0, 10);
+  items = dedupeItems(items).slice(0, 6);
   renderList(elements.energyList, items);
 }
 
@@ -3694,6 +3794,7 @@ function getLayerForItem(item) {
   if (item.category === 'weather') return 'weather';
   if (item.category === 'disaster') return 'disaster';
   if (item.category === 'space') return 'space';
+  if (item.category === 'health') return 'health';
   return 'news';
 }
 
@@ -3703,6 +3804,7 @@ function getLayerColor(layer) {
   if (layer === 'space') return 'rgba(140,107,255,0.9)';
   if (layer === 'travel') return 'rgba(255,196,87,0.95)';
   if (layer === 'transport') return 'rgba(94,232,160,0.9)';
+  if (layer === 'health') return 'rgba(109,209,255,0.9)';
   return 'rgba(255,184,76,0.9)';
 }
 
@@ -3715,6 +3817,7 @@ function getSignalType(item) {
   if (item.category === 'weather') return 'weather';
   if (item.category === 'disaster') return 'disaster';
   if (item.category === 'space') return 'space';
+  if (item.category === 'health') return 'health';
   if (item.category === 'transport') return 'transport';
   return 'news';
 }
@@ -3723,6 +3826,7 @@ function getSignalIcon(type) {
   if (type === 'quake') return 'Q';
   if (type === 'travel') return 'T';
   if (type === 'air') return 'A';
+  if (type === 'health') return 'H';
   if (type === 'transport') return 'R';
   if (type === 'weather') return 'W';
   if (type === 'disaster') return 'D';
@@ -4107,7 +4211,13 @@ function updateChatStatus() {
     elements.chatLog.prepend(bubble);
   }
   if (isStaticMode()) {
-    bubble.textContent = 'Static mode: AI chat is unavailable. Briefings use the cached snapshot when available.';
+    if (state.settings.superMonitor) {
+      bubble.textContent = state.keys.openai?.key
+        ? 'Super Monitor Mode: OpenAI is enabled in-browser.'
+        : 'Super Monitor Mode is on. Add an OpenAI key to enable chat.';
+    } else {
+      bubble.textContent = 'Static mode: AI chat is unavailable. Briefings use the cached snapshot when available.';
+    }
     return;
   }
   bubble.textContent = state.keys.openai?.key
@@ -4142,6 +4252,7 @@ async function refreshAll(force = false) {
   try {
     if (isStaticMode()) {
       await loadStaticAnalysis();
+      await loadStaticBuild();
     }
     const results = await Promise.all(state.feeds.map((feed) => {
       const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
@@ -4175,6 +4286,7 @@ async function refreshAll(force = false) {
     state.scopedItems = applyScope(state.items);
     state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
     state.lastFetch = Date.now();
+    updateDataFreshBadge();
     const issueCount = results.filter((result) => {
       if (result.error === 'requires_key' || result.error === 'requires_config' || result.error === 'missing_server_key') return false;
       return result.error || (result.httpStatus && result.httpStatus >= 400);
@@ -4559,6 +4671,16 @@ function initEvents() {
       state.settings.aiTranslate = event.target.checked;
       saveSettings();
       updateSettingsUI();
+      maybeAutoRunAnalysis();
+    });
+  }
+
+  if (elements.superMonitorToggle) {
+    elements.superMonitorToggle.addEventListener('change', (event) => {
+      state.settings.superMonitor = event.target.checked;
+      saveSettings();
+      updateSettingsUI();
+      updateChatStatus();
       maybeAutoRunAnalysis();
     });
   }
