@@ -2271,6 +2271,29 @@ const feedParsers = {
       };
     });
   },
+  'foia-api': (data, feed) => {
+    const ckanResults = Array.isArray(data?.result?.results) ? data.result.results : null;
+    if (ckanResults) {
+      return ckanResults.slice(0, 12).map((entry) => ({
+        title: entry.title || entry.name || 'FOIA Dataset',
+        url: entry.url || (entry.name ? `https://catalog.data.gov/dataset/${entry.name}` : ''),
+        summary: entry.notes || '',
+        publishedAt: entry.metadata_modified ? Date.parse(entry.metadata_modified) : Date.now(),
+        source: entry.organization?.title || 'Data.gov',
+        category: feed.category
+      }));
+    }
+    const foiaRows = Array.isArray(data?.data) ? data.data : [];
+    if (!foiaRows.length) return [];
+    return foiaRows.slice(0, 12).map((entry) => ({
+      title: entry.attributes?.name || entry.attributes?.title || 'FOIA Component',
+      url: entry.links?.self || 'https://www.foia.gov/developer/',
+      summary: entry.attributes?.description || '',
+      publishedAt: Date.parse(entry.attributes?.updated_at || entry.attributes?.created_at) || Date.now(),
+      source: 'FOIA.gov',
+      category: feed.category
+    }));
+  },
   'treasury-debt': (data, feed) => (data.data || []).map((row) => ({
     title: `Debt to the Penny (${row.record_date})`,
     url: 'https://fiscaldata.treasury.gov/',
@@ -2394,7 +2417,11 @@ function decodeHtmlEntities(input) {
 
 function stripHtml(input) {
   if (!input) return '';
-  const doc = new DOMParser().parseFromString(`<div>${input}</div>`, 'text/html');
+  let safe = input;
+  if (safe.includes('&lt;') || safe.includes('&gt;')) {
+    safe = decodeHtmlEntities(safe);
+  }
+  const doc = new DOMParser().parseFromString(`<div>${safe}</div>`, 'text/html');
   return doc.body.textContent || '';
 }
 

@@ -223,6 +223,28 @@ async function fetchLiveFallback(feedId) {
   }
 }
 
+async function fetchFoiaCkanFallback() {
+  const url = 'https://catalog.data.gov/api/3/action/package_search?q=foia&rows=15&sort=metadata_modified%20desc';
+  try {
+    const response = await fetchWithTimeout(url, {
+      'User-Agent': appConfig.userAgent,
+      'Accept': 'application/json'
+    }, 15000);
+    if (!response.ok) return null;
+    const body = await response.text();
+    return {
+      id: 'foia-api',
+      fetchedAt: Date.now(),
+      contentType: response.headers.get('content-type') || 'application/json',
+      body,
+      httpStatus: response.status,
+      fallback: 'ckan'
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function writeJson(path, payload) {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(payload, null, 2));
@@ -272,6 +294,10 @@ async function buildFeedPayload(feed) {
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
       return { ...fallback, fallback: true };
+    }
+    const ckanFallback = await fetchFoiaCkanFallback();
+    if (ckanFallback) {
+      return ckanFallback;
     }
   }
   return payload;
