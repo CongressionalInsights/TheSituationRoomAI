@@ -71,6 +71,15 @@ This repo is already wired to use:
 `https://situation-room-openai-382918878290.us-central1.run.app/api/chat`
 when served from `*.github.io`.
 
+### GitHub Actions (recommended)
+There is a workflow that updates the Cloud Run proxy and injects the OpenAI key securely from GitHub secrets:
+
+- Workflow: `.github/workflows/deploy-openai-proxy.yml`
+- Required repo secrets:
+  - `GCP_SA_KEY` (service account JSON for GCP)
+  - `OPEN_AI` (OpenAI API key)
+- The workflow writes `OPEN_AI` into GCP Secret Manager and binds it to the Cloud Run service.
+
 ### Deploy steps
 ```bash
 # create a project (must be lowercase / unique)

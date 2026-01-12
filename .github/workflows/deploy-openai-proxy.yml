@@ -1,0 +1,47 @@
+name: Deploy OpenAI Proxy (GCP)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - gcp/openai-proxy/**
+      - .github/workflows/deploy-openai-proxy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: situationroom-ai-20260112
+      REGION: us-central1
+      SERVICE_NAME: situation-room-openai
+      ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      - name: Ensure OpenAI secret
+        env:
+          OPEN_AI: ${{ secrets.OPEN_AI }}
+        run: |
+          if [ -z "$OPEN_AI" ]; then
+            echo "OPEN_AI secret missing."
+            exit 1
+          fi
+          if ! gcloud secrets describe openai-api-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create openai-api-key --replication-policy=automatic
+          fi
+          echo -n "$OPEN_AI" | gcloud secrets versions add openai-api-key --data-file=-
+      - name: Update OpenAI proxy service
+        run: |
+          gcloud run services update "$SERVICE_NAME" \
+            --region "$REGION" \
+            --set-secrets OPENAI_API_KEY=openai-api-key:latest \
+            --update-env-vars ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
