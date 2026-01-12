@@ -272,20 +272,20 @@ const categoryLabels = {
 const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
 const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health']);
 const listDefaults = {
-  newsList: 10,
-  financeMarketsList: 6,
-  financePolicyList: 6,
-  cryptoList: 6,
-  disasterList: 6,
-  localList: 6,
-  policyList: 6,
-  cyberList: 6,
-  agricultureList: 6,
-  researchList: 6,
-  spaceList: 6,
-  energyList: 6,
-  healthList: 6,
-  transportList: 6
+  newsList: 30,
+  financeMarketsList: 20,
+  financePolicyList: 20,
+  cryptoList: 20,
+  disasterList: 20,
+  localList: 20,
+  policyList: 20,
+  cyberList: 20,
+  agricultureList: 20,
+  researchList: 20,
+  spaceList: 20,
+  energyList: 20,
+  healthList: 20,
+  transportList: 20
 };
 const listPageSize = 6;
 const severityLabels = [
