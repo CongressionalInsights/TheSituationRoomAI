@@ -238,14 +238,18 @@ async function buildFeedPayload(feed) {
   const response = await fetchWithFallbacks(applied.url, headers, proxyList);
   const contentType = response.headers.get('content-type') || 'text/plain';
   const body = await response.text();
-
-  return {
+  const payload = {
     id: feed.id,
     fetchedAt: Date.now(),
     contentType,
     body,
     httpStatus: response.status
   };
+  if (!response.ok) {
+    payload.error = `http_${response.status}`;
+    payload.message = `HTTP ${response.status}`;
+  }
+  return payload;
 }
 
 async function buildEnergyMap() {

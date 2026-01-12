@@ -1,6 +1,6 @@
 import { apiFetch, apiJson, getAssetUrl, isStaticMode } from './services/api.js';
 
-const LAYOUT_VERSION = 2;
+const LAYOUT_VERSION = 3;
 
 const state = {
   feeds: [],
@@ -2981,11 +2981,11 @@ function renderList(container, items, { withCoverage = false } = {}) {
 }
 
 function renderNews(clusters) {
-  const items = clusters.slice(0, 12).map((cluster) => ({
+  const items = clusters.slice(0, 10).map((cluster, index) => ({
     title: cluster.primary.title,
     source: Array.from(cluster.sources).slice(0, 2).join(', '),
-    summary: cluster.primary.summary,
-    summaryHtml: cluster.primary.summaryHtml,
+    summary: index < 3 ? cluster.primary.summary : '',
+    summaryHtml: index < 3 ? cluster.primary.summaryHtml : '',
     publishedAt: cluster.updatedAt,
     coverage: cluster.sources.size,
     url: cluster.primary.url,
@@ -3418,6 +3418,13 @@ function renderEnergyNews() {
   if (!items.length) {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
       .filter((item) => item.feedId === 'eia-today');
+  }
+  if (!items.length) {
+    items = state.scopedItems.filter((item) => item.category === 'energy');
+  }
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.category === 'energy');
   }
   items = dedupeItems(items).slice(0, 10);
   renderList(elements.energyList, items);

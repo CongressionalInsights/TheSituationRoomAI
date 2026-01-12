@@ -272,7 +272,7 @@
       "name": "FDA MedWatch RSS",
       "category": "health",
       "format": "rss",
-      "url": "http://www.fda.gov/AboutFDA/ContactFDA/StayInformed/RSSFeeds/MedWatch/rss.xml",
+      "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml",
       "ttlMinutes": 180,
       "tags": ["us", "health"]
     },
