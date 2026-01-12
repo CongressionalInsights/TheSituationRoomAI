@@ -375,7 +375,7 @@
     },
     {
       "id": "foia-api",
-      "name": "FOIA.gov API (requires key)",
+      "name": "FOIA.gov API",
       "docsUrl": "https://www.foia.gov/developer/",
       "category": "gov",
       "format": "json",
@@ -390,7 +390,7 @@
     },
     {
       "id": "govinfo-api",
-      "name": "GovInfo API (requires key)",
+      "name": "GovInfo API",
       "docsUrl": "https://api.govinfo.gov/docs/",
       "category": "gov",
       "format": "json",
@@ -406,7 +406,7 @@
     },
     {
       "id": "openaq-api",
-      "name": "OpenAQ API (requires key)",
+      "name": "OpenAQ API",
       "docsUrl": "https://docs.openaq.org/",
       "category": "health",
       "format": "json",
@@ -420,7 +420,7 @@
     },
     {
       "id": "nasa-firms",
-      "name": "NASA FIRMS Fire Data (requires key)",
+      "name": "NASA FIRMS Fire Data",
       "docsUrl": "https://firms.modaps.eosdis.nasa.gov/api/",
       "category": "disaster",
       "format": "json",
