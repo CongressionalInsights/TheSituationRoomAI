@@ -287,7 +287,7 @@ const listDefaults = {
   healthList: 20,
   transportList: 20
 };
-const listPageSize = 6;
+const listPageSize = 8;
 const severityLabels = [
   { min: 8, label: 'Great' },
   { min: 7, label: 'Major' },
