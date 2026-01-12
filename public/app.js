@@ -352,6 +352,9 @@ function loadKeys() {
   if (saved) {
     try {
       state.keys = JSON.parse(saved);
+      if (state.keys?.openai?.key) {
+        state.keys.openai.key = state.keys.openai.key.trim();
+      }
     } catch (err) {
       state.keys = {};
     }
@@ -1580,6 +1583,9 @@ function normalizeOpenAIError(err) {
 
 async function testFeedKey(feed, statusEl) {
   const keyConfig = getKeyConfig(feed);
+  if (feed.id === 'openai' && keyConfig.key) {
+    keyConfig.key = keyConfig.key.trim();
+  }
   if (!keyConfig.key) {
     setKeyStatus(feed.id, 'missing', statusEl, 'Missing API key');
     return;
@@ -3850,7 +3856,7 @@ function buildChatContext() {
 }
 
 async function callOpenAIDirect({ messages, context, temperature = 0.2, model } = {}) {
-  const key = state.keys.openai?.key;
+  const key = (state.keys.openai?.key || '').trim();
   if (!key) {
     throw new Error('missing_api_key');
   }
@@ -3885,7 +3891,7 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
   if (isStaticMode() && !state.settings.superMonitor) {
     throw new Error('assistant_unavailable');
   }
-  const key = state.keys.openai?.key;
+  const key = (state.keys.openai?.key || '').trim();
   if (!key) {
     throw new Error('missing_api_key');
   }
