@@ -4905,45 +4905,78 @@ function startAutoRefresh() {
 
 async function handleSearch() {
   const query = elements.searchInput.value.trim();
-  const scope = elements.feedScope.value;
-  if (!query) return;
+  const scope = elements.feedScope.value || 'all';
+  if (!query) {
+    elements.searchHint.textContent = 'Enter a search term to query signals.';
+    showSearchResults([], 'Enter a search term');
+    return;
+  }
 
-  if (state.searchCategories.length) {
-    const selected = state.searchCategories;
-    const filtered = state.scopedItems.filter((item) => selected.includes(item.category)).filter((item) => {
-      const text = `${item.title} ${item.summary}`.toLowerCase();
-      return text.includes(query.toLowerCase());
-    });
-    const freshFiltered = applyFreshnessFilter(filtered);
-    showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => categoryLabels[cat] || cat).join(', ')}`);
-    elements.searchHint.textContent = 'Showing multi-category search results.';
-  } else if (scope === 'all') {
-    const filtered = state.scopedItems.filter((item) => {
-      const text = `${item.title} ${item.summary}`.toLowerCase();
-      return text.includes(query.toLowerCase());
-    });
-    const freshFiltered = applyFreshnessFilter(filtered);
-    showSearchResults(freshFiltered, `${freshFiltered.length} matches across all feeds`);
-    elements.searchHint.textContent = `Showing ${filtered.length} matches across all feeds.`;
-  } else if (scope.startsWith('cat:')) {
-    const category = scope.replace('cat:', '');
-    const filtered = state.scopedItems.filter((item) => item.category === category).filter((item) => {
-      const text = `${item.title} ${item.summary}`.toLowerCase();
-      return text.includes(query.toLowerCase());
-    });
-    const freshFiltered = applyFreshnessFilter(filtered);
-    showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${categoryLabels[category] || category}`);
-    elements.searchHint.textContent = `Showing ${filtered.length} matches in ${categoryLabels[category] || category}.`;
-  } else {
+  const originalLabel = elements.searchBtn?.textContent;
+  if (elements.searchBtn) {
+    elements.searchBtn.disabled = true;
+    elements.searchBtn.textContent = 'Searching...';
+  }
+
+  try {
+    const normalizedQuery = query.toLowerCase();
+    if (state.searchCategories.length) {
+      const selected = state.searchCategories;
+      const filtered = state.scopedItems.filter((item) => selected.includes(item.category)).filter((item) => {
+        const text = `${item.title} ${item.summary || ''}`.toLowerCase();
+        return text.includes(normalizedQuery);
+      });
+      const freshFiltered = applyFreshnessFilter(filtered);
+      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => categoryLabels[cat] || cat).join(', ')}`);
+      elements.searchHint.textContent = 'Showing multi-category search results.';
+      return;
+    }
+
+    if (scope === 'all') {
+      const filtered = state.scopedItems.filter((item) => {
+        const text = `${item.title} ${item.summary || ''}`.toLowerCase();
+        return text.includes(normalizedQuery);
+      });
+      const freshFiltered = applyFreshnessFilter(filtered);
+      showSearchResults(freshFiltered, `${freshFiltered.length} matches across all feeds`);
+      elements.searchHint.textContent = `Showing ${freshFiltered.length} matches across all feeds.`;
+      return;
+    }
+
+    if (scope.startsWith('cat:')) {
+      const category = scope.replace('cat:', '');
+      const filtered = state.scopedItems.filter((item) => item.category === category).filter((item) => {
+        const text = `${item.title} ${item.summary || ''}`.toLowerCase();
+        return text.includes(normalizedQuery);
+      });
+      const freshFiltered = applyFreshnessFilter(filtered);
+      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${categoryLabels[category] || category}`);
+      elements.searchHint.textContent = `Showing ${freshFiltered.length} matches in ${categoryLabels[category] || category}.`;
+      return;
+    }
+
     const feed = state.feeds.find((f) => f.id === scope);
-    if (!feed) return;
+    if (!feed) {
+      elements.searchHint.textContent = 'Select a feed or category to search.';
+      showSearchResults([], 'Select a feed or category');
+      return;
+    }
     elements.searchHint.textContent = 'Translating query...';
     const translated = await translateQueryAsync(feed, query);
-    fetchFeed(feed, translated, true).then((result) => {
+    try {
+      const result = await fetchFeed(feed, translated, true);
       const items = applyFreshnessFilter(result.items || []);
       showSearchResults(items, `${items.length} results from ${feed.name}`);
       elements.searchHint.textContent = `Search results from ${feed.name}.`;
-    });
+    } catch (error) {
+      elements.searchHint.textContent = `Search failed for ${feed.name}.`;
+      showSearchResults([], `Search failed for ${feed.name}`);
+    }
+  } finally {
+    if (elements.searchBtn) {
+      elements.searchBtn.disabled = false;
+      elements.searchBtn.textContent = originalLabel || 'Search';
+    }
   }
 }
 
