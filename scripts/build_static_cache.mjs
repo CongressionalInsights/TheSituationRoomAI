@@ -292,7 +292,7 @@ async function buildFeedPayload(feed) {
     return { id: feed.id, fetchedAt: Date.now(), error: 'requires_config', message: 'Feed URL not configured.' };
   }
 
-  const key = feed.requiresKey ? resolveServerKey(feed) : null;
+  const key = feed.requiresKey ? resolveServerKey(feed)?.trim() : null;
   if (feed.requiresKey && !key) {
     return {
       id: feed.id,
@@ -316,7 +316,7 @@ async function buildFeedPayload(feed) {
   const response = await fetchWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
   const contentType = response.headers.get('content-type') || 'text/plain';
   const body = await response.text();
-  const payload = {
+  let payload = {
     id: feed.id,
     fetchedAt: Date.now(),
     contentType,
@@ -326,6 +326,28 @@ async function buildFeedPayload(feed) {
   if (!response.ok) {
     payload.error = `http_${response.status}`;
     payload.message = `HTTP ${response.status}`;
+  }
+
+  if (payload.error && feed.id === 'nasa-firms') {
+    const fallbackUrl = buildUrl(feed.url, { key, dataset: 'VIIRS_NOAA20_NRT' })
+      .replace('VIIRS_SNPP_NRT', 'VIIRS_NOAA20_NRT');
+    const fallbackApplied = applyKey(fallbackUrl, feed, key);
+    try {
+      const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
+      const fallbackBody = await fallbackResponse.text();
+      if (fallbackResponse.ok && fallbackBody) {
+        payload = {
+          id: feed.id,
+          fetchedAt: Date.now(),
+          contentType: fallbackResponse.headers.get('content-type') || 'text/plain',
+          body: fallbackBody,
+          httpStatus: fallbackResponse.status,
+          fallback: 'VIIRS_NOAA20_NRT'
+        };
+      }
+    } catch {
+      // keep original payload
+    }
   }
   if (payload.error && feed.id === 'foia-api') {
     const fallback = await fetchLiveFallback(feed.id);
