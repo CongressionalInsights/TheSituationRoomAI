@@ -4,7 +4,7 @@ A clean, high‑signal situational awareness dashboard with a unified news layer
 
 ## Run locally
 ```bash
-cd "/Users/ashirgruder/projects/TheSituationRoom"
+cd "~codex/projects/TheSituationRoom"
 DATA_GOV="your_data_gov_key" \
 EIA="your_eia_key" \
 NASA_FIRMS="your_nasa_firms_key" \
