@@ -102,6 +102,8 @@ const state = {
   refreshTimer: null,
   lastFetch: null,
   retryingFeeds: false,
+  staleRetrying: false,
+  lastStaleRetry: 0,
   health: 'Initializing',
   previousSignals: null,
   analysisSignature: null,
@@ -399,15 +401,16 @@ const GIBS_LAYERS = {
     id: 'VIIRS_Black_Marble',
     label: 'VIIRS Black Marble',
     format: 'png',
-    maxZoom: 6,
-    matrixSet: 'GoogleMapsCompatible_Level6'
+    maxZoom: 8,
+    matrixSet: 'GoogleMapsCompatible_Level8',
+    defaultDate: '2016-01-01'
   },
   'gibs-daynight': {
     id: 'VIIRS_SNPP_DayNightBand_At_Sensor_Radiance',
     label: 'VIIRS Day/Night Band',
     format: 'png',
-    maxZoom: 6,
-    matrixSet: 'GoogleMapsCompatible_Level6'
+    maxZoom: 8,
+    matrixSet: 'GoogleMapsCompatible_Level8'
   }
 };
 
@@ -479,6 +482,14 @@ function countCriticalIssues(results) {
     if (result.error === 'requires_key' || result.error === 'requires_config' || result.error === 'missing_server_key') return false;
     return result.error || (result.httpStatus && result.httpStatus >= 400);
   }).length;
+}
+
+function isFeedStale(feed, status) {
+  if (!status?.fetchedAt) return false;
+  const ttl = Number(feed?.ttlMinutes) || state.settings.refreshMinutes;
+  const buffer = Math.max(5, Math.min(15, Math.round(ttl * 0.2)));
+  const maxAgeMs = (ttl + buffer) * 60 * 1000;
+  return Date.now() - status.fetchedAt > maxAgeMs;
 }
 const usStateCodes = new Set([
   'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
@@ -5491,13 +5502,23 @@ function shiftIsoDate(base, offsetDays) {
   return date.toISOString().slice(0, 10);
 }
 
+function getDefaultImageryDate(layerKey) {
+  const layer = GIBS_LAYERS[layerKey] || null;
+  if (layer?.defaultDate) return layer.defaultDate;
+  return getRecentIsoDate(1);
+}
+
 async function resolveLatestImageryDate() {
   if (state.imageryResolveInFlight || state.imageryDateManual) return;
   state.imageryResolveInFlight = true;
   try {
-    const base = getRecentIsoDate(0);
     const activeKey = state.settings.mapBasemap?.startsWith('gibs') ? state.settings.mapBasemap : 'gibs-viirs';
     const layer = GIBS_LAYERS[activeKey] || GIBS_LAYERS['gibs-viirs'];
+    if (layer?.defaultDate) {
+      updateImageryDate(layer.defaultDate);
+      return;
+    }
+    const base = getRecentIsoDate(0);
     for (let i = 0; i < 8; i += 1) {
       const candidate = shiftIsoDate(base, -i);
       const url = sampleTileUrl(buildGibsTileUrl(layer.id, candidate, layer.format, layer.matrixSet));
@@ -5657,7 +5678,12 @@ function applyMapBasemap(basemap, { skipSave = false } = {}) {
     updateMapLegendUI();
   }
   if (basemap.startsWith('gibs')) {
-    resolveLatestImageryDate();
+    const layer = GIBS_LAYERS[resolved];
+    if (layer?.defaultDate && !state.imageryDateManual) {
+      updateImageryDate(layer.defaultDate);
+    } else {
+      resolveLatestImageryDate();
+    }
   }
   updateImageryPanelUI();
 }
@@ -5692,7 +5718,7 @@ function initMap() {
     worldCopyJump: true
   }).setView([state.location.lat, state.location.lon], 2);
 
-  const defaultDate = getRecentIsoDate(1);
+  const defaultDate = getDefaultImageryDate(state.settings.mapBasemap || 'gibs-viirs');
   const gibsDate = state.settings.mapImageryDate || defaultDate;
   const sarDate = state.settings.mapSarDate || defaultDate;
   state.imageryDate = gibsDate;
@@ -6368,6 +6394,7 @@ async function refreshAll(force = false) {
     if (issueCount) {
       retryFailedFeeds();
     }
+    retryStaleFeeds(results);
   } finally {
     setRefreshing(false);
   }
@@ -6424,6 +6451,68 @@ async function retryFailedFeeds() {
   })));
   setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
   state.retryingFeeds = false;
+}
+
+async function retryStaleFeeds(results) {
+  if (state.staleRetrying) return;
+  if (isStaticMode() && !state.settings.superMonitor) return;
+  const now = Date.now();
+  if (now - state.lastStaleRetry < 2 * 60 * 1000) return;
+  const staleFeeds = state.feeds.filter((feed) => {
+    const status = state.feedStatus[feed.id];
+    if (!status || status.error) return false;
+    if (isStaticMode() && feed.keySource === 'server') return false;
+    return isFeedStale(feed, status);
+  });
+  if (!staleFeeds.length) return;
+  state.staleRetrying = true;
+  state.lastStaleRetry = now;
+
+  const seen = new Set(state.items.map((item) => item.url || item.title));
+  const newItems = [];
+
+  for (const feed of staleFeeds) {
+    const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await fetchFeed(feed, query, true);
+      state.feedStatus[result.feed.id] = {
+        httpStatus: result.httpStatus,
+        error: result.error,
+        errorMessage: result.errorMessage,
+        fetchedAt: result.fetchedAt,
+        count: result.items.length
+      };
+      result.items.forEach((item) => {
+        const key = item.url || item.title;
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        newItems.push({
+          ...item,
+          url: canonicalUrl(item.url)
+        });
+      });
+    } catch {
+      // keep existing data
+    }
+  }
+
+  if (newItems.length) {
+    state.items = [...state.items, ...newItems];
+    state.scopedItems = applyScope(state.items);
+    state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+    renderAllPanels();
+    renderSignals();
+    drawMap();
+  }
+
+  renderFeedHealth();
+  const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
+    feed,
+    ...state.feedStatus[feed.id]
+  })));
+  setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
+  state.staleRetrying = false;
 }
 
 function startAutoRefresh() {
