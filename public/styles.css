@@ -36,7 +36,7 @@
   --panel-glass: #141f2d;
   --border: rgba(148, 164, 182, 0.22);
   --text: #eef3f9;
-  --muted: #9fb0c4;
+  --muted: #b6c4d6;
   --accent: #2fbf9c;
   --accent-2: #5ea1ff;
   --accent-3: #f2b565;
@@ -50,7 +50,7 @@
   --focus-glow: rgba(94, 161, 255, 0.25);
   --grid-line: rgba(120, 140, 160, 0.12);
   --text-strong: #f5f8fc;
-  --text-soft: #c8d2df;
+  --text-soft: #d5deea;
   --icon-tone: #0b1119;
 }
 
@@ -61,7 +61,7 @@
   --panel-glass: #f7f9fc;
   --border: rgba(28, 44, 60, 0.14);
   --text: #0d131b;
-  --muted: #4d5b6c;
+  --muted: #556478;
   --accent: #0f8c6c;
   --accent-2: #2c6fd6;
   --accent-3: #d79a2b;
@@ -75,7 +75,7 @@
   --focus-glow: rgba(44, 111, 214, 0.2);
   --grid-line: rgba(15, 25, 40, 0.06);
   --text-strong: #0b1119;
-  --text-soft: #445466;
+  --text-soft: #4c5b6f;
   --icon-tone: #0b1119;
 }
 
@@ -2575,7 +2575,7 @@ a:focus-visible {
   flex-direction: column;
   gap: 10px;
   overflow: auto;
-  max-height: 360px;
+  max-height: clamp(240px, 40vh, 460px);
   flex: 1;
   min-height: 0;
   padding-right: 6px;
@@ -2892,7 +2892,7 @@ a.list-title:hover {
 
 .custom-feed-status {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text-soft);
 }
 
 .custom-feed-buttons {
@@ -2908,7 +2908,7 @@ a.list-title:hover {
 }
 
 .settings-section .toggle-row span {
-  color: var(--muted);
+  color: var(--text-soft);
 }
 
 .settings-section input[type="range"] {
@@ -2929,7 +2929,7 @@ a.list-title:hover {
 
 .settings-note {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-soft);
 }
 
 .key-manager {
@@ -3326,7 +3326,7 @@ a.list-title:hover {
   align-items: center;
   justify-content: center;
   padding: 26px;
-  background: rgba(5, 8, 12, 0.82);
+  background: rgba(5, 8, 12, 0.72);
   backdrop-filter: blur(10px);
   opacity: 0;
   visibility: hidden;
@@ -3336,7 +3336,7 @@ a.list-title:hover {
 }
 
 [data-theme="light"] .modal-overlay {
-  background: rgba(8, 12, 18, 0.75);
+  background: rgba(12, 16, 24, 0.6);
 }
 
 .modal-overlay.open {
@@ -3384,7 +3384,7 @@ a.list-title:hover {
 
 .modal-body {
   padding: 20px 24px 26px;
-  background: var(--surface-2);
+  background: var(--surface-1);
   overflow: auto;
 }
 
@@ -3395,7 +3395,7 @@ a.list-title:hover {
 }
 
 .modal-card {
-  background: var(--surface-3);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 16px;
@@ -3404,7 +3404,7 @@ a.list-title:hover {
 
 .modal-card-title {
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: 12.5px;
   letter-spacing: 1.3px;
   text-transform: uppercase;
   margin-bottom: 8px;
@@ -3413,8 +3413,8 @@ a.list-title:hover {
 
 .modal-card p {
   margin: 0;
-  color: var(--text);
-  font-size: 14px;
+  color: var(--text-strong);
+  font-size: 13.5px;
   line-height: 1.6;
 }
 
@@ -3427,7 +3427,7 @@ a.list-title:hover {
 }
 
 .modal .panel-sub {
-  color: var(--muted);
+  color: var(--text-soft);
 }
 
 .modal a,
