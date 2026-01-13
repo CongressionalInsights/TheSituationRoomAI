@@ -75,6 +75,17 @@ function decodeJsonString(value) {
   }
 }
 
+function parseJsonArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function parseStooqCsv(text) {
   if (!text) return null;
   const lines = text.trim().split(/\r?\n/);
@@ -324,6 +335,49 @@ async function buildFeedPayload(feed) {
     const ckanFallback = await fetchFoiaCkanFallback();
     if (ckanFallback) {
       return ckanFallback;
+    }
+  }
+
+  if (!payload.error && feed.id === 'polymarket-markets' && contentType.includes('json')) {
+    try {
+      const markets = JSON.parse(body);
+      if (Array.isArray(markets) && markets.length) {
+        const sortedByVolume = [...markets].sort((a, b) => Number(b.volume24hr || 0) - Number(a.volume24hr || 0));
+        const byVolume = sortedByVolume.slice(0, 2);
+        const sortedByNewest = [...markets].sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+        const byNewest = sortedByNewest.filter((item) => !byVolume.includes(item)).slice(0, 2);
+        const targetIds = new Set([...byVolume, ...byNewest].map((item) => item.id));
+
+        for (const market of markets) {
+          if (!targetIds.has(market.id)) continue;
+          const tokenIds = parseJsonArray(market.clobTokenIds);
+          if (!tokenIds.length) continue;
+          const prices = [];
+          for (const tokenId of tokenIds.slice(0, 3)) {
+            try {
+              const priceUrl = `https://clob.polymarket.com/price?token_id=${tokenId}&side=BUY`;
+              const priceResponse = await fetchWithTimeout(priceUrl, {
+                'User-Agent': appConfig.userAgent,
+                'Accept': 'application/json'
+              }, 8000);
+              if (!priceResponse.ok) continue;
+              const priceData = await priceResponse.json();
+              const price = Number(priceData?.price);
+              prices.push(Number.isFinite(price) ? price : null);
+            } catch {
+              prices.push(null);
+            }
+          }
+          if (prices.length) {
+            market.outcomePrices = prices;
+          }
+        }
+
+        payload.body = JSON.stringify(markets);
+        payload.contentType = 'application/json';
+      }
+    } catch {
+      // keep original payload
     }
   }
   return payload;
