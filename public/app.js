@@ -999,6 +999,9 @@ function applyTheme(mode) {
   elements.app.dataset.theme = resolved;
   document.documentElement.dataset.theme = resolved;
   document.body.dataset.theme = resolved;
+  document.querySelectorAll('.modal-overlay').forEach((overlay) => {
+    overlay.dataset.theme = resolved;
+  });
   renderEnergyMap();
 }
 

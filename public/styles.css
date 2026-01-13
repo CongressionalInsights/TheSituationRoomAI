@@ -55,7 +55,7 @@
   --panel-glass: #141f2d;
   --border: rgba(148, 164, 182, 0.22);
   --text: #eef3f9;
-  --muted: #b6c4d6;
+  --muted: #c7d3e3;
   --accent: #2fbf9c;
   --accent-2: #5ea1ff;
   --accent-3: #f2b565;
@@ -69,7 +69,7 @@
   --focus-glow: rgba(94, 161, 255, 0.25);
   --grid-line: rgba(120, 140, 160, 0.12);
   --text-strong: #f5f8fc;
-  --text-soft: #d5deea;
+  --text-soft: #e1e9f4;
   --icon-tone: #0b1119;
 }
 
@@ -3362,6 +3362,46 @@ a.list-title:hover {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+}
+
+.modal-overlay.about {
+  background: rgba(6, 10, 16, 0.82);
+}
+
+.modal-overlay.about .modal {
+  background: #0f1724;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f8fbff;
+}
+
+.modal-overlay.about .modal-header {
+  background: #0f1724;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.modal-overlay.about .modal-body {
+  background: #121c2b;
+}
+
+.modal-overlay.about .modal-card {
+  background: rgba(18, 28, 40, 0.95);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.modal-overlay.about .modal-card-title,
+.modal-overlay.about .panel-title,
+.modal-overlay.about .panel-sub,
+.modal-overlay.about .modal-card p,
+.modal-overlay.about .modal-card strong,
+.modal-overlay.about .modal a,
+.modal-overlay.about .modal a:hover,
+.modal-overlay.about .modal .chip,
+.modal-overlay.about .modal .btn {
+  color: #f8fbff;
+}
+
+.modal-overlay.about .modal-card-title {
+  color: #d8e8ff;
 }
 
 .modal {
