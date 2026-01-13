@@ -107,7 +107,12 @@ const state = {
   health: 'Initializing',
   previousSignals: null,
   analysisSignature: null,
-  analysisRunning: false
+  analysisRunning: false,
+  predictionFallback: {
+    items: [],
+    loading: false,
+    loaded: false
+  }
 };
 
 const elements = {
@@ -5054,8 +5059,39 @@ function renderEnergyNews() {
   renderList(elements.energyList, items.slice(0, limit));
 }
 
+async function loadPredictionFallback() {
+  if (state.predictionFallback.loading || state.predictionFallback.loaded) return;
+  state.predictionFallback.loading = true;
+  try {
+    const feed = state.feeds.find((item) => item.id === 'polymarket-markets');
+    if (!feed) {
+      state.predictionFallback.loaded = true;
+      return;
+    }
+    const response = await fetch(`${getAssetUrl('/data/feeds/polymarket-markets.json')}?_ts=${Date.now()}`);
+    const payload = await response.json();
+    if (payload?.body) {
+      const items = parseJson(payload.body, feed) || [];
+      state.predictionFallback.items = items.map((item) => ({
+        ...item,
+        tags: feed.tags || [],
+        feedId: feed.id,
+        feedName: feed.name
+      }));
+    }
+    state.predictionFallback.loaded = true;
+  } catch {
+    state.predictionFallback.loaded = true;
+  } finally {
+    state.predictionFallback.loading = false;
+  }
+}
+
 function getPredictionItems() {
-  const items = getCategoryItems('prediction').items;
+  let items = getCategoryItems('prediction').items;
+  if (!items.length && state.predictionFallback.items.length) {
+    items = state.predictionFallback.items;
+  }
   if (!items.length) return [];
   const isCryptoPrediction = (item) => /\\b(btc|eth|sol|xrp|crypto|bitcoin|ethereum|solana|doge)\\b/i.test(item.title || '');
   const sortedByVolume = [...items].sort((a, b) => (b.volume24 || 0) - (a.volume24 || 0));
@@ -5076,7 +5112,13 @@ function getPredictionItems() {
 
 function renderPrediction() {
   if (!elements.predictionList) return;
-  const items = getPredictionItems();
+  let items = getPredictionItems();
+  if (!items.length && !state.predictionFallback.loaded && !state.predictionFallback.loading) {
+    loadPredictionFallback().then(() => renderPrediction());
+  }
+  if (!items.length && state.predictionFallback.items.length) {
+    items = state.predictionFallback.items;
+  }
   const limit = Math.min(getListLimit(elements.predictionList.id), items.length);
   renderList(elements.predictionList, items.slice(0, limit));
 }

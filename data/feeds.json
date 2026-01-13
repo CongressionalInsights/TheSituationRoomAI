@@ -523,7 +523,6 @@
       "docsUrl": "https://firms.modaps.eosdis.nasa.gov/api/",
       "category": "disaster",
       "format": "json",
-      "isCustom": true,
       "requiresKey": true,
       "keySource": "server",
       "url": "https://firms.modaps.eosdis.nasa.gov/api/area/json/{{key}}/VIIRS_SNPP_NRT/world/1",
