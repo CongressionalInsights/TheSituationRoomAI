@@ -65,6 +65,7 @@ function resolveServerKey(feed, env) {
   if (feed.keySource !== 'server') return null;
   if (feed.keyGroup === 'api.data.gov') return env.DATA_GOV;
   if (feed.keyGroup === 'eia') return env.EIA;
+  if (feed.keyGroup === 'earthdata') return env.EARTHDATA_NASA;
   if (feed.id === 'openaq-api') return env.OPEN_AQ;
   if (feed.id === 'nasa-firms') return env.NASA_FIRMS;
   return null;

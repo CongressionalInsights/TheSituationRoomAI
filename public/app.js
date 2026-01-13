@@ -42,6 +42,13 @@ const state = {
     showKeys: true,
     liveSearch: true,
     tickerWatchlist: [],
+    mapBasemap: 'osm',
+    mapRasterOverlays: {
+      hillshade: false,
+      sar: false
+    },
+    mapImageryDate: '',
+    mapSarDate: '',
     mapLayers: {
       weather: true,
       disaster: true,
@@ -65,6 +72,15 @@ const state = {
   chatHistory: [],
   mapPoints: [],
   map: null,
+  mapBaseLayers: {},
+  mapOverlayLayers: {},
+  activeBaseLayer: null,
+  imageryDate: null,
+  sarDate: null,
+  imageryDateManual: false,
+  sarDateManual: false,
+  imageryResolveInFlight: false,
+  sarResolveInFlight: false,
   energyMap: null,
   energyMapLayer: null,
   energyGeo: null,
@@ -159,6 +175,12 @@ const elements = {
   mapTooltip: document.getElementById('mapTooltip'),
   mapLegendBtn: document.getElementById('mapLegendBtn'),
   mapLegend: document.getElementById('mapLegend'),
+  mapImageryDate: document.getElementById('mapImageryDate'),
+  mapSarDate: document.getElementById('mapSarDate'),
+  imageryDateInput: document.getElementById('imageryDateInput'),
+  sarDateInput: document.getElementById('sarDateInput'),
+  imageryDatePanel: document.getElementById('imageryDatePanel'),
+  sarDatePanel: document.getElementById('sarDatePanel'),
   mapDetail: document.getElementById('mapDetail'),
   mapDetailList: document.getElementById('mapDetailList'),
   mapDetailMeta: document.getElementById('mapDetailMeta'),
@@ -216,6 +238,7 @@ const defaultPanelSizes = {
   map: { cols: 12 },
   ticker: { cols: 12 },
   'finance-spotlight': { cols: 12 },
+  imagery: { cols: 12 },
   command: { cols: 12 },
   signals: { cols: 5 },
   news: { cols: 6 },
@@ -296,6 +319,27 @@ const listDefaults = {
   transportList: 3
 };
 const listPageSize = 8;
+
+const GIBS_LAYERS = {
+  'gibs-viirs': {
+    id: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',
+    label: 'NASA VIIRS True Color',
+    format: 'jpg',
+    maxZoom: 9
+  },
+  'gibs-modis-terra': {
+    id: 'MODIS_Terra_CorrectedReflectance_TrueColor',
+    label: 'MODIS Terra True Color',
+    format: 'jpg',
+    maxZoom: 9
+  },
+  'gibs-modis-aqua': {
+    id: 'MODIS_Aqua_CorrectedReflectance_TrueColor',
+    label: 'MODIS Aqua True Color',
+    format: 'jpg',
+    maxZoom: 9
+  }
+};
 const severityLabels = [
   { min: 8, label: 'Great' },
   { min: 7, label: 'Major' },
@@ -346,8 +390,22 @@ function loadSettings() {
     try {
       const parsed = JSON.parse(saved);
       const defaultLayers = { ...state.settings.mapLayers };
+      const defaultOverlays = { ...state.settings.mapRasterOverlays };
       Object.assign(state.settings, parsed);
       state.settings.mapLayers = { ...defaultLayers, ...(parsed.mapLayers || {}) };
+      state.settings.mapRasterOverlays = { ...defaultOverlays, ...(parsed.mapRasterOverlays || {}) };
+      if (!state.settings.mapBasemap) {
+        state.settings.mapBasemap = 'osm';
+      }
+      if (state.settings.mapBasemap === 'gibs') {
+        state.settings.mapBasemap = 'gibs-viirs';
+      }
+      if (!state.settings.mapImageryDate) {
+        state.settings.mapImageryDate = '';
+      }
+      if (!state.settings.mapSarDate) {
+        state.settings.mapSarDate = '';
+      }
       if (typeof state.settings.aiTranslate !== 'boolean') {
         state.settings.aiTranslate = true;
       }
@@ -377,6 +435,10 @@ function loadSettings() {
       state.settings.liveSearch = true;
       state.settings.superMonitor = isStaticMode();
       state.settings.tickerWatchlist = [];
+      state.settings.mapBasemap = 'osm';
+      state.settings.mapRasterOverlays = { ...state.settings.mapRasterOverlays };
+      state.settings.mapImageryDate = '';
+      state.settings.mapSarDate = '';
     }
   }
 }
@@ -889,6 +951,7 @@ function updateSettingsUI() {
   updateAgeButtons();
   updateLanguageButtons();
   updateMapLegendUI();
+  updateMapDateUI();
   if (elements.liveSearchToggle) {
     elements.liveSearchToggle.classList.toggle('active', state.settings.liveSearch);
     elements.liveSearchToggle.textContent = state.settings.liveSearch ? 'Live Search On' : 'Live Search Off';
@@ -1262,6 +1325,59 @@ function updateMapLegendUI() {
   elements.mapLegend.querySelectorAll('input[data-layer]').forEach((input) => {
     const layer = input.dataset.layer;
     input.checked = Boolean(state.settings.mapLayers[layer]);
+  });
+  elements.mapLegend.querySelectorAll('input[data-basemap]').forEach((input) => {
+    const basemap = input.dataset.basemap;
+    input.checked = basemap === state.settings.mapBasemap;
+  });
+  elements.mapLegend.querySelectorAll('input[data-overlay]').forEach((input) => {
+    const overlay = input.dataset.overlay;
+    input.checked = Boolean(state.settings.mapRasterOverlays?.[overlay]);
+  });
+}
+
+function updateMapDateUI() {
+  const imageryDate = state.settings.mapImageryDate || state.imageryDate;
+  const sarDate = state.settings.mapSarDate || state.sarDate;
+  const maxDate = getRecentIsoDate(0);
+  const minDate = '2014-10-01';
+  if (elements.mapImageryDate) {
+    elements.mapImageryDate.textContent = `Imagery: ${imageryDate || '--'}`;
+  }
+  if (elements.mapSarDate) {
+    elements.mapSarDate.textContent = `SAR: ${sarDate || '--'}`;
+  }
+  if (elements.imageryDateInput && imageryDate) {
+    elements.imageryDateInput.min = minDate;
+    elements.imageryDateInput.max = maxDate;
+    elements.imageryDateInput.value = imageryDate;
+  }
+  if (elements.sarDateInput && sarDate) {
+    elements.sarDateInput.min = minDate;
+    elements.sarDateInput.max = maxDate;
+    elements.sarDateInput.value = sarDate;
+  }
+  if (elements.imageryDatePanel && imageryDate) {
+    elements.imageryDatePanel.min = minDate;
+    elements.imageryDatePanel.max = maxDate;
+    elements.imageryDatePanel.value = imageryDate;
+  }
+  if (elements.sarDatePanel && sarDate) {
+    elements.sarDatePanel.min = minDate;
+    elements.sarDatePanel.max = maxDate;
+    elements.sarDatePanel.value = sarDate;
+  }
+  updateImageryPanelUI();
+}
+
+function updateImageryPanelUI() {
+  document.querySelectorAll('[data-imagery-basemap]').forEach((button) => {
+    const basemap = button.dataset.imageryBasemap;
+    button.classList.toggle('active', basemap === state.settings.mapBasemap);
+  });
+  document.querySelectorAll('[data-imagery-overlay]').forEach((button) => {
+    const overlay = button.dataset.imageryOverlay;
+    button.classList.toggle('active', Boolean(state.settings.mapRasterOverlays?.[overlay]));
   });
 }
 
@@ -4944,6 +5060,163 @@ function initInfiniteScroll() {
   });
 }
 
+function getRecentIsoDate(offsetDays = 1) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function buildGibsTileUrl(layer, date, format = 'jpg') {
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.${format}`;
+}
+
+function buildSarTileUrl(date) {
+  return `https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=CGS_S1_GRD_SIGMA0&style=default&format=image/png&tilematrixset=EPSG:3857&tilematrix=EPSG:3857:{z}&tilerow={y}&tilecol={x}&time=${date}`;
+}
+
+function sampleTileUrl(template) {
+  return template.replace('{z}', '2').replace('{y}', '1').replace('{x}', '1');
+}
+
+function checkTileAvailable(url, timeout = 5000) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const timer = setTimeout(() => {
+      img.src = '';
+      resolve(false);
+    }, timeout);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    const cacheBust = url.includes('?') ? '&' : '?';
+    img.src = `${url}${cacheBust}cb=${Date.now()}`;
+  });
+}
+
+function shiftIsoDate(base, offsetDays) {
+  const date = new Date(`${base}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+async function resolveLatestImageryDate() {
+  if (state.imageryResolveInFlight || state.imageryDateManual) return;
+  state.imageryResolveInFlight = true;
+  try {
+    const base = getRecentIsoDate(0);
+    const activeKey = state.settings.mapBasemap?.startsWith('gibs') ? state.settings.mapBasemap : 'gibs-viirs';
+    const layer = GIBS_LAYERS[activeKey] || GIBS_LAYERS['gibs-viirs'];
+    for (let i = 0; i < 8; i += 1) {
+      const candidate = shiftIsoDate(base, -i);
+      const url = sampleTileUrl(buildGibsTileUrl(layer.id, candidate, layer.format));
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await checkTileAvailable(url);
+      if (ok) {
+        updateImageryDate(candidate);
+        return;
+      }
+    }
+  } finally {
+    state.imageryResolveInFlight = false;
+  }
+}
+
+async function resolveLatestSarDate() {
+  if (state.sarResolveInFlight || state.sarDateManual) return;
+  if (!state.settings.mapRasterOverlays?.sar) {
+    updateMapDateUI();
+    return;
+  }
+  state.sarResolveInFlight = true;
+  try {
+    const base = getRecentIsoDate(0);
+    for (let i = 0; i < 12; i += 1) {
+      const candidate = shiftIsoDate(base, -i);
+      const url = sampleTileUrl(buildSarTileUrl(candidate));
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await checkTileAvailable(url);
+      if (ok) {
+        updateSarDate(candidate);
+        return;
+      }
+    }
+  } finally {
+    state.sarResolveInFlight = false;
+  }
+}
+
+function updateImageryDate(date) {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  state.imageryDate = date;
+  state.settings.mapImageryDate = date;
+  Object.entries(state.mapBaseLayers || {}).forEach(([key, layer]) => {
+    if (!key.startsWith('gibs')) return;
+    const layerConfig = GIBS_LAYERS[key];
+    if (!layerConfig) return;
+    layer.setUrl(buildGibsTileUrl(layerConfig.id, date, layerConfig.format));
+    layer.redraw();
+  });
+  updateMapDateUI();
+  saveSettings();
+}
+
+function updateSarDate(date) {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  state.sarDate = date;
+  state.settings.mapSarDate = date;
+  const layer = state.mapOverlayLayers?.sar;
+  if (layer) {
+    layer.setUrl(buildSarTileUrl(date));
+    layer.redraw();
+  }
+  updateMapDateUI();
+  saveSettings();
+}
+
+function applyMapBasemap(basemap, { skipSave = false } = {}) {
+  if (!state.map) return;
+  const resolved = basemap === 'gibs' ? 'gibs-viirs' : basemap;
+  const target = state.mapBaseLayers?.[resolved] || state.mapBaseLayers?.osm;
+  if (!target) return;
+  if (state.activeBaseLayer) {
+    state.map.removeLayer(state.activeBaseLayer);
+  }
+  state.activeBaseLayer = target;
+  target.addTo(state.map);
+  state.settings.mapBasemap = resolved;
+  if (target.options?.maxZoom) {
+    state.map.setMaxZoom(target.options.maxZoom);
+  } else {
+    state.map.setMaxZoom(18);
+  }
+  if (!skipSave) {
+    saveSettings();
+    updateMapLegendUI();
+  }
+  if (basemap.startsWith('gibs')) {
+    resolveLatestImageryDate();
+  }
+}
+
+function syncMapRasterOverlays() {
+  if (!state.map) return;
+  Object.entries(state.mapOverlayLayers || {}).forEach(([key, layer]) => {
+    const shouldShow = Boolean(state.settings.mapRasterOverlays?.[key]);
+    const isActive = state.map.hasLayer(layer);
+    if (shouldShow && !isActive) {
+      layer.addTo(state.map);
+    }
+    if (!shouldShow && isActive) {
+      state.map.removeLayer(layer);
+    }
+  });
+}
+
 function initMap() {
   if (!elements.mapBase || !window.L) return;
   state.map = window.L.map(elements.mapBase, {
@@ -4952,10 +5225,52 @@ function initMap() {
     worldCopyJump: true
   }).setView([state.location.lat, state.location.lon], 2);
 
-  window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(state.map);
+  const defaultDate = getRecentIsoDate(1);
+  const gibsDate = state.settings.mapImageryDate || defaultDate;
+  const sarDate = state.settings.mapSarDate || defaultDate;
+  state.imageryDate = gibsDate;
+  state.sarDate = sarDate;
+  state.settings.mapImageryDate = gibsDate;
+  state.settings.mapSarDate = sarDate;
+
+  state.mapBaseLayers = {
+    osm: window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '&copy; OpenStreetMap contributors'
+    }),
+    esri: window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18,
+      attribution: '&copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+    }),
+    'gibs-viirs': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-viirs'].id, gibsDate, GIBS_LAYERS['gibs-viirs'].format), {
+      maxZoom: GIBS_LAYERS['gibs-viirs'].maxZoom,
+      attribution: 'NASA GIBS (VIIRS True Color)'
+    }),
+    'gibs-modis-terra': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-terra'].id, gibsDate, GIBS_LAYERS['gibs-modis-terra'].format), {
+      maxZoom: GIBS_LAYERS['gibs-modis-terra'].maxZoom,
+      attribution: 'NASA GIBS (MODIS Terra True Color)'
+    }),
+    'gibs-modis-aqua': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-aqua'].id, gibsDate, GIBS_LAYERS['gibs-modis-aqua'].format), {
+      maxZoom: GIBS_LAYERS['gibs-modis-aqua'].maxZoom,
+      attribution: 'NASA GIBS (MODIS Aqua True Color)'
+    })
+  };
+
+  state.mapOverlayLayers = {
+    hillshade: window.L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 16,
+      opacity: 0.45,
+      attribution: 'Esri World Hillshade'
+    }),
+    sar: window.L.tileLayer(buildSarTileUrl(sarDate), {
+      maxZoom: 13,
+      opacity: 0.55,
+      attribution: 'Sentinel-1 SAR (Terrascope)'
+    })
+  };
+
+  applyMapBasemap(state.settings.mapBasemap, { skipSave: true });
+  syncMapRasterOverlays();
 
   state.map.on('moveend zoomend', () => {
     drawMap();
@@ -4974,6 +5289,11 @@ function initMap() {
     updateMapViewForScope();
     drawMap();
   }, 0);
+
+  resolveLatestImageryDate();
+  if (state.settings.mapRasterOverlays?.sar) {
+    resolveLatestSarDate();
+  }
 }
 
 function getLayerForItem(item) {
@@ -6007,11 +6327,29 @@ function initEvents() {
 
     elements.mapLegend.addEventListener('change', (event) => {
       const input = event.target.closest('input[data-layer]');
-      if (!input) return;
-      const layer = input.dataset.layer;
-      state.settings.mapLayers[layer] = input.checked;
-      saveSettings();
-      drawMap();
+      if (input) {
+        const layer = input.dataset.layer;
+        state.settings.mapLayers[layer] = input.checked;
+        saveSettings();
+        drawMap();
+        return;
+      }
+      const baseInput = event.target.closest('input[data-basemap]');
+      if (baseInput) {
+        applyMapBasemap(baseInput.dataset.basemap);
+        drawMap();
+        return;
+      }
+      const overlayInput = event.target.closest('input[data-overlay]');
+      if (overlayInput) {
+        const overlay = overlayInput.dataset.overlay;
+        state.settings.mapRasterOverlays[overlay] = overlayInput.checked;
+        saveSettings();
+        syncMapRasterOverlays();
+        if (overlay === 'sar' && overlayInput.checked) {
+          resolveLatestSarDate();
+        }
+      }
     });
 
     document.addEventListener('click', (event) => {
@@ -6020,6 +6358,56 @@ function initEvents() {
       elements.mapLegend.classList.remove('show');
     });
   }
+
+  if (elements.imageryDateInput) {
+    elements.imageryDateInput.addEventListener('change', (event) => {
+      state.imageryDateManual = true;
+      updateImageryDate(event.target.value);
+    });
+  }
+
+  if (elements.sarDateInput) {
+    elements.sarDateInput.addEventListener('change', (event) => {
+      state.sarDateManual = true;
+      updateSarDate(event.target.value);
+    });
+  }
+
+  if (elements.imageryDatePanel) {
+    elements.imageryDatePanel.addEventListener('change', (event) => {
+      state.imageryDateManual = true;
+      updateImageryDate(event.target.value);
+    });
+  }
+
+  if (elements.sarDatePanel) {
+    elements.sarDatePanel.addEventListener('change', (event) => {
+      state.sarDateManual = true;
+      updateSarDate(event.target.value);
+    });
+  }
+
+  document.querySelectorAll('[data-imagery-basemap]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyMapBasemap(button.dataset.imageryBasemap);
+      updateImageryPanelUI();
+    });
+  });
+
+  document.querySelectorAll('[data-imagery-overlay]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const overlay = button.dataset.imageryOverlay;
+      const next = !state.settings.mapRasterOverlays?.[overlay];
+      state.settings.mapRasterOverlays[overlay] = next;
+      saveSettings();
+      syncMapRasterOverlays();
+      if (overlay === 'sar' && next) {
+        resolveLatestSarDate();
+      }
+      updateImageryPanelUI();
+      updateMapLegendUI();
+    });
+  });
 
   if (elements.customFeedToggle) {
     elements.customFeedToggle.addEventListener('click', () => {
@@ -6219,6 +6607,7 @@ async function init() {
   updateChatStatus();
   attachKeyButtons();
   initMap();
+  updateMapDateUI();
   initEvents();
   initInfiniteScroll();
   ensurePanelUpdateBadges();

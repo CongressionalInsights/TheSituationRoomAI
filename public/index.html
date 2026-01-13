@@ -149,6 +149,8 @@
           <div class="panel-actions">
             <button class="chip" id="geoLocateBtn">Locate Me</button>
             <button class="chip chip-toggle" id="travelTickerBtn">Travel Ticker</button>
+            <span class="chip chip-static" id="mapImageryDate">Imagery: --</span>
+            <span class="chip chip-static" id="mapSarDate">SAR: --</span>
             <button class="chip" id="mapLegendBtn">Legend</button>
           </div>
         </div>
@@ -173,6 +175,27 @@
           </div>
           <div class="map-overlay" id="mapLegend">
             <div class="legend-title">Legend</div>
+            <div class="legend-group">
+              <div class="legend-group-title">Basemap</div>
+              <label class="legend-item legend-radio"><input id="legendBasemapOsm" name="legendBasemap" type="radio" data-basemap="osm" checked /> OpenStreetMap</label>
+              <label class="legend-item legend-radio"><input id="legendBasemapEsri" name="legendBasemap" type="radio" data-basemap="esri" /> Esri Satellite</label>
+              <label class="legend-item legend-radio"><input id="legendBasemapGibsViirs" name="legendBasemap" type="radio" data-basemap="gibs-viirs" /> NASA VIIRS True Color <span class="legend-note">daily</span></label>
+              <label class="legend-item legend-radio"><input id="legendBasemapGibsTerra" name="legendBasemap" type="radio" data-basemap="gibs-modis-terra" /> NASA MODIS Terra <span class="legend-note">daily</span></label>
+              <label class="legend-item legend-radio"><input id="legendBasemapGibsAqua" name="legendBasemap" type="radio" data-basemap="gibs-modis-aqua" /> NASA MODIS Aqua <span class="legend-note">daily</span></label>
+              <label class="legend-item legend-date">
+                <span>Imagery date</span>
+                <input id="imageryDateInput" name="imageryDateInput" type="date" />
+              </label>
+            </div>
+            <div class="legend-group">
+              <div class="legend-group-title">Imagery Overlays</div>
+              <label class="legend-item"><input id="legendOverlayHillshade" name="legendOverlayHillshade" type="checkbox" data-overlay="hillshade" /> Terrain / Lidar Hillshade</label>
+              <label class="legend-item"><input id="legendOverlaySar" name="legendOverlaySar" type="checkbox" data-overlay="sar" /> SAR (Sentinel-1)</label>
+              <label class="legend-item legend-date">
+                <span>SAR date</span>
+                <input id="sarDateInput" name="sarDateInput" type="date" />
+              </label>
+            </div>
             <div class="legend-group">
               <div class="legend-group-title">Hazards</div>
               <label class="legend-item"><input id="legendWeather" name="legendWeather" type="checkbox" data-layer="weather" checked /> <span class="legend-dot dot-weather"></span> Weather</label>
@@ -201,6 +224,44 @@
               <div class="legend-group-title">Context</div>
               <label class="legend-item"><input id="legendNews" name="legendNews" type="checkbox" data-layer="news" checked /> <span class="legend-dot dot-geo"></span> Geo-tagged News</label>
               <label class="legend-item"><input id="legendLocal" name="legendLocal" type="checkbox" data-layer="local" checked /> <span class="legend-dot dot-local"></span> Local Radius</label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel imagery-panel" data-panel="imagery" data-category="geo">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-geo"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg></span>Imagery Control</div>
+            <div class="panel-sub">Satellite basemaps + SAR/Lidar overlays</div>
+          </div>
+        </div>
+        <div class="imagery-body">
+          <div class="imagery-group">
+            <div class="imagery-label">Basemaps</div>
+            <div class="chip-group">
+              <button class="chip imagery-basemap" data-imagery-basemap="osm">OSM</button>
+              <button class="chip imagery-basemap" data-imagery-basemap="esri">Esri Satellite</button>
+              <button class="chip imagery-basemap" data-imagery-basemap="gibs-viirs">NASA VIIRS</button>
+              <button class="chip imagery-basemap" data-imagery-basemap="gibs-modis-terra">MODIS Terra</button>
+              <button class="chip imagery-basemap" data-imagery-basemap="gibs-modis-aqua">MODIS Aqua</button>
+            </div>
+          </div>
+          <div class="imagery-group">
+            <div class="imagery-label">Overlays</div>
+            <div class="chip-group">
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="hillshade">Terrain Hillshade</button>
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
+            </div>
+          </div>
+          <div class="imagery-group imagery-dates">
+            <div class="imagery-date">
+              <div class="imagery-label">Imagery Date</div>
+              <input id="imageryDatePanel" name="imageryDatePanel" type="date" />
+            </div>
+            <div class="imagery-date">
+              <div class="imagery-label">SAR Date</div>
+              <input id="sarDatePanel" name="sarDatePanel" type="date" />
             </div>
           </div>
         </div>

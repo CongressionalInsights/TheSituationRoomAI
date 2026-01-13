@@ -28,6 +28,11 @@ Then open `http://localhost:5173`.
 - Toggle panels in Settings (visibility is saved).
 - Reset layout restores the default order.
 
+## Map imagery layers
+- Open the map **Legend** to switch basemaps (OSM / Esri Satellite / NASA VIIRS True Color).
+- Turn on **Terrain Hillshade** or **SAR (Sentinel‑1)** overlays.
+- Use the **Imagery date** and **SAR date** pickers in the legend to view specific days.
+
 ## Refresh + themes
 - Default refresh is hourly. Use Settings to drop to 1 minute or switch theme (dark/light/system).
 - Use **Refresh Now** to force a re-fetch.
@@ -51,6 +56,7 @@ GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snap
   - `EIA`
   - `NASA_FIRMS`
   - `OPEN_AQ`
+  - `EARTHDATA_NASA` (optional, only needed if you add Earthdata‑protected feeds)
   - `OPEN_AI` (optional, enables build-time AI briefing cache)
   - `analysis.json` is generated at build time if `OPEN_AI` is set.
 
