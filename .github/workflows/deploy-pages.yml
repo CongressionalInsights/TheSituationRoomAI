@@ -15,13 +15,21 @@ on:
     - cron: '0 * * * *'
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v4
       - name: Build static cache
         env:
           DATA_GOV: ${{ secrets.DATA_GOV }}
@@ -30,9 +38,18 @@ jobs:
           OPEN_AQ: ${{ secrets.OPEN_AQ }}
           OPEN_AI: ${{ secrets.OPEN_AI }}
         run: node scripts/build_static_cache.mjs
-      - name: Publish static site
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
-          enable_jekyll: false
+          path: ./public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
