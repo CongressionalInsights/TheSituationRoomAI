@@ -21,8 +21,10 @@ function resolveBasePath() {
   if (configured) return configured;
   const path = window.location.pathname || '';
   if (!path || path === '/') return '';
-  if (path.endsWith('/')) return path.slice(0, -1);
-  return path.replace(/\/[^/]*$/, '');
+  const trimmed = path.endsWith('/') ? path.slice(0, -1) : path;
+  const lastSegment = trimmed.split('/').pop() || '';
+  if (!lastSegment.includes('.')) return trimmed;
+  return trimmed.replace(/\/[^/]*$/, '');
 }
 
 const API_BASE = resolveApiBase();
