@@ -46,6 +46,9 @@ const state = {
     mapRasterOverlays: {
       hillshade: false,
       sar: false
+      ,
+      aerosol: false,
+      thermal: false
     },
     mapImageryDate: '',
     mapSarDate: '',
@@ -181,6 +184,10 @@ const elements = {
   sarDateInput: document.getElementById('sarDateInput'),
   imageryDatePanel: document.getElementById('imageryDatePanel'),
   sarDatePanel: document.getElementById('sarDatePanel'),
+  imageryAutoBtn: document.getElementById('imageryAutoBtn'),
+  sarAutoBtn: document.getElementById('sarAutoBtn'),
+  imageryPanelAutoBtn: document.getElementById('imageryPanelAutoBtn'),
+  sarPanelAutoBtn: document.getElementById('sarPanelAutoBtn'),
   mapDetail: document.getElementById('mapDetail'),
   mapDetailList: document.getElementById('mapDetailList'),
   mapDetailMeta: document.getElementById('mapDetailMeta'),
@@ -325,19 +332,55 @@ const GIBS_LAYERS = {
     id: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',
     label: 'NASA VIIRS True Color',
     format: 'jpg',
-    maxZoom: 9
+    maxZoom: 9,
+    matrixSet: 'GoogleMapsCompatible_Level9'
   },
   'gibs-modis-terra': {
     id: 'MODIS_Terra_CorrectedReflectance_TrueColor',
     label: 'MODIS Terra True Color',
     format: 'jpg',
-    maxZoom: 9
+    maxZoom: 9,
+    matrixSet: 'GoogleMapsCompatible_Level9'
   },
   'gibs-modis-aqua': {
     id: 'MODIS_Aqua_CorrectedReflectance_TrueColor',
     label: 'MODIS Aqua True Color',
     format: 'jpg',
-    maxZoom: 9
+    maxZoom: 9,
+    matrixSet: 'GoogleMapsCompatible_Level9'
+  },
+  'gibs-nightlights': {
+    id: 'VIIRS_Black_Marble',
+    label: 'VIIRS Black Marble',
+    format: 'png',
+    maxZoom: 6,
+    matrixSet: 'GoogleMapsCompatible_Level6'
+  },
+  'gibs-daynight': {
+    id: 'VIIRS_SNPP_DayNightBand_At_Sensor_Radiance',
+    label: 'VIIRS Day/Night Band',
+    format: 'png',
+    maxZoom: 6,
+    matrixSet: 'GoogleMapsCompatible_Level6'
+  }
+};
+
+const GIBS_OVERLAYS = {
+  aerosol: {
+    id: 'OMPS_Aerosol_Index',
+    label: 'Aerosol Index',
+    format: 'png',
+    maxZoom: 6,
+    matrixSet: 'GoogleMapsCompatible_Level6',
+    opacity: 0.45
+  },
+  thermal: {
+    id: 'VIIRS_SNPP_Thermal_Anomalies_375m_All',
+    label: 'Thermal Anomalies',
+    format: 'png',
+    maxZoom: 6,
+    matrixSet: 'GoogleMapsCompatible_Level6',
+    opacity: 0.6
   }
 };
 const severityLabels = [
@@ -2983,9 +3026,10 @@ function renderWatchlistChips() {
 }
 
 async function refreshEnergyMarketQuotes() {
-  const [wti, gas] = await Promise.all([
+  const [wti, gas, gold] = await Promise.all([
     fetchStooqQuote('cl.f'),
-    fetchStooqQuote('ng.f')
+    fetchStooqQuote('ng.f'),
+    fetchStooqQuote('xauusd')
   ]);
   const next = {};
   if (wti?.value) {
@@ -3006,6 +3050,16 @@ async function refreshEnergyMarketQuotes() {
       url: gas.url,
       asOf: extractStooqAsOf(gas.summary || ''),
       symbol: gas.symbol
+    };
+  }
+  if (gold?.value) {
+    next.gold = {
+      label: 'Gold',
+      value: gold.value,
+      delta: Number.isFinite(gold.deltaPct) ? gold.deltaPct : null,
+      url: gold.url,
+      asOf: extractStooqAsOf(gold.summary || ''),
+      symbol: gold.symbol
     };
   }
   state.energyMarket = next;
@@ -3184,6 +3238,19 @@ function buildFinanceKPIs() {
     });
   }
 
+  const marketGold = state.energyMarket?.gold;
+  if (marketGold?.value) {
+    kpis.push({
+      label: 'Gold',
+      value: formatCompactCurrency(marketGold.value),
+      meta: marketGold.asOf ? `Market ${marketGold.asOf}` : 'Market',
+      delta: Number.isFinite(marketGold.delta) ? marketGold.delta : null,
+      source: marketGold.source || 'Stooq',
+      url: marketGold.url,
+      category: 'finance'
+    });
+  }
+
   const globalCap = pickFirst('coinpaprika-global');
   if (globalCap?.value) {
     kpis.push({
@@ -3296,7 +3363,7 @@ function renderFinanceCards(container, kpis, variant = 'spotlight') {
 
 function renderFinanceSpotlight() {
   if (!elements.financeSpotlight) return;
-  const kpis = buildFinanceKPIs().slice(0, 6);
+  const kpis = buildFinanceKPIs().slice(0, 8);
   renderFinanceCards(elements.financeSpotlight, kpis, 'spotlight');
 }
 
@@ -5066,8 +5133,8 @@ function getRecentIsoDate(offsetDays = 1) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildGibsTileUrl(layer, date, format = 'jpg') {
-  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.${format}`;
+function buildGibsTileUrl(layer, date, format = 'jpg', matrixSet = 'GoogleMapsCompatible_Level9') {
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${date}/${matrixSet}/{z}/{y}/{x}.${format}`;
 }
 
 function buildSarTileUrl(date) {
@@ -5113,7 +5180,7 @@ async function resolveLatestImageryDate() {
     const layer = GIBS_LAYERS[activeKey] || GIBS_LAYERS['gibs-viirs'];
     for (let i = 0; i < 8; i += 1) {
       const candidate = shiftIsoDate(base, -i);
-      const url = sampleTileUrl(buildGibsTileUrl(layer.id, candidate, layer.format));
+      const url = sampleTileUrl(buildGibsTileUrl(layer.id, candidate, layer.format, layer.matrixSet));
       // eslint-disable-next-line no-await-in-loop
       const ok = await checkTileAvailable(url);
       if (ok) {
@@ -5158,7 +5225,15 @@ function updateImageryDate(date) {
     if (!key.startsWith('gibs')) return;
     const layerConfig = GIBS_LAYERS[key];
     if (!layerConfig) return;
-    layer.setUrl(buildGibsTileUrl(layerConfig.id, date, layerConfig.format));
+    layer.setUrl(buildGibsTileUrl(layerConfig.id, date, layerConfig.format, layerConfig.matrixSet));
+    layer.redraw();
+  });
+  Object.entries(state.mapOverlayLayers || {}).forEach(([key, layer]) => {
+    if (!key.startsWith('gibs-overlay')) return;
+    const overlayKey = key.replace('gibs-overlay-', '');
+    const overlayConfig = GIBS_OVERLAYS[overlayKey];
+    if (!overlayConfig) return;
+    layer.setUrl(buildGibsTileUrl(overlayConfig.id, date, overlayConfig.format, overlayConfig.matrixSet));
     layer.redraw();
   });
   updateMapDateUI();
@@ -5201,12 +5276,14 @@ function applyMapBasemap(basemap, { skipSave = false } = {}) {
   if (basemap.startsWith('gibs')) {
     resolveLatestImageryDate();
   }
+  updateImageryPanelUI();
 }
 
 function syncMapRasterOverlays() {
   if (!state.map) return;
   Object.entries(state.mapOverlayLayers || {}).forEach(([key, layer]) => {
-    const shouldShow = Boolean(state.settings.mapRasterOverlays?.[key]);
+    const overlayKey = key.startsWith('gibs-overlay-') ? key.replace('gibs-overlay-', '') : key;
+    const shouldShow = Boolean(state.settings.mapRasterOverlays?.[overlayKey]);
     const isActive = state.map.hasLayer(layer);
     if (shouldShow && !isActive) {
       layer.addTo(state.map);
@@ -5242,17 +5319,25 @@ function initMap() {
       maxZoom: 18,
       attribution: '&copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community'
     }),
-    'gibs-viirs': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-viirs'].id, gibsDate, GIBS_LAYERS['gibs-viirs'].format), {
+    'gibs-viirs': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-viirs'].id, gibsDate, GIBS_LAYERS['gibs-viirs'].format, GIBS_LAYERS['gibs-viirs'].matrixSet), {
       maxZoom: GIBS_LAYERS['gibs-viirs'].maxZoom,
       attribution: 'NASA GIBS (VIIRS True Color)'
     }),
-    'gibs-modis-terra': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-terra'].id, gibsDate, GIBS_LAYERS['gibs-modis-terra'].format), {
+    'gibs-modis-terra': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-terra'].id, gibsDate, GIBS_LAYERS['gibs-modis-terra'].format, GIBS_LAYERS['gibs-modis-terra'].matrixSet), {
       maxZoom: GIBS_LAYERS['gibs-modis-terra'].maxZoom,
       attribution: 'NASA GIBS (MODIS Terra True Color)'
     }),
-    'gibs-modis-aqua': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-aqua'].id, gibsDate, GIBS_LAYERS['gibs-modis-aqua'].format), {
+    'gibs-modis-aqua': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-aqua'].id, gibsDate, GIBS_LAYERS['gibs-modis-aqua'].format, GIBS_LAYERS['gibs-modis-aqua'].matrixSet), {
       maxZoom: GIBS_LAYERS['gibs-modis-aqua'].maxZoom,
       attribution: 'NASA GIBS (MODIS Aqua True Color)'
+    }),
+    'gibs-nightlights': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-nightlights'].id, gibsDate, GIBS_LAYERS['gibs-nightlights'].format, GIBS_LAYERS['gibs-nightlights'].matrixSet), {
+      maxZoom: GIBS_LAYERS['gibs-nightlights'].maxZoom,
+      attribution: 'NASA GIBS (VIIRS Black Marble)'
+    }),
+    'gibs-daynight': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-daynight'].id, gibsDate, GIBS_LAYERS['gibs-daynight'].format, GIBS_LAYERS['gibs-daynight'].matrixSet), {
+      maxZoom: GIBS_LAYERS['gibs-daynight'].maxZoom,
+      attribution: 'NASA GIBS (VIIRS Day/Night Band)'
     })
   };
 
@@ -5266,6 +5351,16 @@ function initMap() {
       maxZoom: 13,
       opacity: 0.55,
       attribution: 'Sentinel-1 SAR (Terrascope)'
+    }),
+    'gibs-overlay-aerosol': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.aerosol.id, gibsDate, GIBS_OVERLAYS.aerosol.format, GIBS_OVERLAYS.aerosol.matrixSet), {
+      maxZoom: GIBS_OVERLAYS.aerosol.maxZoom,
+      opacity: GIBS_OVERLAYS.aerosol.opacity,
+      attribution: 'NASA GIBS (Aerosol Index)'
+    }),
+    'gibs-overlay-thermal': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.thermal.id, gibsDate, GIBS_OVERLAYS.thermal.format, GIBS_OVERLAYS.thermal.matrixSet), {
+      maxZoom: GIBS_OVERLAYS.thermal.maxZoom,
+      opacity: GIBS_OVERLAYS.thermal.opacity,
+      attribution: 'NASA GIBS (Thermal Anomalies)'
     })
   };
 
@@ -6385,6 +6480,27 @@ function initEvents() {
       state.sarDateManual = true;
       updateSarDate(event.target.value);
     });
+  }
+
+  const triggerImageryAuto = () => {
+    state.imageryDateManual = false;
+    resolveLatestImageryDate();
+  };
+  const triggerSarAuto = () => {
+    state.sarDateManual = false;
+    resolveLatestSarDate();
+  };
+  if (elements.imageryAutoBtn) {
+    elements.imageryAutoBtn.addEventListener('click', triggerImageryAuto);
+  }
+  if (elements.imageryPanelAutoBtn) {
+    elements.imageryPanelAutoBtn.addEventListener('click', triggerImageryAuto);
+  }
+  if (elements.sarAutoBtn) {
+    elements.sarAutoBtn.addEventListener('click', triggerSarAuto);
+  }
+  if (elements.sarPanelAutoBtn) {
+    elements.sarPanelAutoBtn.addEventListener('click', triggerSarAuto);
   }
 
   document.querySelectorAll('[data-imagery-basemap]').forEach((button) => {

@@ -2019,6 +2019,12 @@ a:focus-visible {
   border-color: rgba(120, 140, 170, 0.25);
 }
 
+.chip-small {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 999px;
+}
+
 .legend-radio input {
   accent-color: var(--accent);
 }

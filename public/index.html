@@ -182,19 +182,25 @@
               <label class="legend-item legend-radio"><input id="legendBasemapGibsViirs" name="legendBasemap" type="radio" data-basemap="gibs-viirs" /> NASA VIIRS True Color <span class="legend-note">daily</span></label>
               <label class="legend-item legend-radio"><input id="legendBasemapGibsTerra" name="legendBasemap" type="radio" data-basemap="gibs-modis-terra" /> NASA MODIS Terra <span class="legend-note">daily</span></label>
               <label class="legend-item legend-radio"><input id="legendBasemapGibsAqua" name="legendBasemap" type="radio" data-basemap="gibs-modis-aqua" /> NASA MODIS Aqua <span class="legend-note">daily</span></label>
+              <label class="legend-item legend-radio"><input id="legendBasemapGibsNight" name="legendBasemap" type="radio" data-basemap="gibs-nightlights" /> Night Lights <span class="legend-note">Black Marble</span></label>
+              <label class="legend-item legend-radio"><input id="legendBasemapGibsDnb" name="legendBasemap" type="radio" data-basemap="gibs-daynight" /> Day/Night Band</label>
               <label class="legend-item legend-date">
                 <span>Imagery date</span>
                 <input id="imageryDateInput" name="imageryDateInput" type="date" />
               </label>
+              <button class="chip chip-small" id="imageryAutoBtn" type="button">Latest</button>
             </div>
             <div class="legend-group">
               <div class="legend-group-title">Imagery Overlays</div>
               <label class="legend-item"><input id="legendOverlayHillshade" name="legendOverlayHillshade" type="checkbox" data-overlay="hillshade" /> Terrain / Lidar Hillshade</label>
               <label class="legend-item"><input id="legendOverlaySar" name="legendOverlaySar" type="checkbox" data-overlay="sar" /> SAR (Sentinel-1)</label>
+              <label class="legend-item"><input id="legendOverlayAerosol" name="legendOverlayAerosol" type="checkbox" data-overlay="aerosol" /> Aerosol Index</label>
+              <label class="legend-item"><input id="legendOverlayThermal" name="legendOverlayThermal" type="checkbox" data-overlay="thermal" /> Thermal Anomalies</label>
               <label class="legend-item legend-date">
                 <span>SAR date</span>
                 <input id="sarDateInput" name="sarDateInput" type="date" />
               </label>
+              <button class="chip chip-small" id="sarAutoBtn" type="button">Latest</button>
             </div>
             <div class="legend-group">
               <div class="legend-group-title">Hazards</div>
@@ -245,6 +251,8 @@
               <button class="chip imagery-basemap" data-imagery-basemap="gibs-viirs">NASA VIIRS</button>
               <button class="chip imagery-basemap" data-imagery-basemap="gibs-modis-terra">MODIS Terra</button>
               <button class="chip imagery-basemap" data-imagery-basemap="gibs-modis-aqua">MODIS Aqua</button>
+              <button class="chip imagery-basemap" data-imagery-basemap="gibs-nightlights">Night Lights</button>
+              <button class="chip imagery-basemap" data-imagery-basemap="gibs-daynight">Day/Night Band</button>
             </div>
           </div>
           <div class="imagery-group">
@@ -252,16 +260,20 @@
             <div class="chip-group">
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="hillshade">Terrain Hillshade</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol Index</button>
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Anomalies</button>
             </div>
           </div>
           <div class="imagery-group imagery-dates">
             <div class="imagery-date">
               <div class="imagery-label">Imagery Date</div>
               <input id="imageryDatePanel" name="imageryDatePanel" type="date" />
+              <button class="chip chip-small" id="imageryPanelAutoBtn" type="button">Latest</button>
             </div>
             <div class="imagery-date">
               <div class="imagery-label">SAR Date</div>
               <input id="sarDatePanel" name="sarDatePanel" type="date" />
+              <button class="chip chip-small" id="sarPanelAutoBtn" type="button">Latest</button>
             </div>
           </div>
         </div>
