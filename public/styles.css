@@ -1117,6 +1117,17 @@ a:focus-visible {
   width: 100%;
 }
 
+.imagery-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.imagery-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
 .imagery-dates {
   flex-direction: row;
   gap: 16px;

@@ -186,8 +186,6 @@ const elements = {
   mapTooltip: document.getElementById('mapTooltip'),
   mapLegendBtn: document.getElementById('mapLegendBtn'),
   mapLegend: document.getElementById('mapLegend'),
-  mapImageryDate: document.getElementById('mapImageryDate'),
-  mapSarDate: document.getElementById('mapSarDate'),
   imageryDateInput: document.getElementById('imageryDateInput'),
   sarDateInput: document.getElementById('sarDateInput'),
   imageryDatePanel: document.getElementById('imageryDatePanel'),
@@ -196,6 +194,8 @@ const elements = {
   sarAutoBtn: document.getElementById('sarAutoBtn'),
   imageryPanelAutoBtn: document.getElementById('imageryPanelAutoBtn'),
   sarPanelAutoBtn: document.getElementById('sarPanelAutoBtn'),
+  imageryResetBtn: document.getElementById('imageryResetBtn'),
+  imageryResetPanelBtn: document.getElementById('imageryResetPanelBtn'),
   mapDetail: document.getElementById('mapDetail'),
   mapDetailList: document.getElementById('mapDetailList'),
   mapDetailMeta: document.getElementById('mapDetailMeta'),
@@ -1411,12 +1411,6 @@ function updateMapDateUI() {
   const sarDate = state.settings.mapSarDate || state.sarDate;
   const maxDate = getRecentIsoDate(0);
   const minDate = '2014-10-01';
-  if (elements.mapImageryDate) {
-    elements.mapImageryDate.textContent = `Imagery: ${imageryDate || '--'}`;
-  }
-  if (elements.mapSarDate) {
-    elements.mapSarDate.textContent = `SAR: ${sarDate || '--'}`;
-  }
   if (elements.imageryDateInput && imageryDate) {
     elements.imageryDateInput.min = minDate;
     elements.imageryDateInput.max = maxDate;
@@ -5180,6 +5174,10 @@ function buildSarTileUrl(date) {
   return `https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=CGS_S1_GRD_SIGMA0&style=default&format=image/png&tilematrixset=EPSG:3857&tilematrix=EPSG:3857:{z}&tilerow={y}&tilecol={x}&time=${date}`;
 }
 
+function buildSarTileUrlForTile(date, z, y, x) {
+  return `https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=CGS_S1_GRD_SIGMA0&style=default&format=image/png&tilematrixset=EPSG:3857&tilematrix=EPSG:3857:${z}&tilerow=${y}&tilecol=${x}&time=${date}`;
+}
+
 function sampleTileUrl(template) {
   return template.replace('{z}', '2').replace('{y}', '1').replace('{x}', '1');
 }
@@ -5201,6 +5199,27 @@ function checkTileAvailable(url, timeout = 5000) {
     };
     const cacheBust = url.includes('?') ? '&' : '?';
     img.src = `${url}${cacheBust}cb=${Date.now()}`;
+  });
+}
+
+function latLonToTile(lat, lon, z) {
+  const n = 2 ** z;
+  const x = Math.floor(((lon + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return { x, y, z };
+}
+
+function buildSarSampleUrls(date) {
+  const zoom = 4;
+  const samples = [
+    { lat: 50.0, lon: 4.5 },   // Western Europe
+    { lat: 34.0, lon: -118.2 }, // US West
+    { lat: 35.6, lon: 139.6 }  // Japan
+  ];
+  return samples.map(({ lat, lon }) => {
+    const { x, y } = latLonToTile(lat, lon, zoom);
+    return buildSarTileUrlForTile(date, zoom, y, x);
   });
 }
 
@@ -5243,12 +5262,14 @@ async function resolveLatestSarDate() {
     const base = getRecentIsoDate(0);
     for (let i = 0; i < 12; i += 1) {
       const candidate = shiftIsoDate(base, -i);
-      const url = sampleTileUrl(buildSarTileUrl(candidate));
-      // eslint-disable-next-line no-await-in-loop
-      const ok = await checkTileAvailable(url);
-      if (ok) {
-        updateSarDate(candidate);
-        return;
+      const urls = buildSarSampleUrls(candidate);
+      for (const url of urls) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await checkTileAvailable(url);
+        if (ok) {
+          updateSarDate(candidate);
+          return;
+        }
       }
     }
   } finally {
@@ -5323,6 +5344,34 @@ function applyMapPreset(preset) {
     updateMapLegendUI();
     resolveLatestImageryDate();
   }
+}
+
+function resetImagerySettings() {
+  state.settings.mapBasemap = 'osm';
+  state.settings.mapRasterOverlays = {
+    hillshade: false,
+    sar: false,
+    aerosol: false,
+    thermal: false,
+    fire: false
+  };
+  state.settings.mapOverlayOpacity = {
+    hillshade: 0.45,
+    sar: 0.55,
+    aerosol: 0.45,
+    thermal: 0.6,
+    fire: 0.6
+  };
+  state.settings.mapImageryDate = '';
+  state.settings.mapSarDate = '';
+  state.imageryDateManual = false;
+  state.sarDateManual = false;
+  saveSettings();
+  applyMapBasemap('osm');
+  syncMapRasterOverlays();
+  updateImageryPanelUI();
+  updateMapLegendUI();
+  updateMapDateUI();
 }
 
 function applyMapBasemap(basemap, { skipSave = false } = {}) {
@@ -6590,6 +6639,12 @@ function initEvents() {
   }
   if (elements.sarPanelAutoBtn) {
     elements.sarPanelAutoBtn.addEventListener('click', triggerSarAuto);
+  }
+  if (elements.imageryResetBtn) {
+    elements.imageryResetBtn.addEventListener('click', resetImagerySettings);
+  }
+  if (elements.imageryResetPanelBtn) {
+    elements.imageryResetPanelBtn.addEventListener('click', resetImagerySettings);
   }
 
   document.querySelectorAll('[data-imagery-preset]').forEach((button) => {

@@ -149,8 +149,6 @@
           <div class="panel-actions">
             <button class="chip" id="geoLocateBtn">Locate Me</button>
             <button class="chip chip-toggle" id="travelTickerBtn">Travel Ticker</button>
-            <span class="chip chip-static" id="mapImageryDate">Imagery: --</span>
-            <span class="chip chip-static" id="mapSarDate">SAR: --</span>
             <button class="chip" id="mapLegendBtn">Legend</button>
           </div>
         </div>
@@ -194,9 +192,10 @@
               <div class="legend-group-title">Imagery Overlays</div>
               <label class="legend-item"><input id="legendOverlayHillshade" name="legendOverlayHillshade" type="checkbox" data-overlay="hillshade" /> Terrain / Lidar Hillshade</label>
               <label class="legend-item"><input id="legendOverlaySar" name="legendOverlaySar" type="checkbox" data-overlay="sar" /> SAR (Sentinel-1)</label>
-              <label class="legend-item"><input id="legendOverlayAerosol" name="legendOverlayAerosol" type="checkbox" data-overlay="aerosol" /> Aerosol Index</label>
+              <label class="legend-item"><input id="legendOverlayAerosol" name="legendOverlayAerosol" type="checkbox" data-overlay="aerosol" /> Aerosol / Smoke Index</label>
               <label class="legend-item"><input id="legendOverlayThermal" name="legendOverlayThermal" type="checkbox" data-overlay="thermal" /> Thermal Anomalies</label>
               <label class="legend-item"><input id="legendOverlayFire" name="legendOverlayFire" type="checkbox" data-overlay="fire" /> Wildfire Heat (GOES)</label>
+              <div class="legend-note">SAR is swath-based; zoom in or change dates to see coverage.</div>
               <label class="legend-item legend-date">
                 <span>SAR date</span>
                 <input id="sarDateInput" name="sarDateInput" type="date" />
@@ -261,6 +260,7 @@
             <div class="chip-group">
               <button class="chip" data-imagery-preset="night">Night</button>
               <button class="chip" data-imagery-preset="thermal">Thermal</button>
+              <button class="chip" id="imageryResetBtn" type="button">Reset Imagery</button>
             </div>
           </div>
           <div class="imagery-group">
@@ -268,10 +268,11 @@
             <div class="chip-group">
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="hillshade">Terrain Hillshade</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol Index</button>
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol / Smoke</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Anomalies</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat</button>
             </div>
+            <div class="imagery-note">SAR is swath-based — zoom or change dates to see coverage.</div>
           </div>
           <div class="imagery-group">
             <div class="imagery-label">Overlay Opacity</div>
@@ -312,6 +313,9 @@
               <input id="sarDatePanel" name="sarDatePanel" type="date" />
               <button class="chip chip-small" id="sarPanelAutoBtn" type="button">Latest</button>
             </div>
+          </div>
+          <div class="imagery-actions">
+            <button class="chip" id="imageryResetPanelBtn" type="button">Reset Imagery</button>
           </div>
         </div>
       </section>
