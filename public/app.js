@@ -110,6 +110,11 @@ const state = {
 
 const elements = {
   app: document.querySelector('.app'),
+  sidebar: document.getElementById('sidebar'),
+  sidebarScrim: document.getElementById('sidebarScrim'),
+  navToggle: document.getElementById('navToggle'),
+  sidebarSettings: document.getElementById('sidebarSettings'),
+  sidebarAbout: document.getElementById('sidebarAbout'),
   panelGrid: document.getElementById('panelGrid'),
   exportSnapshot: document.getElementById('exportSnapshot'),
   refreshNow: document.getElementById('refreshNow'),
@@ -138,6 +143,11 @@ const elements = {
   aboutOpen: document.getElementById('aboutOpen'),
   aboutOpenSettings: document.getElementById('aboutOpenSettings'),
   aboutClose: document.getElementById('aboutClose'),
+  listOverlay: document.getElementById('listOverlay'),
+  listModalTitle: document.getElementById('listModalTitle'),
+  listModalMeta: document.getElementById('listModalMeta'),
+  listModalList: document.getElementById('listModalList'),
+  listModalClose: document.getElementById('listModalClose'),
   feedScope: document.getElementById('feedScope'),
   searchInput: document.getElementById('searchInput'),
   searchBtn: document.getElementById('searchBtn'),
@@ -171,6 +181,14 @@ const elements = {
   analysisOutput: document.getElementById('analysisOutput'),
   analysisBody: document.querySelector('#analysisOutput .analysis-body'),
   analysisRun: document.getElementById('analysisRun'),
+  summaryGlobalActivity: document.getElementById('summaryGlobalActivity'),
+  summaryGlobalActivityMeta: document.getElementById('summaryGlobalActivityMeta'),
+  summaryNewsSaturation: document.getElementById('summaryNewsSaturation'),
+  summaryNewsSaturationMeta: document.getElementById('summaryNewsSaturationMeta'),
+  summaryLocalEvents: document.getElementById('summaryLocalEvents'),
+  summaryLocalEventsMeta: document.getElementById('summaryLocalEventsMeta'),
+  summaryMarketPulse: document.getElementById('summaryMarketPulse'),
+  summaryMarketPulseMeta: document.getElementById('summaryMarketPulseMeta'),
   globalActivity: document.getElementById('globalActivity'),
   globalActivityMeta: document.getElementById('globalActivityMeta'),
   newsSaturation: document.getElementById('newsSaturation'),
@@ -334,6 +352,24 @@ const listDefaults = {
   transportList: 3
 };
 const listPageSize = 8;
+const listModalConfigs = [
+  { id: 'newsList', title: 'News Layer', withCoverage: true, getItems: () => buildNewsItems(state.clusters) },
+  { id: 'financeMarketsList', title: 'Finance: Markets', getItems: () => getCombinedItems(['finance', 'energy']) },
+  { id: 'financePolicyList', title: 'Finance: Regulatory', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
+  { id: 'cryptoList', title: 'Crypto / Web3', getItems: () => getCategoryItems('crypto').items },
+  { id: 'predictionList', title: 'Prediction Markets', getItems: () => getPredictionItems() },
+  { id: 'disasterList', title: 'Hazards & Weather', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
+  { id: 'localList', title: 'Local Lens', getItems: () => getLocalItemsForPanel() },
+  { id: 'policyList', title: 'Policy & Government', getItems: () => getCategoryItems('gov').items },
+  { id: 'cyberList', title: 'Cyber Pulse', getItems: () => getCategoryItems('cyber').items },
+  { id: 'agricultureList', title: 'Agriculture', getItems: () => getCategoryItems('agriculture').items },
+  { id: 'researchList', title: 'Research Watch', getItems: () => getCategoryItems('research').items },
+  { id: 'spaceList', title: 'Space Weather', getItems: () => getCategoryItems('space').items },
+  { id: 'energyList', title: 'Energy', getItems: () => getEnergyNewsItems() },
+  { id: 'healthList', title: 'Health', getItems: () => getCategoryItems('health').items },
+  { id: 'transportList', title: 'Transport & Logistics', getItems: () => getCategoryItems('transport').items }
+];
+const listModalConfigMap = Object.fromEntries(listModalConfigs.map((config) => [config.id, config]));
 
 const GIBS_LAYERS = {
   'gibs-viirs': {
@@ -1037,6 +1073,25 @@ function toggleAbout(open) {
   elements.aboutOverlay.classList.toggle('open', open);
   elements.aboutOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
   elements.aboutOverlay.inert = !open;
+}
+
+function toggleListModal(open) {
+  if (!elements.listOverlay) return;
+  elements.listOverlay.classList.toggle('open', open);
+  elements.listOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.listOverlay.inert = !open;
+  if (!open && elements.listModalList) {
+    elements.listModalList.innerHTML = '';
+    elements.listModalList.dataset.listContext = '';
+  }
+}
+
+function setNavOpen(open) {
+  if (!elements.app) return;
+  elements.app.classList.toggle('nav-open', open);
+  if (elements.navToggle) {
+    elements.navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
 }
 
 function setHealth(text) {
@@ -4249,7 +4304,7 @@ function renderList(container, items, { withCoverage = false, append = false } =
     return;
   }
   let rendered = 0;
-  const contextId = container?.id || '';
+  const contextId = container?.dataset?.listContext || container?.id || '';
   items.forEach((item) => {
     if (state.settings.languageMode === 'en' && item.isNonEnglish) return;
     const div = document.createElement('div');
@@ -4346,10 +4401,24 @@ function renderSignals() {
     ? `Signals ingested: ${totalItems} ${formatDelta(totalItems, previous?.totalItems)}`.trim()
     : 'Awaiting signals';
 
+  if (elements.summaryGlobalActivity) {
+    elements.summaryGlobalActivity.textContent = totalItems ? totalItems : '--';
+    elements.summaryGlobalActivityMeta.textContent = totalItems
+      ? `Signals ingested: ${totalItems} ${formatDelta(totalItems, previous?.totalItems)}`.trim()
+      : 'Awaiting signals';
+  }
+
   elements.newsSaturation.textContent = newsClusters ? newsClusters : '--';
   elements.newsSaturationMeta.textContent = newsClusters
     ? `Clusters across sources ${formatDelta(newsClusters, previous?.newsClusters)}`.trim()
     : 'No clusters yet';
+
+  if (elements.summaryNewsSaturation) {
+    elements.summaryNewsSaturation.textContent = newsClusters ? newsClusters : '--';
+    elements.summaryNewsSaturationMeta.textContent = newsClusters
+      ? `Clusters across sources ${formatDelta(newsClusters, previous?.newsClusters)}`.trim()
+      : 'No clusters yet';
+  }
 
   elements.localEvents.textContent = localItems.length ? localItems.length : '--';
   elements.localEventsMeta.textContent = localItems.length
@@ -4358,11 +4427,27 @@ function renderSignals() {
       : `Fallback region ${formatDelta(localItems.length, previous?.localItems)}`)
     : 'No local signals yet';
 
+  if (elements.summaryLocalEvents) {
+    elements.summaryLocalEvents.textContent = localItems.length ? localItems.length : '--';
+    elements.summaryLocalEventsMeta.textContent = localItems.length
+      ? (state.location.source === 'geo'
+        ? `Within local radius ${formatDelta(localItems.length, previous?.localItems)}`
+        : `Fallback region ${formatDelta(localItems.length, previous?.localItems)}`)
+      : 'No local signals yet';
+  }
+
   const marketCount = marketSignals.length;
   elements.marketPulse.textContent = marketCount ? marketCount : '--';
   elements.marketPulseMeta.textContent = marketCount
     ? `Markets + macro feeds ${formatDelta(marketCount, previous?.marketCount)}`.trim()
     : 'No market signals yet';
+
+  if (elements.summaryMarketPulse) {
+    elements.summaryMarketPulse.textContent = marketCount ? marketCount : '--';
+    elements.summaryMarketPulseMeta.textContent = marketCount
+      ? `Markets + macro feeds ${formatDelta(marketCount, previous?.marketCount)}`.trim()
+      : 'No market signals yet';
+  }
 
   if (elements.signalHealthChip) {
     const degraded = criticalFeedIds
@@ -5123,6 +5208,153 @@ function renderAllPanels() {
   renderTravelTicker();
   renderFinanceSpotlight();
   updatePanelTimestamps();
+  updateListFooters();
+}
+
+function ensureListFooters() {
+  listModalConfigs.forEach((config) => {
+    const container = document.getElementById(config.id);
+    if (!container) return;
+    const next = container.nextElementSibling;
+    if (next && next.classList.contains('list-footer')) return;
+    const footer = document.createElement('div');
+    footer.className = 'list-footer';
+    footer.dataset.listFooter = config.id;
+    const button = document.createElement('button');
+    button.className = 'btn ghost see-more';
+    button.type = 'button';
+    button.dataset.listOpen = config.id;
+    button.textContent = 'See more';
+    footer.appendChild(button);
+    container.insertAdjacentElement('afterend', footer);
+  });
+}
+
+function updateListFooters() {
+  listModalConfigs.forEach((config) => {
+    const container = document.getElementById(config.id);
+    if (!container) return;
+    const footer = container.nextElementSibling?.classList.contains('list-footer')
+      ? container.nextElementSibling
+      : document.querySelector(`.list-footer[data-list-footer="${config.id}"]`);
+    if (!footer) return;
+    const button = footer.querySelector('button');
+    const items = config.getItems() || [];
+    const visibleItems = state.settings.languageMode === 'en'
+      ? items.filter((item) => !item.isNonEnglish)
+      : items;
+    const limit = Math.min(getListLimit(config.id), visibleItems.length);
+    const remaining = Math.max(0, visibleItems.length - limit);
+    if (remaining > 0) {
+      footer.style.display = '';
+      if (button) {
+        button.textContent = `See more (${remaining})`;
+      }
+    } else {
+      footer.style.display = 'none';
+    }
+  });
+}
+
+function openListModal(listId) {
+  const config = listModalConfigMap[listId];
+  if (!config || !elements.listModalList) return;
+  const items = config.getItems() || [];
+  if (elements.listModalTitle) {
+    elements.listModalTitle.textContent = config.title || 'Panel Items';
+  }
+  if (elements.listModalMeta) {
+    elements.listModalMeta.textContent = items.length
+      ? `${items.length} items`
+      : 'No signals yet';
+  }
+  elements.listModalList.dataset.listContext = config.id;
+  renderList(elements.listModalList, items, { withCoverage: config.withCoverage });
+  toggleListModal(true);
+}
+
+function closeListModal() {
+  toggleListModal(false);
+}
+
+function initListModal() {
+  ensureListFooters();
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-list-open]');
+    if (!button) return;
+    const listId = button.dataset.listOpen;
+    if (listId) openListModal(listId);
+  });
+  if (elements.listModalClose) {
+    elements.listModalClose.addEventListener('click', () => closeListModal());
+  }
+  if (elements.listOverlay) {
+    elements.listOverlay.addEventListener('click', (event) => {
+      if (event.target === elements.listOverlay) {
+        closeListModal();
+      }
+    });
+  }
+}
+
+function initSidebarNav() {
+  const navLinks = [...document.querySelectorAll('.nav-link[data-panel-target]')];
+  if (!navLinks.length) return;
+  const panels = [...document.querySelectorAll('.panel[data-panel]')];
+
+  const setActive = (target) => {
+    navLinks.forEach((link) => {
+      link.classList.toggle('active', link.dataset.panelTarget === target);
+    });
+  };
+
+  navLinks.forEach((link) => {
+    link.addEventListener('click', () => {
+      const target = link.dataset.panelTarget;
+      const panel = panels.find((entry) => entry.dataset.panel === target);
+      if (panel) {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      setActive(target);
+      setNavOpen(false);
+    });
+  });
+
+  let ticking = false;
+  const onScroll = () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      const offset = 140;
+      let active = panels[0]?.dataset.panel;
+      panels.forEach((panel) => {
+        const rect = panel.getBoundingClientRect();
+        if (rect.top - offset <= 0) {
+          active = panel.dataset.panel;
+        }
+      });
+      if (active) {
+        setActive(active);
+      }
+      ticking = false;
+    });
+  };
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
+
+function initCommandSections() {
+  const sections = [...document.querySelectorAll('.command-section')];
+  sections.forEach((section) => {
+    const toggle = section.querySelector('.command-section-toggle');
+    if (!toggle) return;
+    toggle.setAttribute('aria-expanded', section.classList.contains('is-open') ? 'true' : 'false');
+    toggle.addEventListener('click', () => {
+      const isOpen = section.classList.toggle('is-open');
+      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
+  });
 }
 
 function initInfiniteScroll() {
@@ -6320,6 +6552,7 @@ function requestLocation() {
     drawMap();
     renderLocal();
     renderSignals();
+    updateListFooters();
     elements.geoLocateBtn.textContent = 'Geolocated';
     setTimeout(resetLabel, 1800);
   }, () => {
@@ -6335,6 +6568,27 @@ function initEvents() {
   elements.refreshNow.addEventListener('click', () => refreshAll(true));
   elements.settingsToggle.addEventListener('click', () => toggleSettings(true));
   elements.settingsClose.addEventListener('click', () => toggleSettings(false));
+  if (elements.sidebarSettings) {
+    elements.sidebarSettings.addEventListener('click', () => {
+      toggleSettings(true);
+      setNavOpen(false);
+    });
+  }
+  if (elements.sidebarAbout) {
+    elements.sidebarAbout.addEventListener('click', () => {
+      toggleAbout(true);
+      setNavOpen(false);
+    });
+  }
+  if (elements.navToggle) {
+    elements.navToggle.addEventListener('click', () => {
+      const isOpen = elements.app?.classList.contains('nav-open');
+      setNavOpen(!isOpen);
+    });
+  }
+  if (elements.sidebarScrim) {
+    elements.sidebarScrim.addEventListener('click', () => setNavOpen(false));
+  }
   if (elements.aboutOpen) {
     elements.aboutOpen.addEventListener('click', () => toggleAbout(true));
   }
@@ -6830,6 +7084,8 @@ function initEvents() {
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       toggleAbout(false);
+      toggleListModal(false);
+      setNavOpen(false);
     }
   });
 }
@@ -6886,7 +7142,9 @@ async function init() {
   initMap();
   updateMapDateUI();
   initEvents();
-  initInfiniteScroll();
+  initListModal();
+  initSidebarNav();
+  initCommandSections();
   ensurePanelUpdateBadges();
   renderWatchlistChips();
   requestLocation();

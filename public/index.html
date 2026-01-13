@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
+  <a class="skip-link" href="#mainContent">Skip to main content</a>
   <svg class="icon-sprite" aria-hidden="true">
     <symbol id="icon-map" viewBox="0 0 24 24">
       <path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2z"></path>
@@ -109,37 +110,130 @@
     </symbol>
   </svg>
   <div class="app" data-theme="system">
-    <header class="topbar">
-      <div class="brand">
-        <img class="brand-logo" src="logo.png" alt="The Situation Room — Unified situational awareness" />
-      </div>
-      <div class="status">
-        <span class="status-dot"></span>
-        <span id="statusText">Live</span>
-      </div>
-      <div class="data-fresh-badge" id="dataFresh">Data fresh</div>
-      <div class="top-controls">
-        <button class="btn ghost" id="exportSnapshot">Export Snapshot</button>
-        <button class="btn ghost" id="refreshNow">Refresh Now</button>
-        <button class="btn ghost" id="aboutOpen">About</button>
-        <div class="segmented" id="scopeToggle">
-          <button class="seg active" data-scope="global">Global</button>
-          <button class="seg" data-scope="us">US</button>
-          <button class="seg" data-scope="local">Local</button>
-        </div>
-        <div class="age-toggle">
-          <span class="age-label">Window</span>
-          <div class="segmented small" id="ageToggle">
-            <button class="seg" data-age="1">24h</button>
-            <button class="seg" data-age="7">7d</button>
-            <button class="seg active" data-age="30">30d</button>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+          <img class="brand-logo" src="logo.png" alt="The Situation Room — Unified situational awareness" />
+          <div class="sidebar-brand-text">
+            <div class="sidebar-title">The Situation Room</div>
+            <div class="sidebar-sub">Unified situational awareness</div>
           </div>
         </div>
-        <button class="btn" id="settingsToggle">Settings</button>
-      </div>
-    </header>
+        <nav class="sidebar-nav" aria-label="Primary">
+          <div class="nav-group">
+            <div class="nav-group-title">Command</div>
+            <button class="nav-link" data-panel-target="command"><svg class="icon" aria-hidden="true"><use href="#icon-command"></use></svg>Command Center</button>
+            <button class="nav-link" data-panel-target="signals"><svg class="icon" aria-hidden="true"><use href="#icon-signal"></use></svg>Signal Deck</button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Geo & Imagery</div>
+            <button class="nav-link" data-panel-target="map"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg>Geo Layer</button>
+            <button class="nav-link" data-panel-target="imagery"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg>Imagery Control</button>
+            <button class="nav-link" data-panel-target="energy-map"><svg class="icon" aria-hidden="true"><use href="#icon-energy"></use></svg>Energy Map</button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Intel & Alerts</div>
+            <button class="nav-link" data-panel-target="news"><svg class="icon" aria-hidden="true"><use href="#icon-news"></use></svg>News Layer</button>
+            <button class="nav-link" data-panel-target="hazards"><svg class="icon" aria-hidden="true"><use href="#icon-hazard"></use></svg>Hazards & Weather</button>
+            <button class="nav-link" data-panel-target="local"><svg class="icon" aria-hidden="true"><use href="#icon-local"></use></svg>Local Lens</button>
+            <button class="nav-link" data-panel-target="policy"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg>Policy & Government</button>
+            <button class="nav-link" data-panel-target="cyber"><svg class="icon" aria-hidden="true"><use href="#icon-cyber"></use></svg>Cyber Pulse</button>
+            <button class="nav-link" data-panel-target="health"><svg class="icon" aria-hidden="true"><use href="#icon-health"></use></svg>Health</button>
+            <button class="nav-link" data-panel-target="transport"><svg class="icon" aria-hidden="true"><use href="#icon-transport"></use></svg>Transport & Logistics</button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Markets</div>
+            <button class="nav-link" data-panel-target="ticker"><svg class="icon" aria-hidden="true"><use href="#icon-ticker"></use></svg>Market Ticker</button>
+            <button class="nav-link" data-panel-target="finance-spotlight"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg>Finance Spotlight</button>
+            <button class="nav-link" data-panel-target="finance"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg>Finance & Policy</button>
+            <button class="nav-link" data-panel-target="crypto"><svg class="icon" aria-hidden="true"><use href="#icon-crypto"></use></svg>Crypto / Web3</button>
+            <button class="nav-link" data-panel-target="prediction"><svg class="icon" aria-hidden="true"><use href="#icon-ticker"></use></svg>Prediction Markets</button>
+            <button class="nav-link" data-panel-target="energy"><svg class="icon" aria-hidden="true"><use href="#icon-energy"></use></svg>Energy</button>
+            <button class="nav-link" data-panel-target="agriculture"><svg class="icon" aria-hidden="true"><use href="#icon-agri"></use></svg>Agriculture</button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Research</div>
+            <button class="nav-link" data-panel-target="research"><svg class="icon" aria-hidden="true"><use href="#icon-research"></use></svg>Research Watch</button>
+            <button class="nav-link" data-panel-target="space"><svg class="icon" aria-hidden="true"><use href="#icon-space"></use></svg>Space Weather</button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Community</div>
+            <button class="nav-link" data-panel-target="community"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg>Community Channel</button>
+          </div>
+        </nav>
+        <div class="sidebar-footer">
+          <button class="btn ghost" id="sidebarAbout">About</button>
+          <button class="btn" id="sidebarSettings">Settings</button>
+        </div>
+      </aside>
+      <div class="sidebar-scrim" id="sidebarScrim" aria-hidden="true"></div>
+      <div class="app-main" id="mainContent">
+        <header class="topbar">
+          <div class="topbar-left">
+            <button class="icon-btn nav-toggle" id="navToggle" type="button" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+            <div class="topbar-title">
+              <div class="topbar-heading">Operations Overview</div>
+              <div class="topbar-sub">Unified situational awareness</div>
+            </div>
+          </div>
+          <div class="topbar-meta">
+            <div class="status">
+              <span class="status-dot"></span>
+              <span id="statusText">Live</span>
+            </div>
+            <div class="data-fresh-badge" id="dataFresh">Data fresh</div>
+          </div>
+          <div class="top-controls">
+            <button class="btn ghost" id="exportSnapshot">Export Snapshot</button>
+            <button class="btn ghost" id="refreshNow">Refresh Now</button>
+            <button class="btn ghost" id="aboutOpen">About</button>
+            <div class="segmented" id="scopeToggle">
+              <button class="seg active" data-scope="global">Global</button>
+              <button class="seg" data-scope="us">US</button>
+              <button class="seg" data-scope="local">Local</button>
+            </div>
+            <div class="age-toggle">
+              <span class="age-label">Window</span>
+              <div class="segmented small" id="ageToggle">
+                <button class="seg" data-age="1">24h</button>
+                <button class="seg" data-age="7">7d</button>
+                <button class="seg active" data-age="30">30d</button>
+              </div>
+            </div>
+            <button class="btn" id="settingsToggle">Settings</button>
+          </div>
+        </header>
 
-    <main class="grid" id="panelGrid">
+        <section class="summary" aria-label="Summary">
+          <div class="summary-grid">
+            <article class="summary-card tone-geo">
+              <div class="summary-label">Global Activity</div>
+              <div class="summary-value" id="summaryGlobalActivity">--</div>
+              <div class="summary-meta" id="summaryGlobalActivityMeta">Awaiting feeds</div>
+            </article>
+            <article class="summary-card tone-news">
+              <div class="summary-label">News Saturation</div>
+              <div class="summary-value" id="summaryNewsSaturation">--</div>
+              <div class="summary-meta" id="summaryNewsSaturationMeta">Awaiting clusters</div>
+            </article>
+            <article class="summary-card tone-local">
+              <div class="summary-label">Local Events</div>
+              <div class="summary-value" id="summaryLocalEvents">--</div>
+              <div class="summary-meta" id="summaryLocalEventsMeta">Awaiting location</div>
+            </article>
+            <article class="summary-card tone-finance">
+              <div class="summary-label">Market Pulse</div>
+              <div class="summary-value" id="summaryMarketPulse">--</div>
+              <div class="summary-meta" id="summaryMarketPulseMeta">Awaiting feeds</div>
+            </article>
+          </div>
+        </section>
+
+        <main class="grid" id="panelGrid">
       <section class="panel map-panel" data-panel="map" data-category="geo">
         <div class="panel-header">
           <div>
@@ -387,54 +481,70 @@
             <div class="panel-sub">Search, briefing, filters</div>
           </div>
         </div>
-        <div class="command-grid">
-          <div class="search-wrap">
-            <label for="searchInput">Unified Search</label>
-            <div class="search-row">
-              <label class="sr-only" for="feedScope">Search scope</label>
-              <select id="feedScope" name="feedScope" class="select" aria-label="Search scope"></select>
-              <input id="searchInput" name="searchInput" type="text" placeholder="Search across categories or pick a specific feed" aria-label="Search query" />
-              <button class="btn ghost" id="searchBtn" type="button">Search</button>
-            </div>
-            <div class="search-hint" id="searchHint">AI query translation is on. Search adapts to each source.</div>
-            <div class="search-live">
-              <button class="chip chip-toggle" id="liveSearchToggle" type="button">Live Search Off</button>
-              <span class="search-live-note">Query live sources (GDELT + Google News) even on static.</span>
-            </div>
-            <div class="saved-searches" id="savedSearches">
-              <button class="chip" data-query="Hurricane alerts">Hurricane</button>
-              <button class="chip" data-query="Cyber vulnerability exploited">Cyber</button>
-              <button class="chip" data-query="EIA petroleum prices">Energy</button>
-              <button class="chip" data-query="Local emergency advisory">Local</button>
-              <button class="chip" data-query="Travel health notice">Travel</button>
-            </div>
-            <div class="search-filters" id="categoryFilters"></div>
-            <div class="search-results" id="searchResults">
-              <div class="search-results-head">
-                <div>
-                  <div class="search-results-title">Search Results</div>
-                  <div class="search-results-meta" id="searchResultsMeta">Awaiting query</div>
+        <div class="command-shell">
+          <div class="command-section is-open" data-command-section="search">
+            <button class="command-section-toggle" type="button" data-command-toggle="search" aria-expanded="true">
+              <span>Search & Filters</span>
+              <span class="command-section-note">Unified query, saved searches, scoped filters.</span>
+            </button>
+            <div class="command-section-body">
+              <div class="search-wrap">
+                <label for="searchInput">Unified Search</label>
+                <div class="search-row">
+                  <label class="sr-only" for="feedScope">Search scope</label>
+                  <select id="feedScope" name="feedScope" class="select" aria-label="Search scope"></select>
+                  <input id="searchInput" name="searchInput" type="text" placeholder="Search across categories or pick a specific feed" aria-label="Search query" />
+                  <button class="btn ghost" id="searchBtn" type="button">Search</button>
                 </div>
-                <button class="chip" id="searchResultsClose">Close</button>
+                <div class="search-hint" id="searchHint">AI query translation is on. Search adapts to each source.</div>
+                <div class="search-live">
+                  <button class="chip chip-toggle" id="liveSearchToggle" type="button">Live Search Off</button>
+                  <span class="search-live-note">Query live sources (GDELT + Google News) even on static.</span>
+                </div>
+                <div class="saved-searches" id="savedSearches">
+                  <button class="chip" data-query="Hurricane alerts">Hurricane</button>
+                  <button class="chip" data-query="Cyber vulnerability exploited">Cyber</button>
+                  <button class="chip" data-query="EIA petroleum prices">Energy</button>
+                  <button class="chip" data-query="Local emergency advisory">Local</button>
+                  <button class="chip" data-query="Travel health notice">Travel</button>
+                </div>
+                <div class="search-filters" id="categoryFilters"></div>
+                <div class="search-results" id="searchResults">
+                  <div class="search-results-head">
+                    <div>
+                      <div class="search-results-title">Search Results</div>
+                      <div class="search-results-meta" id="searchResultsMeta">Awaiting query</div>
+                    </div>
+                    <button class="chip" id="searchResultsClose">Close</button>
+                  </div>
+                  <div class="list search-results-list" id="searchResultsList"></div>
+                </div>
               </div>
-              <div class="list search-results-list" id="searchResultsList"></div>
             </div>
-            <div class="analysis-chat">
-              <div class="analysis-chat-header">
-                <div>
-                  <div class="analysis-chat-title">Situational Analysis</div>
-                  <div class="analysis-chat-sub">Chat-style briefing and quick questions.</div>
+          </div>
+          <div class="command-section is-open" data-command-section="briefing">
+            <button class="command-section-toggle" type="button" data-command-toggle="briefing" aria-expanded="true">
+              <span>Briefing & Chat</span>
+              <span class="command-section-note">AI summaries, situational Q&A, rapid prompts.</span>
+            </button>
+            <div class="command-section-body">
+              <div class="analysis-chat">
+                <div class="analysis-chat-header">
+                  <div>
+                    <div class="analysis-chat-title">Situational Analysis</div>
+                    <div class="analysis-chat-sub">Chat-style briefing and quick questions.</div>
+                  </div>
+                  <button class="chip" id="analysisRun">Briefing</button>
                 </div>
-                <button class="chip" id="analysisRun">Briefing</button>
-              </div>
-              <div class="chat-wrap compact">
-                <div class="chat-log" id="chatLog">
-                  <div class="chat-bubble system">Connect an AI provider to enable live responses.</div>
-                </div>
-                <div class="chat-input">
-                  <label class="sr-only" for="chatInput">Ask about a feed or situation</label>
-                  <input id="chatInput" name="chatInput" type="text" placeholder="Ask about a feed or situation..." aria-label="Chat input" />
-                  <button class="btn ghost" id="chatSend">Send</button>
+                <div class="chat-wrap compact">
+                  <div class="chat-log" id="chatLog">
+                    <div class="chat-bubble system">Connect an AI provider to enable live responses.</div>
+                  </div>
+                  <div class="chat-input">
+                    <label class="sr-only" for="chatInput">Ask about a feed or situation</label>
+                    <input id="chatInput" name="chatInput" type="text" placeholder="Ask about a feed or situation..." aria-label="Chat input" />
+                    <button class="btn ghost" id="chatSend">Send</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -663,7 +773,9 @@
         <div class="list" id="transportList"></div>
       </section>
 
-    </main>
+        </main>
+      </div>
+    </div>
 
     <aside class="settings" id="settingsPanel">
       <div class="settings-header">
@@ -706,6 +818,7 @@
         <div class="segmented" id="themeToggle">
           <button class="seg" data-theme="dark">Dark</button>
           <button class="seg" data-theme="light">Light</button>
+          <button class="seg" data-theme="high-contrast">High Contrast</button>
           <button class="seg active" data-theme="system">System</button>
         </div>
       </div>
@@ -930,6 +1043,21 @@
             </p>
           </section>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="listOverlay" aria-hidden="true">
+    <div class="modal list-modal" role="dialog" aria-modal="true" aria-labelledby="listModalTitle">
+      <div class="modal-header">
+        <div>
+          <div class="panel-title" id="listModalTitle">Panel</div>
+          <div class="panel-sub" id="listModalMeta">Showing all items</div>
+        </div>
+        <button class="btn ghost" id="listModalClose">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="list modal-list" id="listModalList"></div>
       </div>
     </div>
   </div>

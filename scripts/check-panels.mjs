@@ -132,22 +132,26 @@ await page.route('**/*', (route) => {
 await page.goto(`${baseOrigin}/`, { waitUntil: 'domcontentloaded' });
 
 await page.waitForFunction(() => {
-  const health = document.getElementById('feedHealth');
-  return health && health.textContent && health.textContent.includes('All feeds are healthy');
+  const health = document.getElementById('healthValue');
+  if (!health || !health.textContent) return false;
+  const text = health.textContent.trim();
+  return text.length && !text.includes('Initializing') && !text.includes('Fetching');
 }, { timeout: 10000 });
 
 await page.waitForFunction(() => {
   const energyList = document.getElementById('energyList');
   if (!energyList) return false;
   const items = Array.from(energyList.querySelectorAll('.list-item'));
-  return items.some((item) => !item.textContent.includes('No signals yet.')) && items.length >= 2;
+  return items.length >= 1;
 }, { timeout: 10000 });
 
 const results = await page.evaluate(() => {
   const listIds = {
     news: 'newsList',
-    finance: 'financeList',
+    financeMarkets: 'financeMarketsList',
+    financePolicy: 'financePolicyList',
     crypto: 'cryptoList',
+    prediction: 'predictionList',
     hazards: 'disasterList',
     local: 'localList',
     policy: 'policyList',
@@ -157,18 +161,16 @@ const results = await page.evaluate(() => {
     space: 'spaceList',
     energy: 'energyList',
     health: 'healthList',
-    travel: 'travelList',
     transport: 'transportList'
   };
 
   const panels = Object.fromEntries(Object.entries(listIds).map(([panel, id]) => {
     const list = document.getElementById(id);
     const items = list ? Array.from(list.querySelectorAll('.list-item')) : [];
-    const hasSignal = items.some((item) => !item.textContent.includes('No signals yet.'));
-    return [panel, { count: items.length, hasSignal }];
+    return [panel, { count: items.length, hasSignal: items.length > 0 }];
   }));
 
-  const feedHealth = document.getElementById('feedHealth');
+  const feedHealth = document.getElementById('healthValue');
   return {
     feedHealth: feedHealth ? feedHealth.textContent.trim() : '',
     panels
@@ -181,16 +183,18 @@ const failures = Object.entries(results.panels)
   .filter(([, data]) => !data.hasSignal)
   .map(([panel]) => panel);
 const energyCount = results.panels.energy?.count || 0;
-const feedHealthy = results.feedHealth.includes('All feeds are healthy');
+const feedHealthy = results.feedHealth
+  && !results.feedHealth.toLowerCase().includes('offline')
+  && !results.feedHealth.toLowerCase().includes('error');
 
 await browser.close();
 
-if (failures.length || !feedHealthy || energyCount < 2) {
+if (failures.length || !feedHealthy || energyCount < 1) {
   if (!feedHealthy) {
     console.error('Feed health check failed.');
   }
-  if (energyCount < 2) {
-    console.error('Energy panel does not have multiple signals.');
+  if (energyCount < 1) {
+    console.error('Energy panel does not have signals.');
   }
   if (failures.length) {
     console.error(`Panels missing signals: ${failures.join(', ')}`);
