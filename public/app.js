@@ -1646,6 +1646,7 @@ function buildKeyManager(filterCategory) {
       keyInput.type = 'password';
       keyInput.id = `key-group-${toSafeId(groupId)}`;
       keyInput.name = keyInput.id;
+      keyInput.autocomplete = 'new-password';
       keyLabel.setAttribute('for', keyInput.id);
       keyInput.placeholder = 'Paste shared key';
       keyInput.value = state.keyGroups[groupId]?.key || '';
@@ -1747,6 +1748,7 @@ function buildKeyManager(filterCategory) {
     keyInput.type = 'password';
     keyInput.id = `key-${toSafeId(feed.id)}`;
     keyInput.name = keyInput.id;
+    keyInput.autocomplete = 'new-password';
     keyLabel.setAttribute('for', keyInput.id);
     const keyConfig = getKeyConfig(feed);
     const groupLabel = feed.keyGroup ? (keyGroupLabels[feed.keyGroup] || feed.keyGroup) : null;
