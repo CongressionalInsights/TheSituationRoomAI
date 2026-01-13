@@ -1899,6 +1899,8 @@ a:focus-visible {
   font-size: 12px;
   backdrop-filter: blur(6px);
   z-index: 6;
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .map-overlay.show {
@@ -1963,6 +1965,7 @@ a:focus-visible {
 .dot-geo { background: var(--warn); }
 .dot-local { background: var(--accent); }
 .dot-space { background: #8c6bff; }
+.dot-spill { background: rgba(255, 125, 36, 0.92); }
 .dot-travel { background: #ffc457; }
 .dot-transport { background: #5ee8a0; }
 .dot-health { background: #6dd1ff; }

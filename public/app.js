@@ -47,6 +47,7 @@ const state = {
       disaster: true,
       space: true,
       news: true,
+      spill: true,
       health: true,
       travel: true,
       transport: true,
@@ -220,10 +221,10 @@ const defaultPanelSizes = {
   news: { cols: 6 },
   finance: { cols: 3 },
   crypto: { cols: 3 },
+  prediction: { cols: 4 },
   hazards: { cols: 4 },
   local: { cols: 8 },
   community: { cols: 6 },
-  prediction: { cols: 4 },
   policy: { cols: 4 },
   cyber: { cols: 4 },
   agriculture: { cols: 4 },
@@ -260,6 +261,7 @@ const categoryLabels = {
   gov: 'Government',
   crypto: 'Crypto / Web3',
   prediction: 'Prediction Markets',
+  spill: 'Oil Spills',
   disaster: 'Disasters',
   weather: 'Weather',
   space: 'Space',
@@ -274,24 +276,24 @@ const categoryLabels = {
   infrastructure: 'Infrastructure',
   local: 'Local'
 };
-const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'prediction', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
+const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'prediction', 'spill', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
 const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health']);
 const listDefaults = {
-  newsList: 30,
-  financeMarketsList: 20,
-  financePolicyList: 20,
-  cryptoList: 20,
-  predictionList: 20,
-  disasterList: 20,
-  localList: 20,
-  policyList: 20,
-  cyberList: 20,
-  agricultureList: 20,
-  researchList: 20,
-  spaceList: 20,
-  energyList: 20,
-  healthList: 20,
-  transportList: 20
+  newsList: 3,
+  financeMarketsList: 3,
+  financePolicyList: 3,
+  cryptoList: 3,
+  predictionList: 4,
+  disasterList: 3,
+  localList: 3,
+  policyList: 3,
+  cyberList: 3,
+  agricultureList: 3,
+  researchList: 3,
+  spaceList: 3,
+  energyList: 3,
+  healthList: 3,
+  transportList: 3
 };
 const listPageSize = 8;
 const severityLabels = [
@@ -2033,6 +2035,49 @@ function parseGenericCsv(text, feed) {
   });
 }
 
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === '"') {
+      const next = text[i + 1];
+      if (inQuotes && next === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      row.push(current);
+      current = '';
+      continue;
+    }
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && text[i + 1] === '\n') {
+        i += 1;
+      }
+      row.push(current);
+      if (row.some((cell) => cell.trim() !== '')) {
+        rows.push(row);
+      }
+      row = [];
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current.length || row.length) {
+    row.push(current);
+    if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+  }
+  return rows;
+}
+
 const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => ({
   title: doc.title,
   url: doc.html_url,
@@ -2146,9 +2191,50 @@ const parsePolymarketMarkets = (data, feed) => {
       source: 'Polymarket',
       category: feed.category,
       value: probability !== null ? probability : null,
-      alertType: 'Prediction'
+      alertType: 'Prediction',
+      volume24,
+      liquidity
     };
   });
+};
+
+const parseIncidentNewsCsv = (text, feed) => {
+  if (!text) return [];
+  const rows = parseCsvRows(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (key) => headers.indexOf(key);
+  const get = (row, key) => {
+    const i = idx(key);
+    return i >= 0 ? row[i] : '';
+  };
+  return rows.slice(1, 101).map((row) => {
+    const id = get(row, 'id');
+    const name = get(row, 'name');
+    const location = get(row, 'location');
+    const threat = get(row, 'threat') || 'Oil';
+    const commodity = get(row, 'commodity');
+    const openDate = get(row, 'open_date');
+    const lat = Number(get(row, 'lat'));
+    const lon = Number(get(row, 'lon'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const summaryParts = [];
+    if (threat) summaryParts.push(threat);
+    if (commodity) summaryParts.push(commodity);
+    if (location) summaryParts.push(location);
+    return {
+      title: name || 'Incident',
+      url: id ? `https://incidentnews.noaa.gov/incident/${id}` : 'https://incidentnews.noaa.gov/',
+      summary: summaryParts.join(' • '),
+      publishedAt: openDate ? Date.parse(openDate) : Date.now(),
+      source: 'NOAA IncidentNews',
+      category: feed.category,
+      geo: { lat, lon },
+      alertType: threat || 'Spill',
+      location,
+      severity: threat
+    };
+  }).filter(Boolean);
 };
 
 const parseStooqCsv = (text, feed) => {
@@ -2261,6 +2347,7 @@ const feedParsers = {
   'energy-eia-brent': parseEiaSeries,
   'energy-eia-ng': parseEiaSeries,
   'polymarket-markets': parsePolymarketMarkets,
+  'noaa-incidentnews': parseIncidentNewsCsv,
   'stooq-quote': parseStooqCsv,
   'transport-opensky': (data, feed) => {
     const states = Array.isArray(data?.states) ? data.states : [];
@@ -4603,6 +4690,27 @@ function renderEnergyNews() {
   renderList(elements.energyList, items.slice(0, limit));
 }
 
+function getPredictionItems() {
+  const items = getCategoryItems('prediction').items;
+  if (!items.length) return [];
+  const byVolume = [...items].sort((a, b) => (b.volume24 || 0) - (a.volume24 || 0)).slice(0, 2);
+  const seen = new Set(byVolume.map((item) => item.title));
+  const byNewest = [...items]
+    .sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0))
+    .filter((item) => !seen.has(item.title))
+    .slice(0, 2);
+  const combined = [...byVolume, ...byNewest];
+  const remaining = items.filter((item) => !combined.includes(item));
+  return [...combined, ...remaining];
+}
+
+function renderPrediction() {
+  if (!elements.predictionList) return;
+  const items = getPredictionItems();
+  const limit = Math.min(getListLimit(elements.predictionList.id), items.length);
+  renderList(elements.predictionList, items.slice(0, limit));
+}
+
 async function loadEnergyGeoJson() {
   if (state.energyGeo) return state.energyGeo;
   const response = await fetch(getAssetUrl('/geo/us-states.geojson'));
@@ -4784,7 +4892,7 @@ function renderAllPanels() {
   renderCombined(['finance', 'energy'], elements.financeMarketsList);
   renderCombined(['gov', 'cyber', 'agriculture'], elements.financePolicyList);
   renderCategory('crypto', elements.cryptoList);
-  renderCategory('prediction', elements.predictionList);
+  renderPrediction();
   renderCombined(['disaster', 'weather', 'space'], elements.disasterList);
   renderCategory('gov', elements.policyList);
   renderCategory('cyber', elements.cyberList);
@@ -4807,7 +4915,7 @@ function initInfiniteScroll() {
     { id: 'financeMarketsList', getItems: () => getCombinedItems(['finance', 'energy']) },
     { id: 'financePolicyList', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
     { id: 'cryptoList', getItems: () => getCategoryItems('crypto').items },
-    { id: 'predictionList', getItems: () => getCategoryItems('prediction').items },
+    { id: 'predictionList', getItems: () => getPredictionItems() },
     { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
     { id: 'localList', getItems: () => getLocalItemsForPanel() },
     { id: 'policyList', getItems: () => getCategoryItems('gov').items },
@@ -4869,6 +4977,7 @@ function initMap() {
 }
 
 function getLayerForItem(item) {
+  if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.category === 'travel') return 'travel';
   if (item.category === 'transport') return 'transport';
@@ -4890,11 +4999,13 @@ function getLayerColor(layer) {
   if (layer === 'security') return 'rgba(255,144,99,0.92)';
   if (layer === 'infrastructure') return 'rgba(132,190,255,0.9)';
   if (layer === 'health') return 'rgba(109,209,255,0.9)';
+  if (layer === 'spill') return 'rgba(255,125,36,0.92)';
   return 'rgba(255,184,76,0.9)';
 }
 
 function getSignalType(item) {
   if (!item) return 'news';
+  if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
   if (item.feedId === 'usgs-quakes-hour' || item.feedId === 'usgs-quakes-day') return 'quake';
   if (item.feedId === 'arcgis-border-crisis') return 'border';
   if (item.feedId === 'arcgis-kinetic-oconus' || item.feedId === 'arcgis-kinetic-domestic') return 'kinetic';
@@ -4906,6 +5017,7 @@ function getSignalType(item) {
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId === 'transport-opensky') return 'air';
   if (item.category === 'travel') return 'travel';
+  if (item.category === 'spill') return 'spill';
   if (item.category === 'weather') return 'weather';
   if (item.category === 'disaster') return 'disaster';
   if (item.category === 'space') return 'space';
@@ -4934,6 +5046,7 @@ function getSignalIcon(type) {
   if (type === 'space') return 'S';
   if (type === 'security') return 'C';
   if (type === 'infrastructure') return 'I';
+  if (type === 'spill') return 'O';
   return 'N';
 }
 

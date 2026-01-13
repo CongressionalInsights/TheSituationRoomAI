@@ -345,6 +345,15 @@
       "tags": ["prediction", "markets", "web3"]
     },
     {
+      "id": "noaa-incidentnews",
+      "name": "NOAA IncidentNews (Spills)",
+      "category": "spill",
+      "format": "csv",
+      "url": "https://incidentnews.noaa.gov/raw/incidents.csv",
+      "ttlMinutes": 60,
+      "tags": ["us", "spill", "hazard"]
+    },
+    {
       "id": "transport-opensky",
       "name": "OpenSky Air Traffic",
       "category": "transport",
