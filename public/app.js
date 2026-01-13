@@ -115,6 +115,8 @@ const elements = {
   navToggle: document.getElementById('navToggle'),
   sidebarSettings: document.getElementById('sidebarSettings'),
   sidebarAbout: document.getElementById('sidebarAbout'),
+  communityConnect: document.getElementById('communityConnect'),
+  communityFrame: document.querySelector('.chat-frame'),
   panelGrid: document.getElementById('panelGrid'),
   exportSnapshot: document.getElementById('exportSnapshot'),
   refreshNow: document.getElementById('refreshNow'),
@@ -3114,6 +3116,20 @@ function renderWatchlistChips() {
 }
 
 async function refreshEnergyMarketQuotes() {
+  if (isStaticMode() && !state.settings.superMonitor) {
+    try {
+      const response = await fetch(getAssetUrl(`/data/energy-market.json?ts=${Date.now()}`), { cache: 'no-store' });
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload?.items) {
+          state.energyMarket = payload.items;
+          return;
+        }
+      }
+    } catch {
+      // fall through to live fetch
+    }
+  }
   const [wti, gas, gold] = await Promise.all([
     fetchStooqQuote('cl.f'),
     fetchStooqQuote('ng.f'),
@@ -5297,6 +5313,20 @@ function initListModal() {
   }
 }
 
+function initCommunityEmbed() {
+  if (!elements.communityConnect || !elements.communityFrame) return;
+  const frame = elements.communityFrame;
+  const loadFrame = () => {
+    if (frame.src) return;
+    const src = frame.dataset.src;
+    if (!src) return;
+    frame.src = src;
+  };
+  elements.communityConnect.addEventListener('click', () => {
+    loadFrame();
+  });
+}
+
 function initSidebarNav() {
   const navLinks = [...document.querySelectorAll('.nav-link[data-panel-target]')];
   if (!navLinks.length) return;
@@ -7143,6 +7173,7 @@ async function init() {
   updateMapDateUI();
   initEvents();
   initListModal();
+  initCommunityEmbed();
   initSidebarNav();
   initCommandSections();
   ensurePanelUpdateBadges();

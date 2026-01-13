@@ -75,6 +75,32 @@ function decodeJsonString(value) {
   }
 }
 
+function parseStooqCsv(text) {
+  if (!text) return null;
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return null;
+  const headers = lines[0].split(',').map((h) => h.trim());
+  const values = lines[1].split(',').map((v) => v.trim());
+  if (values.length < headers.length) return null;
+  const row = headers.reduce((acc, key, idx) => {
+    acc[key] = values[idx];
+    return acc;
+  }, {});
+  if (!row.Symbol || !row.Close || row.Close === 'N/D') return null;
+  const value = Number(row.Close);
+  if (!Number.isFinite(value)) return null;
+  const open = Number(row.Open);
+  const deltaPct = Number.isFinite(open) && open ? ((value - open) / open) * 100 : null;
+  return {
+    symbol: row.Symbol,
+    value,
+    deltaPct,
+    date: row.Date || '',
+    time: row.Time || '',
+    url: `https://stooq.com/q/?s=${encodeURIComponent(row.Symbol.toLowerCase())}`
+  };
+}
+
 function extractTitlesFromPayload(feed, payload) {
   if (!payload?.body) return [];
   const titles = new Set();
@@ -351,6 +377,39 @@ async function buildEnergyMap() {
   };
 }
 
+async function buildEnergyMarket() {
+  const symbols = [
+    { id: 'wti', symbol: 'cl.f', label: 'WTI Crude' },
+    { id: 'gas', symbol: 'ng.f', label: 'Nat Gas' },
+    { id: 'gold', symbol: 'xauusd', label: 'Gold' }
+  ];
+  const results = {};
+  for (const entry of symbols) {
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(entry.symbol)}&f=sd2t2ohlcv&h&e=csv`;
+    try {
+      const response = await fetchWithFallbacks(url, { 'User-Agent': appConfig.userAgent }, ['jina'], 12000);
+      if (!response.ok) continue;
+      const text = await response.text();
+      const parsed = parseStooqCsv(text);
+      if (!parsed) continue;
+      results[entry.id] = {
+        label: entry.label,
+        value: parsed.value,
+        delta: parsed.deltaPct,
+        url: parsed.url,
+        asOf: [parsed.date, parsed.time].filter(Boolean).join(' ').trim(),
+        symbol: parsed.symbol
+      };
+    } catch {
+      // ignore
+    }
+  }
+  return {
+    fetchedAt: Date.now(),
+    items: results
+  };
+}
+
 async function main() {
   await rm(OUT_DIR, { recursive: true, force: true });
   await mkdir(FEED_DIR, { recursive: true });
@@ -385,6 +444,9 @@ async function main() {
 
   const energyMap = await buildEnergyMap();
   await writeJson(join(OUT_DIR, 'energy-map.json'), energyMap);
+
+  const energyMarket = await buildEnergyMarket();
+  await writeJson(join(OUT_DIR, 'energy-market.json'), energyMarket);
 
   const analysis = await buildAnalysis(analysisInputs);
   await writeJson(join(OUT_DIR, 'analysis.json'), analysis);
