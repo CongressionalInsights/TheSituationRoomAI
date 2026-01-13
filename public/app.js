@@ -48,10 +48,18 @@ const state = {
       sar: false
       ,
       aerosol: false,
-      thermal: false
+      thermal: false,
+      fire: false
     },
     mapImageryDate: '',
     mapSarDate: '',
+    mapOverlayOpacity: {
+      hillshade: 0.45,
+      sar: 0.55,
+      aerosol: 0.45,
+      thermal: 0.6,
+      fire: 0.6
+    },
     mapLayers: {
       weather: true,
       disaster: true,
@@ -381,6 +389,22 @@ const GIBS_OVERLAYS = {
     maxZoom: 6,
     matrixSet: 'GoogleMapsCompatible_Level6',
     opacity: 0.6
+  },
+  'fire-east': {
+    id: 'GOES-East_ABI_FireTemp',
+    label: 'GOES East Fire Temp',
+    format: 'png',
+    maxZoom: 6,
+    matrixSet: 'GoogleMapsCompatible_Level6',
+    opacity: 0.6
+  },
+  'fire-west': {
+    id: 'GOES-West_ABI_FireTemp',
+    label: 'GOES West Fire Temp',
+    format: 'png',
+    maxZoom: 6,
+    matrixSet: 'GoogleMapsCompatible_Level6',
+    opacity: 0.6
   }
 };
 const severityLabels = [
@@ -434,9 +458,11 @@ function loadSettings() {
       const parsed = JSON.parse(saved);
       const defaultLayers = { ...state.settings.mapLayers };
       const defaultOverlays = { ...state.settings.mapRasterOverlays };
+      const defaultOpacity = { ...state.settings.mapOverlayOpacity };
       Object.assign(state.settings, parsed);
       state.settings.mapLayers = { ...defaultLayers, ...(parsed.mapLayers || {}) };
       state.settings.mapRasterOverlays = { ...defaultOverlays, ...(parsed.mapRasterOverlays || {}) };
+      state.settings.mapOverlayOpacity = { ...defaultOpacity, ...(parsed.mapOverlayOpacity || {}) };
       if (!state.settings.mapBasemap) {
         state.settings.mapBasemap = 'osm';
       }
@@ -482,6 +508,7 @@ function loadSettings() {
       state.settings.mapRasterOverlays = { ...state.settings.mapRasterOverlays };
       state.settings.mapImageryDate = '';
       state.settings.mapSarDate = '';
+      state.settings.mapOverlayOpacity = { ...state.settings.mapOverlayOpacity };
     }
   }
 }
@@ -1413,6 +1440,11 @@ function updateMapDateUI() {
   updateImageryPanelUI();
 }
 
+function getOverlayOpacity(key, fallback = 0.5) {
+  const value = state.settings.mapOverlayOpacity?.[key];
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function updateImageryPanelUI() {
   document.querySelectorAll('[data-imagery-basemap]').forEach((button) => {
     const basemap = button.dataset.imageryBasemap;
@@ -1421,6 +1453,13 @@ function updateImageryPanelUI() {
   document.querySelectorAll('[data-imagery-overlay]').forEach((button) => {
     const overlay = button.dataset.imageryOverlay;
     button.classList.toggle('active', Boolean(state.settings.mapRasterOverlays?.[overlay]));
+  });
+  document.querySelectorAll('[data-overlay-opacity]').forEach((input) => {
+    const overlay = input.dataset.overlayOpacity;
+    const value = Math.round(getOverlayOpacity(overlay, 0.5) * 100);
+    input.value = value;
+    const label = document.querySelector(`[data-overlay-opacity-value="${overlay}"]`);
+    if (label) label.textContent = `${value}%`;
   });
 }
 
@@ -5253,6 +5292,39 @@ function updateSarDate(date) {
   saveSettings();
 }
 
+function applyMapPreset(preset) {
+  if (preset === 'night') {
+    applyMapBasemap('gibs-nightlights');
+    state.settings.mapRasterOverlays = {
+      ...state.settings.mapRasterOverlays,
+      hillshade: false,
+      sar: false,
+      aerosol: false,
+      thermal: false,
+      fire: false
+    };
+    saveSettings();
+    syncMapRasterOverlays();
+    updateImageryPanelUI();
+    updateMapLegendUI();
+    resolveLatestImageryDate();
+    return;
+  }
+  if (preset === 'thermal') {
+    applyMapBasemap('gibs-viirs');
+    state.settings.mapRasterOverlays = {
+      ...state.settings.mapRasterOverlays,
+      thermal: true,
+      fire: true
+    };
+    saveSettings();
+    syncMapRasterOverlays();
+    updateImageryPanelUI();
+    updateMapLegendUI();
+    resolveLatestImageryDate();
+  }
+}
+
 function applyMapBasemap(basemap, { skipSave = false } = {}) {
   if (!state.map) return;
   const resolved = basemap === 'gibs' ? 'gibs-viirs' : basemap;
@@ -5282,7 +5354,10 @@ function applyMapBasemap(basemap, { skipSave = false } = {}) {
 function syncMapRasterOverlays() {
   if (!state.map) return;
   Object.entries(state.mapOverlayLayers || {}).forEach(([key, layer]) => {
-    const overlayKey = key.startsWith('gibs-overlay-') ? key.replace('gibs-overlay-', '') : key;
+    let overlayKey = key.startsWith('gibs-overlay-') ? key.replace('gibs-overlay-', '') : key;
+    if (overlayKey.startsWith('fire')) {
+      overlayKey = 'fire';
+    }
     const shouldShow = Boolean(state.settings.mapRasterOverlays?.[overlayKey]);
     const isActive = state.map.hasLayer(layer);
     if (shouldShow && !isActive) {
@@ -5290,6 +5365,10 @@ function syncMapRasterOverlays() {
     }
     if (!shouldShow && isActive) {
       state.map.removeLayer(layer);
+    }
+    const opacity = getOverlayOpacity(overlayKey, layer.options?.opacity ?? 0.5);
+    if (typeof layer.setOpacity === 'function' && Number.isFinite(opacity)) {
+      layer.setOpacity(opacity);
     }
   });
 }
@@ -5344,23 +5423,33 @@ function initMap() {
   state.mapOverlayLayers = {
     hillshade: window.L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 16,
-      opacity: 0.45,
+      opacity: getOverlayOpacity('hillshade', 0.45),
       attribution: 'Esri World Hillshade'
     }),
     sar: window.L.tileLayer(buildSarTileUrl(sarDate), {
       maxZoom: 13,
-      opacity: 0.55,
+      opacity: getOverlayOpacity('sar', 0.55),
       attribution: 'Sentinel-1 SAR (Terrascope)'
     }),
     'gibs-overlay-aerosol': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.aerosol.id, gibsDate, GIBS_OVERLAYS.aerosol.format, GIBS_OVERLAYS.aerosol.matrixSet), {
       maxZoom: GIBS_OVERLAYS.aerosol.maxZoom,
-      opacity: GIBS_OVERLAYS.aerosol.opacity,
+      opacity: getOverlayOpacity('aerosol', GIBS_OVERLAYS.aerosol.opacity),
       attribution: 'NASA GIBS (Aerosol Index)'
     }),
     'gibs-overlay-thermal': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.thermal.id, gibsDate, GIBS_OVERLAYS.thermal.format, GIBS_OVERLAYS.thermal.matrixSet), {
       maxZoom: GIBS_OVERLAYS.thermal.maxZoom,
-      opacity: GIBS_OVERLAYS.thermal.opacity,
+      opacity: getOverlayOpacity('thermal', GIBS_OVERLAYS.thermal.opacity),
       attribution: 'NASA GIBS (Thermal Anomalies)'
+    }),
+    'gibs-overlay-fire-east': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS['fire-east'].id, gibsDate, GIBS_OVERLAYS['fire-east'].format, GIBS_OVERLAYS['fire-east'].matrixSet), {
+      maxZoom: GIBS_OVERLAYS['fire-east'].maxZoom,
+      opacity: getOverlayOpacity('fire', GIBS_OVERLAYS['fire-east'].opacity),
+      attribution: 'NASA GIBS (GOES East Fire Temp)'
+    }),
+    'gibs-overlay-fire-west': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS['fire-west'].id, gibsDate, GIBS_OVERLAYS['fire-west'].format, GIBS_OVERLAYS['fire-west'].matrixSet), {
+      maxZoom: GIBS_OVERLAYS['fire-west'].maxZoom,
+      opacity: getOverlayOpacity('fire', GIBS_OVERLAYS['fire-west'].opacity),
+      attribution: 'NASA GIBS (GOES West Fire Temp)'
     })
   };
 
@@ -6503,6 +6592,12 @@ function initEvents() {
     elements.sarPanelAutoBtn.addEventListener('click', triggerSarAuto);
   }
 
+  document.querySelectorAll('[data-imagery-preset]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyMapPreset(button.dataset.imageryPreset);
+    });
+  });
+
   document.querySelectorAll('[data-imagery-basemap]').forEach((button) => {
     button.addEventListener('click', () => {
       applyMapBasemap(button.dataset.imageryBasemap);
@@ -6522,6 +6617,17 @@ function initEvents() {
       }
       updateImageryPanelUI();
       updateMapLegendUI();
+    });
+  });
+
+  document.querySelectorAll('[data-overlay-opacity]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const overlay = input.dataset.overlayOpacity;
+      const value = Math.max(0, Math.min(100, Number(input.value))) / 100;
+      state.settings.mapOverlayOpacity[overlay] = value;
+      saveSettings();
+      syncMapRasterOverlays();
+      updateImageryPanelUI();
     });
   });
 

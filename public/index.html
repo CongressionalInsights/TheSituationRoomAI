@@ -196,6 +196,7 @@
               <label class="legend-item"><input id="legendOverlaySar" name="legendOverlaySar" type="checkbox" data-overlay="sar" /> SAR (Sentinel-1)</label>
               <label class="legend-item"><input id="legendOverlayAerosol" name="legendOverlayAerosol" type="checkbox" data-overlay="aerosol" /> Aerosol Index</label>
               <label class="legend-item"><input id="legendOverlayThermal" name="legendOverlayThermal" type="checkbox" data-overlay="thermal" /> Thermal Anomalies</label>
+              <label class="legend-item"><input id="legendOverlayFire" name="legendOverlayFire" type="checkbox" data-overlay="fire" /> Wildfire Heat (GOES)</label>
               <label class="legend-item legend-date">
                 <span>SAR date</span>
                 <input id="sarDateInput" name="sarDateInput" type="date" />
@@ -256,12 +257,48 @@
             </div>
           </div>
           <div class="imagery-group">
+            <div class="imagery-label">Presets</div>
+            <div class="chip-group">
+              <button class="chip" data-imagery-preset="night">Night</button>
+              <button class="chip" data-imagery-preset="thermal">Thermal</button>
+            </div>
+          </div>
+          <div class="imagery-group">
             <div class="imagery-label">Overlays</div>
             <div class="chip-group">
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="hillshade">Terrain Hillshade</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol Index</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Anomalies</button>
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat</button>
+            </div>
+          </div>
+          <div class="imagery-group">
+            <div class="imagery-label">Overlay Opacity</div>
+            <div class="imagery-slider">
+              <span>Hillshade</span>
+              <input type="range" min="0" max="100" step="5" data-overlay-opacity="hillshade" />
+              <span data-overlay-opacity-value="hillshade">--%</span>
+            </div>
+            <div class="imagery-slider">
+              <span>SAR</span>
+              <input type="range" min="0" max="100" step="5" data-overlay-opacity="sar" />
+              <span data-overlay-opacity-value="sar">--%</span>
+            </div>
+            <div class="imagery-slider">
+              <span>Aerosol</span>
+              <input type="range" min="0" max="100" step="5" data-overlay-opacity="aerosol" />
+              <span data-overlay-opacity-value="aerosol">--%</span>
+            </div>
+            <div class="imagery-slider">
+              <span>Thermal</span>
+              <input type="range" min="0" max="100" step="5" data-overlay-opacity="thermal" />
+              <span data-overlay-opacity-value="thermal">--%</span>
+            </div>
+            <div class="imagery-slider">
+              <span>Fire</span>
+              <input type="range" min="0" max="100" step="5" data-overlay-opacity="fire" />
+              <span data-overlay-opacity-value="fire">--%</span>
             </div>
           </div>
           <div class="imagery-group imagery-dates">
