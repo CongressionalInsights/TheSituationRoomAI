@@ -485,7 +485,7 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-height: 120px;
+  min-height: 110px;
 }
 
 .summary-card.tone-geo {
@@ -513,7 +513,7 @@ body::before {
 
 .summary-value {
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 18px;
   letter-spacing: 0.2px;
 }
 
@@ -949,11 +949,11 @@ a:focus-visible {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 14px 16px;
+  padding: 12px 14px;
   box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   min-height: 220px;
   position: relative;
   overflow: hidden;
@@ -2574,16 +2574,17 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  overflow: visible;
-  max-height: none;
+  overflow: auto;
+  max-height: 360px;
   flex: 1;
   min-height: 0;
-  padding-right: 0;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
 }
 
 .list-item {
   border-radius: var(--radius-md);
-  padding: 14px 16px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
   background: var(--surface-2);
   display: flex;
@@ -2600,7 +2601,7 @@ a:focus-visible {
 
 .list-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.35;
   color: var(--text);
   text-decoration: none;
@@ -2623,7 +2624,7 @@ a.list-title:hover {
 }
 
 .list-meta {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--muted);
   display: flex;
   gap: 8px;
@@ -2660,14 +2661,14 @@ a.list-title:hover {
 .chip-badge.topic { border-color: rgba(140, 107, 255, 0.6); }
 
 .list-summary {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--muted);
   line-height: 1.45;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  max-height: 4.8em;
+  max-height: 3.2em;
 }
 
 .list-summary p,
@@ -2730,9 +2731,7 @@ a.list-title:hover {
 }
 
 .list-footer {
-  margin-top: 4px;
-  display: flex;
-  justify-content: flex-end;
+  display: none;
 }
 
 .tab-panel + .list-footer {

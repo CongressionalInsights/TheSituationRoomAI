@@ -339,21 +339,21 @@ const categoryLabels = {
 const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'prediction', 'spill', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
 const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health']);
 const listDefaults = {
-  newsList: 3,
-  financeMarketsList: 3,
-  financePolicyList: 3,
-  cryptoList: 3,
-  predictionList: 4,
-  disasterList: 3,
-  localList: 3,
-  policyList: 3,
-  cyberList: 3,
-  agricultureList: 3,
-  researchList: 3,
-  spaceList: 3,
-  energyList: 3,
-  healthList: 3,
-  transportList: 3
+  newsList: 30,
+  financeMarketsList: 20,
+  financePolicyList: 20,
+  cryptoList: 20,
+  predictionList: 20,
+  disasterList: 20,
+  localList: 20,
+  policyList: 20,
+  cyberList: 20,
+  agricultureList: 20,
+  researchList: 20,
+  spaceList: 20,
+  energyList: 20,
+  healthList: 20,
+  transportList: 20
 };
 const listPageSize = 8;
 const listModalConfigs = [
@@ -5235,52 +5235,6 @@ function renderAllPanels() {
   renderTravelTicker();
   renderFinanceSpotlight();
   updatePanelTimestamps();
-  updateListFooters();
-}
-
-function ensureListFooters() {
-  listModalConfigs.forEach((config) => {
-    const container = document.getElementById(config.id);
-    if (!container) return;
-    const next = container.nextElementSibling;
-    if (next && next.classList.contains('list-footer')) return;
-    const footer = document.createElement('div');
-    footer.className = 'list-footer';
-    footer.dataset.listFooter = config.id;
-    const button = document.createElement('button');
-    button.className = 'btn ghost see-more';
-    button.type = 'button';
-    button.dataset.listOpen = config.id;
-    button.textContent = 'See more';
-    footer.appendChild(button);
-    container.insertAdjacentElement('afterend', footer);
-  });
-}
-
-function updateListFooters() {
-  listModalConfigs.forEach((config) => {
-    const container = document.getElementById(config.id);
-    if (!container) return;
-    const footer = container.nextElementSibling?.classList.contains('list-footer')
-      ? container.nextElementSibling
-      : document.querySelector(`.list-footer[data-list-footer="${config.id}"]`);
-    if (!footer) return;
-    const button = footer.querySelector('button');
-    const items = config.getItems() || [];
-    const visibleItems = state.settings.languageMode === 'en'
-      ? items.filter((item) => !item.isNonEnglish)
-      : items;
-    const limit = Math.min(getListLimit(config.id), visibleItems.length);
-    const remaining = Math.max(0, visibleItems.length - limit);
-    if (remaining > 0) {
-      footer.style.display = '';
-      if (button) {
-        button.textContent = `See more (${remaining})`;
-      }
-    } else {
-      footer.style.display = 'none';
-    }
-  });
 }
 
 function openListModal(listId) {
@@ -5305,13 +5259,6 @@ function closeListModal() {
 }
 
 function initListModal() {
-  ensureListFooters();
-  document.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-list-open]');
-    if (!button) return;
-    const listId = button.dataset.listOpen;
-    if (listId) openListModal(listId);
-  });
   if (elements.listModalClose) {
     elements.listModalClose.addEventListener('click', () => closeListModal());
   }
@@ -6671,7 +6618,6 @@ function requestLocation() {
     drawMap();
     renderLocal();
     renderSignals();
-    updateListFooters();
     elements.geoLocateBtn.textContent = 'Geolocated';
     setTimeout(resetLabel, 1800);
   }, () => {
