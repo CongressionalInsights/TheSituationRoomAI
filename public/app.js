@@ -993,12 +993,12 @@ function resetLayout() {
 
 function applyTheme(mode) {
   state.settings.theme = mode;
-  if (mode === 'system') {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    elements.app.dataset.theme = prefersDark ? 'dark' : 'light';
-  } else {
-    elements.app.dataset.theme = mode;
-  }
+  const resolved = mode === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : mode;
+  elements.app.dataset.theme = resolved;
+  document.documentElement.dataset.theme = resolved;
+  document.body.dataset.theme = resolved;
   renderEnergyMap();
 }
 
