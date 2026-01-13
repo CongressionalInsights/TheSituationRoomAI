@@ -15,7 +15,7 @@
   <meta name="twitter:title" content="The Situation Room" />
   <meta name="twitter:description" content="Unified situational awareness." />
   <meta name="twitter:image" content="OGimage.png" />
-  <link rel="stylesheet" href="styles.css?v=20260113c" />
+  <link rel="stylesheet" href="styles.css?v=20260113d" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
@@ -872,7 +872,9 @@
             <button class="chip" id="keyToggle">Hide</button>
           </div>
           <div class="key-compact-body" id="keyCompactBody">
-            <form class="key-manager" id="keyManager" autocomplete="off"></form>
+            <form class="key-manager" id="keyManager" autocomplete="off">
+              <input class="sr-only" type="text" id="keyManagerUsername" name="username" autocomplete="username" aria-hidden="true" tabindex="-1" />
+            </form>
           </div>
         </div>
       </div>
@@ -1065,6 +1067,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="config.js"></script>
-  <script type="module" src="app.js?v=20260113c"></script>
+  <script type="module" src="app.js?v=20260113d"></script>
 </body>
 </html>
