@@ -86,6 +86,88 @@ function parseJsonArray(value) {
   }
 }
 
+function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
+  if (!Array.isArray(data)) return [];
+  return data.slice(0, 200).map((entry) => {
+    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
+    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
+    const frp = entry.frp ?? entry.fire_radiative_power;
+    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
+    const parts = [];
+    if (brightness) parts.push(`Brightness ${brightness}`);
+    if (frp) parts.push(`FRP ${frp}`);
+    if (confidence) parts.push(`Confidence ${confidence}`);
+    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
+    let publishedAt = Date.now();
+    if (date) {
+      const time = String(entry.acq_time || '').padStart(4, '0');
+      if (time && time.length === 4 && /^\d+$/.test(time)) {
+        const stamp = `${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`;
+        const parsed = Date.parse(stamp);
+        if (!Number.isNaN(parsed)) publishedAt = parsed;
+      } else {
+        const parsed = Date.parse(date);
+        if (!Number.isNaN(parsed)) publishedAt = parsed;
+      }
+    }
+    return {
+      title: entry.title || 'Fire detection',
+      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
+      latitude: lat,
+      longitude: lon,
+      publishedAt,
+      source,
+      alertType: 'Fire'
+    };
+  }).filter(Boolean);
+}
+
+async function buildArcgisFireFallback() {
+  const fireFeed = feedsConfig.feeds.find((feed) => feed.id === 'arcgis-hms-fire');
+  if (!fireFeed?.url) return null;
+  try {
+    const response = await fetchWithFallbacks(fireFeed.url, { 'User-Agent': appConfig.userAgent }, [], TIMEOUT_MS);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const features = Array.isArray(data?.features) ? data.features : [];
+    const items = features.slice(0, 200).map((feature) => {
+      const props = feature.properties || {};
+      const coords = feature.geometry?.coordinates || [];
+      const lon = Number(coords[0]);
+      const lat = Number(coords[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      const label = props.name || props.NAME || props.fire_name || 'Fire detection';
+      const confidence = props.confidence || props.CONFIDENCE || props.confidence_level;
+      const frp = props.frp || props.FRP;
+      const parts = [];
+      if (confidence) parts.push(`Confidence ${confidence}`);
+      if (frp) parts.push(`FRP ${frp}`);
+      return {
+        title: label,
+        summary: parts.length ? parts.join(' | ') : 'NOAA HMS fire detection',
+        latitude: lat,
+        longitude: lon,
+        publishedAt: props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now(),
+        source: 'NOAA HMS',
+        alertType: 'Fire'
+      };
+    }).filter(Boolean);
+    if (!items.length) return null;
+    return {
+      id: 'nasa-firms',
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      body: JSON.stringify({ items }),
+      httpStatus: 200,
+      fallback: 'arcgis-hms-fire'
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseStooqCsv(text) {
   if (!text) return null;
   const lines = text.trim().split(/\r?\n/);
@@ -328,6 +410,27 @@ async function buildFeedPayload(feed) {
     payload.message = `HTTP ${response.status}`;
   }
 
+  if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
+    try {
+      const parsed = JSON.parse(body);
+      const items = buildNasaFirmsItems(parsed);
+      if (items.length) {
+        payload.body = JSON.stringify({ items });
+        payload.contentType = 'application/json';
+        payload.transformed = true;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (payload.error && (feed.id === 'nasa-firms' || feed.id === 'eonet-events')) {
+    const fallback = await fetchLiveFallback(feed.id);
+    if (fallback) {
+      return { ...fallback, fallback: fallback.fallback || 'live-cache' };
+    }
+  }
+
   if (payload.error && feed.id === 'nasa-firms') {
     const fallbackUrl = buildUrl(feed.url, { key, dataset: 'VIIRS_NOAA20_NRT' })
       .replace('VIIRS_SNPP_NRT', 'VIIRS_NOAA20_NRT');
@@ -358,6 +461,11 @@ async function buildFeedPayload(feed) {
     if (ckanFallback) {
       return ckanFallback;
     }
+  }
+
+  if (payload.error && feed.id === 'nasa-firms') {
+    const fireFallback = await buildArcgisFireFallback();
+    if (fireFallback) return fireFallback;
   }
 
   if (!payload.error && feed.id === 'polymarket-markets' && contentType.includes('json')) {

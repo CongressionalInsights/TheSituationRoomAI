@@ -129,9 +129,9 @@
       "name": "NASA EONET Events",
       "category": "disaster",
       "format": "json",
-      "proxy": "allorigins",
       "url": "https://eonet.gsfc.nasa.gov/api/v3/events",
       "ttlMinutes": 60,
+      "timeoutMs": 20000,
       "tags": ["global", "disaster", "geo"]
     },
     {
@@ -523,6 +523,7 @@
       "docsUrl": "https://firms.modaps.eosdis.nasa.gov/api/",
       "category": "disaster",
       "format": "json",
+      "isCustom": true,
       "requiresKey": true,
       "keySource": "server",
       "url": "https://firms.modaps.eosdis.nasa.gov/api/area/json/{{key}}/VIIRS_SNPP_NRT/world/1",
