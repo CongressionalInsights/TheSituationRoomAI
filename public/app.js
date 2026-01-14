@@ -7205,10 +7205,18 @@ function requestLocation() {
 }
 
 function initEvents() {
-  elements.exportSnapshot.addEventListener('click', exportSnapshot);
-  elements.refreshNow.addEventListener('click', () => refreshAll(true));
-  elements.settingsToggle.addEventListener('click', () => toggleSettings(true));
-  elements.settingsClose.addEventListener('click', () => toggleSettings(false));
+  if (elements.exportSnapshot) {
+    elements.exportSnapshot.addEventListener('click', exportSnapshot);
+  }
+  if (elements.refreshNow) {
+    elements.refreshNow.addEventListener('click', () => refreshAll(true));
+  }
+  if (elements.settingsToggle) {
+    elements.settingsToggle.addEventListener('click', () => toggleSettings(true));
+  }
+  if (elements.settingsClose) {
+    elements.settingsClose.addEventListener('click', () => toggleSettings(false));
+  }
   if (elements.sidebarSettings) {
     elements.sidebarSettings.addEventListener('click', () => {
       toggleSettings(true);

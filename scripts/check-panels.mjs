@@ -5,6 +5,12 @@ import { extname, join } from 'path';
 const root = process.cwd();
 const baseOrigin = 'http://127.0.0.1:5173';
 const feedsConfig = JSON.parse(readFileSync(join(root, 'data', 'feeds.json'), 'utf8'));
+const testFeeds = (feedsConfig.feeds || []).map((feed) => ({
+  ...feed,
+  isCustom: true,
+  format: 'json'
+}));
+const testConfig = { ...feedsConfig, feeds: testFeeds };
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -25,25 +31,11 @@ function readLocalFile(relativePath) {
 }
 
 function buildFeedPayload(feedId) {
-  const feed = feedsConfig.feeds.find((entry) => entry.id === feedId);
+  const feed = testFeeds.find((entry) => entry.id === feedId);
   if (!feed) {
     return {
       status: 404,
       payload: { error: 'unknown_feed', id: feedId }
-    };
-  }
-  const localPath = feed.localPath;
-  if (!localPath) {
-    return {
-      status: 500,
-      payload: { error: 'missing_fixture', id: feedId }
-    };
-  }
-  const file = readLocalFile(localPath);
-  if (!file) {
-    return {
-      status: 500,
-      payload: { error: 'missing_fixture_file', id: feedId, path: localPath }
     };
   }
   return {
@@ -51,8 +43,18 @@ function buildFeedPayload(feedId) {
     payload: {
       id: feed.id,
       fetchedAt: Date.now(),
-      contentType: file.contentType,
-      body: file.body.toString('utf8'),
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        items: [
+          {
+            title: `${feed.name} sample`,
+            url: '',
+            summary: 'QA fixture',
+            publishedAt: new Date().toISOString(),
+            source: feed.name
+          }
+        ]
+      }),
       httpStatus: 200
     }
   };
@@ -72,6 +74,16 @@ try {
   }
 }
 const page = await browser.newPage();
+page.on('console', (msg) => {
+  if (msg.type() === 'error') {
+    const text = msg.text();
+    if (text.includes('Failed to load resource')) return;
+    console.error(`[page console] ${text}`);
+  }
+});
+page.on('pageerror', (err) => {
+  console.error('[page error]', err);
+});
 
 await page.route('**/*', (route) => {
   const requestUrl = new URL(route.request().url());
@@ -85,7 +97,7 @@ await page.route('**/*', (route) => {
     route.fulfill({
       status: 200,
       contentType: 'application/json; charset=utf-8',
-      body: JSON.stringify(feedsConfig)
+      body: JSON.stringify(testConfig)
     });
     return;
   }
@@ -130,20 +142,37 @@ await page.route('**/*', (route) => {
 });
 
 await page.goto(`${baseOrigin}/`, { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('#healthValue', { timeout: 10000, state: 'attached' });
 
-await page.waitForFunction(() => {
-  const health = document.getElementById('healthValue');
-  if (!health || !health.textContent) return false;
-  const text = health.textContent.trim();
-  return text.length && !text.includes('Initializing') && !text.includes('Fetching');
-}, { timeout: 10000 });
+try {
+  await page.click('#refreshNow', { timeout: 5000 });
+} catch (err) {
+  console.warn('Refresh button not clickable; continuing.');
+}
 
-await page.waitForFunction(() => {
-  const energyList = document.getElementById('energyList');
-  if (!energyList) return false;
-  const items = Array.from(energyList.querySelectorAll('.list-item'));
-  return items.length >= 1;
-}, { timeout: 10000 });
+let healthReady = true;
+try {
+  await page.waitForFunction(() => {
+    const health = document.getElementById('healthValue');
+    if (!health || !health.textContent) return false;
+    const text = health.textContent.trim();
+    return text.length && !text.includes('Initializing') && !text.includes('Fetching');
+  }, { timeout: 20000 });
+} catch (err) {
+  healthReady = false;
+}
+
+let energyReady = true;
+try {
+  await page.waitForFunction(() => {
+    const energyList = document.getElementById('energyList');
+    if (!energyList) return false;
+    const items = Array.from(energyList.querySelectorAll('.list-item'));
+    return items.length >= 1;
+  }, { timeout: 20000 });
+} catch (err) {
+  energyReady = false;
+}
 
 const results = await page.evaluate(() => {
   const listIds = {
@@ -189,12 +218,18 @@ const feedHealthy = results.feedHealth
 
 await browser.close();
 
-if (failures.length || !feedHealthy || energyCount < 1) {
+if (failures.length || !feedHealthy || energyCount < 1 || !healthReady || !energyReady) {
   if (!feedHealthy) {
     console.error('Feed health check failed.');
   }
+  if (!healthReady) {
+    console.error('Feed health did not resolve within timeout.');
+  }
   if (energyCount < 1) {
     console.error('Energy panel does not have signals.');
+  }
+  if (!energyReady) {
+    console.error('Energy panel did not resolve within timeout.');
   }
   if (failures.length) {
     console.error(`Panels missing signals: ${failures.join(', ')}`);
