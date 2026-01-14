@@ -1054,10 +1054,10 @@
       <div class="settings-section">
         <div class="settings-label">Super Monitor Mode</div>
         <label class="toggle-row">
-          <span>Use OpenAI key in browser (requires proxy on GitHub Pages)</span>
+          <span>Enable live fetches for keyless feeds (Super Monitor)</span>
           <input type="checkbox" id="superMonitorToggle" name="superMonitorToggle" aria-label="Enable Super Monitor Mode" />
         </label>
-        <div class="settings-note">Only use this on trusted devices. Your key stays in local storage. GitHub Pages needs the OpenAI proxy to run chat.</div>
+        <div class="settings-note">Live fetches run for keyless feeds. AI runs via the proxy by default; you can optionally use your own key in API Keys.</div>
       </div>
       <div class="settings-section">
         <div class="settings-label">Content Language</div>
@@ -1066,7 +1066,7 @@
           <button class="seg" data-language="translate">Translate</button>
           <button class="seg" data-language="all">All</button>
         </div>
-        <div class="settings-note">Translate uses your AI key; English hides non-English items.</div>
+        <div class="settings-note">Translate uses AI (proxy or your key). English hides non-English items.</div>
       </div>
       <div class="settings-section">
         <label for="maxAgeRange">Max Age (days)</label>

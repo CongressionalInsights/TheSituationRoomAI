@@ -42,6 +42,7 @@ const state = {
     showKeys: true,
     liveSearch: true,
     tickerWatchlist: [],
+    useClientOpenAI: false,
     mapBasemap: 'osm',
     mapRasterOverlays: {
       hillshade: false,
@@ -1608,7 +1609,7 @@ function buildKeyManager(filterCategory) {
     const note = document.createElement('div');
     note.className = 'settings-note';
     note.textContent = state.settings.superMonitor
-      ? 'Super Monitor Mode is active. Live fetches run for keyless feeds, plus custom feeds with browser keys. OpenAI requires a proxy on GitHub Pages.'
+      ? 'Super Monitor Mode is active. Live fetches run for keyless feeds, plus custom feeds with browser keys. OpenAI uses the proxy by default (optional BYO key).'
       : 'Static mode is active. Feeds load from the published cache. Optional: enable Super Monitor Mode to pull live keyless feeds (proxy required for OpenAI).';
     elements.keyManager.appendChild(note);
     if (!state.settings.superMonitor) {
@@ -1817,6 +1818,33 @@ function buildKeyManager(filterCategory) {
     row.appendChild(keyLabel);
     row.appendChild(inputRow);
 
+    if (feed.id === 'openai') {
+      const useRow = document.createElement('label');
+      useRow.className = 'toggle-row';
+      const useLabel = document.createElement('span');
+      useLabel.textContent = 'Use my OpenAI key for AI requests';
+      const useInput = document.createElement('input');
+      useInput.type = 'checkbox';
+      useInput.id = 'useOpenAiKey';
+      useInput.name = 'useOpenAiKey';
+      useInput.checked = Boolean(state.settings.useClientOpenAI);
+      useInput.setAttribute('aria-label', 'Use browser OpenAI key for AI requests');
+      useInput.addEventListener('change', () => {
+        state.settings.useClientOpenAI = useInput.checked;
+        saveSettings();
+        updateChatStatus();
+        maybeAutoRunAnalysis();
+      });
+      useRow.appendChild(useLabel);
+      useRow.appendChild(useInput);
+      row.appendChild(useRow);
+
+      const helper = document.createElement('div');
+      helper.className = 'settings-note';
+      helper.textContent = 'When off, AI uses the server key. When on, your key is passed to the proxy.';
+      row.appendChild(helper);
+    }
+
     if (feed.id !== 'openai') {
       const paramLabel = document.createElement('label');
       paramLabel.textContent = 'Key Param (query string)';
@@ -1902,6 +1930,18 @@ function deriveKeyStatus(payload) {
   return 'error';
 }
 
+function getClientOpenAiKey() {
+  const key = (state.keys.openai?.key || '').trim();
+  if (!key) return '';
+  return state.settings.useClientOpenAI ? key : '';
+}
+
+function hasAssistantAccess() {
+  if (getOpenAiProxy()) return true;
+  if (isStaticMode()) return Boolean(getClientOpenAiKey());
+  return true;
+}
+
 function normalizeOpenAIError(err) {
   const message = (err?.message || '').toString();
   const lower = message.toLowerCase();
@@ -1928,9 +1968,10 @@ async function testFeedKey(feed, statusEl) {
   if (feed.id === 'openai' && keyConfig.key) {
     keyConfig.key = keyConfig.key.trim();
   }
+  const proxyUrl = getOpenAiProxy();
   if (!keyConfig.key) {
-    if (feed.id === 'openai' && getOpenAiProxy()) {
-      setKeyStatus(feed.id, 'ok', statusEl, 'Using proxy key');
+    if (feed.id === 'openai' && proxyUrl) {
+      setKeyStatus(feed.id, 'ok', statusEl, 'Using server key');
       return;
     }
     setKeyStatus(feed.id, 'missing', statusEl, 'Missing API key');
@@ -1939,6 +1980,10 @@ async function testFeedKey(feed, statusEl) {
   setKeyStatus(feed.id, 'testing', statusEl, 'Testing key...');
 
   if (feed.id === 'openai') {
+    if (proxyUrl && !state.settings.useClientOpenAI) {
+      setKeyStatus(feed.id, 'ok', statusEl, 'Using server key');
+      return;
+    }
     if (isStaticMode() && !getOpenAiProxy()) {
       if (!state.settings.superMonitor) {
         setKeyStatus(feed.id, 'missing', statusEl, 'Enable Super Monitor Mode to test.');
@@ -3043,7 +3088,7 @@ function normalizeTickerSymbol(input) {
 }
 
 async function resolveSymbolWithAI(type, input) {
-  if (!state.keys.openai?.key || !state.settings.aiTranslate) return null;
+  if (!state.settings.aiTranslate || !hasAssistantAccess()) return null;
   const prompt = `Return the best ${type === 'market' ? 'market index' : 'equity'} ticker symbol for "${input}". Use ^ prefix for indices. Return only the symbol or UNKNOWN.`;
   try {
     const response = await callAssistant({
@@ -3080,7 +3125,7 @@ async function resolveTickerInput(type, input) {
 
   let symbol = normalizeTickerSymbol(raw);
   if (!symbol) return null;
-  if ((/\s/.test(raw) || raw.length > 6) && state.keys.openai?.key) {
+  if ((/\s/.test(raw) || raw.length > 6) && hasAssistantAccess()) {
     const resolved = await resolveSymbolWithAI(type, raw);
     if (resolved) symbol = resolved;
   }
@@ -3764,7 +3809,7 @@ function getLiveSearchFeeds() {
 
 async function translateQueryAsync(feed, query) {
   if (!feed || !query) return query;
-  if (!state.settings.aiTranslate || !state.keys.openai?.key) {
+  if (!state.settings.aiTranslate || !hasAssistantAccess()) {
     return translateQuery(feed, query);
   }
   try {
@@ -3895,7 +3940,7 @@ function isNonEnglish(text = '') {
 function applyLanguageFilter(items) {
   if (state.settings.languageMode === 'all') return items;
   if (state.settings.languageMode === 'translate') {
-    if (!state.keys.openai?.key) {
+    if (!hasAssistantAccess()) {
       return items.filter((item) => !item.isNonEnglish);
     }
     return items;
@@ -3999,7 +4044,7 @@ function renderTicker() {
 }
 
 async function translateItem(item, titleEl, summaryEl) {
-  if (!state.keys.openai?.key) return;
+  if (!hasAssistantAccess()) return;
   if (!item || !item.isNonEnglish) return;
   const key = `${item.title}|${item.summary}`;
   if (state.translationCache[key]) {
@@ -4163,7 +4208,7 @@ function maybeAutoRunAnalysis() {
   const signature = getAnalysisSignature();
   if (signature === state.analysisSignature) return;
   state.analysisSignature = signature;
-  if (state.keys.openai?.key) {
+  if (hasAssistantAccess()) {
     runAiAnalysis({ emitChat: false, auto: true });
   } else {
     generateAnalysis(false);
@@ -4706,7 +4751,7 @@ async function callOpenAIDirect({ messages, context, temperature = 0.2, model } 
 
 async function callAssistant({ messages, context, temperature = 0.2, model } = {}) {
   const proxyUrl = getOpenAiProxy();
-  const key = (state.keys.openai?.key || '').trim();
+  const key = getClientOpenAiKey();
   if (proxyUrl) {
     const payload = {
       messages: Array.isArray(messages) ? messages : [],
@@ -4733,9 +4778,6 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
   if (isStaticMode()) {
     throw new Error('assistant_unavailable');
   }
-  if (!key) {
-    throw new Error('missing_api_key');
-  }
   const payload = {
     messages: Array.isArray(messages) ? messages : [],
     context,
@@ -4747,7 +4789,7 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-openai-key': key
+      ...(key ? { 'x-openai-key': key } : {})
     },
     body: JSON.stringify(payload)
   });
@@ -4825,7 +4867,7 @@ async function runAiAnalysis({ emitChat = true } = {}) {
   elements.analysisRun.setAttribute('aria-busy', 'true');
   elements.analysisRun.textContent = 'Briefing…';
   state.analysisRunning = true;
-  if (!state.keys.openai?.key) {
+  if (!hasAssistantAccess()) {
     generateAnalysis(emitChat);
     elements.analysisRun.disabled = false;
     elements.analysisRun.classList.remove('loading');
@@ -4893,8 +4935,8 @@ async function sendChatMessage() {
   appendChatBubble(text, 'user');
   elements.chatInput.value = '';
 
-  if (!state.keys.openai?.key) {
-    appendChatBubble('Add an OpenAI API key in Settings > API Keys to enable chat.', 'system');
+  if (!hasAssistantAccess()) {
+    appendChatBubble('AI is offline. Enable the proxy or turn on "Use my OpenAI key" in Settings > API Keys.', 'system');
     return;
   }
 
@@ -6472,17 +6514,18 @@ function updateChatStatus() {
     bubble.className = 'chat-bubble system';
     elements.chatLog.prepend(bubble);
   }
-  const key = state.keys.openai?.key;
+  const key = (state.keys.openai?.key || '').trim();
+  const proxyUrl = getOpenAiProxy();
+  const usingClient = state.settings.useClientOpenAI && key;
   if (isStaticMode()) {
-    const proxyUrl = getOpenAiProxy();
     if (proxyUrl) {
-      bubble.textContent = key
+      bubble.textContent = usingClient
         ? 'AI connected via proxy (using your key).'
-        : 'AI connected via proxy. Add a key to override.';
+        : 'AI connected via proxy (server key). Use your key to override.';
       return;
     }
     if (state.settings.superMonitor) {
-      bubble.textContent = state.keys.openai?.key
+      bubble.textContent = key
         ? 'Super Monitor Mode: OpenAI key stored (proxy required on GitHub Pages).'
         : 'Super Monitor Mode is on. Add an OpenAI key; chat still needs a proxy.';
     } else {
@@ -6490,9 +6533,9 @@ function updateChatStatus() {
     }
     return;
   }
-  bubble.textContent = state.keys.openai?.key
-    ? 'AI connected. Ask a question or request a briefing.'
-    : 'Connect an AI provider to enable live responses.';
+  bubble.textContent = proxyUrl
+    ? (usingClient ? 'AI connected (proxy + your key).' : 'AI connected (server key).')
+    : (key ? 'AI connected. Ask a question or request a briefing.' : 'Connect an AI provider to enable live responses.');
 }
 
 function showSearchResults(items, label) {
