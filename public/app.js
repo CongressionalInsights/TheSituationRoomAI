@@ -71,6 +71,7 @@ const state = {
       transport: true,
       security: true,
       infrastructure: true,
+      outage: true,
       local: true
     }
   },
@@ -213,6 +214,7 @@ const elements = {
   mapTooltip: document.getElementById('mapTooltip'),
   mapLegendBtn: document.getElementById('mapLegendBtn'),
   mapLegend: document.getElementById('mapLegend'),
+  legendOutages: document.getElementById('legendOutages'),
   imageryDateInput: document.getElementById('imageryDateInput'),
   sarDateInput: document.getElementById('sarDateInput'),
   imageryDatePanel: document.getElementById('imageryDatePanel'),
@@ -1472,6 +1474,9 @@ function updateMapLegendUI() {
     const layer = input.dataset.layer;
     input.checked = Boolean(state.settings.mapLayers[layer]);
   });
+  if (elements.legendOutages) {
+    elements.legendOutages.checked = Boolean(state.settings.mapLayers.outage);
+  }
   elements.mapLegend.querySelectorAll('input[data-basemap]').forEach((input) => {
     const basemap = input.dataset.basemap;
     input.checked = basemap === state.settings.mapBasemap;
@@ -5912,6 +5917,7 @@ function initMap() {
 function getLayerForItem(item) {
   if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
+  if (item.feedId?.startsWith('arcgis-outage-')) return 'outage';
   if (item.category === 'travel') return 'travel';
   if (item.category === 'transport') return 'transport';
   if (item.category === 'security') return 'security';
@@ -5931,6 +5937,7 @@ function getLayerColor(layer) {
   if (layer === 'transport') return 'rgba(94,232,160,0.9)';
   if (layer === 'security') return 'rgba(255,144,99,0.92)';
   if (layer === 'infrastructure') return 'rgba(132,190,255,0.9)';
+  if (layer === 'outage') return 'rgba(255,210,90,0.92)';
   if (layer === 'health') return 'rgba(109,209,255,0.9)';
   if (layer === 'spill') return 'rgba(255,125,36,0.92)';
   return 'rgba(255,184,76,0.9)';
