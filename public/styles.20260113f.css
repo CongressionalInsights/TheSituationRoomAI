@@ -206,11 +206,11 @@ body::before {
 }
 
 .sidebar {
-  position: fixed;
-  left: 28px;
+  position: sticky;
   top: 24px;
   width: var(--sidebar-width);
   height: calc(100vh - 48px);
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: 12px;
