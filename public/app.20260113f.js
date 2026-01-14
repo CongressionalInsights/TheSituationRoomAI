@@ -5567,7 +5567,7 @@ async function resolveLatestImageryDate() {
       updateImageryDate(layer.defaultDate);
       return;
     }
-    const base = getRecentIsoDate(0);
+    const base = getRecentIsoDate(1);
     for (let i = 0; i < 8; i += 1) {
       const candidate = shiftIsoDate(base, -i);
       const url = sampleTileUrl(buildGibsTileUrl(layer.id, candidate, layer.format, layer.matrixSet));
@@ -5591,7 +5591,7 @@ async function resolveLatestSarDate() {
   }
   state.sarResolveInFlight = true;
   try {
-    const base = getRecentIsoDate(0);
+    const base = getRecentIsoDate(1);
     for (let i = 0; i < 12; i += 1) {
       const candidate = shiftIsoDate(base, -i);
       const urls = buildSarSampleUrls(candidate);
@@ -5786,22 +5786,27 @@ function initMap() {
     }),
     'gibs-viirs': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-viirs'].id, gibsDate, GIBS_LAYERS['gibs-viirs'].format, GIBS_LAYERS['gibs-viirs'].matrixSet), {
       maxZoom: GIBS_LAYERS['gibs-viirs'].maxZoom,
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (VIIRS True Color)'
     }),
     'gibs-modis-terra': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-terra'].id, gibsDate, GIBS_LAYERS['gibs-modis-terra'].format, GIBS_LAYERS['gibs-modis-terra'].matrixSet), {
       maxZoom: GIBS_LAYERS['gibs-modis-terra'].maxZoom,
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (MODIS Terra True Color)'
     }),
     'gibs-modis-aqua': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-aqua'].id, gibsDate, GIBS_LAYERS['gibs-modis-aqua'].format, GIBS_LAYERS['gibs-modis-aqua'].matrixSet), {
       maxZoom: GIBS_LAYERS['gibs-modis-aqua'].maxZoom,
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (MODIS Aqua True Color)'
     }),
     'gibs-nightlights': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-nightlights'].id, gibsDate, GIBS_LAYERS['gibs-nightlights'].format, GIBS_LAYERS['gibs-nightlights'].matrixSet), {
       maxZoom: GIBS_LAYERS['gibs-nightlights'].maxZoom,
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (VIIRS Black Marble)'
     }),
     'gibs-daynight': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-daynight'].id, gibsDate, GIBS_LAYERS['gibs-daynight'].format, GIBS_LAYERS['gibs-daynight'].matrixSet), {
       maxZoom: GIBS_LAYERS['gibs-daynight'].maxZoom,
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (VIIRS Day/Night Band)'
     })
   };
@@ -5820,21 +5825,25 @@ function initMap() {
     'gibs-overlay-aerosol': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.aerosol.id, gibsDate, GIBS_OVERLAYS.aerosol.format, GIBS_OVERLAYS.aerosol.matrixSet), {
       maxZoom: GIBS_OVERLAYS.aerosol.maxZoom,
       opacity: getOverlayOpacity('aerosol', GIBS_OVERLAYS.aerosol.opacity),
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (Aerosol Index)'
     }),
     'gibs-overlay-thermal': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.thermal.id, gibsDate, GIBS_OVERLAYS.thermal.format, GIBS_OVERLAYS.thermal.matrixSet), {
       maxZoom: GIBS_OVERLAYS.thermal.maxZoom,
       opacity: getOverlayOpacity('thermal', GIBS_OVERLAYS.thermal.opacity),
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (Thermal Anomalies)'
     }),
     'gibs-overlay-fire-east': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS['fire-east'].id, gibsDate, GIBS_OVERLAYS['fire-east'].format, GIBS_OVERLAYS['fire-east'].matrixSet), {
       maxZoom: GIBS_OVERLAYS['fire-east'].maxZoom,
       opacity: getOverlayOpacity('fire', GIBS_OVERLAYS['fire-east'].opacity),
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (GOES East Fire Temp)'
     }),
     'gibs-overlay-fire-west': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS['fire-west'].id, gibsDate, GIBS_OVERLAYS['fire-west'].format, GIBS_OVERLAYS['fire-west'].matrixSet), {
       maxZoom: GIBS_OVERLAYS['fire-west'].maxZoom,
       opacity: getOverlayOpacity('fire', GIBS_OVERLAYS['fire-west'].opacity),
+      crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (GOES West Fire Temp)'
     })
   };
