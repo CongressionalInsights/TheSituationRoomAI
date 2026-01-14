@@ -1821,6 +1821,7 @@ function buildKeyManager(filterCategory) {
     if (feed.id === 'openai') {
       const advanced = document.createElement('details');
       advanced.className = 'advanced-toggle';
+      advanced.open = false;
       const summary = document.createElement('summary');
       summary.textContent = 'Advanced';
       advanced.appendChild(summary);
