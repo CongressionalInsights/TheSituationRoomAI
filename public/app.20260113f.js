@@ -2271,6 +2271,7 @@ function parseArcGisGeoJson(data, feed) {
     const alertType = inferAlertType(props);
     const severity = inferSeverity(props);
     const location = inferLocation(props);
+    const mapOnly = Boolean(feed.mapOnly || feed.tags?.includes('mapOnly'));
     let geo = geometryToPoint(feature.geometry);
     if (!geo) {
       const lat = pickFirst(props, ['latitude', 'lat', 'y']);
@@ -2293,7 +2294,8 @@ function parseArcGisGeoJson(data, feed) {
       geo,
       alertType,
       severity,
-      location
+      location,
+      mapOnly
     };
   }).filter((item) => item.geo);
 }
@@ -4986,20 +4988,52 @@ function isInUsBounds(lat, lon) {
 }
 
 function getMapItems() {
-  const fresh = applyLanguageFilter(applyFreshnessFilter(state.items));
+  let fresh = applyLanguageFilter(applyFreshnessFilter(state.items));
   if (state.settings.scope === 'us') {
-    return fresh.filter((item) => {
+    fresh = fresh.filter((item) => {
       if (!item.geo) return false;
       if (item.tags?.includes('us')) return true;
       return isInUsBounds(item.geo.lat, item.geo.lon);
     });
+    return dedupeWildfireItems(fresh);
   }
   if (state.settings.scope === 'local') {
     const { lat, lon } = state.location;
     const radius = state.settings.radiusKm;
-    return fresh.filter((item) => item.geo && haversineKm(lat, lon, item.geo.lat, item.geo.lon) <= radius);
+    const local = fresh.filter((item) => item.geo && haversineKm(lat, lon, item.geo.lat, item.geo.lon) <= radius);
+    return dedupeWildfireItems(local);
   }
-  return state.scopedItems.filter((item) => item.geo);
+  const scoped = state.scopedItems.filter((item) => item.geo);
+  return dedupeWildfireItems(scoped);
+}
+
+function dedupeWildfireItems(items) {
+  const wildfire = [];
+  const rest = [];
+  items.forEach((item) => {
+    if (item?.tags?.includes('wildfire')) {
+      wildfire.push(item);
+    } else {
+      rest.push(item);
+    }
+  });
+  if (!wildfire.length) return items;
+  wildfire.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  const seen = new Set();
+  const deduped = [];
+  wildfire.forEach((item) => {
+    if (!item.geo) {
+      deduped.push(item);
+      return;
+    }
+    const lat = Math.round(item.geo.lat * 10) / 10;
+    const lon = Math.round(item.geo.lon * 10) / 10;
+    const key = `${lat}:${lon}:${normalizeTitle(item.title || item.alertType || 'fire')}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(item);
+  });
+  return [...rest, ...deduped];
 }
 
 function renderLocal() {
@@ -5915,6 +5949,7 @@ function getSignalType(item) {
   if (item.feedId === 'arcgis-wildfire-incidents' || item.feedId === 'arcgis-wildfire-perimeters') return 'fire';
   if (item.feedId?.startsWith('arcgis-noaa-')) return 'warning';
   if (item.feedId === 'arcgis-power-plants') return 'power';
+  if (item.feedId?.startsWith('arcgis-outage-')) return 'power';
   if (item.feedId === 'arcgis-outage-area') return 'power';
   if (item.feedId === 'arcgis-submarine-cables' || item.feedId === 'arcgis-submarine-landing') return 'infrastructure';
   if (item.feedId === 'arcgis-military-installations') return 'security';

@@ -505,7 +505,8 @@
       "format": "arcgis",
       "url": "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Power_Plants_in_the_US/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 1440,
-      "tags": ["us", "infrastructure", "geo", "arcgis"]
+      "tags": ["us", "infrastructure", "geo", "arcgis"],
+      "mapOnly": true
     },
     {
       "id": "arcgis-outage-area",
@@ -514,7 +515,98 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/9/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"]
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-isolated-services",
+      "name": "Public Outages (Isolated Services) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/8/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-isolated-main",
+      "name": "Public Outages (Isolated Main) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/7/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-service-connection",
+      "name": "Public Outages (Service Connections) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/6/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-fire-hydrant",
+      "name": "Public Outages (Fire Hydrants) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/5/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-service-valve",
+      "name": "Public Outages (Service Valves) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/4/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-hydrant-valve",
+      "name": "Public Outages (Hydrant Valves) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/3/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-system-valve",
+      "name": "Public Outages (System Valves) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/2/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-isolating-valve",
+      "name": "Public Outages (Isolating System Valves) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
+    },
+    {
+      "id": "arcgis-outage-project-inputs",
+      "name": "Public Outages (Project Inputs) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "mapOnly": true
     },
     {
       "id": "arcgis-submarine-cables",
@@ -523,7 +615,8 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/bDAhvQYMG4WL8O5o/arcgis/rest/services/Global_Submarine_Cable_Map/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 720,
-      "tags": ["global", "infrastructure", "geo", "arcgis", "submarine"]
+      "tags": ["global", "infrastructure", "geo", "arcgis", "submarine"],
+      "mapOnly": true
     },
     {
       "id": "arcgis-submarine-landing",
@@ -532,7 +625,8 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/bDAhvQYMG4WL8O5o/arcgis/rest/services/Global_Submarine_Cable_Map/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 720,
-      "tags": ["global", "infrastructure", "geo", "arcgis", "submarine"]
+      "tags": ["global", "infrastructure", "geo", "arcgis", "submarine"],
+      "mapOnly": true
     },
     {
       "id": "arcgis-military-installations",
@@ -541,7 +635,8 @@
       "format": "arcgis",
       "url": "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/MIRTA_Polygons_A_view/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 1440,
-      "tags": ["us", "security", "geo", "arcgis", "infrastructure"]
+      "tags": ["us", "security", "geo", "arcgis", "infrastructure"],
+      "mapOnly": true
     },
     {
       "id": "govinfo-rss",
