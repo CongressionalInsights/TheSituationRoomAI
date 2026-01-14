@@ -5746,20 +5746,46 @@ function initWorldClocks() {
     }
     return formatters.get(tz);
   };
+  const readParts = (parts) => {
+    let hours = NaN;
+    let minutes = NaN;
+    let seconds = NaN;
+    parts.forEach((part) => {
+      if (part.type === 'hour') hours = Number(part.value);
+      if (part.type === 'minute') minutes = Number(part.value);
+      if (part.type === 'second') seconds = Number(part.value);
+    });
+    if (Number.isNaN(hours) || Number.isNaN(minutes) || Number.isNaN(seconds)) return null;
+    return { hours, minutes, seconds };
+  };
+  const getClockTime = (tz, now) => {
+    try {
+      const parts = getFormatter(tz).formatToParts(now);
+      const parsed = readParts(parts);
+      if (parsed) return parsed;
+    } catch (err) {
+      // Fall through to locale parsing.
+    }
+    try {
+      const fallback = new Date(now.toLocaleString('en-US', { timeZone: tz }));
+      if (!Number.isNaN(fallback.getTime())) {
+        return {
+          hours: fallback.getHours(),
+          minutes: fallback.getMinutes(),
+          seconds: fallback.getSeconds()
+        };
+      }
+    } catch (err) {
+      // ignore
+    }
+    return { hours: now.getHours(), minutes: now.getMinutes(), seconds: now.getSeconds() };
+  };
 
   const tick = () => {
     const now = new Date();
     clocks.forEach((clock) => {
       const tz = clock.dataset.timezone;
-      const parts = getFormatter(tz).formatToParts(now);
-      let hours = 0;
-      let minutes = 0;
-      let seconds = 0;
-      parts.forEach((part) => {
-        if (part.type === 'hour') hours = Number(part.value);
-        if (part.type === 'minute') minutes = Number(part.value);
-        if (part.type === 'second') seconds = Number(part.value);
-      });
+      const { hours, minutes, seconds } = getClockTime(tz, now);
       const hourFraction = (hours % 12) + minutes / 60 + seconds / 3600;
       const hourDeg = hourFraction * 30;
       const minuteDeg = (minutes + seconds / 60) * 6;
