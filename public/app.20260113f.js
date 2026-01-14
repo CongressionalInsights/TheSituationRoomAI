@@ -1692,6 +1692,15 @@ function buildKeyManager(filterCategory) {
 
       const inputRow = document.createElement('div');
       inputRow.className = 'key-row-input';
+      const userInput = document.createElement('input');
+      userInput.type = 'text';
+      userInput.className = 'sr-only';
+      userInput.autocomplete = 'username';
+      userInput.name = `user-${keyInput.id}`;
+      userInput.id = `user-${keyInput.id}`;
+      userInput.tabIndex = -1;
+      userInput.setAttribute('aria-hidden', 'true');
+      inputRow.appendChild(userInput);
       inputRow.appendChild(keyInput);
       inputRow.appendChild(showToggle);
 
@@ -1787,6 +1796,15 @@ function buildKeyManager(filterCategory) {
 
     const inputRow = document.createElement('div');
     inputRow.className = 'key-row-input';
+    const userInput = document.createElement('input');
+    userInput.type = 'text';
+    userInput.className = 'sr-only';
+    userInput.autocomplete = 'username';
+    userInput.name = `user-${keyInput.id}`;
+    userInput.id = `user-${keyInput.id}`;
+    userInput.tabIndex = -1;
+    userInput.setAttribute('aria-hidden', 'true');
+    inputRow.appendChild(userInput);
     inputRow.appendChild(keyInput);
     inputRow.appendChild(showToggle);
 
