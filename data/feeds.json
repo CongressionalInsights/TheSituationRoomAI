@@ -418,6 +418,33 @@
       "tags": ["global", "security", "geo", "arcgis"]
     },
     {
+      "id": "arcgis-tipline-reports",
+      "name": "Crowdsourced Tipline Reports (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Tipline_Reports/FeatureServer/24/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["global", "security", "geo", "arcgis", "crowdsourced"]
+    },
+    {
+      "id": "arcgis-kinetic-europe",
+      "name": "Kinetic Events (Europe) (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Kinetic_Activity_Tracker_Europe/FeatureServer/22/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["global", "security", "geo", "arcgis", "kinetic"]
+    },
+    {
+      "id": "arcgis-kinetic-venezuela",
+      "name": "Kinetic Events (Venezuelan Crisis) (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Venezuelan_Crisis_Kinetic_Events/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["global", "security", "geo", "arcgis", "kinetic"]
+    },
+    {
       "id": "arcgis-noaa-severe",
       "name": "NOAA Severe Thunderstorm Warnings (ArcGIS)",
       "category": "weather",
@@ -454,6 +481,24 @@
       "tags": ["global", "disaster", "geo", "arcgis"]
     },
     {
+      "id": "arcgis-wildfire-incidents",
+      "name": "Wildfire Incidents (USA) (ArcGIS)",
+      "category": "disaster",
+      "format": "arcgis",
+      "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/USA_Wildfires_v1/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "disaster", "geo", "arcgis", "wildfire"]
+    },
+    {
+      "id": "arcgis-wildfire-perimeters",
+      "name": "Wildfire Perimeters (USA) (ArcGIS)",
+      "category": "disaster",
+      "format": "arcgis",
+      "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/USA_Wildfires_v1/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "disaster", "geo", "arcgis", "wildfire", "perimeter"]
+    },
+    {
       "id": "arcgis-power-plants",
       "name": "US Power Plants (ArcGIS)",
       "category": "infrastructure",
@@ -461,6 +506,42 @@
       "url": "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Power_Plants_in_the_US/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 1440,
       "tags": ["us", "infrastructure", "geo", "arcgis"]
+    },
+    {
+      "id": "arcgis-outage-area",
+      "name": "Public Outages & Alerts (Outage Area) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/9/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 60,
+      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"]
+    },
+    {
+      "id": "arcgis-submarine-cables",
+      "name": "Submarine Cables (Global) (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/bDAhvQYMG4WL8O5o/arcgis/rest/services/Global_Submarine_Cable_Map/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 720,
+      "tags": ["global", "infrastructure", "geo", "arcgis", "submarine"]
+    },
+    {
+      "id": "arcgis-submarine-landing",
+      "name": "Submarine Cable Landing Stations (ArcGIS)",
+      "category": "infrastructure",
+      "format": "arcgis",
+      "url": "https://services.arcgis.com/bDAhvQYMG4WL8O5o/arcgis/rest/services/Global_Submarine_Cable_Map/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 720,
+      "tags": ["global", "infrastructure", "geo", "arcgis", "submarine"]
+    },
+    {
+      "id": "arcgis-military-installations",
+      "name": "Military Installations (MIRTA) (ArcGIS)",
+      "category": "security",
+      "format": "arcgis",
+      "url": "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/MIRTA_Polygons_A_view/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "ttlMinutes": 1440,
+      "tags": ["us", "security", "geo", "arcgis", "infrastructure"]
     },
     {
       "id": "govinfo-rss",

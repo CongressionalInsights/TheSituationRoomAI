@@ -5907,12 +5907,17 @@ function getSignalType(item) {
   if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
   if (item.feedId === 'usgs-quakes-hour' || item.feedId === 'usgs-quakes-day') return 'quake';
   if (item.feedId === 'arcgis-border-crisis') return 'border';
-  if (item.feedId === 'arcgis-kinetic-oconus' || item.feedId === 'arcgis-kinetic-domestic') return 'kinetic';
+  if (item.feedId === 'arcgis-kinetic-oconus' || item.feedId === 'arcgis-kinetic-domestic' || item.feedId === 'arcgis-kinetic-europe' || item.feedId === 'arcgis-kinetic-venezuela') return 'kinetic';
   if (item.feedId === 'arcgis-drone-reports') return 'drone';
   if (item.feedId === 'arcgis-logistics-shortages') return 'logistics';
+  if (item.feedId === 'arcgis-tipline-reports') return 'warning';
   if (item.feedId === 'arcgis-hms-fire') return 'fire';
+  if (item.feedId === 'arcgis-wildfire-incidents' || item.feedId === 'arcgis-wildfire-perimeters') return 'fire';
   if (item.feedId?.startsWith('arcgis-noaa-')) return 'warning';
   if (item.feedId === 'arcgis-power-plants') return 'power';
+  if (item.feedId === 'arcgis-outage-area') return 'power';
+  if (item.feedId === 'arcgis-submarine-cables' || item.feedId === 'arcgis-submarine-landing') return 'infrastructure';
+  if (item.feedId === 'arcgis-military-installations') return 'security';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId === 'transport-opensky') return 'air';
   if (item.category === 'travel') return 'travel';
