@@ -307,9 +307,7 @@ let editingCustomFeedId = null;
 
 const stopwords = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have']);
 const allowedSummaryTags = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'span', 'a', 'font']);
-const docsMap = {
-  openai: 'https://platform.openai.com/api-keys'
-};
+const docsMap = {};
 const keyGroupLabels = {
   'api.data.gov': 'Data.gov (FOIA + GovInfo)',
   'eia': 'EIA (Energy)'
@@ -578,9 +576,6 @@ function loadKeys() {
   if (saved) {
     try {
       state.keys = JSON.parse(saved);
-      if (state.keys?.openai?.key) {
-        state.keys.openai.key = state.keys.openai.key.trim();
-      }
     } catch (err) {
       state.keys = {};
     }
@@ -1547,15 +1542,6 @@ function getKeyFeeds() {
     .filter((feed) => !isServerManagedKey(feed))
     .filter((feed) => feed.requiresKey || feed.keyParam || feed.keyHeader || (feed.tags || []).includes('key'))
     .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || docsMap[feed.id] }));
-  if (!keyFeeds.find((feed) => feed.id === 'openai')) {
-    keyFeeds.unshift({
-      id: 'openai',
-      name: 'OpenAI Assistant',
-      category: 'assistant',
-      requiresKey: true,
-      docsUrl: docsMap.openai
-    });
-  }
   return keyFeeds;
 }
 
@@ -1608,12 +1594,9 @@ function buildKeyManager(filterCategory) {
     const note = document.createElement('div');
     note.className = 'settings-note';
     note.textContent = state.settings.superMonitor
-      ? 'Super Monitor Mode is active. Live fetches run for keyless feeds, plus custom feeds with browser keys. OpenAI requires a proxy on GitHub Pages.'
-      : 'Static mode is active. Feeds load from the published cache. Optional: enable Super Monitor Mode to pull live keyless feeds (proxy required for OpenAI).';
+      ? 'Super Monitor Mode is active. Live fetches run for keyless feeds, plus custom feeds with browser keys.'
+      : 'Static mode is active. Feeds load from the published cache. Optional: enable Super Monitor Mode to pull live keyless feeds and custom feeds with browser keys.';
     elements.keyManager.appendChild(note);
-    if (!state.settings.superMonitor) {
-      displayFeeds = displayFeeds.filter((feed) => feed.id === 'openai');
-    }
   }
 
   const serverManaged = state.feeds.filter((feed) => isServerManagedKey(feed));
@@ -1783,7 +1766,6 @@ function buildKeyManager(filterCategory) {
         saveKeyStatus();
         status.className = 'key-status untested';
         status.textContent = 'untested';
-        if (feed.id === 'openai') updateChatStatus();
         state.energyMapData = null;
         state.energyMapFetchedAt = 0;
         renderEnergyNews();
@@ -1817,61 +1799,54 @@ function buildKeyManager(filterCategory) {
     row.appendChild(keyLabel);
     row.appendChild(inputRow);
 
-    if (feed.id !== 'openai') {
-      const paramLabel = document.createElement('label');
-      paramLabel.textContent = 'Key Param (query string)';
-      const paramInput = document.createElement('input');
-      paramInput.id = `key-param-${toSafeId(feed.id)}`;
-      paramInput.name = paramInput.id;
-      paramLabel.setAttribute('for', paramInput.id);
-      paramInput.placeholder = feed.keyParam || 'api_key';
-      paramInput.value = feed.lockKeyParam ? (feed.keyParam || '') : (state.keys[feed.id]?.keyParam || feed.keyParam || '');
-      if (feed.lockKeyParam) {
-        paramInput.disabled = true;
-      } else {
-        paramInput.addEventListener('input', () => {
-          state.keys[feed.id] = { ...(state.keys[feed.id] || {}), keyParam: paramInput.value };
-          saveKeys();
-        });
-      }
-
-      const headerLabel = document.createElement('label');
-      headerLabel.textContent = 'Key Header (optional)';
-      const headerInput = document.createElement('input');
-      headerInput.id = `key-header-${toSafeId(feed.id)}`;
-      headerInput.name = headerInput.id;
-      headerLabel.setAttribute('for', headerInput.id);
-      headerInput.placeholder = feed.keyHeader || 'X-API-Key';
-      headerInput.value = feed.lockKeyHeader ? (feed.keyHeader || '') : (state.keys[feed.id]?.keyHeader || feed.keyHeader || '');
-      if (feed.lockKeyHeader) {
-        headerInput.disabled = true;
-      } else {
-        headerInput.addEventListener('input', () => {
-          state.keys[feed.id] = { ...(state.keys[feed.id] || {}), keyHeader: headerInput.value };
-          saveKeys();
-        });
-      }
-
-      row.appendChild(paramLabel);
-      row.appendChild(paramInput);
-      row.appendChild(headerLabel);
-      row.appendChild(headerInput);
-      if (feed.keyGroup) {
-        const helper = document.createElement('div');
-        helper.className = 'settings-note';
-        helper.textContent = `Uses shared key: ${groupLabel}`;
-        row.appendChild(helper);
-      }
-      if (feed.lockKeyParam || feed.lockKeyHeader) {
-        const helper = document.createElement('div');
-        helper.className = 'settings-note';
-        helper.textContent = 'Key parameters are fixed for this API.';
-        row.appendChild(helper);
-      }
+    const paramLabel = document.createElement('label');
+    paramLabel.textContent = 'Key Param (query string)';
+    const paramInput = document.createElement('input');
+    paramInput.id = `key-param-${toSafeId(feed.id)}`;
+    paramInput.name = paramInput.id;
+    paramLabel.setAttribute('for', paramInput.id);
+    paramInput.placeholder = feed.keyParam || 'api_key';
+    paramInput.value = feed.lockKeyParam ? (feed.keyParam || '') : (state.keys[feed.id]?.keyParam || feed.keyParam || '');
+    if (feed.lockKeyParam) {
+      paramInput.disabled = true;
     } else {
+      paramInput.addEventListener('input', () => {
+        state.keys[feed.id] = { ...(state.keys[feed.id] || {}), keyParam: paramInput.value };
+        saveKeys();
+      });
+    }
+
+    const headerLabel = document.createElement('label');
+    headerLabel.textContent = 'Key Header (optional)';
+    const headerInput = document.createElement('input');
+    headerInput.id = `key-header-${toSafeId(feed.id)}`;
+    headerInput.name = headerInput.id;
+    headerLabel.setAttribute('for', headerInput.id);
+    headerInput.placeholder = feed.keyHeader || 'X-API-Key';
+    headerInput.value = feed.lockKeyHeader ? (feed.keyHeader || '') : (state.keys[feed.id]?.keyHeader || feed.keyHeader || '');
+    if (feed.lockKeyHeader) {
+      headerInput.disabled = true;
+    } else {
+      headerInput.addEventListener('input', () => {
+        state.keys[feed.id] = { ...(state.keys[feed.id] || {}), keyHeader: headerInput.value };
+        saveKeys();
+      });
+    }
+
+    row.appendChild(paramLabel);
+    row.appendChild(paramInput);
+    row.appendChild(headerLabel);
+    row.appendChild(headerInput);
+    if (feed.keyGroup) {
       const helper = document.createElement('div');
       helper.className = 'settings-note';
-      helper.textContent = 'Used for chat, AI briefings, and query translation.';
+      helper.textContent = `Uses shared key: ${groupLabel}`;
+      row.appendChild(helper);
+    }
+    if (feed.lockKeyParam || feed.lockKeyHeader) {
+      const helper = document.createElement('div');
+      helper.className = 'settings-note';
+      helper.textContent = 'Key parameters are fixed for this API.';
       row.appendChild(helper);
     }
 
@@ -1902,68 +1877,13 @@ function deriveKeyStatus(payload) {
   return 'error';
 }
 
-function normalizeOpenAIError(err) {
-  const message = (err?.message || '').toString();
-  const lower = message.toLowerCase();
-  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('cors')) {
-    return {
-      status: 'error',
-      message: 'Browser blocked the request (CORS). Key saved; use a proxy for live chat.'
-    };
-  }
-  if ((lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) && !isStaticMode()) {
-    return { status: 'invalid', message: message || 'Invalid API key' };
-  }
-  if (lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) {
-    return { status: 'error', message: 'OpenAI request blocked on static hosting. Use a proxy for live chat.' };
-  }
-  if (lower.includes('rate') || lower.includes('429')) {
-    return { status: 'rate_limited', message: message || 'Rate limited' };
-  }
-  return { status: 'error', message: message || 'OpenAI error' };
-}
-
 async function testFeedKey(feed, statusEl) {
   const keyConfig = getKeyConfig(feed);
-  if (feed.id === 'openai' && keyConfig.key) {
-    keyConfig.key = keyConfig.key.trim();
-  }
   if (!keyConfig.key) {
-    if (feed.id === 'openai' && getOpenAiProxy()) {
-      setKeyStatus(feed.id, 'ok', statusEl, 'Using proxy key');
-      return;
-    }
     setKeyStatus(feed.id, 'missing', statusEl, 'Missing API key');
     return;
   }
   setKeyStatus(feed.id, 'testing', statusEl, 'Testing key...');
-
-  if (feed.id === 'openai') {
-    if (isStaticMode() && !getOpenAiProxy()) {
-      if (!state.settings.superMonitor) {
-        setKeyStatus(feed.id, 'missing', statusEl, 'Enable Super Monitor Mode to test.');
-        return;
-      }
-      setKeyStatus(feed.id, 'ok', statusEl, 'Key saved. Static hosting cannot validate without a proxy.');
-      return;
-    }
-    try {
-      const result = await callAssistant({
-        messages: [{ role: 'user', content: 'ping' }],
-        context: { mode: 'key-test' },
-        temperature: 0
-      });
-      if (result) {
-        setKeyStatus(feed.id, 'ok', statusEl, 'Key valid');
-      } else {
-        setKeyStatus(feed.id, 'error', statusEl, 'No response');
-      }
-    } catch (err) {
-      const { status, message } = normalizeOpenAIError(err);
-      setKeyStatus(feed.id, status, statusEl, message);
-    }
-    return;
-  }
 
   const params = new URLSearchParams();
   params.set('id', feed.id);
@@ -3043,7 +2963,7 @@ function normalizeTickerSymbol(input) {
 }
 
 async function resolveSymbolWithAI(type, input) {
-  if (!state.keys.openai?.key || !state.settings.aiTranslate) return null;
+  if (!state.settings.aiTranslate) return null;
   const prompt = `Return the best ${type === 'market' ? 'market index' : 'equity'} ticker symbol for "${input}". Use ^ prefix for indices. Return only the symbol or UNKNOWN.`;
   try {
     const response = await callAssistant({
@@ -3080,7 +3000,7 @@ async function resolveTickerInput(type, input) {
 
   let symbol = normalizeTickerSymbol(raw);
   if (!symbol) return null;
-  if ((/\s/.test(raw) || raw.length > 6) && state.keys.openai?.key) {
+  if ((/\s/.test(raw) || raw.length > 6) && state.settings.aiTranslate) {
     const resolved = await resolveSymbolWithAI(type, raw);
     if (resolved) symbol = resolved;
   }
@@ -3764,7 +3684,7 @@ function getLiveSearchFeeds() {
 
 async function translateQueryAsync(feed, query) {
   if (!feed || !query) return query;
-  if (!state.settings.aiTranslate || !state.keys.openai?.key) {
+  if (!state.settings.aiTranslate) {
     return translateQuery(feed, query);
   }
   try {
@@ -3895,9 +3815,6 @@ function isNonEnglish(text = '') {
 function applyLanguageFilter(items) {
   if (state.settings.languageMode === 'all') return items;
   if (state.settings.languageMode === 'translate') {
-    if (!state.keys.openai?.key) {
-      return items.filter((item) => !item.isNonEnglish);
-    }
     return items;
   }
   return items.filter((item) => !item.isNonEnglish);
@@ -3999,7 +3916,6 @@ function renderTicker() {
 }
 
 async function translateItem(item, titleEl, summaryEl) {
-  if (!state.keys.openai?.key) return;
   if (!item || !item.isNonEnglish) return;
   const key = `${item.title}|${item.summary}`;
   if (state.translationCache[key]) {
@@ -4163,11 +4079,7 @@ function maybeAutoRunAnalysis() {
   const signature = getAnalysisSignature();
   if (signature === state.analysisSignature) return;
   state.analysisSignature = signature;
-  if (state.keys.openai?.key) {
-    runAiAnalysis({ emitChat: false, auto: true });
-  } else {
-    generateAnalysis(false);
-  }
+  runAiAnalysis({ emitChat: false, auto: true });
 }
 
 function getDistanceKm(item) {
@@ -4672,41 +4584,8 @@ function buildChatContext() {
   };
 }
 
-async function callOpenAIDirect({ messages, context, temperature = 0.2, model } = {}) {
-  const key = (state.keys.openai?.key || '').trim();
-  if (!key) {
-    throw new Error('missing_api_key');
-  }
-  const payload = {
-    model: model || 'gpt-4o-mini',
-    input: [
-      { role: 'system', content: 'You are an intelligence assistant for a situational awareness dashboard.' },
-      ...(Array.isArray(messages) ? messages : [])
-    ],
-    temperature
-  };
-  if (context) {
-    payload.metadata = { context };
-  }
-
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`
-    },
-    body: JSON.stringify(payload)
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.error?.message || 'openai_error');
-  }
-  return (data?.output_text || '').trim();
-}
-
 async function callAssistant({ messages, context, temperature = 0.2, model } = {}) {
   const proxyUrl = getOpenAiProxy();
-  const key = (state.keys.openai?.key || '').trim();
   if (proxyUrl) {
     const payload = {
       messages: Array.isArray(messages) ? messages : [],
@@ -4714,13 +4593,11 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
       temperature
     };
     if (model) payload.model = model;
-    const headers = {
-      'Content-Type': 'application/json'
-    };
-    if (key) headers['x-openai-key'] = key;
     const response = await fetch(proxyUrl, {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify(payload)
     });
     const data = await response.json();
@@ -4733,9 +4610,6 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
   if (isStaticMode()) {
     throw new Error('assistant_unavailable');
   }
-  if (!key) {
-    throw new Error('missing_api_key');
-  }
   const payload = {
     messages: Array.isArray(messages) ? messages : [],
     context,
@@ -4746,8 +4620,7 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
   const response = await apiFetch('/api/chat', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'x-openai-key': key
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify(payload)
   });
@@ -4825,15 +4698,6 @@ async function runAiAnalysis({ emitChat = true } = {}) {
   elements.analysisRun.setAttribute('aria-busy', 'true');
   elements.analysisRun.textContent = 'Briefing…';
   state.analysisRunning = true;
-  if (!state.keys.openai?.key) {
-    generateAnalysis(emitChat);
-    elements.analysisRun.disabled = false;
-    elements.analysisRun.classList.remove('loading');
-    elements.analysisRun.removeAttribute('aria-busy');
-    elements.analysisRun.textContent = originalLabel;
-    state.analysisRunning = false;
-    return;
-  }
   setAnalysisOutput('Generating AI briefing...');
   const progressBubble = emitChat ? appendChatBubble('Generating briefing…', 'system') : null;
   try {
@@ -4893,11 +4757,6 @@ async function sendChatMessage() {
   appendChatBubble(text, 'user');
   elements.chatInput.value = '';
 
-  if (!state.keys.openai?.key) {
-    appendChatBubble('Add an OpenAI API key in Settings > API Keys to enable chat.', 'system');
-    return;
-  }
-
   const typing = appendChatBubble('Thinking...', 'system');
   state.chatHistory.push({ role: 'user', content: text });
   const history = state.chatHistory.slice(-6);
@@ -4911,8 +4770,9 @@ async function sendChatMessage() {
     typing.textContent = reply || 'No response.';
     state.chatHistory.push({ role: 'assistant', content: reply || 'No response.' });
   } catch (err) {
-    if (err.message === 'missing_api_key') {
-      typing.textContent = 'Add an OpenAI API key in Settings.';
+    const message = err?.message || '';
+    if (message.includes('missing_api_key') || message.includes('Provide an OpenAI API key')) {
+      typing.textContent = 'AI chat is unavailable until the server API key is configured.';
     } else if (err.message === 'assistant_unavailable') {
       typing.textContent = 'AI chat requires a proxy on GitHub Pages.';
     } else {
@@ -6472,27 +6332,20 @@ function updateChatStatus() {
     bubble.className = 'chat-bubble system';
     elements.chatLog.prepend(bubble);
   }
-  const key = state.keys.openai?.key;
   if (isStaticMode()) {
     const proxyUrl = getOpenAiProxy();
     if (proxyUrl) {
-      bubble.textContent = key
-        ? 'AI connected via proxy (using your key).'
-        : 'AI connected via proxy. Add a key to override.';
+      bubble.textContent = 'AI connected via proxy.';
       return;
     }
     if (state.settings.superMonitor) {
-      bubble.textContent = state.keys.openai?.key
-        ? 'Super Monitor Mode: OpenAI key stored (proxy required on GitHub Pages).'
-        : 'Super Monitor Mode is on. Add an OpenAI key; chat still needs a proxy.';
+      bubble.textContent = 'Super Monitor Mode is on. AI chat still needs a proxy on GitHub Pages.';
     } else {
       bubble.textContent = 'Static mode: AI chat needs a proxy. Briefings use the cached snapshot when available.';
     }
     return;
   }
-  bubble.textContent = state.keys.openai?.key
-    ? 'AI connected. Ask a question or request a briefing.'
-    : 'Connect an AI provider to enable live responses.';
+  bubble.textContent = 'AI connected. Ask a question or request a briefing.';
 }
 
 function showSearchResults(items, label) {

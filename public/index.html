@@ -1078,10 +1078,10 @@
       <div class="settings-section">
         <div class="settings-label">Super Monitor Mode</div>
         <label class="toggle-row">
-          <span>Use OpenAI key in browser (requires proxy on GitHub Pages)</span>
+          <span>Use browser-stored API keys for live custom feeds</span>
           <input type="checkbox" id="superMonitorToggle" name="superMonitorToggle" aria-label="Enable Super Monitor Mode" />
         </label>
-        <div class="settings-note">Only use this on trusted devices. Your key stays in local storage. GitHub Pages needs the OpenAI proxy to run chat.</div>
+        <div class="settings-note">Only use this on trusted devices. Your keys stay in local storage. GitHub Pages still needs the proxy to run chat.</div>
       </div>
       <div class="settings-section">
         <div class="settings-label">Content Language</div>
@@ -1090,7 +1090,7 @@
           <button class="seg" data-language="translate">Translate</button>
           <button class="seg" data-language="all">All</button>
         </div>
-        <div class="settings-note">Translate uses your AI key; English hides non-English items.</div>
+        <div class="settings-note">Translate uses AI; English hides non-English items.</div>
       </div>
       <div class="settings-section">
         <label for="maxAgeRange">Max Age (days)</label>
@@ -1112,7 +1112,7 @@
           <div class="key-compact-head">
             <div>
               <div class="status-title">API Keys</div>
-              <div class="status-sub">OpenAI key only; other providers are server-managed</div>
+              <div class="status-sub">Custom feed keys; core providers are server-managed</div>
             </div>
             <button class="chip" id="keyToggle">Hide</button>
           </div>
@@ -1281,7 +1281,7 @@
           <section class="modal-card">
             <div class="modal-card-title">Keys you may need</div>
             <p>
-              <strong>OpenAI</strong> (AI analysis + query translation) is BYO and entered in Settings. <strong>EIA</strong>, <strong>data.gov</strong>, <strong>OpenAQ</strong>, and <strong>NASA FIRMS</strong> are server‑managed via the proxy layer.
+              <strong>OpenAI</strong> (AI analysis + query translation) is server‑managed. <strong>EIA</strong>, <strong>data.gov</strong>, <strong>OpenAQ</strong>, and <strong>NASA FIRMS</strong> are also server‑managed via the proxy layer. Custom feeds can still use browser-stored keys if needed.
             </p>
           </section>
           <section class="modal-card">
