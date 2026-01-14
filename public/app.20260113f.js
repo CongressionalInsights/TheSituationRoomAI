@@ -5426,6 +5426,59 @@ function initCommunityEmbed() {
   });
 }
 
+function initWorldClocks() {
+  const clocks = Array.from(document.querySelectorAll('.clock-card[data-timezone]'));
+  if (!clocks.length) return;
+  const formatters = new Map();
+  const getFormatter = (tz) => {
+    if (!formatters.has(tz)) {
+      formatters.set(tz, new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }));
+    }
+    return formatters.get(tz);
+  };
+
+  const tick = () => {
+    const now = new Date();
+    clocks.forEach((clock) => {
+      const tz = clock.dataset.timezone;
+      const parts = getFormatter(tz).formatToParts(now);
+      let hours = 0;
+      let minutes = 0;
+      let seconds = 0;
+      parts.forEach((part) => {
+        if (part.type === 'hour') hours = Number(part.value);
+        if (part.type === 'minute') minutes = Number(part.value);
+        if (part.type === 'second') seconds = Number(part.value);
+      });
+      const hourFraction = (hours % 12) + minutes / 60 + seconds / 3600;
+      const hourDeg = hourFraction * 30;
+      const minuteDeg = (minutes + seconds / 60) * 6;
+      const secondDeg = seconds * 6;
+      const hourHand = clock.querySelector('.clock-hand.hour');
+      const minuteHand = clock.querySelector('.clock-hand.minute');
+      const secondHand = clock.querySelector('.clock-hand.second');
+      if (hourHand) hourHand.style.transform = `translateX(-50%) rotate(${hourDeg}deg)`;
+      if (minuteHand) minuteHand.style.transform = `translateX(-50%) rotate(${minuteDeg}deg)`;
+      if (secondHand) secondHand.style.transform = `translateX(-50%) rotate(${secondDeg}deg)`;
+      const timeEl = clock.querySelector('[data-role="time"]');
+      if (timeEl) {
+        const hh = String(hours).padStart(2, '0');
+        const mm = String(minutes).padStart(2, '0');
+        timeEl.textContent = `${hh}:${mm}`;
+      }
+    });
+  };
+
+  tick();
+  setInterval(tick, 1000);
+}
+
 function initSidebarNav() {
   const navLinks = [...document.querySelectorAll('.nav-link[data-panel-target]')];
   if (!navLinks.length) return;
@@ -7412,6 +7465,7 @@ async function init() {
   initEvents();
   initListModal();
   initCommunityEmbed();
+  initWorldClocks();
   initSidebarNav();
   initCommandSections();
   ensurePanelUpdateBadges();
