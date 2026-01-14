@@ -2,6 +2,7 @@ import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy } from './
 
 const LAYOUT_VERSION = 3;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
+const CLIENT_FETCH_TIMEOUT_MS = 12000;
 
 const state = {
   feeds: [],
@@ -110,6 +111,7 @@ const state = {
   previousSignals: null,
   analysisSignature: null,
   analysisRunning: false,
+  searching: false,
   predictionFallback: {
     items: [],
     loading: false,
@@ -190,6 +192,8 @@ const elements = {
   healthList: document.getElementById('healthList'),
   transportList: document.getElementById('transportList'),
   analysisOutput: document.getElementById('analysisOutput'),
+  analysisMeta: document.getElementById('analysisMeta'),
+  analysisStory: document.getElementById('analysisStory'),
   analysisBody: document.querySelector('#analysisOutput .analysis-body'),
   analysisRun: document.getElementById('analysisRun'),
   summaryGlobalActivity: document.getElementById('summaryGlobalActivity'),
@@ -483,12 +487,15 @@ const criticalFeedIds = [
   'energy-eia-ng',
   'eia-today'
 ];
+const ANALYSIS_NOISE_TOKENS = new Set([
+  'llc', 'inc', 'corp', 'news', 'update', 'report', 'alert', 'press', 'group'
+]);
 
 function countCriticalIssues(results) {
   return results.filter((result) => {
     if (!result?.feed?.id || !criticalFeedIds.includes(result.feed.id)) return false;
     if (result.error === 'requires_key' || result.error === 'requires_config' || result.error === 'missing_server_key') return false;
-    return result.error || (result.httpStatus && result.httpStatus >= 400);
+    return result.error || result.stale || (result.httpStatus && result.httpStatus >= 400);
   }).length;
 }
 
@@ -1086,6 +1093,24 @@ function updateSettingsUI() {
     elements.liveSearchToggle.classList.toggle('active', state.settings.liveSearch);
     elements.liveSearchToggle.textContent = state.settings.liveSearch ? 'Live Search On' : 'Live Search Off';
   }
+  updateSearchHint();
+}
+
+function getSearchHintBase() {
+  if (!state.settings.aiTranslate) {
+    return 'AI query translation is off. Searches use the exact text you enter.';
+  }
+  if (!hasAssistantAccess()) {
+    return 'AI translation is on, but AI is offline. Using default feed queries.';
+  }
+  return 'AI query translation is on. Search adapts to each source.';
+}
+
+function updateSearchHint() {
+  if (!elements.searchHint) return;
+  if (state.searching) return;
+  if (elements.searchResults?.classList.contains('open')) return;
+  elements.searchHint.textContent = getSearchHintBase();
 }
 
 function toggleSettings(open) {
@@ -1821,7 +1846,6 @@ function buildKeyManager(filterCategory) {
     if (feed.id === 'openai') {
       const advanced = document.createElement('details');
       advanced.className = 'advanced-toggle';
-      advanced.open = Boolean(state.settings.useClientOpenAI);
       advanced.open = false;
       const summary = document.createElement('summary');
       summary.textContent = 'Advanced';
@@ -1950,13 +1974,19 @@ function getClientOpenAiKey() {
 
 function hasAssistantAccess() {
   if (getOpenAiProxy()) return true;
-  if (isStaticMode()) return Boolean(getClientOpenAiKey());
+  if (isStaticMode()) return false;
   return true;
 }
 
 function normalizeOpenAIError(err) {
   const message = (err?.message || '').toString();
   const lower = message.toLowerCase();
+  if (lower.includes('assistant_unavailable')) {
+    return { status: 'error', message: 'AI requires a proxy on GitHub Pages.' };
+  }
+  if (lower.includes('missing_api_key') || lower.includes('provide an openai api key')) {
+    return { status: 'missing', message: 'Add an OpenAI API key in Settings.' };
+  }
   if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('cors')) {
     return {
       status: 'error',
@@ -3733,6 +3763,16 @@ function applyQueryToUrl(url, query) {
   return parsed.toString();
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = CLIENT_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchCustomFeedDirect(feed, query) {
   const keyConfig = getKeyConfig(feed);
   let url = applyQueryToUrl(feed.url, feed.supportsQuery ? (query || feed.defaultQuery || '') : '');
@@ -3754,7 +3794,7 @@ async function fetchCustomFeedDirect(feed, query) {
     for (const candidate of candidates) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const response = await fetch(candidate, { headers });
+        const response = await fetchWithTimeout(candidate, { headers });
         lastResponse = response;
         if (!response.ok) continue;
         // eslint-disable-next-line no-await-in-loop
@@ -3963,6 +4003,22 @@ function applyLanguageFilter(items) {
 function applyFreshnessFilter(items) {
   const cutoff = Date.now() - state.settings.maxAgeDays * 24 * 60 * 60 * 1000;
   return items.filter((item) => (item.publishedAt || Date.now()) >= cutoff);
+}
+
+function normalizeSearchItems(items) {
+  return items.map((item) => ({
+    ...item,
+    url: canonicalUrl(item.url),
+    isNonEnglish: typeof item.isNonEnglish === 'boolean'
+      ? item.isNonEnglish
+      : isNonEnglish(`${item.title || ''} ${item.summary || ''}`)
+  }));
+}
+
+function applySearchFilters(items) {
+  const normalized = normalizeSearchItems(items);
+  const deduped = dedupeItems(normalized);
+  return applyLanguageFilter(applyFreshnessFilter(deduped));
 }
 
 function buildTickerItems() {
@@ -4223,7 +4279,7 @@ function maybeAutoRunAnalysis() {
   if (hasAssistantAccess()) {
     runAiAnalysis({ emitChat: false, auto: true });
   } else {
-    generateAnalysis(false);
+    generateAnalysis(false, { metaNote: 'AI offline' });
   }
 }
 
@@ -4602,7 +4658,13 @@ function renderSignals() {
   if (elements.signalHealthChip) {
     const degraded = criticalFeedIds
       .map((id) => state.feedStatus[id])
-      .filter((status) => status && status.error && status.error !== 'requires_key' && status.error !== 'requires_config' && status.error !== 'missing_server_key');
+      .filter((status) => {
+        if (!status) return false;
+        if (status.stale) return true;
+        if (!status.error) return false;
+        if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return false;
+        return true;
+      });
     if (degraded.length) {
       elements.signalHealthChip.textContent = `Feed Health: Degraded (${degraded.length})`;
       elements.signalHealthChip.classList.add('degraded');
@@ -4613,6 +4675,8 @@ function renderSignals() {
       elements.signalHealthChip.classList.remove('degraded');
     }
   }
+
+  renderAnalysisStory();
 
   state.previousSignals = {
     totalItems,
@@ -4668,9 +4732,19 @@ function renderFeedHealth() {
   }
   const entries = state.feeds.map((feed) => {
     const status = state.feedStatus[feed.id] || {};
-    const code = status.httpStatus || (status.error ? 'ERR' : 'OK');
-    const ok = !status.error && (status.httpStatus ? status.httpStatus < 400 : true);
-    return { id: feed.id, name: feed.name, ok, code, error: status.error, message: status.errorMessage };
+    const stale = status.stale;
+    const code = stale ? 'STALE' : (status.httpStatus || (status.error ? 'ERR' : 'OK'));
+    const ok = !status.error && !stale && (status.httpStatus ? status.httpStatus < 400 : true);
+    return {
+      id: feed.id,
+      name: feed.name,
+      ok,
+      code,
+      stale,
+      fetchedAt: status.fetchedAt,
+      error: status.error,
+      message: status.errorMessage
+    };
   });
 
   const issues = entries.filter((entry) => !entry.ok && entry.error !== 'requires_config');
@@ -4688,6 +4762,9 @@ function renderFeedHealth() {
     const meta = document.createElement('div');
     meta.className = 'feed-health-meta';
     let message = entry.message;
+    if (!message && entry.stale && entry.fetchedAt) {
+      message = `Stale (${toRelativeTime(entry.fetchedAt)})`;
+    }
     if (!message && entry.error === 'requires_key') message = 'Missing API key';
     if (!message && entry.error === 'missing_server_key') message = 'Missing server API key';
     meta.textContent = message ? message : (entry.error ? entry.error : `HTTP ${entry.code}`);
@@ -4697,17 +4774,185 @@ function renderFeedHealth() {
   });
 }
 
+function getStaticAnalysisStamp() {
+  if (!state.staticAnalysis?.generatedAt) return null;
+  const stamp = Date.parse(state.staticAnalysis.generatedAt);
+  return Number.isFinite(stamp) ? stamp : null;
+}
+
+function getAnalysisDataStamp() {
+  if (isStaticMode() && !state.settings.superMonitor) {
+    return getStaticAnalysisStamp() || state.lastBuildAt || state.lastFetch || null;
+  }
+  return state.lastFetch || state.lastBuildAt || getStaticAnalysisStamp() || null;
+}
+
+function setAnalysisMeta(mode, note, stampOverride) {
+  if (!elements.analysisMeta) return;
+  const labels = {
+    ai: 'AI briefing',
+    cached: 'Cached briefing',
+    heuristic: 'Heuristic briefing',
+    empty: 'Awaiting signals'
+  };
+  let message = '';
+  if (mode === 'empty') {
+    message = note || 'Awaiting signals to build a briefing.';
+  } else {
+    const label = labels[mode] || 'Briefing';
+    const stamp = stampOverride ?? getAnalysisDataStamp();
+    const timeText = stamp ? `Data ${toRelativeTime(stamp)}` : '';
+    const parts = [label, note, timeText].filter(Boolean);
+    message = parts.join(' • ');
+  }
+  elements.analysisMeta.textContent = message;
+  if (elements.analysisOutput && mode) {
+    elements.analysisOutput.dataset.mode = mode;
+  }
+}
+
+function getPriorityCluster() {
+  if (!state.clusters.length) return null;
+  return [...state.clusters].sort((a, b) => {
+    const coverageDelta = b.sources.size - a.sources.size;
+    if (coverageDelta) return coverageDelta;
+    return b.updatedAt - a.updatedAt;
+  })[0];
+}
+
+function getLatestItem(items) {
+  if (!items || !items.length) return null;
+  return [...items].sort((a, b) => {
+    const aStamp = a.publishedAt || a.updatedAt || 0;
+    const bStamp = b.publishedAt || b.updatedAt || 0;
+    return bStamp - aStamp;
+  })[0];
+}
+
+function getTopThemes(max = 5) {
+  if (!state.clusters.length) return [];
+  const tokens = [];
+  state.clusters.slice(0, 12).forEach((cluster) => {
+    const normalized = normalizeTitle(cluster.primary.title);
+    normalized.split(' ').forEach((token) => {
+      if (!token || token.length < 3) return;
+      if (ANALYSIS_NOISE_TOKENS.has(token)) return;
+      if (/^\d+$/.test(token)) return;
+      tokens.push(token);
+    });
+  });
+
+  const counts = tokens.reduce((acc, token) => {
+    acc[token] = (acc[token] || 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([token]) => token);
+}
+
+function buildStorylineItems() {
+  const items = [];
+  const focusCluster = getPriorityCluster();
+  if (focusCluster) {
+    const title = truncateText(focusCluster.primary.title || '', 120);
+    const coverage = focusCluster.sources?.size ? `${focusCluster.sources.size} sources` : 'Single source';
+    const updated = focusCluster.updatedAt ? toRelativeTime(focusCluster.updatedAt) : '';
+    const meta = [coverage, updated].filter(Boolean).join(' • ');
+    items.push({ label: 'Focus', value: meta ? `${title} • ${meta}` : title });
+  }
+
+  const localItem = getLatestItem(getLocalItems());
+  if (localItem) {
+    const title = truncateText(localItem.title || '', 120);
+    const location = localItem.geoLabel || localItem.location || localItem.area || '';
+    const updated = localItem.publishedAt ? toRelativeTime(localItem.publishedAt) : '';
+    const meta = [location, updated].filter(Boolean).join(' • ');
+    items.push({ label: 'Local', value: meta ? `${title} • ${meta}` : title });
+  } else if (state.settings.scope !== 'global') {
+    items.push({ label: 'Local', value: `No signals within ${state.settings.radiusKm} km.` });
+  }
+
+  const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
+    .filter((item) => item.category === 'crypto' || item.category === 'finance');
+  const marketItem = getLatestItem(marketSignals);
+  if (marketItem) {
+    const title = truncateText(marketItem.title || '', 120);
+    const summary = marketItem.summary ? truncateText(stripHtml(marketItem.summary), 80) : '';
+    items.push({ label: 'Market', value: summary ? `${title} • ${summary}` : title });
+  }
+
+  const themes = getTopThemes(3);
+  if (themes.length) {
+    items.push({ label: 'Themes', value: themes.join(', ') });
+  }
+
+  return items.slice(0, 4);
+}
+
+function renderAnalysisStory() {
+  if (!elements.analysisStory) return;
+  const storyItems = buildStorylineItems();
+  elements.analysisStory.innerHTML = '';
+  if (!storyItems.length) {
+    elements.analysisStory.innerHTML = '<div class="analysis-story-empty">Awaiting narrative context.</div>';
+    return;
+  }
+  storyItems.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'analysis-story-item';
+    const label = document.createElement('div');
+    label.className = 'analysis-story-label';
+    label.textContent = item.label;
+    const value = document.createElement('div');
+    value.className = 'analysis-story-value';
+    value.textContent = item.value;
+    row.appendChild(label);
+    row.appendChild(value);
+    elements.analysisStory.appendChild(row);
+  });
+}
+
 function buildChatContext() {
+  const focusCluster = getPriorityCluster();
+  const feedIssues = state.feeds.map((feed) => {
+    const status = state.feedStatus[feed.id];
+    if (!status) return null;
+    if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return null;
+    if (!status.error && !status.stale) return null;
+    return {
+      id: feed.id,
+      name: feed.name,
+      error: status.error || null,
+      stale: Boolean(status.stale),
+      fetchedAt: status.fetchedAt || null
+    };
+  }).filter(Boolean).slice(0, 6);
+
   return {
     generatedAt: new Date().toISOString(),
     scope: state.settings.scope,
     location: state.location,
     refreshMinutes: state.settings.refreshMinutes,
+    feedHealth: {
+      status: state.health,
+      issueCount: feedIssues.length,
+      issues: feedIssues
+    },
     signals: {
       totalItems: state.scopedItems.length,
       newsClusters: state.clusters.length,
       localEvents: getLocalItems().length
     },
+    themes: getTopThemes(5),
+    focusCluster: focusCluster ? {
+      title: focusCluster.primary.title,
+      sources: Array.from(focusCluster.sources),
+      updatedAt: focusCluster.updatedAt,
+      url: focusCluster.primary.url
+    } : null,
     topClusters: state.clusters.slice(0, 8).map((cluster) => ({
       title: cluster.primary.title,
       sources: Array.from(cluster.sources),
@@ -4812,9 +5057,12 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
   return (data.text || '').trim();
 }
 
-function generateAnalysis(emitChat = false) {
+function generateAnalysis(emitChat = false, options = {}) {
+  const { metaNote } = options;
   if (isStaticMode() && state.staticAnalysis?.text) {
-    const stamp = state.staticAnalysis.generatedAt ? `\n\nUpdated ${toRelativeTime(state.staticAnalysis.generatedAt)}` : '';
+    const staticStamp = getStaticAnalysisStamp();
+    const stamp = staticStamp ? `\n\nUpdated ${toRelativeTime(staticStamp)}` : '';
+    setAnalysisMeta('cached', metaNote, staticStamp);
     setAnalysisOutput(`${state.staticAnalysis.text}${stamp}`);
     return;
   }
@@ -4826,48 +5074,52 @@ function generateAnalysis(emitChat = false) {
 
   if (!totalItems && !newsClusters) {
     const fallback = `Awaiting signals. Check feed health or refresh. Local radius: ${state.settings.radiusKm} km.`;
+    setAnalysisMeta('empty', metaNote || 'Awaiting signals to build a briefing.');
     setAnalysisOutput(fallback);
     if (emitChat) appendChatBubble(`Briefing: ${fallback}`, 'system');
     return;
   }
 
-  const noise = new Set(['llc', 'inc', 'corp', 'news', 'update', 'report', 'alert', 'press', 'group']);
-  const tokens = [];
-  state.clusters.slice(0, 12).forEach((cluster) => {
-    const normalized = normalizeTitle(cluster.primary.title);
-    normalized.split(' ').forEach((token) => {
-      if (!token || token.length < 3) return;
-      if (noise.has(token)) return;
-      if (/^\d+$/.test(token)) return;
-      tokens.push(token);
-    });
-  });
+  const focusCluster = getPriorityCluster();
+  const localItem = getLatestItem(getLocalItems());
+  const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
+    .filter((item) => item.category === 'crypto' || item.category === 'finance');
+  const marketItem = getLatestItem(marketSignals);
+  const topThemes = getTopThemes(4);
 
-  const counts = tokens.reduce((acc, token) => {
-    acc[token] = (acc[token] || 0) + 1;
-    return acc;
-  }, {});
-
-  const topThemes = Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([token]) => token);
-
-  const highCoverage = state.clusters.filter((cluster) => cluster.sources.size >= 3).slice(0, 3);
-  const lines = [
-    `Signals in view: ${totalItems || 'awaiting'} across ${newsClusters || 'no'} news clusters.`,
-    `Local risks: ${localCount || 'no'} events within ${state.settings.radiusKm} km.`,
-    `Market pulse: ${marketCount || 'no'} finance/crypto signals.`
-  ];
-  if (topThemes.length) {
-    lines.push(`Top themes: ${topThemes.join(', ')}.`);
-  } else if (highCoverage.length) {
-    lines.push(`High coverage: ${highCoverage.map((c) => c.primary.title).join(' - ')}`);
+  const storyline = ['## Storyline'];
+  if (focusCluster) {
+    const focusTitle = truncateText(focusCluster.primary.title || '', 140);
+    const focusMeta = `${focusCluster.sources.size} sources`;
+    const updated = focusCluster.updatedAt ? toRelativeTime(focusCluster.updatedAt) : '';
+    storyline.push(`- Focus: ${focusTitle} (${[focusMeta, updated].filter(Boolean).join(' • ')})`);
   }
-  const text = lines.join(' ');
+  if (localItem) {
+    const localTitle = truncateText(localItem.title || '', 140);
+    const localMeta = localItem.geoLabel || localItem.location || '';
+    const updated = localItem.publishedAt ? toRelativeTime(localItem.publishedAt) : '';
+    storyline.push(`- Local: ${localTitle} (${[localMeta, updated].filter(Boolean).join(' • ')})`);
+  }
+  if (marketItem) {
+    const marketTitle = truncateText(marketItem.title || '', 140);
+    storyline.push(`- Market: ${marketTitle}`);
+  }
+  if (topThemes.length) {
+    storyline.push(`- Themes: ${topThemes.join(', ')}`);
+  }
+
+  const signals = [
+    '## Signals',
+    `- Signals in view: ${totalItems || 'awaiting'} across ${newsClusters || 'no'} news clusters.`,
+    `- Local risks: ${localCount || 'no'} events within ${state.settings.radiusKm} km.`,
+    `- Market pulse: ${marketCount || 'no'} finance/crypto signals.`
+  ];
+
+  const text = [...storyline, ...signals].join('\n');
+  setAnalysisMeta('heuristic', metaNote);
   setAnalysisOutput(text);
   if (emitChat) {
-    appendChatBubble(`Briefing: ${text}`, 'system');
+    appendChatBubble(`Briefing:\n${text}`, 'system');
   }
 }
 
@@ -4880,7 +5132,7 @@ async function runAiAnalysis({ emitChat = true } = {}) {
   elements.analysisRun.textContent = 'Briefing…';
   state.analysisRunning = true;
   if (!hasAssistantAccess()) {
-    generateAnalysis(emitChat);
+    generateAnalysis(emitChat, { metaNote: 'AI unavailable' });
     elements.analysisRun.disabled = false;
     elements.analysisRun.classList.remove('loading');
     elements.analysisRun.removeAttribute('aria-busy');
@@ -4888,6 +5140,7 @@ async function runAiAnalysis({ emitChat = true } = {}) {
     state.analysisRunning = false;
     return;
   }
+  setAnalysisMeta('ai', 'Generating briefing');
   setAnalysisOutput('Generating AI briefing...');
   const progressBubble = emitChat ? appendChatBubble('Generating briefing…', 'system') : null;
   try {
@@ -4900,6 +5153,7 @@ async function runAiAnalysis({ emitChat = true } = {}) {
       temperature: 0.2
     });
     const cleaned = text || 'No response yet.';
+    setAnalysisMeta('ai');
     setAnalysisOutput(cleaned);
     if (emitChat) {
       if (progressBubble) {
@@ -4910,15 +5164,16 @@ async function runAiAnalysis({ emitChat = true } = {}) {
       }
     }
   } catch (err) {
-    const fallbackMessage = err?.message === 'assistant_unavailable'
-      ? 'AI briefing requires a proxy on GitHub Pages. Showing heuristic analysis.'
+    const normalized = normalizeOpenAIError(err);
+    const fallbackMessage = normalized?.message
+      ? `AI briefing unavailable. ${normalized.message} Showing heuristic analysis.`
       : 'AI briefing failed. Showing heuristic analysis.';
     setAnalysisOutput(fallbackMessage);
     if (progressBubble) {
       progressBubble.className = 'chat-bubble system';
       progressBubble.innerHTML = formatBriefingText(fallbackMessage);
     }
-    generateAnalysis(emitChat);
+    generateAnalysis(emitChat, { metaNote: 'AI unavailable' });
   } finally {
     elements.analysisRun.disabled = false;
     elements.analysisRun.classList.remove('loading');
@@ -4965,13 +5220,8 @@ async function sendChatMessage() {
     typing.textContent = reply || 'No response.';
     state.chatHistory.push({ role: 'assistant', content: reply || 'No response.' });
   } catch (err) {
-    if (err.message === 'missing_api_key') {
-      typing.textContent = 'Add an OpenAI API key in Settings.';
-    } else if (err.message === 'assistant_unavailable') {
-      typing.textContent = 'AI chat requires a proxy on GitHub Pages.';
-    } else {
-      typing.textContent = `Assistant error: ${err.message}`;
-    }
+    const normalized = normalizeOpenAIError(err);
+    typing.textContent = normalized.message || `Assistant error: ${err.message}`;
   }
 }
 
@@ -6553,7 +6803,12 @@ function updateChatStatus() {
 function showSearchResults(items, label) {
   if (!elements.searchResults || !elements.searchResultsList) return;
   elements.searchResultsList.innerHTML = '';
-  renderList(elements.searchResultsList, items.slice(0, 25));
+  const sliced = items.slice(0, 25);
+  if (sliced.length) {
+    renderList(elements.searchResultsList, sliced);
+  } else {
+    elements.searchResultsList.innerHTML = '<div class="list-item">No matching signals yet.</div>';
+  }
   if (elements.searchResultsMeta) {
     elements.searchResultsMeta.textContent = label;
   }
@@ -6569,6 +6824,7 @@ function hideSearchResults() {
   if (elements.searchResultsMeta) {
     elements.searchResultsMeta.textContent = 'Awaiting query';
   }
+  updateSearchHint();
 }
 
 async function refreshAll(force = false) {
@@ -6601,13 +6857,15 @@ async function refreshAll(force = false) {
     }));
 
     results.forEach((result) => {
-    state.feedStatus[result.feed.id] = {
-      httpStatus: result.httpStatus,
-      error: result.error,
-      errorMessage: result.errorMessage,
-      fetchedAt: result.fetchedAt,
-      count: result.items.length
-    };
+      const stale = !result.error && isFeedStale(result.feed, result);
+      state.feedStatus[result.feed.id] = {
+        httpStatus: result.httpStatus,
+        error: result.error,
+        errorMessage: result.errorMessage,
+        fetchedAt: result.fetchedAt,
+        count: result.items.length,
+        stale
+      };
     });
 
     const items = results.flatMap((result) => result.items || []);
@@ -6672,12 +6930,14 @@ async function retryFailedFeeds() {
     try {
       // eslint-disable-next-line no-await-in-loop
       const result = await fetchFeed(feed, query, true);
+      const stale = !result.error && isFeedStale(result.feed, result);
       state.feedStatus[result.feed.id] = {
         httpStatus: result.httpStatus,
         error: result.error,
         errorMessage: result.errorMessage,
         fetchedAt: result.fetchedAt,
-        count: result.items.length
+        count: result.items.length,
+        stale
       };
       result.items.forEach((item) => {
         const key = item.url || item.title;
@@ -6734,12 +6994,14 @@ async function retryStaleFeeds(results) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const result = await fetchFeed(feed, query, true);
+      const stale = !result.error && isFeedStale(result.feed, result);
       state.feedStatus[result.feed.id] = {
         httpStatus: result.httpStatus,
         error: result.error,
         errorMessage: result.errorMessage,
         fetchedAt: result.fetchedAt,
-        count: result.items.length
+        count: result.items.length,
+        stale
       };
       result.items.forEach((item) => {
         const key = item.url || item.title;
@@ -6784,6 +7046,7 @@ async function handleSearch() {
   if (!query) {
     elements.searchHint.textContent = 'Enter a search term to query signals.';
     showSearchResults([], 'Enter a search term');
+    updateSearchHint();
     return;
   }
 
@@ -6792,6 +7055,7 @@ async function handleSearch() {
     elements.searchBtn.disabled = true;
     elements.searchBtn.textContent = 'Searching...';
   }
+  state.searching = true;
 
   try {
     const normalizedQuery = query.toLowerCase();
@@ -6816,8 +7080,7 @@ async function handleSearch() {
       }
       const liveItems = await runLiveSearch(liveFeeds);
       const combined = [...filtered, ...liveItems];
-      const deduped = dedupeItems(combined);
-      const freshFiltered = applyFreshnessFilter(deduped);
+      const freshFiltered = applySearchFilters(combined);
       showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => categoryLabels[cat] || cat).join(', ')}`);
       elements.searchHint.textContent = liveFeeds.length
         ? 'Showing cached + live search results.'
@@ -6835,8 +7098,7 @@ async function handleSearch() {
       }
       const liveItems = await runLiveSearch(liveSearchFeeds);
       const combined = [...filtered, ...liveItems];
-      const deduped = dedupeItems(combined);
-      const freshFiltered = applyFreshnessFilter(deduped);
+      const freshFiltered = applySearchFilters(combined);
       showSearchResults(freshFiltered, `${freshFiltered.length} matches across all feeds`);
       elements.searchHint.textContent = liveSearchFeeds.length
         ? `Showing cached + live results (${freshFiltered.length}).`
@@ -6856,8 +7118,7 @@ async function handleSearch() {
       }
       const liveItems = await runLiveSearch(liveFeeds);
       const combined = [...filtered, ...liveItems];
-      const deduped = dedupeItems(combined);
-      const freshFiltered = applyFreshnessFilter(deduped);
+      const freshFiltered = applySearchFilters(combined);
       showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${categoryLabels[category] || category}`);
       elements.searchHint.textContent = liveFeeds.length
         ? `Showing cached + live results (${freshFiltered.length}).`
@@ -6871,17 +7132,19 @@ async function handleSearch() {
       showSearchResults([], 'Select a feed or category');
       return;
     }
-    elements.searchHint.textContent = 'Translating query...';
+    elements.searchHint.textContent = state.settings.aiTranslate && hasAssistantAccess()
+      ? 'Translating query...'
+      : 'Preparing query...';
     const translated = await translateQueryAsync(feed, query);
     try {
       if (liveSearchFeeds.find((entry) => entry.id === feed.id)) {
         const result = await fetchCustomFeedDirect(feed, translated);
-        const items = applyFreshnessFilter(result.items || []);
+        const items = applySearchFilters(result.items || []);
         showSearchResults(items, `${items.length} live results from ${feed.name}`);
         elements.searchHint.textContent = `Live search results from ${feed.name}.`;
       } else {
         const result = await fetchFeed(feed, translated, true);
-        const items = applyFreshnessFilter(result.items || []);
+        const items = applySearchFilters(result.items || []);
         showSearchResults(items, `${items.length} results from ${feed.name}`);
         elements.searchHint.textContent = `Search results from ${feed.name}.`;
       }
@@ -6894,6 +7157,8 @@ async function handleSearch() {
       elements.searchBtn.disabled = false;
       elements.searchBtn.textContent = originalLabel || 'Search';
     }
+    state.searching = false;
+    updateSearchHint();
   }
 }
 

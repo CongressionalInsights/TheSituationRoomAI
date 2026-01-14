@@ -627,22 +627,43 @@ body::before {
   flex-direction: column;
   gap: 6px;
   min-height: 110px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+}
+
+.summary-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, var(--summary-tone, rgba(255, 255, 255, 0.14)), transparent 58%);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.summary-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .summary-card.tone-geo {
   border-left: 3px solid var(--accent-2);
+  --summary-tone: rgba(94, 161, 255, 0.28);
 }
 
 .summary-card.tone-news {
   border-left: 3px solid var(--accent-3);
+  --summary-tone: rgba(215, 154, 43, 0.26);
 }
 
 .summary-card.tone-local {
   border-left: 3px solid var(--accent);
+  --summary-tone: rgba(47, 191, 156, 0.22);
 }
 
 .summary-card.tone-finance {
   border-left: 3px solid var(--accent);
+  --summary-tone: rgba(44, 111, 214, 0.22);
 }
 
 .summary-label {
@@ -2683,10 +2704,64 @@ a:focus-visible {
   border: 1px solid var(--border);
   font-size: 13px;
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.analysis-output[data-mode="ai"] {
+  border-color: var(--accent-2);
+}
+
+.analysis-output[data-mode="cached"] {
+  border-color: var(--accent-3);
+}
+
+.analysis-output[data-mode="heuristic"] {
+  border-color: var(--accent);
+}
+
+.analysis-meta {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+
+.analysis-story {
+  display: grid;
+  gap: 8px;
+}
+
+.analysis-story-item {
+  display: grid;
+  grid-template-columns: minmax(0, 90px) 1fr;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.analysis-story-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+.analysis-story-value {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.analysis-story-empty {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .analysis-body {
-  max-height: 150px;
+  max-height: 140px;
   overflow-y: auto;
   padding-right: 6px;
 }
@@ -2732,7 +2807,7 @@ a:focus-visible {
 
 .analysis-title {
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 0;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--muted);
@@ -3868,5 +3943,13 @@ a.list-title:hover {
 
   .ticker-item {
     font-size: 12px;
+  }
+
+  .analysis-story-item {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-story-label {
+    font-size: 9px;
   }
 }
