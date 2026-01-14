@@ -3308,6 +3308,48 @@ a.list-title:hover {
   color: var(--muted);
 }
 
+.advanced-toggle {
+  margin-top: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border);
+  background: var(--surface-2);
+  padding: 8px 10px;
+}
+
+.advanced-toggle summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.advanced-toggle summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-toggle summary::before {
+  content: '▸';
+  display: inline-block;
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.advanced-toggle[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.advanced-toggle .toggle-row {
+  margin-top: 8px;
+}
+
+.advanced-toggle .settings-note {
+  margin-top: 6px;
+}
+
 .feed-health {
   display: flex;
   flex-direction: column;

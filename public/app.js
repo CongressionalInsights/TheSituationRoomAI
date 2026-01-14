@@ -1819,6 +1819,12 @@ function buildKeyManager(filterCategory) {
     row.appendChild(inputRow);
 
     if (feed.id === 'openai') {
+      const advanced = document.createElement('details');
+      advanced.className = 'advanced-toggle';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Advanced';
+      advanced.appendChild(summary);
+
       const useRow = document.createElement('label');
       useRow.className = 'toggle-row';
       const useLabel = document.createElement('span');
@@ -1837,12 +1843,13 @@ function buildKeyManager(filterCategory) {
       });
       useRow.appendChild(useLabel);
       useRow.appendChild(useInput);
-      row.appendChild(useRow);
+      advanced.appendChild(useRow);
 
       const helper = document.createElement('div');
       helper.className = 'settings-note';
       helper.textContent = 'When off, AI uses the server key. When on, your key is passed to the proxy.';
-      row.appendChild(helper);
+      advanced.appendChild(helper);
+      row.appendChild(advanced);
     }
 
     if (feed.id !== 'openai') {
