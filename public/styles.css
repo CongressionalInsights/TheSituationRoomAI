@@ -205,8 +205,10 @@ body::before {
 }
 
 .sidebar {
-  position: sticky;
+  position: fixed;
+  left: 28px;
   top: 24px;
+  width: var(--sidebar-width);
   height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;

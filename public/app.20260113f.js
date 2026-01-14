@@ -1821,6 +1821,7 @@ function buildKeyManager(filterCategory) {
     if (feed.id === 'openai') {
       const advanced = document.createElement('details');
       advanced.className = 'advanced-toggle';
+      advanced.open = Boolean(state.settings.useClientOpenAI);
       advanced.open = false;
       const summary = document.createElement('summary');
       summary.textContent = 'Advanced';
@@ -1841,6 +1842,9 @@ function buildKeyManager(filterCategory) {
         saveSettings();
         updateChatStatus();
         maybeAutoRunAnalysis();
+        if (useInput.checked) {
+          advanced.open = true;
+        }
       });
       useRow.appendChild(useLabel);
       useRow.appendChild(useInput);
