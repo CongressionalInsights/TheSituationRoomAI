@@ -1,4 +1,4 @@
-import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy } from './services/api.js';
+import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy } from './services/api.js';
 
 const LAYOUT_VERSION = 3;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
@@ -120,7 +120,12 @@ const state = {
     items: [],
     loading: false,
     loaded: false
-  }
+  },
+  flightFocus: null,
+  flightTrack: null,
+  flightTrackLayer: null,
+  flightTrackLoading: false,
+  flightTrackFetchedAt: 0
 };
 
 const elements = {
@@ -240,6 +245,12 @@ const elements = {
   mapDetailList: document.getElementById('mapDetailList'),
   mapDetailMeta: document.getElementById('mapDetailMeta'),
   mapDetailClose: document.getElementById('mapDetailClose'),
+  flightFocus: document.getElementById('flightFocus'),
+  flightFocusMeta: document.getElementById('flightFocusMeta'),
+  flightFocusBody: document.getElementById('flightFocusBody'),
+  flightFocusTrack: document.getElementById('flightFocusTrack'),
+  flightFocusOpen: document.getElementById('flightFocusOpen'),
+  flightFocusClear: document.getElementById('flightFocusClear'),
   mapWrap: document.querySelector('.map-wrap'),
   travelTicker: document.getElementById('travelTicker'),
   travelTickerTrack: document.getElementById('travelTickerTrack'),
@@ -705,6 +716,26 @@ function updateCountryUI() {
   }
   if (elements.countrySelectLabel) {
     elements.countrySelectLabel.textContent = country?.name || 'Country';
+  }
+}
+
+function applyOpenSkyProxyOverride() {
+  const proxy = getOpenSkyProxy();
+  const feed = state.feeds.find((entry) => entry.id === 'transport-opensky');
+  if (!feed) return;
+  if (proxy) {
+    const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
+    feed.url = `${base}/states?extended=1`;
+    feed.proxy = null;
+    feed.requiresKey = false;
+    feed.keySource = null;
+    feed.keyGroup = null;
+    feed.keyParam = null;
+    feed.keyHeader = null;
+  } else if (feed.url && !feed.url.includes('extended=1')) {
+    const parsed = new URL(feed.url);
+    parsed.searchParams.set('extended', '1');
+    feed.url = parsed.toString();
   }
 }
 
@@ -2951,14 +2982,20 @@ const feedParsers = {
       .slice(0, 18);
     const updatedAt = (data?.time ? data.time * 1000 : Date.now());
     return sampled.map((entry) => {
-      const callsign = (entry?.[1] || entry?.[0] || 'Unknown').trim();
-      const origin = entry?.[2] || 'Unknown';
-      const speed = Number.isFinite(entry?.[9]) ? `${Math.round(entry[9] * 3.6)} km/h` : null;
-      const altitude = Number.isFinite(entry?.[7]) ? `${Math.round(entry[7] * 3.28084)} ft` : null;
+      const icao24 = entry?.[0] || '';
+      const callsignRaw = entry?.[1] || '';
+      const callsign = callsignRaw.toString().trim() || icao24 || 'Flight';
+      const origin = entry?.[2] || '';
+      const speedMs = Number.isFinite(entry?.[9]) ? entry[9] : null;
+      const speed = Number.isFinite(speedMs) ? `${Math.round(speedMs * 3.6)} km/h` : null;
+      const altitudeM = Number.isFinite(entry?.[7]) ? entry[7] : null;
+      const altitude = Number.isFinite(altitudeM) ? `${Math.round(altitudeM * 3.28084)} ft` : null;
+      const heading = Number.isFinite(entry?.[10]) ? Math.round(entry[10]) : null;
+      const onGround = Boolean(entry?.[8]);
       const parts = [speed, altitude].filter(Boolean);
       return {
-        title: `${callsign || 'Flight'} • ${origin}`,
-        url: 'https://opensky-network.org/',
+        title: `${callsign} • ${origin || 'Unknown'}`,
+        url: icao24 ? `https://opensky-network.org/aircraft-profile?icao24=${encodeURIComponent(icao24)}` : 'https://opensky-network.org/',
         summary: parts.length ? parts.join(' | ') : 'Airborne signal',
         publishedAt: entry?.[4] ? entry[4] * 1000 : updatedAt,
         source: 'OpenSky',
@@ -2966,7 +3003,15 @@ const feedParsers = {
         geo: {
           lat: entry[6],
           lon: entry[5]
-        }
+        },
+        icao24,
+        callsign,
+        originCountry: origin,
+        velocity: speedMs,
+        altitude: altitudeM,
+        heading,
+        onGround,
+        alertType: 'Flight'
       };
     });
   },
@@ -6847,6 +6892,96 @@ function hideMapDetail() {
   elements.mapDetail.classList.remove('show');
 }
 
+function renderFlightFocus() {
+  if (!elements.flightFocus) return;
+  if (!state.flightFocus) {
+    elements.flightFocus.classList.remove('show');
+    if (elements.flightFocusBody) elements.flightFocusBody.innerHTML = '';
+    return;
+  }
+  const item = state.flightFocus;
+  const callsign = item.callsign || item.title || 'Flight';
+  const meta = [];
+  if (item.icao24) meta.push(item.icao24.toUpperCase());
+  if (item.originCountry) meta.push(item.originCountry);
+  if (elements.flightFocusMeta) {
+    elements.flightFocusMeta.textContent = meta.filter(Boolean).join(' • ') || 'OpenSky';
+  }
+  if (elements.flightFocusBody) {
+    const rows = [];
+    const speed = Number.isFinite(item.velocity) ? `${Math.round(item.velocity * 3.6)} km/h` : '—';
+    const altitude = Number.isFinite(item.altitude) ? `${Math.round(item.altitude * 3.28084)} ft` : '—';
+    const heading = Number.isFinite(item.heading) ? `${item.heading}°` : '—';
+    rows.push({ label: 'Callsign', value: callsign });
+    rows.push({ label: 'Speed', value: speed });
+    rows.push({ label: 'Altitude', value: altitude });
+    rows.push({ label: 'Heading', value: heading });
+    rows.push({ label: 'On ground', value: item.onGround ? 'Yes' : 'No' });
+    elements.flightFocusBody.innerHTML = rows.map((row) => (
+      `<div class="map-focus-row"><span>${row.label}</span><strong>${row.value}</strong></div>`
+    )).join('');
+  }
+  if (elements.flightFocusOpen) {
+    elements.flightFocusOpen.disabled = !item.icao24;
+  }
+  elements.flightFocus.classList.add('show');
+}
+
+function clearFlightFocus() {
+  state.flightFocus = null;
+  state.flightTrack = null;
+  state.flightTrackFetchedAt = 0;
+  if (state.flightTrackLayer && state.map) {
+    state.map.removeLayer(state.flightTrackLayer);
+  }
+  state.flightTrackLayer = null;
+  renderFlightFocus();
+}
+
+async function fetchFlightTrack(icao24, force = false) {
+  if (!icao24) return;
+  const proxy = getOpenSkyProxy();
+  if (!proxy) return;
+  if (state.flightTrackLoading) return;
+  if (!force && Date.now() - state.flightTrackFetchedAt < 60 * 1000) return;
+  state.flightTrackLoading = true;
+  try {
+    const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
+    const response = await apiFetch(`${base}/tracks?icao24=${encodeURIComponent(icao24)}&time=0`);
+    if (!response.ok) return;
+    const data = await response.json();
+    state.flightTrack = data;
+    state.flightTrackFetchedAt = Date.now();
+    if (state.map && Array.isArray(data?.path)) {
+      const latlngs = data.path
+        .filter((point) => Number.isFinite(point?.[1]) && Number.isFinite(point?.[2]))
+        .map((point) => [point[1], point[2]]);
+      if (state.flightTrackLayer) {
+        state.map.removeLayer(state.flightTrackLayer);
+      }
+      if (latlngs.length) {
+        state.flightTrackLayer = L.polyline(latlngs, { color: '#4fa2ff', weight: 2, opacity: 0.75 }).addTo(state.map);
+      }
+    }
+  } catch {
+    // ignore failures
+  } finally {
+    state.flightTrackLoading = false;
+  }
+}
+
+function setFlightFocus(item) {
+  if (!item) {
+    clearFlightFocus();
+    return;
+  }
+  state.flightFocus = item;
+  renderFlightFocus();
+  if (item.icao24) {
+    fetchFlightTrack(item.icao24, true);
+  }
+}
+
 function showMapDetail(cluster, x, y) {
   if (!elements.mapDetail || !elements.mapDetailList) return;
   const list = elements.mapDetailList;
@@ -6963,6 +7098,19 @@ function showMapDetail(cluster, x, y) {
       row.appendChild(info);
     }
     row.appendChild(summary);
+    if (item.feedId === 'transport-opensky' && item.icao24) {
+      const actions = document.createElement('div');
+      actions.className = 'map-detail-actions';
+      const focusBtn = document.createElement('button');
+      focusBtn.className = 'chip chip-small';
+      focusBtn.textContent = 'Focus Flight';
+      focusBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setFlightFocus(item);
+      });
+      actions.appendChild(focusBtn);
+      row.appendChild(actions);
+    }
     row.addEventListener('click', () => {
       if (item.url) {
         window.open(item.url, '_blank', 'noopener');
@@ -7927,6 +8075,23 @@ function initEvents() {
   if (elements.mapDetailClose) {
     elements.mapDetailClose.addEventListener('click', hideMapDetail);
   }
+  if (elements.flightFocusClear) {
+    elements.flightFocusClear.addEventListener('click', clearFlightFocus);
+  }
+  if (elements.flightFocusTrack) {
+    elements.flightFocusTrack.addEventListener('click', () => {
+      if (state.flightFocus?.icao24) {
+        fetchFlightTrack(state.flightFocus.icao24, true);
+      }
+    });
+  }
+  if (elements.flightFocusOpen) {
+    elements.flightFocusOpen.addEventListener('click', () => {
+      const icao24 = state.flightFocus?.icao24;
+      if (!icao24) return;
+      window.open(`https://opensky-network.org/aircraft-profile?icao24=${encodeURIComponent(icao24)}`, '_blank', 'noopener');
+    });
+  }
   if (elements.searchResultsClose) {
     elements.searchResultsClose.addEventListener('click', hideSearchResults);
   }
@@ -8016,6 +8181,7 @@ async function init() {
   }
   state.baseFeeds = (payload.feeds || []).filter((feed) => feed.url || feed.requiresKey || feed.requiresConfig);
   state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
+  applyOpenSkyProxyOverride();
 
   buildFeedOptions();
   populateCustomFeedCategories();

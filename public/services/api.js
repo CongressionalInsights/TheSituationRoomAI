@@ -40,6 +40,10 @@ export function getOpenAiProxy() {
   return rawConfig.openAiProxy || '';
 }
 
+export function getOpenSkyProxy() {
+  return rawConfig.openSkyProxy || '';
+}
+
 function mapStatic(path) {
   if (path.startsWith('/api/feeds')) {
     return `${STATIC_BASE}/feeds.json`;

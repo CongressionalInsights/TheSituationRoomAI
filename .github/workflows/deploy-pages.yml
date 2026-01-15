@@ -35,6 +35,8 @@ jobs:
           NASA_FIRMS: ${{ secrets.NASA_FIRMS }}
           OPEN_AQ: ${{ secrets.OPEN_AQ }}
           OPEN_AI: ${{ secrets.OPEN_AI }}
+          OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
+          OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
         run: node scripts/build_static_cache.mjs
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4

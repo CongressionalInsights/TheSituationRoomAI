@@ -16,6 +16,11 @@ const energyMapCache = { data: null, fetchedAt: 0 };
 let geoCache = {};
 let lastGeocodeAt = 0;
 const OPENAI_URL = 'https://api.openai.com/v1/responses';
+const OPENSKY_CLIENTID = process.env.OPENSKY_CLIENTID;
+const OPENSKY_CLIENTSECRET = process.env.OPENSKY_CLIENTSECRET;
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
+let openSkyToken = null;
+let openSkyTokenExpiresAt = 0;
 const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
 
 const mimeTypes = {
@@ -98,6 +103,30 @@ function readRequestBody(req) {
     req.on('end', () => resolve(body));
     req.on('error', reject);
   });
+}
+
+async function getOpenSkyToken() {
+  if (!OPENSKY_CLIENTID || !OPENSKY_CLIENTSECRET) return null;
+  if (openSkyToken && Date.now() < openSkyTokenExpiresAt) {
+    return openSkyToken;
+  }
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: OPENSKY_CLIENTID,
+    client_secret: OPENSKY_CLIENTSECRET
+  });
+  const response = await fetch(OPENSKY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  });
+  if (!response.ok) return null;
+  const data = await response.json();
+  if (!data?.access_token) return null;
+  const ttl = Number(data.expires_in) || 1800;
+  openSkyToken = data.access_token;
+  openSkyTokenExpiresAt = Date.now() + Math.max(60, ttl - 60) * 1000;
+  return openSkyToken;
 }
 
 async function geocodeQuery(query) {
@@ -395,6 +424,18 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
     'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.9'
   };
+  if (feed.id === 'transport-opensky') {
+    const token = await getOpenSkyToken();
+    if (!token) {
+      return {
+        id: feed.id,
+        fetchedAt: Date.now(),
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'missing_server_key', message: 'OpenSky OAuth token unavailable.' })
+      };
+    }
+    headers.Authorization = `Bearer ${token}`;
+  }
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   const response = await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList);
   const contentType = response.headers.get('content-type') || 'text/plain';

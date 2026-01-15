@@ -114,6 +114,27 @@ Notes:
 - The proxy accepts a user key via `x-openai-key` (so users can override). If no key is supplied, it will only work if you attach a server key.
 - If billing quota blocks project creation, either increase quota or provide a different billing account.
 
+## OpenSky proxy (Cloud Run on GCP)
+OpenSky now requires OAuth2 client credentials. The live dashboard uses a Cloud Run proxy to keep credentials server-side and raise rate limits.
+This repo is wired to use:
+`https://situation-room-opensky-382918878290.us-central1.run.app/api/opensky`
+when served from `*.github.io`.
+
+### GitHub Actions (recommended)
+- Workflow: `.github/workflows/deploy-opensky-proxy.yml`
+- Required repo secrets:
+  - `GCP_SA_KEY`
+  - `OPENSKY_CLIENTID`
+  - `OPENSKY_CLIENTSECRET`
+- The workflow writes credentials into GCP Secret Manager and deploys the Cloud Run service.
+
+### Wire the proxy into the UI
+Edit `public/config.js` if you deploy to a different URL:
+```js
+window.SR_CONFIG = window.SR_CONFIG || {};
+window.SR_CONFIG.openSkyProxy = 'https://<your-cloud-run-url>/api/opensky';
+```
+
 ## Optional: server-side proxy (advanced)
 If you later add a full runtime backend, you can disable static mode and point the UI at your `/api/*` backend by setting `window.SR_CONFIG.apiBase` in `public/config.js`. This repo includes a Cloudflare Worker implementation in `worker/` for optional use.
 

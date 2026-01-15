@@ -15,7 +15,11 @@
       "defaultQuery": "global",
       "url": "https://api.gdeltproject.org/api/v2/doc/doc?query={{query}}&mode=artlist&maxrecords=75&format=json&sort=HybridRel&timespan=1day",
       "ttlMinutes": 60,
-      "tags": ["global", "news", "dedupe"]
+      "tags": [
+        "global",
+        "news",
+        "dedupe"
+      ]
     },
     {
       "id": "google-news-us",
@@ -25,7 +29,11 @@
       "proxy": "allorigins",
       "url": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
       "ttlMinutes": 60,
-      "tags": ["us", "news", "dedupe"]
+      "tags": [
+        "us",
+        "news",
+        "dedupe"
+      ]
     },
     {
       "id": "google-news-search",
@@ -37,7 +45,12 @@
       "proxy": "allorigins",
       "url": "https://news.google.com/rss/search?q={{query}}&hl=en-US&gl=US&ceid=US:en",
       "ttlMinutes": 60,
-      "tags": ["global", "news", "search", "dedupe"]
+      "tags": [
+        "global",
+        "news",
+        "search",
+        "dedupe"
+      ]
     },
     {
       "id": "bbc-world",
@@ -47,7 +60,11 @@
       "proxy": "allorigins",
       "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
       "ttlMinutes": 60,
-      "tags": ["global", "news", "dedupe"]
+      "tags": [
+        "global",
+        "news",
+        "dedupe"
+      ]
     },
     {
       "id": "guardian-world",
@@ -57,7 +74,11 @@
       "proxy": "allorigins",
       "url": "https://www.theguardian.com/world/rss",
       "ttlMinutes": 60,
-      "tags": ["global", "news", "dedupe"]
+      "tags": [
+        "global",
+        "news",
+        "dedupe"
+      ]
     },
     {
       "id": "pbs-headlines",
@@ -67,7 +88,11 @@
       "proxy": "allorigins",
       "url": "https://www.pbs.org/newshour/feeds/rss/headlines",
       "ttlMinutes": 60,
-      "tags": ["us", "news", "dedupe"]
+      "tags": [
+        "us",
+        "news",
+        "dedupe"
+      ]
     },
     {
       "id": "dw-top",
@@ -77,7 +102,11 @@
       "proxy": "allorigins",
       "url": "https://rss.dw.com/atom/rss-en-top",
       "ttlMinutes": 60,
-      "tags": ["global", "news", "dedupe"]
+      "tags": [
+        "global",
+        "news",
+        "dedupe"
+      ]
     },
     {
       "id": "federal-register",
@@ -86,7 +115,10 @@
       "format": "json",
       "url": "https://www.federalregister.gov/api/v1/documents.json?per_page=20&order=newest",
       "ttlMinutes": 180,
-      "tags": ["us", "gov"]
+      "tags": [
+        "us",
+        "gov"
+      ]
     },
     {
       "id": "federal-register-transport",
@@ -95,7 +127,10 @@
       "format": "json",
       "url": "https://www.federalregister.gov/api/v1/documents.json?per_page=20&order=newest&conditions%5Bagencies%5D%5B%5D=transportation-department",
       "ttlMinutes": 180,
-      "tags": ["us", "transport"]
+      "tags": [
+        "us",
+        "transport"
+      ]
     },
     {
       "id": "nws-alerts",
@@ -104,7 +139,11 @@
       "format": "json",
       "url": "https://api.weather.gov/alerts/active",
       "ttlMinutes": 15,
-      "tags": ["us", "weather", "geo"]
+      "tags": [
+        "us",
+        "weather",
+        "geo"
+      ]
     },
     {
       "id": "usgs-quakes-hour",
@@ -113,7 +152,11 @@
       "format": "json",
       "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson",
       "ttlMinutes": 15,
-      "tags": ["global", "disaster", "geo"]
+      "tags": [
+        "global",
+        "disaster",
+        "geo"
+      ]
     },
     {
       "id": "usgs-quakes-day",
@@ -122,7 +165,11 @@
       "format": "json",
       "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson",
       "ttlMinutes": 60,
-      "tags": ["global", "disaster", "geo"]
+      "tags": [
+        "global",
+        "disaster",
+        "geo"
+      ]
     },
     {
       "id": "eonet-events",
@@ -132,18 +179,29 @@
       "url": "https://eonet.gsfc.nasa.gov/api/v3/events",
       "ttlMinutes": 60,
       "timeoutMs": 20000,
-      "tags": ["global", "disaster", "geo"]
+      "tags": [
+        "global",
+        "disaster",
+        "geo"
+      ]
     },
     {
       "id": "gdacs-alerts",
       "name": "GDACS Alerts",
       "category": "disaster",
       "format": "rss",
-      "proxy": ["allorigins", "jina"],
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://www.gdacs.org/xml/rss.xml",
       "timeoutMs": 20000,
       "ttlMinutes": 30,
-      "tags": ["global", "disaster", "geo"]
+      "tags": [
+        "global",
+        "disaster",
+        "geo"
+      ]
     },
     {
       "id": "nhc-atlantic",
@@ -153,7 +211,11 @@
       "proxy": "allorigins",
       "url": "https://www.nhc.noaa.gov/index-at.xml",
       "ttlMinutes": 30,
-      "tags": ["us", "weather", "geo"]
+      "tags": [
+        "us",
+        "weather",
+        "geo"
+      ]
     },
     {
       "id": "swpc-json",
@@ -162,7 +224,11 @@
       "format": "json",
       "url": "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json",
       "ttlMinutes": 30,
-      "tags": ["global", "space", "weather"]
+      "tags": [
+        "global",
+        "space",
+        "weather"
+      ]
     },
     {
       "id": "swpc-kp",
@@ -171,7 +237,11 @@
       "format": "json",
       "url": "https://services.swpc.noaa.gov/json/planetary_k_index_1m.json",
       "ttlMinutes": 30,
-      "tags": ["global", "space", "weather"]
+      "tags": [
+        "global",
+        "space",
+        "weather"
+      ]
     },
     {
       "id": "arxiv-ai",
@@ -182,7 +252,10 @@
       "defaultQuery": "cat:cs.AI",
       "url": "https://export.arxiv.org/api/query?search_query={{query}}&start=0&max_results=20&sortBy=lastUpdatedDate&sortOrder=descending",
       "ttlMinutes": 180,
-      "tags": ["global", "research"]
+      "tags": [
+        "global",
+        "research"
+      ]
     },
     {
       "id": "arxiv-rss-ai",
@@ -192,7 +265,10 @@
       "proxy": "allorigins",
       "url": "https://rss.arxiv.org/rss/cs.AI",
       "ttlMinutes": 180,
-      "tags": ["global", "research"]
+      "tags": [
+        "global",
+        "research"
+      ]
     },
     {
       "id": "coinpaprika-global",
@@ -201,7 +277,10 @@
       "format": "json",
       "url": "https://api.coinpaprika.com/v1/global",
       "ttlMinutes": 15,
-      "tags": ["crypto", "markets"]
+      "tags": [
+        "crypto",
+        "markets"
+      ]
     },
     {
       "id": "coinpaprika-tickers",
@@ -210,7 +289,10 @@
       "format": "json",
       "url": "https://api.coinpaprika.com/v1/tickers",
       "ttlMinutes": 15,
-      "tags": ["crypto", "markets"]
+      "tags": [
+        "crypto",
+        "markets"
+      ]
     },
     {
       "id": "blockstream-mempool",
@@ -219,7 +301,10 @@
       "format": "json",
       "url": "https://blockstream.info/api/mempool",
       "ttlMinutes": 10,
-      "tags": ["crypto", "bitcoin"]
+      "tags": [
+        "crypto",
+        "bitcoin"
+      ]
     },
     {
       "id": "treasury-debt",
@@ -228,7 +313,10 @@
       "format": "json",
       "url": "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny?sort=-record_date&page[size]=1",
       "ttlMinutes": 60,
-      "tags": ["us", "finance"]
+      "tags": [
+        "us",
+        "finance"
+      ]
     },
     {
       "id": "bls-cpi",
@@ -237,7 +325,10 @@
       "format": "json",
       "url": "https://api.bls.gov/publicAPI/v1/timeseries/data/CUUR0000SA0",
       "ttlMinutes": 1440,
-      "tags": ["us", "economy"]
+      "tags": [
+        "us",
+        "economy"
+      ]
     },
     {
       "id": "stooq-quote",
@@ -247,7 +338,10 @@
       "supportsQuery": true,
       "url": "https://stooq.com/q/l/?s={{query}}&f=sd2t2ohlcv&h&e=csv",
       "ttlMinutes": 10,
-      "tags": ["markets", "finance"]
+      "tags": [
+        "markets",
+        "finance"
+      ]
     },
     {
       "id": "cisa-kev",
@@ -256,17 +350,23 @@
       "format": "json",
       "url": "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json",
       "ttlMinutes": 60,
-      "tags": ["us", "cyber"]
+      "tags": [
+        "us",
+        "cyber"
+      ]
     },
     {
       "id": "usda-nass-reports",
-      "name": "USDA NASS Today’s Reports",
+      "name": "USDA NASS Today\u2019s Reports",
       "category": "agriculture",
       "format": "rss",
       "proxy": "allorigins",
       "url": "https://www.nass.usda.gov/rss/reports.xml",
       "ttlMinutes": 60,
-      "tags": ["us", "agriculture"]
+      "tags": [
+        "us",
+        "agriculture"
+      ]
     },
     {
       "id": "fda-medwatch",
@@ -275,7 +375,10 @@
       "format": "rss",
       "url": "https://api.allorigins.win/raw?url=https%3A%2F%2Fwww.fda.gov%2Fabout-fda%2Fcontact-fda%2Fstay-informed%2Frss-feeds%2Fmedwatch%2Frss.xml",
       "ttlMinutes": 180,
-      "tags": ["us", "health"]
+      "tags": [
+        "us",
+        "health"
+      ]
     },
     {
       "id": "energy-eia",
@@ -291,7 +394,11 @@
       "lockKeyHeader": true,
       "url": "https://api.eia.gov/v2/seriesid/PET.RWTC.D",
       "ttlMinutes": 180,
-      "tags": ["us", "energy", "key"]
+      "tags": [
+        "us",
+        "energy",
+        "key"
+      ]
     },
     {
       "id": "energy-eia-brent",
@@ -307,7 +414,11 @@
       "lockKeyHeader": true,
       "url": "https://api.eia.gov/v2/seriesid/PET.RBRTE.D",
       "ttlMinutes": 180,
-      "tags": ["us", "energy", "key"]
+      "tags": [
+        "us",
+        "energy",
+        "key"
+      ]
     },
     {
       "id": "energy-eia-ng",
@@ -323,7 +434,11 @@
       "lockKeyHeader": true,
       "url": "https://api.eia.gov/v2/seriesid/NG.RNGWHHD.D",
       "ttlMinutes": 180,
-      "tags": ["us", "energy", "key"]
+      "tags": [
+        "us",
+        "energy",
+        "key"
+      ]
     },
     {
       "id": "eia-today",
@@ -333,7 +448,10 @@
       "proxy": "allorigins",
       "url": "https://www.eia.gov/rss/todayinenergy.xml",
       "ttlMinutes": 180,
-      "tags": ["us", "energy"]
+      "tags": [
+        "us",
+        "energy"
+      ]
     },
     {
       "id": "polymarket-markets",
@@ -342,7 +460,11 @@
       "format": "json",
       "url": "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=60&order=volume24hr",
       "ttlMinutes": 10,
-      "tags": ["prediction", "markets", "web3"]
+      "tags": [
+        "prediction",
+        "markets",
+        "web3"
+      ]
     },
     {
       "id": "noaa-incidentnews",
@@ -351,16 +473,25 @@
       "format": "csv",
       "url": "https://incidentnews.noaa.gov/raw/incidents.csv",
       "ttlMinutes": 60,
-      "tags": ["us", "spill", "hazard"]
+      "tags": [
+        "us",
+        "spill",
+        "hazard"
+      ]
     },
     {
       "id": "transport-opensky",
       "name": "OpenSky Air Traffic",
       "category": "transport",
       "format": "json",
-      "url": "https://opensky-network.org/api/states/all",
+      "url": "https://opensky-network.org/api/states/all?extended=1",
       "ttlMinutes": 20,
-      "tags": ["global", "transport", "geo"]
+      "tags": [
+        "global",
+        "transport",
+        "aviation",
+        "geo"
+      ]
     },
     {
       "id": "cdc-travel-notices",
@@ -370,7 +501,11 @@
       "proxy": "allorigins",
       "url": "https://wwwnc.cdc.gov/travel/rss/notices.xml",
       "ttlMinutes": 180,
-      "tags": ["global", "travel", "geo"]
+      "tags": [
+        "global",
+        "travel",
+        "geo"
+      ]
     },
     {
       "id": "arcgis-border-crisis",
@@ -379,7 +514,12 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Border_Crisis_Incident_Tracker/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "security", "geo", "arcgis"]
+      "tags": [
+        "us",
+        "security",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-kinetic-oconus",
@@ -388,7 +528,12 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/KineticActivitiesTrackerOCONUS/FeatureServer/21/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["global", "security", "geo", "arcgis"]
+      "tags": [
+        "global",
+        "security",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-kinetic-domestic",
@@ -397,7 +542,12 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Domestic_Terrorism_Tracker/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "security", "geo", "arcgis"]
+      "tags": [
+        "us",
+        "security",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-drone-reports",
@@ -406,7 +556,12 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Drone_Reports/FeatureServer/23/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["global", "security", "geo", "arcgis"]
+      "tags": [
+        "global",
+        "security",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-logistics-shortages",
@@ -415,7 +570,12 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Logistical_Shortages_and_Concerns/FeatureServer/25/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["global", "security", "geo", "arcgis"]
+      "tags": [
+        "global",
+        "security",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-tipline-reports",
@@ -424,7 +584,13 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Tipline_Reports/FeatureServer/24/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["global", "security", "geo", "arcgis", "crowdsourced"]
+      "tags": [
+        "global",
+        "security",
+        "geo",
+        "arcgis",
+        "crowdsourced"
+      ]
     },
     {
       "id": "arcgis-kinetic-europe",
@@ -433,7 +599,13 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Kinetic_Activity_Tracker_Europe/FeatureServer/22/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["global", "security", "geo", "arcgis", "kinetic"]
+      "tags": [
+        "global",
+        "security",
+        "geo",
+        "arcgis",
+        "kinetic"
+      ]
     },
     {
       "id": "arcgis-kinetic-venezuela",
@@ -442,7 +614,13 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Venezuelan_Crisis_Kinetic_Events/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["global", "security", "geo", "arcgis", "kinetic"]
+      "tags": [
+        "global",
+        "security",
+        "geo",
+        "arcgis",
+        "kinetic"
+      ]
     },
     {
       "id": "arcgis-noaa-severe",
@@ -451,7 +629,12 @@
       "format": "arcgis",
       "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/NOAA_short_term_warnings_v1/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 15,
-      "tags": ["us", "weather", "geo", "arcgis"]
+      "tags": [
+        "us",
+        "weather",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-noaa-tornado",
@@ -460,7 +643,12 @@
       "format": "arcgis",
       "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/NOAA_short_term_warnings_v1/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 15,
-      "tags": ["us", "weather", "geo", "arcgis"]
+      "tags": [
+        "us",
+        "weather",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-noaa-flood",
@@ -469,7 +657,12 @@
       "format": "arcgis",
       "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/NOAA_short_term_warnings_v1/FeatureServer/2/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 15,
-      "tags": ["us", "weather", "geo", "arcgis"]
+      "tags": [
+        "us",
+        "weather",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-hms-fire",
@@ -478,7 +671,12 @@
       "format": "arcgis",
       "url": "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/NOAA_Satellite_Fire_Detections_(v1)/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 30,
-      "tags": ["global", "disaster", "geo", "arcgis"]
+      "tags": [
+        "global",
+        "disaster",
+        "geo",
+        "arcgis"
+      ]
     },
     {
       "id": "arcgis-wildfire-incidents",
@@ -487,7 +685,13 @@
       "format": "arcgis",
       "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/USA_Wildfires_v1/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "disaster", "geo", "arcgis", "wildfire"]
+      "tags": [
+        "us",
+        "disaster",
+        "geo",
+        "arcgis",
+        "wildfire"
+      ]
     },
     {
       "id": "arcgis-wildfire-perimeters",
@@ -496,7 +700,14 @@
       "format": "arcgis",
       "url": "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/USA_Wildfires_v1/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "disaster", "geo", "arcgis", "wildfire", "perimeter"]
+      "tags": [
+        "us",
+        "disaster",
+        "geo",
+        "arcgis",
+        "wildfire",
+        "perimeter"
+      ]
     },
     {
       "id": "arcgis-power-plants",
@@ -505,7 +716,12 @@
       "format": "arcgis",
       "url": "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Power_Plants_in_the_US/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 1440,
-      "tags": ["us", "infrastructure", "geo", "arcgis"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis"
+      ],
       "mapOnly": true
     },
     {
@@ -515,7 +731,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/9/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -525,7 +747,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/8/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -535,7 +763,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/7/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -545,7 +779,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/6/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -555,7 +795,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/5/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -565,7 +811,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/4/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -575,7 +827,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/3/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -585,7 +843,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/2/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -595,7 +859,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -605,7 +875,13 @@
       "format": "arcgis",
       "url": "https://services1.arcgis.com/wuUHGjgeUTzbEp4y/arcgis/rest/services/Public_Outages_and_Alerts/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 60,
-      "tags": ["us", "infrastructure", "geo", "arcgis", "outage"],
+      "tags": [
+        "us",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "outage"
+      ],
       "mapOnly": true
     },
     {
@@ -615,7 +891,13 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/bDAhvQYMG4WL8O5o/arcgis/rest/services/Global_Submarine_Cable_Map/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 720,
-      "tags": ["global", "infrastructure", "geo", "arcgis", "submarine"],
+      "tags": [
+        "global",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "submarine"
+      ],
       "mapOnly": true
     },
     {
@@ -625,7 +907,13 @@
       "format": "arcgis",
       "url": "https://services.arcgis.com/bDAhvQYMG4WL8O5o/arcgis/rest/services/Global_Submarine_Cable_Map/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 720,
-      "tags": ["global", "infrastructure", "geo", "arcgis", "submarine"],
+      "tags": [
+        "global",
+        "infrastructure",
+        "geo",
+        "arcgis",
+        "submarine"
+      ],
       "mapOnly": true
     },
     {
@@ -635,7 +923,13 @@
       "format": "arcgis",
       "url": "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/MIRTA_Polygons_A_view/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
       "ttlMinutes": 1440,
-      "tags": ["us", "security", "geo", "arcgis", "infrastructure"],
+      "tags": [
+        "us",
+        "security",
+        "geo",
+        "arcgis",
+        "infrastructure"
+      ],
       "mapOnly": true
     },
     {
@@ -645,7 +939,10 @@
       "format": "rss",
       "url": "https://www.govinfo.gov/rss/bills.xml",
       "ttlMinutes": 60,
-      "tags": ["us", "gov"]
+      "tags": [
+        "us",
+        "gov"
+      ]
     },
     {
       "id": "foia-api",
@@ -661,7 +958,11 @@
       "timeoutMs": 20000,
       "url": "https://api.foia.gov/api/agency_components",
       "ttlMinutes": 1440,
-      "tags": ["us", "gov", "key"]
+      "tags": [
+        "us",
+        "gov",
+        "key"
+      ]
     },
     {
       "id": "govinfo-api",
@@ -677,7 +978,11 @@
       "lockKeyHeader": true,
       "url": "https://api.govinfo.gov/collections?offset=0&pageSize=1",
       "ttlMinutes": 1440,
-      "tags": ["us", "gov", "key"]
+      "tags": [
+        "us",
+        "gov",
+        "key"
+      ]
     },
     {
       "id": "openaq-api",
@@ -691,7 +996,11 @@
       "lockKeyHeader": true,
       "url": "https://api.openaq.org/v3/locations?limit=20",
       "ttlMinutes": 60,
-      "tags": ["global", "health", "key"]
+      "tags": [
+        "global",
+        "health",
+        "key"
+      ]
     },
     {
       "id": "nasa-firms",
@@ -703,7 +1012,11 @@
       "keySource": "server",
       "url": "https://firms.modaps.eosdis.nasa.gov/api/area/json/{{key}}/VIIRS_SNPP_NRT/world/1",
       "ttlMinutes": 60,
-      "tags": ["global", "disaster", "key"]
+      "tags": [
+        "global",
+        "disaster",
+        "key"
+      ]
     }
   ]
 }

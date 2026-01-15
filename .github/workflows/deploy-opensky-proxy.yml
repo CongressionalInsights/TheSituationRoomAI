@@ -1,0 +1,54 @@
+name: Deploy OpenSky Proxy (GCP)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - gcp/opensky-proxy/**
+      - .github/workflows/deploy-opensky-proxy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: situationroom-ai-20260112
+      REGION: us-central1
+      SERVICE_NAME: situation-room-opensky
+      ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      - name: Ensure OpenSky secrets
+        env:
+          OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
+          OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
+        run: |
+          if [ -z "$OPENSKY_CLIENTID" ] || [ -z "$OPENSKY_CLIENTSECRET" ]; then
+            echo "OpenSky secrets missing."
+            exit 1
+          fi
+          if ! gcloud secrets describe opensky-clientid --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create opensky-clientid --replication-policy=automatic
+          fi
+          if ! gcloud secrets describe opensky-clientsecret --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create opensky-clientsecret --replication-policy=automatic
+          fi
+          echo -n "$OPENSKY_CLIENTID" | gcloud secrets versions add opensky-clientid --data-file=-
+          echo -n "$OPENSKY_CLIENTSECRET" | gcloud secrets versions add opensky-clientsecret --data-file=-
+      - name: Deploy OpenSky proxy service
+        run: |
+          gcloud run deploy "$SERVICE_NAME" \
+            --region "$REGION" \
+            --source gcp/opensky-proxy \
+            --allow-unauthenticated \
+            --set-secrets OPENSKY_CLIENTID=opensky-clientid:latest,OPENSKY_CLIENTSECRET=opensky-clientsecret:latest \
+            --set-env-vars ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
