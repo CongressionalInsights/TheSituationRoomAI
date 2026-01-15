@@ -213,6 +213,7 @@
             <div class="nav-group-title">Geo & Imagery</div>
             <button class="nav-link" data-panel-target="map"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg>Geo Layer</button>
             <button class="nav-link" data-panel-target="imagery"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg>Imagery Control</button>
+            <button class="nav-link" data-panel-target="lidar"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg>LiDAR Explorer</button>
             <button class="nav-link" data-panel-target="energy-map"><svg class="icon" aria-hidden="true"><use href="#icon-energy"></use></svg>Energy Map</button>
           </div>
           <div class="nav-group">
@@ -660,6 +661,28 @@
           <div class="imagery-actions">
             <button class="chip" id="imageryResetPanelBtn" type="button">Reset Imagery</button>
           </div>
+        </div>
+      </section>
+
+      <section class="panel lidar-panel" data-panel="lidar" data-category="geo">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-geo"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg></span>LiDAR Explorer</div>
+            <div class="panel-sub">USGS 3DEP LiDAR point cloud search (MapLibre)</div>
+          </div>
+          <div class="panel-actions">
+            <button class="chip" id="lidarLoad" type="button">Load</button>
+            <button class="chip" id="lidarReload" type="button">Reload</button>
+            <button class="chip" id="lidarOpen" type="button">Open Full</button>
+          </div>
+        </div>
+        <div class="lidar-shell">
+          <div class="lidar-empty" id="lidarEmpty">
+            <div class="lidar-empty-title">USGS LiDAR Explorer</div>
+            <div class="lidar-empty-sub">Search 3DEP LiDAR tiles and visualize point clouds using the USGS MapLibre control.</div>
+            <button class="btn ghost" type="button" id="lidarLoadInline">Load LiDAR Explorer</button>
+          </div>
+          <iframe class="lidar-frame" id="lidarFrame" title="USGS LiDAR Explorer" data-src="https://usgs-lidar.gishub.org" loading="lazy"></iframe>
         </div>
       </section>
 

@@ -66,6 +66,7 @@ const state = {
       thermal: 0.6,
       fire: 0.6
     },
+    lidarEnabled: false,
     mapLayers: {
       weather: true,
       disaster: true,
@@ -138,6 +139,12 @@ const elements = {
   sidebarAbout: document.getElementById('sidebarAbout'),
   communityConnect: document.getElementById('communityConnect'),
   communityFrame: document.querySelector('.chat-frame'),
+  lidarFrame: document.getElementById('lidarFrame'),
+  lidarLoad: document.getElementById('lidarLoad'),
+  lidarLoadInline: document.getElementById('lidarLoadInline'),
+  lidarReload: document.getElementById('lidarReload'),
+  lidarOpen: document.getElementById('lidarOpen'),
+  lidarEmpty: document.getElementById('lidarEmpty'),
   panelGrid: document.getElementById('panelGrid'),
   exportSnapshot: document.getElementById('exportSnapshot'),
   refreshNow: document.getElementById('refreshNow'),
@@ -306,6 +313,7 @@ const defaultPanelSizes = {
   ticker: { cols: 12 },
   'finance-spotlight': { cols: 12 },
   imagery: { cols: 12 },
+  lidar: { cols: 6 },
   command: { cols: 12 },
   signals: { cols: 5 },
   news: { cols: 6 },
@@ -780,6 +788,9 @@ function loadSettings() {
       if (!state.settings.mapFlightDensity) {
         state.settings.mapFlightDensity = 'medium';
       }
+      if (typeof state.settings.lidarEnabled !== 'boolean') {
+        state.settings.lidarEnabled = false;
+      }
       if (typeof state.settings.aiTranslate !== 'boolean') {
         state.settings.aiTranslate = true;
       }
@@ -823,6 +834,7 @@ function loadSettings() {
       state.settings.country = 'US';
       state.settings.countryAuto = true;
       state.settings.mapFlightDensity = 'medium';
+      state.settings.lidarEnabled = false;
     }
   }
 }
@@ -6008,6 +6020,41 @@ function initCommunityEmbed() {
   });
 }
 
+function initLidarEmbed() {
+  const frame = elements.lidarFrame;
+  if (!frame) return;
+  const empty = elements.lidarEmpty;
+  const loadFrame = (forceReload = false) => {
+    const src = frame.dataset.src;
+    if (!src) return;
+    if (!frame.src || forceReload) {
+      const nextSrc = forceReload
+        ? `${src}${src.includes('?') ? '&' : '?'}t=${Date.now()}`
+        : src;
+      frame.src = nextSrc;
+      frame.classList.add('is-active');
+      if (empty) {
+        empty.classList.add('is-hidden');
+      }
+      state.settings.lidarEnabled = true;
+      saveSettings();
+    }
+  };
+  const openFrame = () => {
+    const src = frame.src || frame.dataset.src;
+    if (src) {
+      window.open(src, '_blank', 'noopener');
+    }
+  };
+  elements.lidarLoad?.addEventListener('click', () => loadFrame(false));
+  elements.lidarLoadInline?.addEventListener('click', () => loadFrame(false));
+  elements.lidarReload?.addEventListener('click', () => loadFrame(true));
+  elements.lidarOpen?.addEventListener('click', () => openFrame());
+  if (state.settings.lidarEnabled) {
+    loadFrame(false);
+  }
+}
+
 function initWorldClocks() {
   const clocks = Array.from(document.querySelectorAll('.clock-card[data-timezone]'));
   if (!clocks.length) return;
@@ -8242,6 +8289,7 @@ async function init() {
   initEvents();
   initListModal();
   initCommunityEmbed();
+  initLidarEmbed();
   initWorldClocks();
   initSidebarNav();
   initCommandSections();

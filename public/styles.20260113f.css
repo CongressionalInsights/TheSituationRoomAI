@@ -1976,6 +1976,63 @@ a:focus-visible {
   flex-direction: column;
 }
 
+.lidar-panel {
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+
+.lidar-shell {
+  flex: 1;
+  min-height: 260px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  overflow: hidden;
+  position: relative;
+}
+
+.lidar-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  display: none;
+}
+
+.lidar-frame.is-active {
+  display: block;
+}
+
+.lidar-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.lidar-empty.is-hidden {
+  display: none;
+}
+
+.lidar-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lidar-empty-sub {
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: 360px;
+}
+
 .chat-panel {
   display: flex;
   flex-direction: column;
