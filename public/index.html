@@ -23,6 +23,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.14.0/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl-lidar@0.6.1/dist/maplibre-gl-lidar.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl-usgs-lidar@0.3.0/dist/maplibre-gl-usgs-lidar.css" />
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Skip to main content</a>
@@ -678,11 +681,11 @@
         </div>
         <div class="lidar-shell">
           <div class="lidar-empty" id="lidarEmpty">
-            <div class="lidar-empty-title">USGS LiDAR Explorer</div>
-            <div class="lidar-empty-sub">Search 3DEP LiDAR tiles and visualize point clouds using the USGS MapLibre control.</div>
+            <div class="lidar-empty-title" id="lidarEmptyTitle">USGS LiDAR Explorer</div>
+            <div class="lidar-empty-sub" id="lidarEmptySub">Search 3DEP LiDAR tiles and visualize point clouds using the USGS MapLibre control.</div>
             <button class="btn ghost" type="button" id="lidarLoadInline">Load LiDAR Explorer</button>
           </div>
-          <iframe class="lidar-frame" id="lidarFrame" title="USGS LiDAR Explorer" data-src="https://usgs-lidar.gishub.org" loading="lazy"></iframe>
+          <div class="lidar-map" id="lidarMap" aria-label="USGS LiDAR map"></div>
         </div>
       </section>
 

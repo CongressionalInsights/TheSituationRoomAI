@@ -95,6 +95,9 @@ const state = {
   mapBaseLayers: {},
   mapOverlayLayers: {},
   activeBaseLayer: null,
+  lidarMap: null,
+  lidarControl: null,
+  lidarModules: null,
   imageryDate: null,
   sarDate: null,
   imageryDateManual: false,
@@ -139,12 +142,14 @@ const elements = {
   sidebarAbout: document.getElementById('sidebarAbout'),
   communityConnect: document.getElementById('communityConnect'),
   communityFrame: document.querySelector('.chat-frame'),
-  lidarFrame: document.getElementById('lidarFrame'),
+  lidarMap: document.getElementById('lidarMap'),
   lidarLoad: document.getElementById('lidarLoad'),
   lidarLoadInline: document.getElementById('lidarLoadInline'),
   lidarReload: document.getElementById('lidarReload'),
   lidarOpen: document.getElementById('lidarOpen'),
   lidarEmpty: document.getElementById('lidarEmpty'),
+  lidarEmptyTitle: document.getElementById('lidarEmptyTitle'),
+  lidarEmptySub: document.getElementById('lidarEmptySub'),
   panelGrid: document.getElementById('panelGrid'),
   exportSnapshot: document.getElementById('exportSnapshot'),
   refreshNow: document.getElementById('refreshNow'),
@@ -6021,37 +6026,92 @@ function initCommunityEmbed() {
 }
 
 function initLidarEmbed() {
-  const frame = elements.lidarFrame;
-  if (!frame) return;
+  const container = elements.lidarMap;
+  if (!container) return;
   const empty = elements.lidarEmpty;
-  const loadFrame = (forceReload = false) => {
-    const src = frame.dataset.src;
-    if (!src) return;
-    if (!frame.src || forceReload) {
-      const nextSrc = forceReload
-        ? `${src}${src.includes('?') ? '&' : '?'}t=${Date.now()}`
-        : src;
-      frame.src = nextSrc;
-      frame.classList.add('is-active');
-      if (empty) {
-        empty.classList.add('is-hidden');
-      }
+  const emptyTitle = elements.lidarEmptyTitle;
+  const emptySub = elements.lidarEmptySub;
+
+  const setEmptyState = (title, sub) => {
+    if (emptyTitle) emptyTitle.textContent = title;
+    if (emptySub) emptySub.textContent = sub;
+  };
+
+  const loadModules = async () => {
+    if (state.lidarModules) return state.lidarModules;
+    const [{ default: maplibregl }, lidarModule] = await Promise.all([
+      import('https://cdn.jsdelivr.net/npm/maplibre-gl@5.14.0/+esm'),
+      import('https://cdn.jsdelivr.net/npm/maplibre-gl-usgs-lidar@0.3.0/+esm')
+    ]);
+    maplibregl.workerUrl = 'https://cdn.jsdelivr.net/npm/maplibre-gl@5.14.0/dist/maplibre-gl-csp-worker.js';
+    const UsgsLidarControl = lidarModule.UsgsLidarControl || lidarModule.default?.UsgsLidarControl;
+    state.lidarModules = { maplibregl, UsgsLidarControl };
+    return state.lidarModules;
+  };
+
+  const destroyMap = () => {
+    if (state.lidarMap) {
+      state.lidarMap.remove();
+      state.lidarMap = null;
+      state.lidarControl = null;
+    }
+  };
+
+  const loadMap = async ({ forceReload = false } = {}) => {
+    if (state.lidarMap && !forceReload) {
+      if (empty) empty.classList.add('is-hidden');
+      return state.lidarMap;
+    }
+    destroyMap();
+    setEmptyState('Loading LiDAR…', 'Initializing MapLibre and USGS 3DEP controls.');
+    if (empty) empty.classList.remove('is-hidden');
+    try {
+      const { maplibregl, UsgsLidarControl } = await loadModules();
+      const map = new maplibregl.Map({
+        container,
+        style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+        center: [-98.5, 39.8],
+        zoom: 3,
+        antialias: true
+      });
+      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+      map.on('load', () => {
+        if (UsgsLidarControl) {
+          const control = new UsgsLidarControl({
+            title: 'USGS 3DEP LiDAR',
+            collapsed: false,
+            maxResults: 50
+          });
+          map.addControl(control, 'top-right');
+          state.lidarControl = control;
+        }
+        if (empty) empty.classList.add('is-hidden');
+      });
+      state.lidarMap = map;
       state.settings.lidarEnabled = true;
       saveSettings();
+      return map;
+    } catch (err) {
+      console.error('LiDAR init failed', err);
+      setEmptyState('LiDAR failed to load', 'Check your connection and try again.');
+      if (empty) empty.classList.remove('is-hidden');
+      return null;
     }
   };
-  const openFrame = () => {
-    const src = frame.src || frame.dataset.src;
-    if (src) {
-      window.open(src, '_blank', 'noopener');
-    }
+
+  const openFull = () => {
+    window.open('https://usgs-lidar.gishub.org', '_blank', 'noopener');
   };
-  elements.lidarLoad?.addEventListener('click', () => loadFrame(false));
-  elements.lidarLoadInline?.addEventListener('click', () => loadFrame(false));
-  elements.lidarReload?.addEventListener('click', () => loadFrame(true));
-  elements.lidarOpen?.addEventListener('click', () => openFrame());
+
+  elements.lidarLoad?.addEventListener('click', () => loadMap());
+  elements.lidarLoadInline?.addEventListener('click', () => loadMap());
+  elements.lidarReload?.addEventListener('click', () => loadMap({ forceReload: true }));
+  elements.lidarOpen?.addEventListener('click', () => openFull());
+
   if (state.settings.lidarEnabled) {
-    loadFrame(false);
+    loadMap();
+  } else {
+    setEmptyState('USGS LiDAR Explorer', 'Search 3DEP LiDAR tiles and visualize point clouds using the USGS MapLibre control.');
   }
 }
 
