@@ -46,9 +46,12 @@ jobs:
           echo -n "$OPENSKY_CLIENTSECRET" | gcloud secrets versions add opensky-clientsecret --data-file=-
       - name: Deploy OpenSky proxy service
         run: |
+          cat > /tmp/sr-opensky-env.yaml <<EOF
+          ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
+          EOF
           gcloud run deploy "$SERVICE_NAME" \
             --region "$REGION" \
             --source gcp/opensky-proxy \
             --allow-unauthenticated \
             --set-secrets OPENSKY_CLIENTID=opensky-clientid:latest,OPENSKY_CLIENTSECRET=opensky-clientsecret:latest \
-            --set-env-vars ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
+            --env-vars-file /tmp/sr-opensky-env.yaml
