@@ -673,6 +673,7 @@ async function initCountrySelect() {
   updateCountryUI();
   elements.countrySelect.addEventListener('change', () => {
     const next = elements.countrySelect.value || 'US';
+    state.settings.scope = 'us';
     state.settings.country = next.toUpperCase();
     state.settings.countryAuto = false;
     saveSettings();
@@ -695,7 +696,7 @@ function updateCountryUI() {
     elements.countrySelect.value = code;
   }
   if (elements.countrySelect) {
-    elements.countrySelect.disabled = state.settings.scope !== 'us';
+    elements.countrySelect.disabled = false;
   }
   const scopeButton = elements.scopeToggle?.querySelector('[data-scope="us"]');
   if (scopeButton) {
