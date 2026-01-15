@@ -400,7 +400,9 @@ async function writeJson(path, payload) {
 
 async function buildFeedPayload(feed) {
   if (feed.requiresConfig && !feed.url) {
-    return { id: feed.id, fetchedAt: Date.now(), error: 'requires_config', message: 'Feed URL not configured.' };
+    if (feed.id !== 'acled-events') {
+      return { id: feed.id, fetchedAt: Date.now(), error: 'requires_config', message: 'Feed URL not configured.' };
+    }
   }
 
   const key = feed.requiresKey ? resolveServerKey(feed)?.trim() : null;
@@ -414,7 +416,12 @@ async function buildFeedPayload(feed) {
   }
 
   const query = feed.supportsQuery ? (feed.defaultQuery || '') : undefined;
-  const baseUrl = feed.supportsQuery ? buildUrl(feed.url, { query, key }) : buildUrl(feed.url, { key });
+  const fallbackUrl = feed.id === 'acled-events'
+    ? 'https://situation-room-acled-382918878290.us-central1.run.app/api/acled/events'
+    : '';
+  const baseUrl = feed.supportsQuery
+    ? buildUrl(feed.url || fallbackUrl, { query, key })
+    : buildUrl(feed.url || fallbackUrl, { key });
   const applied = applyKey(baseUrl, feed, key);
   const headers = {
     'User-Agent': appConfig.userAgent,

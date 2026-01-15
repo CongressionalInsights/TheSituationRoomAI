@@ -790,6 +790,7 @@ function applyAcledProxyOverride() {
     feed.keySource = null;
     feed.keyParam = null;
     feed.keyHeader = null;
+    feed.requiresConfig = false;
   }
 }
 
@@ -4105,14 +4106,17 @@ async function fetchFeed(feed, query, force = false) {
   try {
     const res = await apiFetch(`/api/feed?${params.toString()}`);
     const payload = await res.json();
-    const items = payload.error ? [] : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
+    const httpStatus = payload.httpStatus || res.status || 0;
+    const error = payload.error || (httpStatus >= 400 ? `http_${httpStatus}` : null);
+    const errorMessage = payload.message || (httpStatus >= 400 ? `HTTP ${httpStatus}` : null);
+    const items = error ? [] : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
     const enriched = items.map((item) => ({ ...item, tags: feed.tags || [], feedId: feed.id, feedName: feed.name }));
     return {
       feed,
       items: enriched,
-      error: payload.error,
-      errorMessage: payload.message,
-      httpStatus: payload.httpStatus,
+      error,
+      errorMessage,
+      httpStatus,
       fetchedAt: payload.fetchedAt
     };
   } catch (err) {
