@@ -6837,6 +6837,7 @@ function drawMap() {
 
 function updateMapViewForScope() {
   if (!state.map) return;
+  state.map.invalidateSize();
   const padding = { padding: [40, 40], maxZoom: 7 };
   if (state.settings.scope === 'global') {
     state.map.fitBounds([[-60, -180], [75, 180]], { padding: [20, 20], maxZoom: 3 });
