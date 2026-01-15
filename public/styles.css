@@ -489,6 +489,27 @@ body::before {
   justify-content: flex-end;
 }
 
+.country-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 170px;
+}
+
+.country-label {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.country-select .select {
+  min-width: 170px;
+  max-width: 220px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
 .world-clocks {
   margin-top: 12px;
   padding: 14px 16px;

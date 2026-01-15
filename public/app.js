@@ -29,6 +29,8 @@ const state = {
   customTickers: [],
   energyMarket: {},
   listLimits: {},
+  countries: [],
+  countryIndex: {},
   settings: {
     refreshMinutes: 60,
     theme: 'system',
@@ -36,6 +38,7 @@ const state = {
     languageMode: 'en',
     radiusKm: 150,
     scope: 'global',
+    country: 'US',
     aiTranslate: true,
     superMonitor: false,
     showStatus: true,
@@ -167,6 +170,8 @@ const elements = {
   searchHint: document.getElementById('searchHint'),
   liveSearchToggle: document.getElementById('liveSearchToggle'),
   scopeToggle: document.getElementById('scopeToggle'),
+  countrySelect: document.getElementById('countrySelect'),
+  countrySelectLabel: document.getElementById('countrySelectLabel'),
   geoLocateBtn: document.getElementById('geoLocateBtn'),
   geoValue: document.getElementById('geoValue'),
   healthValue: document.getElementById('healthValue'),
@@ -514,6 +519,174 @@ const usStateCodes = new Set([
   'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
   'DC'
 ]);
+const COUNTRY_CACHE_KEY = 'situationRoomCountryIndex';
+const COUNTRY_SOURCE_URL = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+
+function walkCoordinates(coords, visitor) {
+  if (!coords) return;
+  if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+    visitor(coords);
+    return;
+  }
+  coords.forEach((entry) => walkCoordinates(entry, visitor));
+}
+
+function computeBBox(geometry) {
+  const bbox = { minLat: 90, maxLat: -90, minLon: 180, maxLon: -180 };
+  walkCoordinates(geometry?.coordinates || [], (coord) => {
+    const [lon, lat] = coord;
+    if (Number.isNaN(lat) || Number.isNaN(lon)) return;
+    bbox.minLat = Math.min(bbox.minLat, lat);
+    bbox.maxLat = Math.max(bbox.maxLat, lat);
+    bbox.minLon = Math.min(bbox.minLon, lon);
+    bbox.maxLon = Math.max(bbox.maxLon, lon);
+  });
+  if (bbox.minLat === 90 || bbox.maxLat === -90) return null;
+  return bbox;
+}
+
+function buildCountryIndex(list) {
+  const index = {};
+  list.forEach((entry) => {
+    if (!entry.code) return;
+    index[entry.code.toUpperCase()] = entry;
+  });
+  return index;
+}
+
+async function loadCountryIndex() {
+  if (state.countries.length) return state.countries;
+  try {
+    const cachedRaw = localStorage.getItem(COUNTRY_CACHE_KEY);
+    if (cachedRaw) {
+      const cached = JSON.parse(cachedRaw);
+      if (Array.isArray(cached?.list) && cached.list.length) {
+        state.countries = cached.list;
+        state.countryIndex = buildCountryIndex(cached.list);
+        return state.countries;
+      }
+    }
+  } catch (err) {
+    // ignore cache errors
+  }
+
+  try {
+    const response = await fetch(COUNTRY_SOURCE_URL, { cache: 'force-cache' });
+    if (!response.ok) throw new Error('Country source fetch failed');
+    const geo = await response.json();
+    const list = (geo.features || []).map((feature) => {
+      const props = feature.properties || {};
+      const code = props['ISO3166-1-Alpha-2'];
+      const name = props.name;
+      if (!code || !name) return null;
+      const bbox = computeBBox(feature.geometry);
+      if (!bbox) return null;
+      return {
+        code: code.toUpperCase(),
+        name,
+        bbox
+      };
+    }).filter(Boolean);
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    state.countries = list;
+    state.countryIndex = buildCountryIndex(list);
+    try {
+      localStorage.setItem(COUNTRY_CACHE_KEY, JSON.stringify({ list }));
+    } catch (err) {
+      // ignore storage errors
+    }
+    return list;
+  } catch (err) {
+    const fallback = [{ code: 'US', name: 'United States', bbox: { minLat: 24, maxLat: 49, minLon: -125, maxLon: -66 } }];
+    state.countries = fallback;
+    state.countryIndex = buildCountryIndex(fallback);
+    return fallback;
+  }
+}
+
+function getSelectedCountry() {
+  const code = (state.settings.country || 'US').toUpperCase();
+  const fallback = { code: 'US', name: 'United States', bbox: { minLat: 24, maxLat: 49, minLon: -125, maxLon: -66 } };
+  return state.countryIndex?.[code] || (code === 'US' ? fallback : null);
+}
+
+function normalizeText(value) {
+  return (value || '').toString().toLowerCase();
+}
+
+function matchesCountry(item, country) {
+  if (!country) return false;
+  const code = country.code.toUpperCase();
+  if (code === 'US') {
+    if (item.tags?.includes('us')) return true;
+    if (item.geo) return isInCountryBounds(item.geo.lat, item.geo.lon, country);
+    return false;
+  }
+  const regionTag = normalizeText(item.regionTag);
+  const location = normalizeText(item.location || item.geoLabel || '');
+  const title = normalizeText(item.title || '');
+  const summary = normalizeText(item.summary || '');
+  const name = normalizeText(country.name);
+  const codeLower = code.toLowerCase();
+  if (item.tags?.some((tag) => normalizeText(tag) === codeLower)) return true;
+  if (regionTag && (regionTag === codeLower || regionTag.includes(name))) return true;
+  if (location && location.includes(name)) return true;
+  if (title.includes(name) || summary.includes(name)) return true;
+  if (item.geo && isInCountryBounds(item.geo.lat, item.geo.lon, country)) return true;
+  return false;
+}
+
+function isInCountryBounds(lat, lon, country) {
+  if (!country?.bbox) return false;
+  const { minLat, maxLat, minLon, maxLon } = country.bbox;
+  return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
+}
+
+async function initCountrySelect() {
+  if (!elements.countrySelect) return;
+  const list = await loadCountryIndex();
+  elements.countrySelect.innerHTML = '';
+  list.forEach((country) => {
+    const option = document.createElement('option');
+    option.value = country.code;
+    option.textContent = country.name;
+    elements.countrySelect.appendChild(option);
+  });
+  updateCountryUI();
+  elements.countrySelect.addEventListener('change', () => {
+    const next = elements.countrySelect.value || 'US';
+    state.settings.country = next.toUpperCase();
+    saveSettings();
+    updateScopeButtons();
+    updateCountryUI();
+    state.scopedItems = applyScope(state.items);
+    state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+    renderAllPanels();
+    renderSignals();
+    renderFeedHealth();
+    updateMapViewForScope();
+    drawMap();
+  });
+}
+
+function updateCountryUI() {
+  const code = (state.settings.country || 'US').toUpperCase();
+  const country = getSelectedCountry();
+  if (elements.countrySelect && elements.countrySelect.value !== code) {
+    elements.countrySelect.value = code;
+  }
+  if (elements.countrySelect) {
+    elements.countrySelect.disabled = state.settings.scope !== 'us';
+  }
+  const scopeButton = elements.scopeToggle?.querySelector('[data-scope="us"]');
+  if (scopeButton) {
+    scopeButton.textContent = code;
+    scopeButton.title = country?.name || 'Country';
+  }
+  if (elements.countrySelectLabel) {
+    elements.countrySelectLabel.textContent = country?.name || 'Country';
+  }
+}
 
 function loadSettings() {
   const saved = localStorage.getItem('situationRoomSettings');
@@ -560,6 +733,9 @@ function loadSettings() {
       if (!Array.isArray(state.settings.tickerWatchlist)) {
         state.settings.tickerWatchlist = [];
       }
+      if (!state.settings.country) {
+        state.settings.country = 'US';
+      }
     } catch (err) {
       state.settings.aiTranslate = true;
       state.settings.showStatus = true;
@@ -573,6 +749,7 @@ function loadSettings() {
       state.settings.mapImageryDate = '';
       state.settings.mapSarDate = '';
       state.settings.mapOverlayOpacity = { ...state.settings.mapOverlayOpacity };
+      state.settings.country = 'US';
     }
   }
 }
@@ -1045,6 +1222,7 @@ function updateScopeButtons() {
   [...elements.scopeToggle.querySelectorAll('.seg')].forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.scope === state.settings.scope);
   });
+  updateCountryUI();
 }
 
 function updateSettingsUI() {
@@ -1089,6 +1267,7 @@ function updateSettingsUI() {
   updateLanguageButtons();
   updateMapLegendUI();
   updateMapDateUI();
+  updateCountryUI();
   if (elements.liveSearchToggle) {
     elements.liveSearchToggle.classList.toggle('active', state.settings.liveSearch);
     elements.liveSearchToggle.textContent = state.settings.liveSearch ? 'Live Search On' : 'Live Search Off';
@@ -5263,7 +5442,8 @@ function exportSnapshot() {
 function applyScope(items) {
   let filtered = applyFreshnessFilter(items);
   if (state.settings.scope === 'us') {
-    filtered = filtered.filter((item) => item.tags?.includes('us'));
+    const country = getSelectedCountry();
+    filtered = filtered.filter((item) => matchesCountry(item, country));
   }
   if (state.settings.scope === 'local') {
     filtered = filtered.filter((item) => item.geo && haversineKm(state.location.lat, state.location.lon, item.geo.lat, item.geo.lon) <= state.settings.radiusKm);
@@ -5299,11 +5479,8 @@ function isInUsBounds(lat, lon) {
 function getMapItems() {
   let fresh = applyLanguageFilter(applyFreshnessFilter(state.items));
   if (state.settings.scope === 'us') {
-    fresh = fresh.filter((item) => {
-      if (!item.geo) return false;
-      if (item.tags?.includes('us')) return true;
-      return isInUsBounds(item.geo.lat, item.geo.lon);
-    });
+    const country = getSelectedCountry();
+    fresh = fresh.filter((item) => item.geo && matchesCountry(item, country));
     return dedupeWildfireItems(fresh);
   }
   if (state.settings.scope === 'local') {
@@ -6597,7 +6774,12 @@ function updateMapViewForScope() {
     return;
   }
   if (state.settings.scope === 'us') {
-    state.map.fitBounds([[24, -125], [49, -66]], padding);
+    const country = getSelectedCountry();
+    if (country?.bbox) {
+      state.map.fitBounds([[country.bbox.minLat, country.bbox.minLon], [country.bbox.maxLat, country.bbox.maxLon]], padding);
+    } else {
+      state.map.fitBounds([[24, -125], [49, -66]], padding);
+    }
     return;
   }
   if (state.settings.scope === 'local') {
@@ -7773,6 +7955,8 @@ async function init() {
   loadGeoCache();
   state.customFeeds = loadCustomFeeds();
   applyTheme(state.settings.theme);
+  updateSettingsUI();
+  await initCountrySelect();
   updateSettingsUI();
   loadPanelState();
   state.panels.defaultOrder = getPanelRegistry().map((panel) => panel.id);
