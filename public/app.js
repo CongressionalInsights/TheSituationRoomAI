@@ -39,6 +39,7 @@ const state = {
     radiusKm: 150,
     scope: 'global',
     country: 'US',
+    countryAuto: true,
     aiTranslate: true,
     superMonitor: false,
     showStatus: true,
@@ -642,6 +643,23 @@ function isInCountryBounds(lat, lon, country) {
   return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
 }
 
+function getCountryByCoords(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const list = state.countries || [];
+  return list.find((country) => isInCountryBounds(lat, lon, country)) || null;
+}
+
+function applyCountryFromLocation() {
+  if (!state.settings.countryAuto) return;
+  const match = getCountryByCoords(state.location.lat, state.location.lon);
+  if (!match) return;
+  if (match.code !== state.settings.country) {
+    state.settings.country = match.code;
+    saveSettings();
+  }
+  updateCountryUI();
+}
+
 async function initCountrySelect() {
   if (!elements.countrySelect) return;
   const list = await loadCountryIndex();
@@ -656,6 +674,7 @@ async function initCountrySelect() {
   elements.countrySelect.addEventListener('change', () => {
     const next = elements.countrySelect.value || 'US';
     state.settings.country = next.toUpperCase();
+    state.settings.countryAuto = false;
     saveSettings();
     updateScopeButtons();
     updateCountryUI();
@@ -736,6 +755,9 @@ function loadSettings() {
       if (!state.settings.country) {
         state.settings.country = 'US';
       }
+      if (typeof state.settings.countryAuto !== 'boolean') {
+        state.settings.countryAuto = true;
+      }
     } catch (err) {
       state.settings.aiTranslate = true;
       state.settings.showStatus = true;
@@ -750,6 +772,7 @@ function loadSettings() {
       state.settings.mapSarDate = '';
       state.settings.mapOverlayOpacity = { ...state.settings.mapOverlayOpacity };
       state.settings.country = 'US';
+      state.settings.countryAuto = true;
     }
   }
 }
@@ -7394,6 +7417,7 @@ function requestLocation() {
       lon: position.coords.longitude,
       source: 'geo'
     };
+    applyCountryFromLocation();
     if (state.map) {
       updateMapViewForScope();
     }
