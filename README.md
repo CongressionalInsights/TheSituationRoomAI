@@ -60,7 +60,7 @@ GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snap
   - `OPEN_AI` (optional, enables build-time AI briefing cache)
   - `analysis.json` is generated at build time if `OPEN_AI` is set.
 
-Static mode limits:
+Static mode limits (optional):
 - The **Refresh Now** button reloads cached JSON; it does not re-fetch live data.
 - Search queries are limited to the cached/default feed queries.
 - AI chat requires a server proxy. Without it, the briefing panel falls back to the cached `analysis.json` when available.
@@ -68,8 +68,12 @@ Static mode limits:
 - If **Super Monitor Mode** is enabled, the browser will attempt live fetches for keyless feeds and merge them with cached data.
 - If FOIA.gov is temporarily unavailable, the cache builder will fall back to the last published FOIA snapshot on GitHub Pages.
 
-### Configure static mode (default)
-`public/config.js` sets `staticMode = true` when served from `*.github.io`. No extra configuration is required for GitHub Pages.
+### Configure static mode (optional)
+`public/config.js` now defaults to **live server mode** on GitHub Pages via the Feed Proxy (see below). If you want to run purely static, set:
+```js
+window.SR_CONFIG.staticMode = true;
+window.SR_CONFIG.apiBase = ''; // disable the live feed proxy
+```
 
 ## OpenAI proxy (Cloud Run on GCP)
 To enable OpenAI chat on the live GitHub Pages site, deploy the proxy in `gcp/openai-proxy/` and set `window.SR_CONFIG.openAiProxy`.
@@ -133,6 +137,30 @@ Edit `public/config.js` if you deploy to a different URL:
 ```js
 window.SR_CONFIG = window.SR_CONFIG || {};
 window.SR_CONFIG.openSkyProxy = 'https://<your-cloud-run-url>/api/opensky';
+```
+
+## Feed proxy (Cloud Run on GCP)
+The live GitHub Pages site uses a **Feed Proxy** to fetch key‑protected feeds server‑side and keep data fresh without exposing secrets.
+This repo is wired to use:
+`https://situation-room-feed-382918878290.us-central1.run.app`
+as `window.SR_CONFIG.apiBase` on `*.github.io`.
+
+### GitHub Actions (recommended)
+- Workflow: `.github/workflows/deploy-feed-proxy.yml`
+- Required repo secrets:
+  - `GCP_SA_KEY`
+  - `DATA_GOV`
+  - `EIA`
+  - `NASA_FIRMS`
+  - `OPEN_AQ`
+  - `EARTHDATA_NASA`
+- The workflow writes secrets into GCP Secret Manager and deploys the Cloud Run service.
+
+### Wire the proxy into the UI
+`public/config.js` sets the default API base on GitHub Pages. To use a different URL:
+```js
+window.SR_CONFIG = window.SR_CONFIG || {};
+window.SR_CONFIG.apiBase = 'https://<your-cloud-run-url>';
 ```
 
 ## Optional: server-side proxy (advanced)

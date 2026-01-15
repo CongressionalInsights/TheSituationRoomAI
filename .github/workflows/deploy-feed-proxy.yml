@@ -1,0 +1,70 @@
+name: Deploy Feed Proxy (GCP)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - gcp/feed-proxy/**
+      - .github/workflows/deploy-feed-proxy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: situationroom-ai-20260112
+      REGION: us-central1
+      SERVICE_NAME: situation-room-feed
+      ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+      ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      - name: Ensure feed proxy secrets
+        env:
+          DATA_GOV: ${{ secrets.DATA_GOV }}
+          EIA: ${{ secrets.EIA }}
+          NASA_FIRMS: ${{ secrets.NASA_FIRMS }}
+          OPEN_AQ: ${{ secrets.OPEN_AQ }}
+          EARTHDATA_NASA: ${{ secrets.EARTHDATA_NASA }}
+        run: |
+          if ! gcloud secrets describe data-gov-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create data-gov-key --replication-policy=automatic
+          fi
+          if ! gcloud secrets describe eia-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create eia-key --replication-policy=automatic
+          fi
+          if ! gcloud secrets describe nasa-firms-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create nasa-firms-key --replication-policy=automatic
+          fi
+          if ! gcloud secrets describe openaq-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create openaq-key --replication-policy=automatic
+          fi
+          if ! gcloud secrets describe earthdata-nasa-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create earthdata-nasa-key --replication-policy=automatic
+          fi
+          if [ -n "$DATA_GOV" ]; then echo -n "$DATA_GOV" | gcloud secrets versions add data-gov-key --data-file=-; fi
+          if [ -n "$EIA" ]; then echo -n "$EIA" | gcloud secrets versions add eia-key --data-file=-; fi
+          if [ -n "$NASA_FIRMS" ]; then echo -n "$NASA_FIRMS" | gcloud secrets versions add nasa-firms-key --data-file=-; fi
+          if [ -n "$OPEN_AQ" ]; then echo -n "$OPEN_AQ" | gcloud secrets versions add openaq-key --data-file=-; fi
+          if [ -n "$EARTHDATA_NASA" ]; then echo -n "$EARTHDATA_NASA" | gcloud secrets versions add earthdata-nasa-key --data-file=-; fi
+      - name: Deploy feed proxy service
+        run: |
+          cat > /tmp/sr-feed-env.yaml <<EOF
+          ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
+          ACLED_PROXY: "${ACLED_PROXY}"
+          EOF
+          gcloud run deploy "$SERVICE_NAME" \
+            --region "$REGION" \
+            --source gcp/feed-proxy \
+            --allow-unauthenticated \
+            --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest \
+            --env-vars-file /tmp/sr-feed-env.yaml

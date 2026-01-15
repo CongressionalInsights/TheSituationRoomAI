@@ -29,7 +29,9 @@ function resolveBasePath() {
 
 const API_BASE = resolveApiBase();
 const BASE_PATH = resolveBasePath();
-const STATIC_MODE = typeof rawConfig.staticMode === 'boolean' ? rawConfig.staticMode : (isGithubPages && !rawConfig.apiBase);
+const STATIC_MODE = typeof rawConfig.staticMode === 'boolean'
+  ? rawConfig.staticMode
+  : (isGithubPages && !rawConfig.apiBase);
 const STATIC_BASE = `${BASE_PATH}/data`;
 
 export function isStaticMode() {
