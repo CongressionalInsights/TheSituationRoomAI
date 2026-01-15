@@ -79,7 +79,8 @@ const state = {
       infrastructure: true,
       outage: true,
       local: true
-    }
+    },
+    mapFlightDensity: 'medium'
   },
   location: {
     lat: 35.5951,
@@ -776,6 +777,9 @@ function loadSettings() {
       if (!state.settings.mapSarDate) {
         state.settings.mapSarDate = '';
       }
+      if (!state.settings.mapFlightDensity) {
+        state.settings.mapFlightDensity = 'medium';
+      }
       if (typeof state.settings.aiTranslate !== 'boolean') {
         state.settings.aiTranslate = true;
       }
@@ -818,6 +822,7 @@ function loadSettings() {
       state.settings.mapOverlayOpacity = { ...state.settings.mapOverlayOpacity };
       state.settings.country = 'US';
       state.settings.countryAuto = true;
+      state.settings.mapFlightDensity = 'medium';
     }
   }
 }
@@ -1757,6 +1762,9 @@ function updateMapLegendUI() {
   elements.mapLegend.querySelectorAll('input[data-overlay]').forEach((input) => {
     const overlay = input.dataset.overlay;
     input.checked = Boolean(state.settings.mapRasterOverlays?.[overlay]);
+  });
+  elements.mapLegend.querySelectorAll('input[data-flight-density]').forEach((input) => {
+    input.checked = input.dataset.flightDensity === (state.settings.mapFlightDensity || 'medium');
   });
 }
 
@@ -7899,6 +7907,13 @@ function initEvents() {
         if (overlay === 'sar' && overlayInput.checked) {
           resolveLatestSarDate();
         }
+      }
+      const densityInput = event.target.closest('input[data-flight-density]');
+      if (densityInput) {
+        state.settings.mapFlightDensity = densityInput.dataset.flightDensity || 'medium';
+        saveSettings();
+        drawMap();
+        return;
       }
     });
 
