@@ -65,7 +65,7 @@ async function getToken() {
 
 function resolveEndpoint(pathname) {
   if (pathname === '/api/opensky/states') return '/states/all';
-  if (pathname === '/api/opensky/tracks') return '/tracks';
+  if (pathname === '/api/opensky/tracks') return '/tracks/all';
   if (pathname === '/api/opensky/flights/aircraft') return '/flights/aircraft';
   if (pathname === '/api/opensky/flights/arrival') return '/flights/arrival';
   if (pathname === '/api/opensky/flights/departure') return '/flights/departure';
