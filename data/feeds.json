@@ -494,6 +494,21 @@
       ]
     },
     {
+      "id": "acled-events",
+      "name": "ACLED Conflict Events",
+      "category": "security",
+      "format": "json",
+      "url": "https://acleddata.com/api/acled/read",
+      "limit": 500,
+      "ttlMinutes": 60,
+      "tags": [
+        "global",
+        "security",
+        "conflict",
+        "geo"
+      ]
+    },
+    {
       "id": "cdc-travel-notices",
       "name": "CDC Travel Notices",
       "category": "travel",

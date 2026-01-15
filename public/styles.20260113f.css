@@ -2500,9 +2500,11 @@ a:focus-visible {
 .badge-health { border-color: rgba(255, 155, 88, 0.6); }
 .badge-travel { border-color: rgba(255, 196, 87, 0.7); }
 .badge-transport { border-color: rgba(106, 242, 180, 0.6); }
+.badge-security { border-color: rgba(255, 144, 99, 0.7); }
 .badge-local { border-color: rgba(188, 255, 120, 0.6); }
 .badge-alert { border-color: rgba(255, 140, 140, 0.7); }
 .badge-region { border-color: rgba(122, 215, 255, 0.65); }
+.badge-verify { border-color: rgba(108, 250, 170, 0.65); }
 
 .map-detail-info {
   margin-top: 6px;
@@ -3066,6 +3068,7 @@ a.list-title:hover {
 .chip-badge.distance { border-color: rgba(188, 255, 120, 0.6); }
 .chip-badge.deadline { border-color: rgba(255, 196, 87, 0.7); }
 .chip-badge.trend { border-color: rgba(108, 250, 170, 0.6); }
+.chip-badge.verified { border-color: rgba(108, 250, 170, 0.6); }
 .chip-badge.hazard { border-color: rgba(255, 155, 88, 0.7); }
 .chip-badge.topic { border-color: rgba(140, 107, 255, 0.6); }
 

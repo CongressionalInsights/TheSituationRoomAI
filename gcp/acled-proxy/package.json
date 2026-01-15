@@ -1,0 +1,13 @@
+{
+  "name": "situation-room-acled-proxy",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

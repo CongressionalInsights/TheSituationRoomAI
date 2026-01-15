@@ -15,5 +15,7 @@ window.SR_CONFIG = window.SR_CONFIG || {};
       || 'https://situation-room-openai-382918878290.us-central1.run.app/api/chat';
     window.SR_CONFIG.openSkyProxy = window.SR_CONFIG.openSkyProxy
       || 'https://situation-room-opensky-382918878290.us-central1.run.app/api/opensky';
+    window.SR_CONFIG.acledProxy = window.SR_CONFIG.acledProxy
+      || 'https://situation-room-acled-382918878290.us-central1.run.app/api/acled';
   }
 })();

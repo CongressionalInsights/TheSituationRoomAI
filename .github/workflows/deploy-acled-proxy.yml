@@ -1,0 +1,57 @@
+name: Deploy ACLED Proxy (GCP)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - gcp/acled-proxy/**
+      - .github/workflows/deploy-acled-proxy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: situationroom-ai-20260112
+      REGION: us-central1
+      SERVICE_NAME: situation-room-acled
+      ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      - name: Ensure ACLED secrets
+        env:
+          ACLED_NAME: ${{ secrets.ACLED_NAME }}
+          ACLED_PASS: ${{ secrets.ACLED_PASS }}
+        run: |
+          if [ -z "$ACLED_NAME" ] || [ -z "$ACLED_PASS" ]; then
+            echo "ACLED secrets missing."
+            exit 1
+          fi
+          if ! gcloud secrets describe acled-name --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create acled-name --replication-policy=automatic
+          fi
+          if ! gcloud secrets describe acled-pass --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create acled-pass --replication-policy=automatic
+          fi
+          echo -n "$ACLED_NAME" | gcloud secrets versions add acled-name --data-file=-
+          echo -n "$ACLED_PASS" | gcloud secrets versions add acled-pass --data-file=-
+      - name: Deploy ACLED proxy service
+        run: |
+          cat > /tmp/sr-acled-env.yaml <<EOF
+          ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
+          EOF
+          gcloud run deploy "$SERVICE_NAME" \
+            --region "$REGION" \
+            --source gcp/acled-proxy \
+            --allow-unauthenticated \
+            --set-secrets ACLED_NAME=acled-name:latest,ACLED_PASS=acled-pass:latest \
+            --env-vars-file /tmp/sr-acled-env.yaml

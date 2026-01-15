@@ -44,6 +44,10 @@ export function getOpenSkyProxy() {
   return rawConfig.openSkyProxy || '';
 }
 
+export function getAcledProxy() {
+  return rawConfig.acledProxy || '';
+}
+
 function mapStatic(path) {
   if (path.startsWith('/api/feeds')) {
     return `${STATIC_BASE}/feeds.json`;

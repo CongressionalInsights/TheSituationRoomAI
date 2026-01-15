@@ -1,4 +1,4 @@
-import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy } from './services/api.js';
+import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy, getAcledProxy } from './services/api.js';
 
 const LAYOUT_VERSION = 3;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
@@ -200,6 +200,7 @@ const elements = {
   keyCompactBody: document.getElementById('keyCompactBody'),
   keyToggle: document.getElementById('keyToggle'),
   newsList: document.getElementById('newsList'),
+  securityList: document.getElementById('securityList'),
   cryptoList: document.getElementById('cryptoList'),
   disasterList: document.getElementById('disasterList'),
   localList: document.getElementById('localList'),
@@ -326,6 +327,7 @@ const defaultPanelSizes = {
   crypto: { cols: 3 },
   prediction: { cols: 4 },
   hazards: { cols: 4 },
+  security: { cols: 4 },
   local: { cols: 8 },
   community: { cols: 6 },
   policy: { cols: 4 },
@@ -375,14 +377,15 @@ const categoryLabels = {
   health: 'Health',
   travel: 'Travel',
   transport: 'Transport',
-  security: 'Security',
+  security: 'Conflict & Security',
   infrastructure: 'Infrastructure',
   local: 'Local'
 };
 const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'prediction', 'spill', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
-const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health']);
+const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health', 'security']);
 const listDefaults = {
   newsList: 30,
+  securityList: 20,
   financeMarketsList: 20,
   financePolicyList: 20,
   cryptoList: 20,
@@ -401,6 +404,7 @@ const listDefaults = {
 const listPageSize = 8;
 const listModalConfigs = [
   { id: 'newsList', title: 'News Layer', withCoverage: true, getItems: () => buildNewsItems(state.clusters) },
+  { id: 'securityList', title: 'Conflict & Security', getItems: () => getCategoryItems('security').items },
   { id: 'financeMarketsList', title: 'Finance: Markets', getItems: () => getCombinedItems(['finance', 'energy']) },
   { id: 'financePolicyList', title: 'Finance: Regulatory', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
   { id: 'cryptoList', title: 'Crypto / Web3', getItems: () => getCategoryItems('crypto').items },
@@ -763,6 +767,21 @@ function applyOpenSkyProxyOverride() {
     const parsed = new URL(feed.url);
     parsed.searchParams.set('extended', '1');
     feed.url = parsed.toString();
+  }
+}
+
+function applyAcledProxyOverride() {
+  const proxy = getAcledProxy();
+  const feed = state.feeds.find((entry) => entry.id === 'acled-events');
+  if (!feed) return;
+  if (proxy) {
+    const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
+    feed.url = `${base}/events`;
+    feed.proxy = null;
+    feed.requiresKey = false;
+    feed.keySource = null;
+    feed.keyParam = null;
+    feed.keyHeader = null;
   }
 }
 
@@ -2664,6 +2683,57 @@ function parseArcGisGeoJson(data, feed) {
   }).filter((item) => item.geo);
 }
 
+function parseAcledEvents(data, feed) {
+  const list = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data?.response?.data)
+      ? data.response.data
+      : [];
+  return list.map((event) => {
+    const lat = Number(event.latitude);
+    const lon = Number(event.longitude);
+    const fatalities = Number(event.fatalities);
+    const eventDate = event.event_date || '';
+    const publishedAt = eventDate ? Date.parse(eventDate) : Date.now();
+    const eventType = event.event_type || 'Conflict Event';
+    const subEvent = event.sub_event_type || '';
+    const location = event.location || event.admin2 || event.admin1 || event.country || '';
+    const title = `${eventType}${location ? ` — ${location}` : ''}`;
+    const summaryParts = [];
+    if (subEvent) summaryParts.push(subEvent);
+    if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${fatalities}`);
+    const actors = [event.actor1, event.actor2].filter(Boolean).join(' vs ');
+    if (actors) summaryParts.push(`Actors: ${actors}`);
+    const summary = summaryParts.join(' • ');
+    const conflictKey = (() => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
+      const roundedLat = Math.round(lat * 5) / 5;
+      const roundedLon = Math.round(lon * 5) / 5;
+      const typeKey = normalizeTitle(eventType || '').slice(0, 24);
+      return `${eventDate || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+    })();
+    return {
+      title,
+      url: '',
+      summary,
+      summaryHtml: summary,
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: event.source || feed.name,
+      category: feed.category,
+      geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null,
+      alertType: eventType,
+      eventType,
+      subEventType: subEvent,
+      hazardType: event.disorder_type || '',
+      severity: Number.isNaN(fatalities) ? '' : `Fatalities ${fatalities}`,
+      location,
+      geoLabel: location,
+      conflictKey,
+      tags: ['conflict', 'security']
+    };
+  });
+}
+
 function parseGenericCsv(text, feed) {
   const lines = String(text || '').trim().split(/\r?\n/);
   if (lines.length < 2) return [];
@@ -3009,6 +3079,7 @@ const feedParsers = {
   'energy-eia': parseEiaSeries,
   'energy-eia-brent': parseEiaSeries,
   'energy-eia-ng': parseEiaSeries,
+  'acled-events': parseAcledEvents,
   'polymarket-markets': parsePolymarketMarkets,
   'noaa-incidentnews': parseIncidentNewsCsv,
   'stooq-quote': parseStooqCsv,
@@ -4060,6 +4131,44 @@ function applyQueryToUrl(url, query) {
   return parsed.toString();
 }
 
+function formatIsoDate(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function getDateRange() {
+  const end = new Date();
+  const days = Math.max(1, Number(state.settings.maxAgeDays) || 1);
+  const start = new Date(end);
+  start.setDate(end.getDate() - days);
+  return {
+    startDate: formatIsoDate(start),
+    endDate: formatIsoDate(end)
+  };
+}
+
+function buildAcledUrl(feed) {
+  const proxy = getAcledProxy();
+  const { startDate, endDate } = getDateRange();
+  const params = new URLSearchParams();
+  const limit = String(feed.limit || 500);
+  const country = state.settings.scope !== 'global' ? getSelectedCountry()?.name : '';
+  if (proxy) {
+    const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
+    params.set('start', startDate);
+    params.set('end', endDate);
+    params.set('limit', limit);
+    if (country) params.set('country', country);
+    return `${base}/events?${params.toString()}`;
+  }
+  params.set('_format', 'json');
+  params.set('event_date', `${startDate}|${endDate}`);
+  params.set('limit', limit);
+  if (country) params.set('country', country);
+  return `${feed.url}?${params.toString()}`;
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = CLIENT_FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -4072,7 +4181,9 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = CLIENT_FETCH_TIME
 
 async function fetchCustomFeedDirect(feed, query) {
   const keyConfig = getKeyConfig(feed);
-  let url = applyQueryToUrl(feed.url, feed.supportsQuery ? (query || feed.defaultQuery || '') : '');
+  let url = feed.id === 'acled-events'
+    ? buildAcledUrl(feed)
+    : applyQueryToUrl(feed.url, feed.supportsQuery ? (query || feed.defaultQuery || '') : '');
   if (keyConfig.key && keyConfig.keyParam) {
     const parsed = new URL(url);
     parsed.searchParams.set(keyConfig.keyParam, keyConfig.key);
@@ -4758,6 +4869,9 @@ function buildListBadges(item, contextId) {
     pushBadge('delta', `Δ ${deltaText}${unit}`, 'chip-badge trend');
   }
   if (item.hazardType) pushBadge('hazardType', item.hazardType, 'chip-badge hazard');
+  if (item.verificationCount && item.verificationCount > 1) {
+    pushBadge('verified', `Verified ${item.verificationCount} sources`, 'chip-badge verified');
+  }
   if (item.deadline) pushBadge('deadline', `Due ${formatShortDate(item.deadline)}`, 'chip-badge deadline');
   if (item.regionTag) pushBadge('regionTag', item.regionTag, 'chip-badge region');
   if (context === 'local') {
@@ -5599,16 +5713,16 @@ function getMapItems() {
   if (state.settings.scope === 'us') {
     const country = getSelectedCountry();
     fresh = fresh.filter((item) => item.geo && matchesCountry(item, country));
-    return dedupeWildfireItems(fresh);
+    return dedupeConflictItems(dedupeWildfireItems(fresh));
   }
   if (state.settings.scope === 'local') {
     const { lat, lon } = state.location;
     const radius = state.settings.radiusKm;
     const local = fresh.filter((item) => item.geo && haversineKm(lat, lon, item.geo.lat, item.geo.lon) <= radius);
-    return dedupeWildfireItems(local);
+    return dedupeConflictItems(dedupeWildfireItems(local));
   }
   const scoped = state.scopedItems.filter((item) => item.geo);
-  return dedupeWildfireItems(scoped);
+  return dedupeConflictItems(dedupeWildfireItems(scoped));
 }
 
 function dedupeWildfireItems(items) {
@@ -5638,6 +5752,53 @@ function dedupeWildfireItems(items) {
     deduped.push(item);
   });
   return [...rest, ...deduped];
+}
+
+function dedupeConflictItems(items) {
+  const conflict = [];
+  const rest = [];
+  items.forEach((item) => {
+    if (item?.category === 'security' || item?.tags?.includes('conflict')) {
+      conflict.push(item);
+    } else {
+      rest.push(item);
+    }
+  });
+  if (!conflict.length) return items;
+  const grouped = new Map();
+  conflict.forEach((item) => {
+    const key = item.conflictKey || (() => {
+      if (!item.geo) return '';
+      const dateKey = formatIsoDate(item.publishedAt || Date.now());
+      const roundedLat = Math.round(item.geo.lat * 5) / 5;
+      const roundedLon = Math.round(item.geo.lon * 5) / 5;
+      const typeKey = normalizeTitle(item.alertType || item.eventType || item.title || '').slice(0, 24);
+      return `${dateKey}:${roundedLat}:${roundedLon}:${typeKey}`;
+    })();
+    if (!key) {
+      const fallback = `na:${normalizeTitle(item.title || '').slice(0, 24)}`;
+      const bucket = grouped.get(fallback) || [];
+      bucket.push(item);
+      grouped.set(fallback, bucket);
+      return;
+    }
+    const bucket = grouped.get(key) || [];
+    bucket.push(item);
+    grouped.set(key, bucket);
+  });
+  const merged = [];
+  grouped.forEach((bucket) => {
+    const sorted = [...bucket].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+    const primary = { ...sorted[0] };
+    const sources = Array.from(new Set(bucket.map((item) => item.source || item.feedName || '').filter(Boolean)));
+    if (sources.length > 1) {
+      primary.verificationCount = sources.length;
+      primary.verificationSources = sources;
+      primary.verified = true;
+    }
+    merged.push(primary);
+  });
+  return [...rest, ...merged];
 }
 
 function renderLocal() {
@@ -5672,6 +5833,9 @@ function getCategoryItems(category) {
   }
   if (category === 'research') {
     items = dedupeItems(items);
+  }
+  if (category === 'security') {
+    items = dedupeConflictItems(items);
   }
   return { items, mapOnlyNotice: false };
 }
@@ -5962,6 +6126,7 @@ function renderAllPanels() {
   renderCategory('crypto', elements.cryptoList);
   renderPrediction();
   renderCombined(['disaster', 'weather', 'space'], elements.disasterList);
+  renderCategory('security', elements.securityList);
   renderCategory('gov', elements.policyList);
   renderCategory('cyber', elements.cyberList);
   renderCategory('agriculture', elements.agricultureList);
@@ -6737,7 +6902,15 @@ function getSignalType(item) {
   if (item.category === 'space') return 'space';
   if (item.category === 'health') return 'health';
   if (item.category === 'transport') return 'transport';
-  if (item.category === 'security') return 'security';
+  if (item.category === 'security') {
+    const type = (item.eventType || item.alertType || '').toLowerCase();
+    if (type.includes('battle')) return 'battle';
+    if (type.includes('explosion') || type.includes('remote violence')) return 'explosion';
+    if (type.includes('violence against civilians')) return 'violence';
+    if (type.includes('protest')) return 'protest';
+    if (type.includes('riot')) return 'riot';
+    return 'security';
+  }
   if (item.category === 'infrastructure') return 'infrastructure';
   return 'news';
 }
@@ -6753,6 +6926,11 @@ const MAP_ICON_LIBRARY = {
   power: 'bolt',
   travel: 'plane',
   air: 'plane',
+  battle: 'crosshair',
+  explosion: 'alert-octagon',
+  violence: 'shield',
+  protest: 'flag',
+  riot: 'alert-triangle',
   health: 'heart-pulse',
   transport: 'truck',
   weather: 'cloud-lightning',
@@ -7211,6 +7389,12 @@ function showMapDetail(cluster, x, y) {
       alertBadge.className = 'badge badge-alert';
       alertBadge.textContent = alertType;
       badges.appendChild(alertBadge);
+    }
+    if (item.verificationCount && item.verificationCount > 1) {
+      const verifiedBadge = document.createElement('span');
+      verifiedBadge.className = 'badge badge-verify';
+      verifiedBadge.textContent = `Verified ${item.verificationCount} sources`;
+      badges.appendChild(verifiedBadge);
     }
     const regions = resolveRegionChips(item);
     regions.forEach((region) => {
@@ -8337,6 +8521,7 @@ async function init() {
   state.baseFeeds = (payload.feeds || []).filter((feed) => feed.url || feed.requiresKey || feed.requiresConfig);
   state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
   applyOpenSkyProxyOverride();
+  applyAcledProxyOverride();
 
   buildFeedOptions();
   populateCustomFeedCategories();
