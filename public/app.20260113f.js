@@ -626,6 +626,19 @@ function normalizeText(value) {
   return (value || '').toString().toLowerCase();
 }
 
+function sampleByStep(list, max) {
+  if (!Array.isArray(list)) return [];
+  if (!Number.isFinite(max) || max <= 0) return [];
+  if (list.length <= max) return list;
+  const step = Math.max(1, Math.floor(list.length / max));
+  const sampled = [];
+  for (let i = 0; i < list.length; i += step) {
+    sampled.push(list[i]);
+    if (sampled.length >= max) break;
+  }
+  return sampled;
+}
+
 function matchesCountry(item, country) {
   if (!country) return false;
   const code = country.code.toUpperCase();
@@ -2977,9 +2990,20 @@ const feedParsers = {
   'transport-opensky': (data, feed) => {
     const states = Array.isArray(data?.states) ? data.states : [];
     if (!states.length) return [];
-    const sampled = states
-      .filter((entry) => Number.isFinite(entry?.[5]) && Number.isFinite(entry?.[6]))
-      .slice(0, 18);
+    let filtered = states.filter((entry) => Number.isFinite(entry?.[5]) && Number.isFinite(entry?.[6]));
+    const scope = state.settings.scope;
+    if (scope === 'us') {
+      const country = getSelectedCountry();
+      if (country?.bbox) {
+        filtered = filtered.filter((entry) => isInCountryBounds(entry?.[6], entry?.[5], country));
+      }
+    } else if (scope === 'local') {
+      const { lat, lon } = state.location;
+      const radius = state.settings.radiusKm || 200;
+      filtered = filtered.filter((entry) => haversineKm(lat, lon, entry?.[6], entry?.[5]) <= radius);
+    }
+    const max = scope === 'global' ? 240 : scope === 'us' ? 160 : 80;
+    const sampled = sampleByStep(filtered, max);
     const updatedAt = (data?.time ? data.time * 1000 : Date.now());
     return sampled.map((entry) => {
       const icao24 = entry?.[0] || '';
@@ -6946,6 +6970,10 @@ async function fetchFlightTrack(icao24, force = false) {
   if (state.flightTrackLoading) return;
   if (!force && Date.now() - state.flightTrackFetchedAt < 60 * 1000) return;
   state.flightTrackLoading = true;
+  if (elements.flightFocusTrack) {
+    elements.flightFocusTrack.disabled = true;
+    elements.flightFocusTrack.textContent = 'Tracking…';
+  }
   try {
     const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
     const response = await apiFetch(`${base}/tracks?icao24=${encodeURIComponent(icao24)}&time=0`);
@@ -6968,6 +6996,10 @@ async function fetchFlightTrack(icao24, force = false) {
     // ignore failures
   } finally {
     state.flightTrackLoading = false;
+    if (elements.flightFocusTrack) {
+      elements.flightFocusTrack.disabled = false;
+      elements.flightFocusTrack.textContent = 'Track';
+    }
   }
 }
 
