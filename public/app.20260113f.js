@@ -67,6 +67,14 @@ const state = {
       fire: 0.6
     },
     lidarEnabled: false,
+    mapConflictTypes: {
+      battle: true,
+      explosion: true,
+      violence: true,
+      protest: true,
+      riot: true,
+      other: true
+    },
     mapLayers: {
       weather: true,
       disaster: true,
@@ -812,6 +820,16 @@ function loadSettings() {
       if (!state.settings.mapFlightDensity) {
         state.settings.mapFlightDensity = 'medium';
       }
+      if (!state.settings.mapConflictTypes || typeof state.settings.mapConflictTypes !== 'object') {
+        state.settings.mapConflictTypes = {
+          battle: true,
+          explosion: true,
+          violence: true,
+          protest: true,
+          riot: true,
+          other: true
+        };
+      }
       if (typeof state.settings.lidarEnabled !== 'boolean') {
         state.settings.lidarEnabled = false;
       }
@@ -859,6 +877,14 @@ function loadSettings() {
       state.settings.countryAuto = true;
       state.settings.mapFlightDensity = 'medium';
       state.settings.lidarEnabled = false;
+      state.settings.mapConflictTypes = {
+        battle: true,
+        explosion: true,
+        violence: true,
+        protest: true,
+        riot: true,
+        other: true
+      };
     }
   }
 }
@@ -1787,6 +1813,11 @@ function updateMapLegendUI() {
   elements.mapLegend.querySelectorAll('input[data-layer]').forEach((input) => {
     const layer = input.dataset.layer;
     input.checked = Boolean(state.settings.mapLayers[layer]);
+  });
+  elements.mapLegend.querySelectorAll('input[data-conflict-type]').forEach((input) => {
+    const type = input.dataset.conflictType;
+    const value = state.settings.mapConflictTypes?.[type];
+    input.checked = value !== false;
   });
   if (elements.legendOutages) {
     elements.legendOutages.checked = Boolean(state.settings.mapLayers.outage);
@@ -5801,6 +5832,17 @@ function dedupeConflictItems(items) {
   return [...rest, ...merged];
 }
 
+function getConflictType(item) {
+  if (!item) return 'other';
+  const type = (item.eventType || item.alertType || item.subEventType || '').toLowerCase();
+  if (type.includes('battle')) return 'battle';
+  if (type.includes('explosion') || type.includes('remote violence')) return 'explosion';
+  if (type.includes('violence against civilians')) return 'violence';
+  if (type.includes('protest')) return 'protest';
+  if (type.includes('riot')) return 'riot';
+  return 'other';
+}
+
 function renderLocal() {
   const items = getLocalItemsForPanel();
   const limit = Math.min(getListLimit(elements.localList?.id), items.length);
@@ -7086,7 +7128,12 @@ function drawMap() {
     const layer = getLayerForItem(item);
     const type = getSignalType(item);
     return { x, y, item, layer, type };
-  }).filter((point) => state.settings.mapLayers[point.layer]);
+  }).filter((point) => state.settings.mapLayers[point.layer])
+    .filter((point) => {
+      if (point.layer !== 'security') return true;
+      const conflictType = getConflictType(point.item);
+      return state.settings.mapConflictTypes?.[conflictType] !== false;
+    });
 
   if (elements.mapEmpty) {
     elements.mapEmpty.classList.toggle('show', rawPoints.length === 0);
@@ -7542,6 +7589,7 @@ function hideSearchResults() {
 async function refreshAll(force = false) {
   setRefreshing(true);
   setHealth('Fetching feeds');
+  const liveOverride = force && isStaticMode();
   try {
     if (isStaticMode()) {
       await loadStaticAnalysis();
@@ -7549,7 +7597,7 @@ async function refreshAll(force = false) {
     }
     const results = await Promise.all(state.feeds.map(async (feed) => {
       const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
-      if (shouldFetchLiveInStatic(feed)) {
+      if (liveOverride || shouldFetchLiveInStatic(feed)) {
         try {
           const live = await fetchCustomFeedDirect(feed, query);
           if (!live.error) return live;
@@ -8179,6 +8227,15 @@ function initEvents() {
       if (input) {
         const layer = input.dataset.layer;
         state.settings.mapLayers[layer] = input.checked;
+        saveSettings();
+        drawMap();
+        return;
+      }
+      const conflictInput = event.target.closest('input[data-conflict-type]');
+      if (conflictInput) {
+        const type = conflictInput.dataset.conflictType;
+        state.settings.mapConflictTypes = state.settings.mapConflictTypes || {};
+        state.settings.mapConflictTypes[type] = conflictInput.checked;
         saveSettings();
         drawMap();
         return;
