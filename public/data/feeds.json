@@ -498,7 +498,8 @@
       "name": "ACLED Conflict Events",
       "category": "security",
       "format": "json",
-      "url": "https://acleddata.com/api/acled/read",
+      "url": "",
+      "requiresConfig": true,
       "limit": 500,
       "ttlMinutes": 60,
       "tags": [
@@ -538,20 +539,6 @@
         "conflict",
         "geo",
         "curated"
-      ]
-    },
-    {
-      "id": "gpsjam",
-      "name": "GPS Jamming Risk (GPSJam)",
-      "category": "security",
-      "format": "csv",
-      "url": "https://gpsjam.org/data/manifest.csv",
-      "ttlMinutes": 180,
-      "tags": [
-        "global",
-        "gps",
-        "jamming",
-        "geo"
       ]
     },
     {

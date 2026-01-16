@@ -2774,6 +2774,98 @@ function parseAcledEvents(data, feed) {
   });
 }
 
+function parseGdeltConflictGeo(data, feed) {
+  const features = Array.isArray(data?.features) ? data.features : [];
+  const extractFirstLink = (html = '') => {
+    const match = html.match(/<a[^>]+href=\"([^\"]+)\"[^>]*>(.*?)<\\/a>/i);
+    if (!match) return { url: '', text: '' };
+    const text = match[2]?.replace(/<[^>]*>/g, '').replace(/&nbsp;|&amp;|&quot;|&#39;/g, ' ').trim();
+    return { url: match[1] || '', text: text || '' };
+  };
+  const classify = (text = '') => {
+    const t = text.toLowerCase();
+    if (t.includes('battle') || t.includes('armed clash')) return 'battle';
+    if (t.includes('explosion') || t.includes('bomb') || t.includes('airstrike')) return 'explosion';
+    if (t.includes('violence') || t.includes('attack') || t.includes('killed') || t.includes('shot')) return 'violence';
+    if (t.includes('protest') || t.includes('demonstrat')) return 'protest';
+    if (t.includes('riot')) return 'riot';
+    return 'other';
+  };
+  return features.map((feature) => {
+    const props = feature?.properties || {};
+    const geo = geometryToPoint(feature?.geometry);
+    if (!geo) return null;
+    const location = props.name || '';
+    const count = Number(props.count) || 0;
+    const link = extractFirstLink(props.html || '');
+    const eventType = classify(`${location} ${props.html || ''}`);
+    const roundedLat = Math.round(geo.lat * 5) / 5;
+    const roundedLon = Math.round(geo.lon * 5) / 5;
+    const conflictKey = `${eventType}:${roundedLat}:${roundedLon}`;
+    const summaryParts = [];
+    if (count) summaryParts.push(`Mentions ${count}`);
+    if (link.text) summaryParts.push(link.text.slice(0, 120));
+    return {
+      title: `Conflict signal — ${location || 'Unknown location'}`,
+      url: link.url,
+      summary: summaryParts.join(' • '),
+      summaryHtml: summaryParts.join(' • '),
+      publishedAt: Date.now(),
+      source: 'GDELT',
+      category: feed.category,
+      geo,
+      alertType: eventType,
+      eventType,
+      location,
+      geoLabel: location,
+      conflictKey,
+      tags: ['conflict', 'security', 'live']
+    };
+  }).filter(Boolean);
+}
+
+function parseUcdpCandidateEvents(data, feed) {
+  const list = Array.isArray(data?.Result) ? data.Result : [];
+  return list.map((event) => {
+    const lat = Number(event.latitude);
+    const lon = Number(event.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const fatalities = Number(event.best);
+    const eventDate = event.date_start || event.date_end || '';
+    const publishedAt = eventDate ? Date.parse(eventDate) : Date.now();
+    const violenceType = Number(event.type_of_violence);
+    const eventType = violenceType === 1 ? 'battle' : 'violence';
+    const location = event.where_description || event.adm_2 || event.adm_1 || event.country || '';
+    const conflictName = event.conflict_name || 'Conflict Event';
+    const title = `${conflictName}${location ? ` — ${location}` : ''}`;
+    const summaryParts = [];
+    if (event.dyad_name) summaryParts.push(event.dyad_name);
+    if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities ${fatalities}`);
+    if (event.source_headline) summaryParts.push(event.source_headline);
+    const roundedLat = Math.round(lat * 5) / 5;
+    const roundedLon = Math.round(lon * 5) / 5;
+    const conflictKey = `${eventDate || ''}:${roundedLat}:${roundedLon}:${normalizeTitle(conflictName).slice(0, 24)}`;
+    return {
+      title,
+      url: '',
+      summary: summaryParts.join(' • '),
+      summaryHtml: summaryParts.join(' • '),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: 'UCDP',
+      category: feed.category,
+      geo: { lat, lon },
+      alertType: eventType,
+      eventType,
+      hazardType: event.conflict_name || '',
+      severity: Number.isNaN(fatalities) ? '' : `Fatalities ${fatalities}`,
+      location,
+      geoLabel: location,
+      conflictKey,
+      tags: ['conflict', 'security', 'curated']
+    };
+  }).filter(Boolean);
+}
+
 function parseGenericCsv(text, feed) {
   const lines = String(text || '').trim().split(/\r?\n/);
   if (lines.length < 2) return [];
@@ -3048,6 +3140,8 @@ const feedParsers = {
     source: article.domain || article.sourceCountry || feed.name,
     category: feed.category
   })),
+  'gdelt-conflict-geo': parseGdeltConflictGeo,
+  'ucdp-candidate-events': parseUcdpCandidateEvents,
   'federal-register': parseFederalRegister,
   'federal-register-transport': parseFederalRegister,
   'nws-alerts': (data, feed) => (data.features || []).map((feature) => ({
@@ -4311,6 +4405,29 @@ function buildAcledUrl(feed) {
   return `${feed.url}?${params.toString()}`;
 }
 
+function buildGdeltConflictUrl(feed, query) {
+  const days = Math.max(1, Number(state.settings.maxAgeDays) || 1);
+  const timespan = `${days}d`;
+  const baseQuery = query || feed.defaultQuery || '';
+  let url = feed.url || '';
+  url = url.replaceAll('{{query}}', encodeURIComponent(baseQuery));
+  url = url.replaceAll('{{timespan}}', encodeURIComponent(timespan));
+  if (!url.includes('timespan=')) {
+    const parsed = new URL(url);
+    parsed.searchParams.set('timespan', timespan);
+    url = parsed.toString();
+  }
+  return url;
+}
+
+function buildUcdpCandidateUrl(feed) {
+  const { startDate, endDate } = getDateRange();
+  let url = feed.url || '';
+  url = url.replaceAll('{{start}}', encodeURIComponent(startDate));
+  url = url.replaceAll('{{end}}', encodeURIComponent(endDate));
+  return url;
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = CLIENT_FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -4325,6 +4442,10 @@ async function fetchCustomFeedDirect(feed, query) {
   const keyConfig = getKeyConfig(feed);
   let url = feed.id === 'acled-events'
     ? buildAcledUrl(feed)
+    : feed.id === 'gdelt-conflict-geo'
+      ? buildGdeltConflictUrl(feed, query)
+      : feed.id === 'ucdp-candidate-events'
+        ? buildUcdpCandidateUrl(feed)
     : applyQueryToUrl(feed.url, feed.supportsQuery ? (query || feed.defaultQuery || '') : '');
   if (keyConfig.key && keyConfig.keyParam) {
     const parsed = new URL(url);

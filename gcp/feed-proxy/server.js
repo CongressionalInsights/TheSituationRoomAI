@@ -64,6 +64,32 @@ function getAcledWindow() {
   return { start: formatIsoDate(start), end: formatIsoDate(end) };
 }
 
+function buildGdeltConflictUrl(feed) {
+  const { start, end } = getAcledWindow();
+  const timespan = `${DEFAULT_LOOKBACK_DAYS}d`;
+  const query = feed.defaultQuery || '';
+  let url = feed.url || '';
+  url = url.replaceAll('{{query}}', encodeURIComponent(query));
+  url = url.replaceAll('{{timespan}}', encodeURIComponent(timespan));
+  if (!url.includes('timespan=')) {
+    const parsed = new URL(url);
+    parsed.searchParams.set('timespan', timespan);
+    url = parsed.toString();
+  }
+  if (!url.includes('startdatetime') && !url.includes('enddatetime')) {
+    // Some GDELT endpoints ignore timespan; still safe to include for clarity.
+  }
+  return url;
+}
+
+function buildUcdpCandidateUrl(feed) {
+  const { start, end } = getAcledWindow();
+  let url = feed.url || '';
+  url = url.replaceAll('{{start}}', encodeURIComponent(start));
+  url = url.replaceAll('{{end}}', encodeURIComponent(end));
+  return url;
+}
+
 function buildUrl(template, params = {}) {
   let url = template;
   Object.entries(params).forEach(([key, value]) => {
@@ -247,6 +273,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   let url = feed.supportsQuery ? buildUrl(feed.url, { query: finalQuery }) : buildUrl(feed.url, {});
   if (feed.id === 'acled-events' && ACLED_PROXY) {
     url = buildAcledProxyUrl(feed);
+  }
+  if (feed.id === 'gdelt-conflict-geo') {
+    url = buildGdeltConflictUrl(feed);
+  }
+  if (feed.id === 'ucdp-candidate-events') {
+    url = buildUcdpCandidateUrl(feed);
   }
 
   const applied = applyKey(url, feed, effectiveKey, keyParam, keyHeader);

@@ -3,6 +3,7 @@ import http from 'http';
 const PORT = process.env.PORT || 8080;
 const ACLED_NAME = process.env.ACLED_NAME;
 const ACLED_PASS = process.env.ACLED_PASS;
+const DEFAULT_LOOKBACK_DAYS = Number(process.env.ACLED_LOOKBACK_DAYS || 30);
 const TOKEN_URL = 'https://acleddata.com/oauth/token';
 const ACLED_ENDPOINT = 'https://acleddata.com/api/acled/read';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://congressionalinsights.github.io,http://localhost:5173')
@@ -26,6 +27,12 @@ function sendJson(res, status, payload, origin) {
   setCors(res, origin);
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
+}
+
+function formatIsoDate(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
 }
 
 async function requestToken(params) {
@@ -147,6 +154,39 @@ async function handleEvents(req, res) {
       payload = JSON.parse(text);
     } catch (err) {
       return sendJson(res, 500, { error: 'parse_error', message: 'Invalid ACLED response.' }, origin);
+    }
+    if (payload?.count === 0 && Array.isArray(payload?.data) && payload.data.length === 0) {
+      const recency = payload?.data_query_restrictions?.date_recency?.date;
+      if (recency && (!event_date || !event_date.includes(recency))) {
+        const recencyEnd = new Date(recency);
+        if (!Number.isNaN(recencyEnd.getTime())) {
+          const recencyStart = new Date(recencyEnd);
+          recencyStart.setDate(recencyEnd.getDate() - DEFAULT_LOOKBACK_DAYS);
+          const fallbackEventDate = `${formatIsoDate(recencyStart)}|${formatIsoDate(recencyEnd)}`;
+          const fallbackUrl = buildAcledUrl({
+            limit,
+            page,
+            country: country || '',
+            event_date: fallbackEventDate,
+            fields
+          });
+          if (fallbackUrl && fallbackUrl !== apiUrl) {
+            const fallbackResponse = await fetch(fallbackUrl, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const fallbackText = await fallbackResponse.text();
+            if (fallbackResponse.ok) {
+              try {
+                const fallbackPayload = JSON.parse(fallbackText);
+                fallbackPayload.acled_lag_date = recency;
+                return sendJson(res, 200, fallbackPayload, origin);
+              } catch (err) {
+                // ignore parse errors and return original payload
+              }
+            }
+          }
+        }
+      }
     }
     return sendJson(res, 200, payload, origin);
   } catch (err) {

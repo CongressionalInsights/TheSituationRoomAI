@@ -510,6 +510,38 @@
       ]
     },
     {
+      "id": "gdelt-conflict-geo",
+      "name": "GDELT Conflict Signals",
+      "category": "security",
+      "format": "json",
+      "url": "https://api.gdeltproject.org/api/v2/geo/geo?query={{query}}&mode=pointdata&format=geojson&maxpoints=300&timespan={{timespan}}",
+      "supportsQuery": true,
+      "defaultQuery": "(protest OR riot OR attack OR bombing OR clash OR violence OR explosion OR battle)",
+      "ttlMinutes": 60,
+      "tags": [
+        "global",
+        "security",
+        "conflict",
+        "geo",
+        "live"
+      ]
+    },
+    {
+      "id": "ucdp-candidate-events",
+      "name": "UCDP Candidate Events",
+      "category": "security",
+      "format": "json",
+      "url": "https://ucdpapi.pcr.uu.se/api/gedevents/25.0.11?StartDate={{start}}&EndDate={{end}}&pagesize=500",
+      "ttlMinutes": 1440,
+      "tags": [
+        "global",
+        "security",
+        "conflict",
+        "geo",
+        "curated"
+      ]
+    },
+    {
       "id": "gpsjam",
       "name": "GPS Jamming Risk (GPSJam)",
       "category": "security",
