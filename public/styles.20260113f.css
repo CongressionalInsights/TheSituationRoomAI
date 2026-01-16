@@ -2577,8 +2577,11 @@ a:focus-visible {
   font-size: 12px;
   backdrop-filter: blur(6px);
   z-index: 6;
-  max-height: 60vh;
+  max-height: min(72vh, 560px);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  pointer-events: auto;
 }
 
 .map-overlay.show {
