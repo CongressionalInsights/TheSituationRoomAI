@@ -352,12 +352,21 @@ export default {
     }
 
     if (url.pathname === '/api/feed') {
-      const id = url.searchParams.get('id');
-      const query = url.searchParams.get('query') || undefined;
-      const force = url.searchParams.get('force') === '1';
-      const key = url.searchParams.get('key') || undefined;
-      const keyParam = url.searchParams.get('keyParam') || undefined;
-      const keyHeader = url.searchParams.get('keyHeader') || undefined;
+      let body = {};
+      if (request.method === 'POST') {
+        try {
+          const raw = await request.text();
+          body = JSON.parse(raw || '{}');
+        } catch (error) {
+          return jsonResponse({ error: 'invalid_json', message: error.message }, 400, env);
+        }
+      }
+      const id = body.id || url.searchParams.get('id');
+      const query = body.query || url.searchParams.get('query') || undefined;
+      const force = body.force === true || url.searchParams.get('force') === '1';
+      const key = body.key || url.searchParams.get('key') || undefined;
+      const keyParam = body.keyParam || url.searchParams.get('keyParam') || undefined;
+      const keyHeader = body.keyHeader || url.searchParams.get('keyHeader') || undefined;
       const feed = feedsConfig.feeds.find((f) => f.id === id);
       if (!feed) {
         return jsonResponse({ error: 'unknown_feed', id }, 404, env);

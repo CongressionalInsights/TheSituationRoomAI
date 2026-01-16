@@ -438,12 +438,20 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/feed') {
-    const id = url.searchParams.get('id');
-    const query = url.searchParams.get('query') || undefined;
-    const force = url.searchParams.get('force') === '1';
-    const key = url.searchParams.get('key') || undefined;
-    const keyParam = url.searchParams.get('keyParam') || undefined;
-    const keyHeader = url.searchParams.get('keyHeader') || undefined;
+    let body = {};
+    if (req.method === 'POST') {
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch (error) {
+        return sendJson(res, 400, { error: 'invalid_json', message: error.message }, origin);
+      }
+    }
+    const id = body.id || url.searchParams.get('id');
+    const query = body.query || url.searchParams.get('query') || undefined;
+    const force = body.force === true || url.searchParams.get('force') === '1';
+    const key = body.key || url.searchParams.get('key') || undefined;
+    const keyParam = body.keyParam || url.searchParams.get('keyParam') || undefined;
+    const keyHeader = body.keyHeader || url.searchParams.get('keyHeader') || undefined;
     const feed = feedsConfig.feeds.find((f) => f.id === id);
     if (!feed) {
       return sendJson(res, 404, { error: 'unknown_feed', id }, origin);

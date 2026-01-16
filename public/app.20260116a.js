@@ -2388,20 +2388,35 @@ async function testFeedKey(feed, statusEl) {
     return;
   }
 
-  const params = new URLSearchParams();
-  params.set('id', feed.id);
-  params.set('force', '1');
-  if (feed.supportsQuery && feed.defaultQuery) {
-    params.set('query', feed.defaultQuery);
-  }
-  if (keyConfig.key) {
-    params.set('key', keyConfig.key);
-    if (keyConfig.keyParam) params.set('keyParam', keyConfig.keyParam);
-    if (keyConfig.keyHeader) params.set('keyHeader', keyConfig.keyHeader);
-  }
-
   try {
-    const { data: payload, error } = await apiJson(`/api/feed?${params.toString()}`);
+    let payload;
+    let error;
+    if (isStaticMode()) {
+      const params = new URLSearchParams();
+      params.set('id', feed.id);
+      params.set('force', '1');
+      if (feed.supportsQuery && feed.defaultQuery) {
+        params.set('query', feed.defaultQuery);
+      }
+      const result = await apiJson(`/api/feed?${params.toString()}`);
+      payload = result.data;
+      error = result.error;
+    } else {
+      const result = await apiJson('/api/feed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: feed.id,
+          force: true,
+          query: feed.supportsQuery ? feed.defaultQuery : undefined,
+          key: keyConfig.key || undefined,
+          keyParam: keyConfig.keyParam || undefined,
+          keyHeader: keyConfig.keyHeader || undefined
+        })
+      });
+      payload = result.data;
+      error = result.error;
+    }
     if (error || !payload) {
       setKeyStatus(feed.id, 'error', statusEl, 'Feed API unreachable');
       return;
@@ -4204,18 +4219,31 @@ async function fetchFeed(feed, query, force = false) {
     return fetchGpsJamFeed(feed, force);
   }
   const params = new URLSearchParams();
-  params.set('id', feed.id);
-  if (query) params.set('query', query);
-  if (force) params.set('force', '1');
   const keyConfig = getKeyConfig(feed);
-  if (keyConfig.key) {
-    params.set('key', keyConfig.key);
-    if (keyConfig.keyParam) params.set('keyParam', keyConfig.keyParam);
-    if (keyConfig.keyHeader) params.set('keyHeader', keyConfig.keyHeader);
-  }
   try {
-    const res = await apiFetch(`/api/feed?${params.toString()}`);
-    const payload = await res.json();
+    let payload;
+    let res;
+    if (isStaticMode()) {
+      params.set('id', feed.id);
+      if (query) params.set('query', query);
+      if (force) params.set('force', '1');
+      res = await apiFetch(`/api/feed?${params.toString()}`);
+      payload = await res.json();
+    } else {
+      res = await apiFetch('/api/feed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: feed.id,
+          query,
+          force: Boolean(force),
+          key: keyConfig.key || undefined,
+          keyParam: keyConfig.keyParam || undefined,
+          keyHeader: keyConfig.keyHeader || undefined
+        })
+      });
+      payload = await res.json();
+    }
     const httpStatus = payload.httpStatus || res.status || 0;
     const error = payload.error || (httpStatus >= 400 ? `http_${httpStatus}` : null);
     const errorMessage = payload.message || (httpStatus >= 400 ? `HTTP ${httpStatus}` : null);
