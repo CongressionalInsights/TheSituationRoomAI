@@ -4169,7 +4169,7 @@ function parseGpsJamData(text, feed, date) {
     const summaryParts = [`Bad aircraft: ${row.bad}`];
     if (Number.isFinite(row.good)) summaryParts.push(`Good aircraft: ${row.good}`);
     if (ratio !== null) summaryParts.push(`Bad share: ${ratio}%`);
-    const intensity = ratio !== null ? ratio / 100 : clamp(row.bad / 200, 0.2, 0.7);
+    const intensity = ratio !== null ? ratio / 140 : clamp(row.bad / 400, 0.1, 0.35);
     items.push({
       title: 'GPS Jamming Risk',
       url: date ? `https://gpsjam.org/?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&z=6&date=${date}` : 'https://gpsjam.org/',
@@ -7159,7 +7159,7 @@ function drawGpsJamLayer(ctx, items, map) {
       }
     });
     ctx.closePath();
-    const intensity = clamp(item.gpsIntensity ?? 0.35, 0.15, 0.7);
+    const intensity = clamp(item.gpsIntensity ?? 0.25, 0.08, 0.35);
     ctx.fillStyle = `rgba(${GPSJAM_COLOR.r}, ${GPSJAM_COLOR.g}, ${GPSJAM_COLOR.b}, ${intensity})`;
     ctx.fill();
     ctx.stroke();
