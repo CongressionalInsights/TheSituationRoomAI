@@ -292,7 +292,29 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   const response = await fetchWithFallbacks(applied.url, headers, proxyList);
   const contentType = response.headers.get('content-type') || 'text/plain';
-  const body = await response.text();
+  let body = await response.text();
+
+  if (feed.id === 'ucdp-candidate-events' && response.ok) {
+    try {
+      const parsed = JSON.parse(body || '{}');
+      const total = Number(parsed?.TotalCount || 0);
+      if (!total) {
+        const fallbackEnd = new Date();
+        fallbackEnd.setFullYear(fallbackEnd.getFullYear() - 1);
+        const fallbackStart = new Date(fallbackEnd);
+        fallbackStart.setDate(fallbackEnd.getDate() - DEFAULT_LOOKBACK_DAYS);
+        const fallbackUrl = (feed.url || '')
+          .replaceAll('{{start}}', encodeURIComponent(formatIsoDate(fallbackStart)))
+          .replaceAll('{{end}}', encodeURIComponent(formatIsoDate(fallbackEnd)));
+        const fallbackResponse = await fetchWithFallbacks(fallbackUrl, headers, proxyList);
+        if (fallbackResponse.ok) {
+          body = await fallbackResponse.text();
+        }
+      }
+    } catch {
+      // ignore parsing failures
+    }
+  }
 
   const payload = {
     id: feed.id,
