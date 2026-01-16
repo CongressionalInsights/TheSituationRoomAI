@@ -2967,7 +2967,7 @@ a:focus-visible {
   flex-direction: column;
   gap: 10px;
   overflow: auto;
-  max-height: clamp(240px, 40vh, 460px);
+  max-height: none;
   flex: 1;
   min-height: 0;
   padding-right: 6px;
