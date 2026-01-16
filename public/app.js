@@ -85,6 +85,7 @@ const state = {
       travel: true,
       transport: true,
       security: true,
+      gpsjam: true,
       infrastructure: true,
       outage: true,
       local: true
@@ -4093,6 +4094,9 @@ async function fetchFeed(feed, query, force = false) {
   if (feed.isCustom) {
     return fetchCustomFeedDirect(feed, query);
   }
+  if (feed.id === 'gpsjam') {
+    return fetchGpsJamFeed(feed, force);
+  }
   const params = new URLSearchParams();
   params.set('id', feed.id);
   if (query) params.set('query', query);
@@ -4118,6 +4122,137 @@ async function fetchFeed(feed, query, force = false) {
       errorMessage,
       httpStatus,
       fetchedAt: payload.fetchedAt
+    };
+  } catch (err) {
+    return {
+      feed,
+      items: [],
+      error: 'fetch_failed',
+      errorMessage: err.message,
+      httpStatus: 0,
+      fetchedAt: Date.now()
+    };
+  }
+}
+
+function getH3Lib() {
+  return window.h3 || window.h3js || window.h3Js || null;
+}
+
+function parseGpsJamManifest(text) {
+  const rows = parseCsvRows(String(text || '').trim());
+  const entries = rows
+    .filter((row) => row?.length >= 1)
+    .map((row) => ({
+      date: String(row[0] || '').trim(),
+      suspect: Number(row[1] || 0),
+      bad: Number(row[2] || 0)
+    }))
+    .filter((row) => row.date && row.date.toLowerCase() !== 'date');
+  const latest = entries
+    .filter((row) => row.date && !Number.isNaN(Date.parse(row.date)))
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))[0];
+  return latest || null;
+}
+
+function parseGpsJamData(text, feed, manifest) {
+  const h3 = getH3Lib();
+  if (!h3 || (!h3.cellToLatLng && !h3.h3ToGeo)) {
+    return { items: [], error: 'h3_unavailable', errorMessage: 'H3 library not available.' };
+  }
+  const rows = parseCsvRows(String(text || '').trim());
+  const dataRows = rows.filter((row) => row?.length >= 3 && String(row[0] || '').trim().toLowerCase() !== 'hex');
+  const items = [];
+  const maxItems = 1200;
+  const sorted = dataRows
+    .map((row) => ({
+      hex: String(row[0] || '').trim(),
+      good: Number(row[1] || 0),
+      bad: Number(row[2] || 0)
+    }))
+    .filter((row) => row.hex && Number.isFinite(row.bad) && row.bad > 0)
+    .sort((a, b) => b.bad - a.bad)
+    .slice(0, maxItems);
+
+  sorted.forEach((row) => {
+    const coords = h3.cellToLatLng ? h3.cellToLatLng(row.hex) : h3.h3ToGeo(row.hex);
+    if (!coords || coords.length < 2) return;
+    const [lat, lon] = coords;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const total = Number.isFinite(row.good) ? row.good + row.bad : row.bad;
+    const ratio = total > 0 ? Math.round((row.bad / total) * 100) : null;
+    const date = manifest?.date || '';
+    const publishedAt = date ? Date.parse(date) : Date.now();
+    const summaryParts = [`Bad aircraft: ${row.bad}`];
+    if (Number.isFinite(row.good)) summaryParts.push(`Good aircraft: ${row.good}`);
+    if (ratio !== null) summaryParts.push(`Bad share: ${ratio}%`);
+    items.push({
+      title: 'GPS Jamming Risk',
+      url: date ? `https://gpsjam.org/?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&z=6&date=${date}` : 'https://gpsjam.org/',
+      summary: summaryParts.join(' • '),
+      summaryHtml: summaryParts.join(' • '),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: feed.name,
+      category: feed.category,
+      geo: { lat, lon },
+      alertType: 'GPS Jamming',
+      severity: `${row.bad} affected aircraft`,
+      mapOnly: true,
+      tags: feed.tags || [],
+      feedId: feed.id,
+      feedName: feed.name
+    });
+  });
+
+  return { items, error: null, errorMessage: null };
+}
+
+async function fetchGpsJamFeed(feed) {
+  try {
+    const manifestRes = await fetchWithTimeout(feed.url, {}, feed.timeoutMs || 15000);
+    if (!manifestRes.ok) {
+      return {
+        feed,
+        items: [],
+        error: `http_${manifestRes.status}`,
+        errorMessage: `HTTP ${manifestRes.status}`,
+        httpStatus: manifestRes.status,
+        fetchedAt: Date.now()
+      };
+    }
+    const manifestText = await manifestRes.text();
+    const manifest = parseGpsJamManifest(manifestText);
+    if (!manifest?.date) {
+      return {
+        feed,
+        items: [],
+        error: 'manifest_empty',
+        errorMessage: 'No GPSJam dates available.',
+        httpStatus: manifestRes.status,
+        fetchedAt: Date.now()
+      };
+    }
+    const dataUrl = `https://gpsjam.org/data/${manifest.date}-h3_4.csv`;
+    const dataRes = await fetchWithTimeout(dataUrl, {}, feed.timeoutMs || 20000);
+    if (!dataRes.ok) {
+      return {
+        feed,
+        items: [],
+        error: `http_${dataRes.status}`,
+        errorMessage: `HTTP ${dataRes.status}`,
+        httpStatus: dataRes.status,
+        fetchedAt: Date.now()
+      };
+    }
+    const dataText = await dataRes.text();
+    const parsed = parseGpsJamData(dataText, feed, manifest);
+    return {
+      feed,
+      items: parsed.items.map((item) => ({ ...item, tags: feed.tags || [] })),
+      error: parsed.error,
+      errorMessage: parsed.errorMessage,
+      httpStatus: dataRes.status,
+      fetchedAt: Date.now()
     };
   } catch (err) {
     return {
@@ -6895,6 +7030,7 @@ function initMap() {
 
 function getLayerForItem(item) {
   if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
+  if (item.feedId === 'gpsjam') return 'gpsjam';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId?.startsWith('arcgis-outage-')) return 'outage';
   if (item.category === 'travel') return 'travel';
@@ -6914,6 +7050,7 @@ function getLayerColor(layer) {
   if (layer === 'space') return 'rgba(140,107,255,0.9)';
   if (layer === 'travel') return 'rgba(255,196,87,0.95)';
   if (layer === 'transport') return 'rgba(94,232,160,0.9)';
+  if (layer === 'gpsjam') return 'rgba(244,104,102,0.92)';
   if (layer === 'security') return 'rgba(255,144,99,0.92)';
   if (layer === 'infrastructure') return 'rgba(132,190,255,0.9)';
   if (layer === 'outage') return 'rgba(255,210,90,0.92)';
@@ -6925,6 +7062,7 @@ function getLayerColor(layer) {
 function getSignalType(item) {
   if (!item) return 'news';
   if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
+  if (item.feedId === 'gpsjam') return 'gpsjam';
   if (item.feedId === 'usgs-quakes-hour' || item.feedId === 'usgs-quakes-day') return 'quake';
   if (item.feedId === 'arcgis-border-crisis') return 'border';
   if (item.feedId === 'arcgis-kinetic-oconus' || item.feedId === 'arcgis-kinetic-domestic' || item.feedId === 'arcgis-kinetic-europe' || item.feedId === 'arcgis-kinetic-venezuela') return 'kinetic';
@@ -6969,6 +7107,7 @@ const MAP_ICON_LIBRARY = {
   logistics: 'truck',
   fire: 'flame',
   warning: 'alert-triangle',
+  gpsjam: 'radar',
   power: 'bolt',
   travel: 'plane',
   air: 'plane',

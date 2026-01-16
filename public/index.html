@@ -551,6 +551,11 @@
                   Other
                 </label>
               </div>
+              <label class="legend-item">
+                <input id="legendGpsJam" name="legendGpsJam" type="checkbox" data-layer="gpsjam" checked />
+                <span class="legend-swatch tone-gpsjam"><svg class="icon" aria-hidden="true"><use href="#icon-warning"></use></svg></span>
+                GPS Jamming Risk
+              </label>
             </div>
             <div class="legend-group">
               <div class="legend-group-title">Infrastructure</div>
@@ -1388,6 +1393,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="config.js"></script>
+  <script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js" defer></script>
   <script type="module" src="app.20260113f.js"></script>
 </body>
 </html>

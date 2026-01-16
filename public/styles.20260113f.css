@@ -50,6 +50,7 @@
   --tone-disaster: rgba(255, 106, 106, 0.9);
   --tone-spill: rgba(255, 125, 36, 0.92);
   --tone-security: rgba(255, 144, 99, 0.92);
+  --tone-gpsjam: rgba(244, 104, 102, 0.9);
   --tone-infra: rgba(132, 190, 255, 0.9);
   --tone-travel: rgba(255, 196, 87, 0.95);
 }
@@ -2713,6 +2714,7 @@ a:focus-visible {
 .legend-swatch.tone-space { background: var(--tone-space); color: #0a0f14; }
 .legend-swatch.tone-spill { background: var(--tone-spill); color: #0a0f14; }
 .legend-swatch.tone-security { background: var(--tone-security); color: #0a0f14; }
+.legend-swatch.tone-gpsjam { background: var(--tone-gpsjam); color: #0a0f14; }
 .legend-swatch.tone-infra { background: var(--tone-infra); color: #0a0f14; }
 .legend-swatch.tone-travel { background: var(--tone-travel); color: #0a0f14; }
 .legend-swatch.tone-transport { background: var(--tone-transport); color: #0a0f14; }
