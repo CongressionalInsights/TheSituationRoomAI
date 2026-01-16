@@ -192,7 +192,8 @@ body::before {
 
 .app-shell {
   position: relative;
-  padding: 24px 28px 80px calc(var(--sidebar-width) + 52px);
+  padding: 24px 28px 80px;
+  padding-left: calc(var(--sidebar-width) + 52px);
   min-height: 100vh;
 }
 
@@ -3951,7 +3952,8 @@ a.list-title:hover {
 
 @media (max-width: 1200px) {
   .app-shell {
-    padding: 22px 22px 70px calc(var(--sidebar-width) + 44px);
+    padding: 22px 22px 70px;
+    padding-left: calc(var(--sidebar-width) + 44px);
   }
 
   .summary-grid {
