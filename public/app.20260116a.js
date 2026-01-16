@@ -7565,15 +7565,17 @@ function updateMapViewForScope() {
   state.map.invalidateSize();
   const padding = { padding: [40, 40], maxZoom: 7 };
   if (state.settings.scope === 'global') {
-    state.map.fitBounds([[-60, -180], [75, 180]], { padding: [20, 20], maxZoom: 3 });
+    state.map.setView([20, 0], 2);
     return;
   }
   if (state.settings.scope === 'us') {
     const country = getSelectedCountry();
-    if (country?.bbox) {
-      state.map.fitBounds([[country.bbox.minLat, country.bbox.minLon], [country.bbox.maxLat, country.bbox.maxLon]], padding);
+    if (country?.code === 'US' || (state.settings.country || '').toUpperCase() === 'US') {
+      state.map.fitBounds([[24, -125], [49, -66]], { padding: [30, 30], maxZoom: 4 });
+    } else if (country?.bbox) {
+      state.map.fitBounds([[country.bbox.minLat, country.bbox.minLon], [country.bbox.maxLat, country.bbox.maxLon]], { padding: [30, 30], maxZoom: 6 });
     } else {
-      state.map.fitBounds([[24, -125], [49, -66]], padding);
+      state.map.fitBounds([[24, -125], [49, -66]], { padding: [30, 30], maxZoom: 4 });
     }
     return;
   }
