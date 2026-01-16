@@ -1046,6 +1046,27 @@
       ]
     },
     {
+      "id": "congress-api",
+      "name": "Congress.gov Bills",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 20000,
+      "url": "https://api.congress.gov/v3/bill?format=json&sort=updateDate+desc&limit=20",
+      "ttlMinutes": 120,
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "key"
+      ]
+    },
+    {
       "id": "openaq-api",
       "name": "OpenAQ API",
       "docsUrl": "https://docs.openaq.org/",

@@ -223,6 +223,7 @@ const elements = {
   localList: document.getElementById('localList'),
   predictionList: document.getElementById('predictionList'),
   policyList: document.getElementById('policyList'),
+  congressList: document.getElementById('congressList'),
   cyberList: document.getElementById('cyberList'),
   agricultureList: document.getElementById('agricultureList'),
   researchList: document.getElementById('researchList'),
@@ -347,6 +348,7 @@ const defaultPanelSizes = {
   local: { cols: 8 },
   community: { cols: 6 },
   policy: { cols: 4 },
+  congress: { cols: 4 },
   cyber: { cols: 4 },
   agriculture: { cols: 4 },
   research: { cols: 4 },
@@ -409,6 +411,7 @@ const listDefaults = {
   disasterList: 20,
   localList: 20,
   policyList: 20,
+  congressList: 20,
   cyberList: 20,
   agricultureList: 20,
   researchList: 20,
@@ -428,6 +431,7 @@ const listModalConfigs = [
   { id: 'disasterList', title: 'Hazards & Weather', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
   { id: 'localList', title: 'Local Lens', getItems: () => getLocalItemsForPanel() },
   { id: 'policyList', title: 'Policy & Government', getItems: () => getCategoryItems('gov').items },
+  { id: 'congressList', title: 'Congressional Insights', getItems: () => getCongressItems() },
   { id: 'cyberList', title: 'Cyber Pulse', getItems: () => getCategoryItems('cyber').items },
   { id: 'agricultureList', title: 'Agriculture', getItems: () => getCategoryItems('agriculture').items },
   { id: 'researchList', title: 'Research Watch', getItems: () => getCategoryItems('research').items },
@@ -2965,6 +2969,37 @@ const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => (
   deadline: doc.comments_close_on || doc.effective_on || null
 }));
 
+const parseCongressBills = (data, feed) => {
+  const list = Array.isArray(data?.bills)
+    ? data.bills
+    : Array.isArray(data?.bills?.bill)
+      ? data.bills.bill
+      : Array.isArray(data?.results)
+        ? data.results
+        : [];
+  return list.map((bill) => {
+    const number = bill.number || bill.billNumber || bill.bill?.number || '';
+    const title = bill.title || bill.shortTitle || bill.name || 'Untitled Bill';
+    const displayTitle = number ? `${number} — ${title}` : title;
+    const actionDate = bill.latestAction?.actionDate || bill.latestAction?.actionDateTime || bill.actionDate;
+    const actionText = bill.latestAction?.text || bill.latestAction?.action || bill.latestAction?.actionDesc || '';
+    const updateDate = bill.updateDate || bill.updateDateIncludingText || bill.updateDateTime;
+    const publishedAt = actionDate ? Date.parse(actionDate) : (updateDate ? Date.parse(updateDate) : Date.now());
+    const url = bill.url || bill.link || bill.links?.self || bill.bill?.url || '';
+    const summary = actionText || bill.latestAction?.text || bill.latestAction?.action || bill.description || '';
+    return {
+      title: displayTitle,
+      url,
+      summary,
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: 'Congress.gov',
+      category: feed.category,
+      alertType: 'Bill',
+      location: bill.originChamber || bill.latestAction?.actionType || ''
+    };
+  });
+};
+
 const parseEiaSeries = (data, feed) => {
   const seriesList = Array.isArray(data?.series) ? data.series : [];
   if (seriesList.length) {
@@ -3164,6 +3199,7 @@ const feedParsers = {
   'ucdp-candidate-events': parseUcdpCandidateEvents,
   'federal-register': parseFederalRegister,
   'federal-register-transport': parseFederalRegister,
+  'congress-api': parseCongressBills,
   'nws-alerts': (data, feed) => (data.features || []).map((feature) => ({
     title: feature.properties.event,
     url: feature.properties.uri,
@@ -5114,6 +5150,7 @@ function resolveBadgeContext(contextId, item) {
     financeMarketsList: 'financeMarkets',
     financePolicyList: 'financePolicy',
     policyList: 'policy',
+    congressList: 'policy',
     cryptoList: 'crypto',
     disasterList: 'disaster',
     localList: 'local',
@@ -6147,6 +6184,16 @@ function getCategoryItems(category) {
   return { items, mapOnlyNotice: false };
 }
 
+function getCongressItems() {
+  const filterCongress = (item) => item.feedId === 'congress-api' || item.tags?.includes('congress');
+  let items = state.scopedItems.filter(filterCongress);
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items)).filter(filterCongress);
+  }
+  items = items.filter((item) => !item.mapOnly);
+  return dedupeItems(items);
+}
+
 function renderCategory(category, container) {
   if (!container) return;
   const { items, mapOnlyNotice } = getCategoryItems(category);
@@ -6156,6 +6203,13 @@ function renderCategory(category, container) {
   }
   const limit = Math.min(getListLimit(container.id), items.length);
   renderList(container, items.slice(0, limit));
+}
+
+function renderCongress() {
+  if (!elements.congressList) return;
+  const items = getCongressItems();
+  const limit = Math.min(getListLimit(elements.congressList.id), items.length);
+  renderList(elements.congressList, items.slice(0, limit));
 }
 
 function getCombinedItems(categories) {
@@ -6435,6 +6489,7 @@ function renderAllPanels() {
   renderCombined(['disaster', 'weather', 'space'], elements.disasterList);
   renderCategory('security', elements.securityList);
   renderCategory('gov', elements.policyList);
+  renderCongress();
   renderCategory('cyber', elements.cyberList);
   renderCategory('agriculture', elements.agricultureList);
   renderCategory('research', elements.researchList);
@@ -6761,6 +6816,7 @@ function initInfiniteScroll() {
     { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
     { id: 'localList', getItems: () => getLocalItemsForPanel() },
     { id: 'policyList', getItems: () => getCategoryItems('gov').items },
+    { id: 'congressList', getItems: () => getCongressItems() },
     { id: 'cyberList', getItems: () => getCategoryItems('cyber').items },
     { id: 'agricultureList', getItems: () => getCategoryItems('agriculture').items },
     { id: 'researchList', getItems: () => getCategoryItems('research').items },
