@@ -4169,6 +4169,7 @@ function parseGpsJamData(text, feed, date) {
     const summaryParts = [`Bad aircraft: ${row.bad}`];
     if (Number.isFinite(row.good)) summaryParts.push(`Good aircraft: ${row.good}`);
     if (ratio !== null) summaryParts.push(`Bad share: ${ratio}%`);
+    const intensity = ratio !== null ? ratio / 100 : clamp(row.bad / 200, 0.2, 0.7);
     items.push({
       title: 'GPS Jamming Risk',
       url: date ? `https://gpsjam.org/?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&z=6&date=${date}` : 'https://gpsjam.org/',
@@ -4178,6 +4179,11 @@ function parseGpsJamData(text, feed, date) {
       source: feed.name,
       category: feed.category,
       geo: { lat, lon },
+      hex: row.hex,
+      gpsBad: row.bad,
+      gpsGood: row.good,
+      gpsRatio: ratio,
+      gpsIntensity: intensity,
       alertType: 'GPS Jamming',
       severity: `${row.bad} affected aircraft`,
       mapOnly: true,
@@ -7108,6 +7114,7 @@ const MAP_ICON_SVGS = {
 
 const mapIconCache = new Map();
 const MAP_ICON_COLOR = '#0a0f14';
+const GPSJAM_COLOR = { r: 244, g: 104, b: 102 };
 
 function getMapIconName(type) {
   return MAP_ICON_LIBRARY[type] || MAP_ICON_LIBRARY.news;
@@ -7125,6 +7132,39 @@ function getMapIconImage(type) {
   };
   mapIconCache.set(name, img);
   return img;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function drawGpsJamLayer(ctx, items, map) {
+  if (!map || !items.length) return;
+  const h3 = getH3Lib();
+  if (!h3 || !h3.cellToBoundary) return;
+  ctx.save();
+  ctx.lineWidth = 0.6;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  items.forEach((item) => {
+    if (!item.hex) return;
+    const boundary = h3.cellToBoundary(item.hex, true);
+    if (!boundary || boundary.length < 3) return;
+    ctx.beginPath();
+    boundary.forEach(([lat, lon], idx) => {
+      const point = map.latLngToContainerPoint([lat, lon]);
+      if (idx === 0) {
+        ctx.moveTo(point.x, point.y);
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    });
+    ctx.closePath();
+    const intensity = clamp(item.gpsIntensity ?? 0.35, 0.15, 0.7);
+    ctx.fillStyle = `rgba(${GPSJAM_COLOR.r}, ${GPSJAM_COLOR.g}, ${GPSJAM_COLOR.b}, ${intensity})`;
+    ctx.fill();
+    ctx.stroke();
+  });
+  ctx.restore();
 }
 
 function clusterMapPoints(points, radius = 24) {
@@ -7215,7 +7255,13 @@ function drawMap() {
     }
   }
 
-  const rawPoints = getMapItems().map((item) => {
+  const mapItems = getMapItems();
+  const gpsJamItems = mapItems.filter((item) => item.feedId === 'gpsjam' && item.hex);
+  const otherItems = mapItems.filter((item) => item.feedId !== 'gpsjam');
+  if (state.settings.mapLayers.gpsjam && gpsJamItems.length && state.map) {
+    drawGpsJamLayer(ctx, gpsJamItems, state.map);
+  }
+  const rawPoints = otherItems.map((item) => {
     const { lat, lon } = item.geo;
     let x;
     let y;
