@@ -63,8 +63,8 @@ const state = {
       hillshade: 0.45,
       sar: 0.55,
       aerosol: 0.45,
-      thermal: 0.6,
-      fire: 0.6
+      thermal: 0.45,
+      fire: 0.45
     },
     lidarEnabled: false,
     mapConflictTypes: {
@@ -156,6 +156,9 @@ const elements = {
   lidarLoadInline: document.getElementById('lidarLoadInline'),
   lidarReload: document.getElementById('lidarReload'),
   lidarOpen: document.getElementById('lidarOpen'),
+  lidarClose: document.getElementById('lidarClose'),
+  lidarOverlayOpen: document.getElementById('lidarOverlayOpen'),
+  lidarScrim: document.getElementById('lidarScrim'),
   lidarEmpty: document.getElementById('lidarEmpty'),
   lidarEmptyTitle: document.getElementById('lidarEmptyTitle'),
   lidarEmptySub: document.getElementById('lidarEmptySub'),
@@ -328,7 +331,6 @@ const defaultPanelSizes = {
   ticker: { cols: 12 },
   'finance-spotlight': { cols: 12 },
   imagery: { cols: 12 },
-  lidar: { cols: 6 },
   command: { cols: 12 },
   signals: { cols: 5 },
   news: { cols: 6 },
@@ -480,28 +482,28 @@ const GIBS_OVERLAYS = {
     opacity: 0.45
   },
   thermal: {
-    id: 'VIIRS_SNPP_Thermal_Anomalies_375m_All',
-    label: 'Thermal Anomalies',
+    id: 'VIIRS_NOAA20_Brightness_Temp_BandI5_Night',
+    label: 'Thermal Brightness (VIIRS)',
     format: 'png',
-    maxZoom: 6,
-    matrixSet: 'GoogleMapsCompatible_Level6',
-    opacity: 0.6
+    maxZoom: 9,
+    matrixSet: 'GoogleMapsCompatible_Level9',
+    opacity: 0.45
   },
   'fire-east': {
     id: 'GOES-East_ABI_FireTemp',
     label: 'GOES East Fire Temp',
     format: 'png',
-    maxZoom: 6,
-    matrixSet: 'GoogleMapsCompatible_Level6',
-    opacity: 0.6
+    maxZoom: 7,
+    matrixSet: 'GoogleMapsCompatible_Level7',
+    opacity: 0.45
   },
   'fire-west': {
     id: 'GOES-West_ABI_FireTemp',
     label: 'GOES West Fire Temp',
     format: 'png',
-    maxZoom: 6,
-    matrixSet: 'GoogleMapsCompatible_Level6',
-    opacity: 0.6
+    maxZoom: 7,
+    matrixSet: 'GoogleMapsCompatible_Level7',
+    opacity: 0.45
   }
 };
 const severityLabels = [
@@ -6410,14 +6412,37 @@ function initLidarEmbed() {
     }
   };
 
+  const openOverlay = async (options = {}) => {
+    document.body.classList.add('lidar-open');
+    const map = await loadMap(options);
+    if (map && typeof map.resize === 'function') {
+      setTimeout(() => map.resize(), 80);
+    }
+  };
+
+  const closeOverlay = () => {
+    document.body.classList.remove('lidar-open');
+  };
+
+  state.openLidarOverlay = openOverlay;
+  state.closeLidarOverlay = closeOverlay;
+
   const openFull = () => {
     window.open('https://usgs-lidar.gishub.org', '_blank', 'noopener');
   };
 
-  elements.lidarLoad?.addEventListener('click', () => loadMap());
-  elements.lidarLoadInline?.addEventListener('click', () => loadMap());
-  elements.lidarReload?.addEventListener('click', () => loadMap({ forceReload: true }));
+  elements.lidarLoad?.addEventListener('click', () => openOverlay());
+  elements.lidarLoadInline?.addEventListener('click', () => openOverlay());
+  elements.lidarReload?.addEventListener('click', () => openOverlay({ forceReload: true }));
+  elements.lidarOverlayOpen?.addEventListener('click', () => openOverlay());
   elements.lidarOpen?.addEventListener('click', () => openFull());
+  elements.lidarClose?.addEventListener('click', () => closeOverlay());
+  elements.lidarScrim?.addEventListener('click', () => closeOverlay());
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && document.body.classList.contains('lidar-open')) {
+      closeOverlay();
+    }
+  });
 
   if (state.settings.lidarEnabled) {
     loadMap();
@@ -6508,7 +6533,7 @@ function initWorldClocks() {
 function initSidebarNav() {
   const navLinks = [...document.querySelectorAll('.nav-link[data-panel-target]')];
   if (!navLinks.length) return;
-  const panels = [...document.querySelectorAll('.panel[data-panel]')];
+  const panels = [...document.querySelectorAll('.panel[data-panel]')].filter((panel) => panel.dataset.panel !== 'lidar');
 
   const setActive = (target) => {
     navLinks.forEach((link) => {
@@ -6519,6 +6544,12 @@ function initSidebarNav() {
   navLinks.forEach((link) => {
     link.addEventListener('click', () => {
       const target = link.dataset.panelTarget;
+      if (target === 'lidar' && typeof state.openLidarOverlay === 'function') {
+        state.openLidarOverlay();
+        setActive(target);
+        setNavOpen(false);
+        return;
+      }
       const panel = panels.find((entry) => entry.dataset.panel === target);
       if (panel) {
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -6809,8 +6840,8 @@ function resetImagerySettings() {
     hillshade: 0.45,
     sar: 0.55,
     aerosol: 0.45,
-    thermal: 0.6,
-    fire: 0.6
+    thermal: 0.45,
+    fire: 0.45
   };
   state.settings.mapImageryDate = '';
   state.settings.mapSarDate = '';
@@ -6931,35 +6962,41 @@ function initMap() {
 
   state.mapOverlayLayers = {
     hillshade: window.L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 16,
+      maxZoom: 18,
+      maxNativeZoom: 16,
       opacity: getOverlayOpacity('hillshade', 0.45),
       attribution: 'Esri World Hillshade'
     }),
     sar: window.L.tileLayer(buildSarTileUrl(sarDate), {
-      maxZoom: 13,
+      maxZoom: 18,
+      maxNativeZoom: 16,
       opacity: getOverlayOpacity('sar', 0.55),
       attribution: 'Sentinel-1 SAR (Terrascope)'
     }),
     'gibs-overlay-aerosol': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.aerosol.id, gibsDate, GIBS_OVERLAYS.aerosol.format, GIBS_OVERLAYS.aerosol.matrixSet), {
-      maxZoom: GIBS_OVERLAYS.aerosol.maxZoom,
+      maxZoom: 16,
+      maxNativeZoom: GIBS_OVERLAYS.aerosol.maxZoom,
       opacity: getOverlayOpacity('aerosol', GIBS_OVERLAYS.aerosol.opacity),
       crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (Aerosol Index)'
     }),
     'gibs-overlay-thermal': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.thermal.id, gibsDate, GIBS_OVERLAYS.thermal.format, GIBS_OVERLAYS.thermal.matrixSet), {
-      maxZoom: GIBS_OVERLAYS.thermal.maxZoom,
+      maxZoom: 16,
+      maxNativeZoom: GIBS_OVERLAYS.thermal.maxZoom,
       opacity: getOverlayOpacity('thermal', GIBS_OVERLAYS.thermal.opacity),
       crossOrigin: 'anonymous',
-      attribution: 'NASA GIBS (Thermal Anomalies)'
+      attribution: 'NASA GIBS (Thermal Brightness)'
     }),
     'gibs-overlay-fire-east': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS['fire-east'].id, gibsDate, GIBS_OVERLAYS['fire-east'].format, GIBS_OVERLAYS['fire-east'].matrixSet), {
-      maxZoom: GIBS_OVERLAYS['fire-east'].maxZoom,
+      maxZoom: 16,
+      maxNativeZoom: GIBS_OVERLAYS['fire-east'].maxZoom,
       opacity: getOverlayOpacity('fire', GIBS_OVERLAYS['fire-east'].opacity),
       crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (GOES East Fire Temp)'
     }),
     'gibs-overlay-fire-west': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS['fire-west'].id, gibsDate, GIBS_OVERLAYS['fire-west'].format, GIBS_OVERLAYS['fire-west'].matrixSet), {
-      maxZoom: GIBS_OVERLAYS['fire-west'].maxZoom,
+      maxZoom: 16,
+      maxNativeZoom: GIBS_OVERLAYS['fire-west'].maxZoom,
       opacity: getOverlayOpacity('fire', GIBS_OVERLAYS['fire-west'].opacity),
       crossOrigin: 'anonymous',
       attribution: 'NASA GIBS (GOES West Fire Temp)'

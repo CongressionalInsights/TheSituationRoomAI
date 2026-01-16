@@ -216,7 +216,6 @@
             <div class="nav-group-title">Geo & Imagery</div>
             <button class="nav-link" data-panel-target="map"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg>Geo Layer</button>
             <button class="nav-link" data-panel-target="imagery"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg>Imagery Control</button>
-            <button class="nav-link" data-panel-target="lidar"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg>LiDAR Explorer</button>
             <button class="nav-link" data-panel-target="energy-map"><svg class="icon" aria-hidden="true"><use href="#icon-energy"></use></svg>Energy Map</button>
           </div>
           <div class="nav-group">
@@ -472,7 +471,7 @@
               <label class="legend-item"><input id="legendOverlayHillshade" name="legendOverlayHillshade" type="checkbox" data-overlay="hillshade" /> Terrain / Lidar Hillshade</label>
               <label class="legend-item"><input id="legendOverlaySar" name="legendOverlaySar" type="checkbox" data-overlay="sar" /> SAR (Sentinel-1)</label>
               <label class="legend-item"><input id="legendOverlayAerosol" name="legendOverlayAerosol" type="checkbox" data-overlay="aerosol" /> Aerosol / Smoke Index</label>
-              <label class="legend-item"><input id="legendOverlayThermal" name="legendOverlayThermal" type="checkbox" data-overlay="thermal" /> Thermal Anomalies</label>
+              <label class="legend-item"><input id="legendOverlayThermal" name="legendOverlayThermal" type="checkbox" data-overlay="thermal" /> Thermal Brightness</label>
               <label class="legend-item"><input id="legendOverlayFire" name="legendOverlayFire" type="checkbox" data-overlay="fire" /> Wildfire Heat (GOES)</label>
               <div class="legend-note">SAR is swath-based; zoom in or change dates to see coverage.</div>
               <label class="legend-item legend-date">
@@ -625,7 +624,7 @@
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-geo"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg></span>Imagery Control</div>
-            <div class="panel-sub">Satellite basemaps + SAR/Lidar overlays</div>
+            <div class="panel-sub">Satellite basemaps + SAR/thermal overlays + LiDAR explorer</div>
           </div>
         </div>
         <div class="imagery-body">
@@ -655,10 +654,10 @@
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="hillshade">Terrain Hillshade</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol / Smoke</button>
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Anomalies</button>
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat</button>
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Brightness</button>
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat (GOES)</button>
             </div>
-            <div class="imagery-note">SAR is swath-based — zoom or change dates to see coverage.</div>
+            <div class="imagery-note">SAR is swath-based — zoom or change dates to see coverage. GOES fire layers focus on the Americas.</div>
           </div>
           <div class="imagery-group">
             <div class="imagery-label">Overlay Opacity</div>
@@ -701,12 +700,14 @@
             </div>
           </div>
           <div class="imagery-actions">
+            <button class="chip" id="lidarOverlayOpen" type="button">Open LiDAR Explorer</button>
             <button class="chip" id="imageryResetPanelBtn" type="button">Reset Imagery</button>
           </div>
         </div>
       </section>
 
-      <section class="panel lidar-panel" data-panel="lidar" data-category="geo">
+      <div class="lidar-scrim" id="lidarScrim" aria-hidden="true"></div>
+      <section class="panel lidar-panel" aria-modal="true" role="dialog" aria-label="LiDAR Explorer">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-geo"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg></span>LiDAR Explorer</div>
@@ -716,6 +717,7 @@
             <button class="chip" id="lidarLoad" type="button">Load</button>
             <button class="chip" id="lidarReload" type="button">Reload</button>
             <button class="chip" id="lidarOpen" type="button">Open Full</button>
+            <button class="chip chip-toggle" id="lidarClose" type="button">Close</button>
           </div>
         </div>
         <div class="lidar-shell">
