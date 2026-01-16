@@ -124,6 +124,7 @@ const state = {
   lastBuildAt: null,
   refreshTimer: null,
   lastFetch: null,
+  refreshing: false,
   retryingFeeds: false,
   staleRetrying: false,
   lastStaleRetry: 0,
@@ -1476,8 +1477,12 @@ function setHealth(text) {
 
 function setRefreshing(isRefreshing) {
   if (!elements.refreshNow) return;
+  state.refreshing = isRefreshing;
   elements.refreshNow.disabled = isRefreshing;
   elements.refreshNow.textContent = isRefreshing ? 'Refreshing...' : 'Refresh Now';
+  if (elements.mapEmpty) {
+    elements.mapEmpty.textContent = isRefreshing ? 'Fetching geo signals…' : 'No geo signals yet.';
+  }
 }
 
 function buildFeedOptions() {
@@ -5279,25 +5284,25 @@ function renderSignals() {
   elements.globalActivity.textContent = totalItems ? totalItems : '--';
   elements.globalActivityMeta.textContent = totalItems
     ? `Signals ingested: ${totalItems} ${formatDelta(totalItems, previous?.totalItems)}`.trim()
-    : 'Awaiting signals';
+    : (state.refreshing ? 'Fetching feeds…' : 'Awaiting signals');
 
   if (elements.summaryGlobalActivity) {
     elements.summaryGlobalActivity.textContent = totalItems ? totalItems : '--';
     elements.summaryGlobalActivityMeta.textContent = totalItems
       ? `Signals ingested: ${totalItems} ${formatDelta(totalItems, previous?.totalItems)}`.trim()
-      : 'Awaiting signals';
+      : (state.refreshing ? 'Fetching feeds…' : 'Awaiting signals');
   }
 
   elements.newsSaturation.textContent = newsClusters ? newsClusters : '--';
   elements.newsSaturationMeta.textContent = newsClusters
     ? `Clusters across sources ${formatDelta(newsClusters, previous?.newsClusters)}`.trim()
-    : 'No clusters yet';
+    : (state.refreshing ? 'Fetching clusters…' : 'No clusters yet');
 
   if (elements.summaryNewsSaturation) {
     elements.summaryNewsSaturation.textContent = newsClusters ? newsClusters : '--';
     elements.summaryNewsSaturationMeta.textContent = newsClusters
       ? `Clusters across sources ${formatDelta(newsClusters, previous?.newsClusters)}`.trim()
-      : 'No clusters yet';
+      : (state.refreshing ? 'Fetching clusters…' : 'No clusters yet');
   }
 
   elements.localEvents.textContent = localItems.length ? localItems.length : '--';
@@ -5305,7 +5310,7 @@ function renderSignals() {
     ? (state.location.source === 'geo'
       ? `Within local radius ${formatDelta(localItems.length, previous?.localItems)}`
       : `Fallback region ${formatDelta(localItems.length, previous?.localItems)}`)
-    : 'No local signals yet';
+    : (state.refreshing ? 'Locating…' : 'No local signals yet');
 
   if (elements.summaryLocalEvents) {
     elements.summaryLocalEvents.textContent = localItems.length ? localItems.length : '--';
@@ -5313,20 +5318,20 @@ function renderSignals() {
       ? (state.location.source === 'geo'
         ? `Within local radius ${formatDelta(localItems.length, previous?.localItems)}`
         : `Fallback region ${formatDelta(localItems.length, previous?.localItems)}`)
-      : 'No local signals yet';
+      : (state.refreshing ? 'Locating…' : 'No local signals yet');
   }
 
   const marketCount = marketSignals.length;
   elements.marketPulse.textContent = marketCount ? marketCount : '--';
   elements.marketPulseMeta.textContent = marketCount
     ? `Markets + macro feeds ${formatDelta(marketCount, previous?.marketCount)}`.trim()
-    : 'No market signals yet';
+    : (state.refreshing ? 'Fetching feeds…' : 'No market signals yet');
 
   if (elements.summaryMarketPulse) {
     elements.summaryMarketPulse.textContent = marketCount ? marketCount : '--';
     elements.summaryMarketPulseMeta.textContent = marketCount
       ? `Markets + macro feeds ${formatDelta(marketCount, previous?.marketCount)}`.trim()
-      : 'No market signals yet';
+      : (state.refreshing ? 'Fetching feeds…' : 'No market signals yet');
   }
 
   if (elements.signalHealthChip) {
