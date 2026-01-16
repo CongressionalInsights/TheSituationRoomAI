@@ -3148,7 +3148,7 @@ const feedParsers = {
       const parts = [speed, altitude].filter(Boolean);
       return {
         title: `${callsign} • ${origin || 'Unknown'}`,
-        url: icao24 ? `https://opensky-network.org/aircraft-profile?icao24=${encodeURIComponent(icao24)}` : 'https://opensky-network.org/',
+        url: icao24 ? `https://opensky-network.org/api/tracks/all?icao24=${encodeURIComponent(icao24)}` : 'https://opensky-network.org/',
         summary: parts.length ? parts.join(' | ') : 'Airborne signal',
         publishedAt: entry?.[4] ? entry[4] * 1000 : updatedAt,
         source: 'OpenSky',
@@ -8628,7 +8628,7 @@ function initEvents() {
     elements.flightFocusOpen.addEventListener('click', () => {
       const icao24 = state.flightFocus?.icao24;
       if (!icao24) return;
-      window.open(`https://opensky-network.org/aircraft-profile?icao24=${encodeURIComponent(icao24)}`, '_blank', 'noopener');
+      window.open(`https://opensky-network.org/api/tracks/all?icao24=${encodeURIComponent(icao24)}`, '_blank', 'noopener');
     });
   }
   if (elements.searchResultsClose) {
