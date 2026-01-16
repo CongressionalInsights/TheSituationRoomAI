@@ -1,6 +1,6 @@
 import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy, getAcledProxy } from './services/api.js';
 
-const LAYOUT_VERSION = 3;
+const LAYOUT_VERSION = 4;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
 const CLIENT_FETCH_TIMEOUT_MS = 12000;
 
@@ -2782,7 +2782,7 @@ function parseAcledEvents(data, feed) {
 function parseGdeltConflictGeo(data, feed) {
   const features = Array.isArray(data?.features) ? data.features : [];
   const extractFirstLink = (html = '') => {
-    const match = html.match(/<a[^>]+href=\"([^\"]+)\"[^>]*>(.*?)<\\/a>/i);
+    const match = html.match(/<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/i);
     if (!match) return { url: '', text: '' };
     const text = match[2]?.replace(/<[^>]*>/g, '').replace(/&nbsp;|&amp;|&quot;|&#39;/g, ' ').trim();
     return { url: match[1] || '', text: text || '' };
