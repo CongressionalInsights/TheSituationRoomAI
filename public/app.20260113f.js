@@ -4139,23 +4139,7 @@ function getH3Lib() {
   return window.h3 || window.h3js || window.h3Js || null;
 }
 
-function parseGpsJamManifest(text) {
-  const rows = parseCsvRows(String(text || '').trim());
-  const entries = rows
-    .filter((row) => row?.length >= 1)
-    .map((row) => ({
-      date: String(row[0] || '').trim(),
-      suspect: Number(row[1] || 0),
-      bad: Number(row[2] || 0)
-    }))
-    .filter((row) => row.date && row.date.toLowerCase() !== 'date');
-  const latest = entries
-    .filter((row) => row.date && !Number.isNaN(Date.parse(row.date)))
-    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))[0];
-  return latest || null;
-}
-
-function parseGpsJamData(text, feed, manifest) {
+function parseGpsJamData(text, feed, date) {
   const h3 = getH3Lib();
   if (!h3 || (!h3.cellToLatLng && !h3.h3ToGeo)) {
     return { items: [], error: 'h3_unavailable', errorMessage: 'H3 library not available.' };
@@ -4181,7 +4165,6 @@ function parseGpsJamData(text, feed, manifest) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const total = Number.isFinite(row.good) ? row.good + row.bad : row.bad;
     const ratio = total > 0 ? Math.round((row.bad / total) * 100) : null;
-    const date = manifest?.date || '';
     const publishedAt = date ? Date.parse(date) : Date.now();
     const summaryParts = [`Bad aircraft: ${row.bad}`];
     if (Number.isFinite(row.good)) summaryParts.push(`Good aircraft: ${row.good}`);
@@ -4207,52 +4190,28 @@ function parseGpsJamData(text, feed, manifest) {
   return { items, error: null, errorMessage: null };
 }
 
-async function fetchGpsJamFeed(feed) {
+async function fetchGpsJamFeed(feed, force = false) {
   try {
-    const manifestRes = await fetchWithTimeout(feed.url, {}, feed.timeoutMs || 15000);
-    if (!manifestRes.ok) {
+    const res = await apiFetch(force ? '/api/gpsjam?force=1' : '/api/gpsjam');
+    const payload = await res.json();
+    if (payload.error) {
       return {
         feed,
         items: [],
-        error: `http_${manifestRes.status}`,
-        errorMessage: `HTTP ${manifestRes.status}`,
-        httpStatus: manifestRes.status,
-        fetchedAt: Date.now()
+        error: payload.error,
+        errorMessage: payload.message || 'GPSJam fetch failed.',
+        httpStatus: payload.httpStatus || res.status || 0,
+        fetchedAt: payload.fetchedAt || Date.now()
       };
     }
-    const manifestText = await manifestRes.text();
-    const manifest = parseGpsJamManifest(manifestText);
-    if (!manifest?.date) {
-      return {
-        feed,
-        items: [],
-        error: 'manifest_empty',
-        errorMessage: 'No GPSJam dates available.',
-        httpStatus: manifestRes.status,
-        fetchedAt: Date.now()
-      };
-    }
-    const dataUrl = `https://gpsjam.org/data/${manifest.date}-h3_4.csv`;
-    const dataRes = await fetchWithTimeout(dataUrl, {}, feed.timeoutMs || 20000);
-    if (!dataRes.ok) {
-      return {
-        feed,
-        items: [],
-        error: `http_${dataRes.status}`,
-        errorMessage: `HTTP ${dataRes.status}`,
-        httpStatus: dataRes.status,
-        fetchedAt: Date.now()
-      };
-    }
-    const dataText = await dataRes.text();
-    const parsed = parseGpsJamData(dataText, feed, manifest);
+    const parsed = parseGpsJamData(payload.body || '', feed, payload.date || '');
     return {
       feed,
       items: parsed.items.map((item) => ({ ...item, tags: feed.tags || [] })),
       error: parsed.error,
       errorMessage: parsed.errorMessage,
-      httpStatus: dataRes.status,
-      fetchedAt: Date.now()
+      httpStatus: payload.httpStatus || res.status || 0,
+      fetchedAt: payload.fetchedAt || Date.now()
     };
   } catch (err) {
     return {

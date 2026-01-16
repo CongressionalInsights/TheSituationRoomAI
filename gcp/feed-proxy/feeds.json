@@ -509,6 +509,20 @@
       ]
     },
     {
+      "id": "gpsjam",
+      "name": "GPS Jamming Risk (GPSJam)",
+      "category": "security",
+      "format": "csv",
+      "url": "https://gpsjam.org/data/manifest.csv",
+      "ttlMinutes": 180,
+      "tags": [
+        "global",
+        "gps",
+        "jamming",
+        "geo"
+      ]
+    },
+    {
       "id": "cdc-travel-notices",
       "name": "CDC Travel Notices",
       "category": "travel",

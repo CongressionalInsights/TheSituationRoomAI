@@ -2,6 +2,7 @@ import http from 'http';
 import { mkdirSync, readFile, readFileSync, writeFileSync, existsSync } from 'fs';
 import { dirname, extname, join, normalize } from 'path';
 import { fileURLToPath } from 'url';
+import { gunzipSync } from 'zlib';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,6 +23,8 @@ const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-
 let openSkyToken = null;
 let openSkyTokenExpiresAt = 0;
 const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
+const GPSJAM_ID = 'gpsjam';
+const GPSJAM_CACHE_KEY = 'gpsjam:data';
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -48,6 +51,67 @@ function loadLocalFeed(feed) {
     body,
     httpStatus: 200
   };
+}
+
+function decodeMaybeGzip(buffer) {
+  if (!buffer || buffer.length < 2) return Buffer.from(buffer || []);
+  const signature = buffer[0] === 0x1f && buffer[1] === 0x8b;
+  if (!signature) return Buffer.from(buffer);
+  try {
+    return gunzipSync(Buffer.from(buffer));
+  } catch (err) {
+    return Buffer.from(buffer);
+  }
+}
+
+function parseGpsJamManifest(text) {
+  const lines = String(text || '').trim().split(/\r?\n/);
+  let latest = null;
+  lines.forEach((line) => {
+    const [date, suspect, bad] = line.split(',');
+    if (!date || date === 'date') return;
+    if (!latest || Date.parse(date) > Date.parse(latest.date)) {
+      latest = { date: date.trim(), suspect, bad };
+    }
+  });
+  return latest;
+}
+
+async function fetchGpsJam(force = false) {
+  const feed = feedsConfig.feeds.find((entry) => entry.id === GPSJAM_ID);
+  if (!feed) {
+    return { error: 'missing_feed', message: 'GPSJam feed missing.' };
+  }
+  const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
+  const cached = cache.get(GPSJAM_CACHE_KEY);
+  if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
+    return cached;
+  }
+
+  const manifestRes = await fetchWithTimeout(feed.url, {
+    headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'text/plain,*/*' }
+  }, FETCH_TIMEOUT_MS);
+  const manifestBuf = Buffer.from(await manifestRes.arrayBuffer());
+  const manifestText = decodeMaybeGzip(manifestBuf).toString('utf8');
+  const manifest = parseGpsJamManifest(manifestText);
+  if (!manifest?.date) {
+    return { error: 'manifest_empty', message: 'No GPSJam date found.' };
+  }
+
+  const dataUrl = `https://gpsjam.org/data/${manifest.date}-h3_4.csv`;
+  const dataRes = await fetchWithTimeout(dataUrl, {
+    headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'text/plain,*/*' }
+  }, FETCH_TIMEOUT_MS);
+  const dataBuf = Buffer.from(await dataRes.arrayBuffer());
+  const dataText = decodeMaybeGzip(dataBuf).toString('utf8');
+  const payload = {
+    fetchedAt: Date.now(),
+    httpStatus: dataRes.status,
+    date: manifest.date,
+    body: dataText
+  };
+  cache.set(GPSJAM_CACHE_KEY, payload);
+  return payload;
 }
 
 function sendJson(res, status, payload) {
@@ -461,6 +525,19 @@ const server = http.createServer(async (req, res) => {
       url: feed.requiresKey ? feed.url : feed.url
     }));
     return sendJson(res, 200, { app: feedsConfig.app, feeds: sanitized });
+  }
+
+  if (url.pathname === '/api/gpsjam') {
+    const force = url.searchParams.get('force') === '1';
+    try {
+      const payload = await fetchGpsJam(force);
+      if (payload.error) {
+        return sendJson(res, 502, payload);
+      }
+      return sendJson(res, 200, payload);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
+    }
   }
 
   if (url.pathname === '/api/feed') {

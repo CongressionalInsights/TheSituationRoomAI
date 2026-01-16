@@ -2,6 +2,7 @@ import http from 'http';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { gunzipSync } from 'zlib';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,6 +21,8 @@ const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
 const cache = new Map();
 const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
+const GPSJAM_ID = 'gpsjam';
+const GPSJAM_CACHE_KEY = 'gpsjam:data';
 
 function setCors(res, origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : '';
@@ -94,6 +97,67 @@ function applyProxy(url, proxy) {
     return `https://r.jina.ai/http://${stripped}`;
   }
   return url;
+}
+
+function decodeMaybeGzip(buffer) {
+  if (!buffer || buffer.length < 2) return Buffer.from(buffer || []);
+  const signature = buffer[0] === 0x1f && buffer[1] === 0x8b;
+  if (!signature) return Buffer.from(buffer);
+  try {
+    return gunzipSync(Buffer.from(buffer));
+  } catch (err) {
+    return Buffer.from(buffer);
+  }
+}
+
+function parseGpsJamManifest(text) {
+  const lines = String(text || '').trim().split(/\r?\n/);
+  let latest = null;
+  lines.forEach((line) => {
+    const [date, suspect, bad] = line.split(',');
+    if (!date || date === 'date') return;
+    if (!latest || Date.parse(date) > Date.parse(latest.date)) {
+      latest = { date: date.trim(), suspect, bad };
+    }
+  });
+  return latest;
+}
+
+async function fetchGpsJam(force = false) {
+  const feed = feedsConfig.feeds.find((entry) => entry.id === GPSJAM_ID);
+  if (!feed) {
+    return { error: 'missing_feed', message: 'GPSJam feed missing.' };
+  }
+  const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
+  const cached = cache.get(GPSJAM_CACHE_KEY);
+  if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
+    return cached;
+  }
+
+  const manifestRes = await fetchWithTimeout(feed.url, {
+    headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'text/plain,*/*' }
+  }, FETCH_TIMEOUT_MS);
+  const manifestBuf = Buffer.from(await manifestRes.arrayBuffer());
+  const manifestText = decodeMaybeGzip(manifestBuf).toString('utf8');
+  const manifest = parseGpsJamManifest(manifestText);
+  if (!manifest?.date) {
+    return { error: 'manifest_empty', message: 'No GPSJam date found.' };
+  }
+
+  const dataUrl = `https://gpsjam.org/data/${manifest.date}-h3_4.csv`;
+  const dataRes = await fetchWithTimeout(dataUrl, {
+    headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'text/plain,*/*' }
+  }, FETCH_TIMEOUT_MS);
+  const dataBuf = Buffer.from(await dataRes.arrayBuffer());
+  const dataText = decodeMaybeGzip(dataBuf).toString('utf8');
+  const payload = {
+    fetchedAt: Date.now(),
+    httpStatus: dataRes.status,
+    date: manifest.date,
+    body: dataText
+  };
+  cache.set(GPSJAM_CACHE_KEY, payload);
+  return payload;
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -304,6 +368,19 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/feeds') {
     const sanitized = feedsConfig.feeds.map((feed) => ({ ...feed, url: feed.url }));
     return sendJson(res, 200, { app: feedsConfig.app, feeds: sanitized }, origin);
+  }
+
+  if (url.pathname === '/api/gpsjam') {
+    const force = url.searchParams.get('force') === '1';
+    try {
+      const payload = await fetchGpsJam(force);
+      if (payload.error) {
+        return sendJson(res, 502, payload, origin);
+      }
+      return sendJson(res, 200, payload, origin);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message }, origin);
+    }
   }
 
   if (url.pathname === '/api/feed') {
