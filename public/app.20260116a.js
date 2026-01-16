@@ -6713,8 +6713,9 @@ function initCommandSections() {
   sections.forEach((section) => {
     const toggle = section.querySelector('.command-section-toggle');
     if (!toggle) return;
-    section.classList.remove('is-open');
-    toggle.setAttribute('aria-expanded', section.classList.contains('is-open') ? 'true' : 'false');
+    const isDefaultOpen = section.dataset.defaultOpen === 'true';
+    section.classList.toggle('is-open', isDefaultOpen);
+    toggle.setAttribute('aria-expanded', isDefaultOpen ? 'true' : 'false');
     toggle.addEventListener('click', () => {
       const isOpen = section.classList.toggle('is-open');
       toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');

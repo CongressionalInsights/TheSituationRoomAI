@@ -1649,6 +1649,10 @@ a:focus-visible {
   gap: 10px;
 }
 
+.imagery-panel .imagery-group > .imagery-label {
+  display: none;
+}
+
 .imagery-label {
   font-size: 11px;
   text-transform: uppercase;

@@ -627,85 +627,125 @@
           </div>
         </div>
         <div class="imagery-body">
-          <div class="imagery-group">
-            <div class="imagery-label">Basemaps</div>
-            <div class="chip-group">
-              <button class="chip imagery-basemap" data-imagery-basemap="osm">OSM</button>
-              <button class="chip imagery-basemap" data-imagery-basemap="esri">Esri Satellite</button>
-              <button class="chip imagery-basemap" data-imagery-basemap="gibs-viirs">NASA VIIRS</button>
-              <button class="chip imagery-basemap" data-imagery-basemap="gibs-modis-terra">MODIS Terra</button>
-              <button class="chip imagery-basemap" data-imagery-basemap="gibs-modis-aqua">MODIS Aqua</button>
-              <button class="chip imagery-basemap" data-imagery-basemap="gibs-nightlights">Night Lights</button>
-              <button class="chip imagery-basemap" data-imagery-basemap="gibs-daynight">Day/Night Band</button>
+          <div class="command-section imagery-section" data-default-open="true">
+            <button class="command-section-toggle" type="button" aria-expanded="false">
+              <span>Basemaps</span>
+              <span class="command-section-note">Switch the primary basemap layer.</span>
+            </button>
+            <div class="command-section-body">
+              <div class="imagery-group">
+                <div class="imagery-label">Basemaps</div>
+                <div class="chip-group">
+                  <button class="chip imagery-basemap" data-imagery-basemap="osm">OSM</button>
+                  <button class="chip imagery-basemap" data-imagery-basemap="esri">Esri Satellite</button>
+                  <button class="chip imagery-basemap" data-imagery-basemap="gibs-viirs">NASA VIIRS</button>
+                  <button class="chip imagery-basemap" data-imagery-basemap="gibs-modis-terra">MODIS Terra</button>
+                  <button class="chip imagery-basemap" data-imagery-basemap="gibs-modis-aqua">MODIS Aqua</button>
+                  <button class="chip imagery-basemap" data-imagery-basemap="gibs-nightlights">Night Lights</button>
+                  <button class="chip imagery-basemap" data-imagery-basemap="gibs-daynight">Day/Night Band</button>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="imagery-group">
-            <div class="imagery-label">Presets</div>
-            <div class="chip-group">
-              <button class="chip" data-imagery-preset="night">Night</button>
-              <button class="chip" data-imagery-preset="thermal">Thermal</button>
-              <button class="chip" id="imageryResetBtn" type="button">Reset Imagery</button>
+          <div class="command-section imagery-section">
+            <button class="command-section-toggle" type="button" aria-expanded="false">
+              <span>Presets & Actions</span>
+              <span class="command-section-note">Quick toggles for night/thermal views.</span>
+            </button>
+            <div class="command-section-body">
+              <div class="imagery-group">
+                <div class="imagery-label">Presets</div>
+                <div class="chip-group">
+                  <button class="chip" data-imagery-preset="night">Night</button>
+                  <button class="chip" data-imagery-preset="thermal">Thermal</button>
+                  <button class="chip" id="imageryResetBtn" type="button">Reset Imagery</button>
+                </div>
+              </div>
+              <div class="imagery-actions">
+                <button class="chip" id="imageryResetPanelBtn" type="button">Reset Imagery</button>
+              </div>
             </div>
           </div>
-          <div class="imagery-group">
-            <div class="imagery-label">Overlays</div>
-            <div class="chip-group">
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="hillshade">Terrain Hillshade</button>
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol / Smoke</button>
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="lidar">LiDAR Coverage</button>
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Brightness</button>
-              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat (GOES)</button>
-            </div>
-            <div class="imagery-note">SAR is swath-based — zoom or change dates to see coverage. GOES fire layers focus on the Americas.</div>
-          </div>
-          <div class="imagery-group">
-            <div class="imagery-label">Overlay Opacity</div>
-            <div class="imagery-slider">
-              <label for="opacityHillshade">Hillshade</label>
-              <input id="opacityHillshade" name="opacityHillshade" type="range" min="0" max="100" step="5" data-overlay-opacity="hillshade" />
-              <span data-overlay-opacity-value="hillshade">--%</span>
-            </div>
-            <div class="imagery-slider">
-              <label for="opacitySar">SAR</label>
-              <input id="opacitySar" name="opacitySar" type="range" min="0" max="100" step="5" data-overlay-opacity="sar" />
-              <span data-overlay-opacity-value="sar">--%</span>
-            </div>
-            <div class="imagery-slider">
-              <label for="opacityAerosol">Aerosol</label>
-              <input id="opacityAerosol" name="opacityAerosol" type="range" min="0" max="100" step="5" data-overlay-opacity="aerosol" />
-              <span data-overlay-opacity-value="aerosol">--%</span>
-            </div>
-            <div class="imagery-slider">
-              <label for="opacityLidar">LiDAR Coverage</label>
-              <input id="opacityLidar" name="opacityLidar" type="range" min="0" max="100" step="5" data-overlay-opacity="lidar" />
-              <span data-overlay-opacity-value="lidar">--%</span>
-            </div>
-            <div class="imagery-slider">
-              <label for="opacityThermal">Thermal</label>
-              <input id="opacityThermal" name="opacityThermal" type="range" min="0" max="100" step="5" data-overlay-opacity="thermal" />
-              <span data-overlay-opacity-value="thermal">--%</span>
-            </div>
-            <div class="imagery-slider">
-              <label for="opacityFire">Fire</label>
-              <input id="opacityFire" name="opacityFire" type="range" min="0" max="100" step="5" data-overlay-opacity="fire" />
-              <span data-overlay-opacity-value="fire">--%</span>
+          <div class="command-section imagery-section" data-default-open="true">
+            <button class="command-section-toggle" type="button" aria-expanded="false">
+              <span>Overlays</span>
+              <span class="command-section-note">SAR, LiDAR, aerosol, thermal, wildfire layers.</span>
+            </button>
+            <div class="command-section-body">
+              <div class="imagery-group">
+                <div class="imagery-label">Overlays</div>
+                <div class="chip-group">
+                  <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="hillshade">Terrain Hillshade</button>
+                  <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
+                  <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol / Smoke</button>
+                  <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="lidar">LiDAR Coverage</button>
+                  <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Brightness</button>
+                  <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat (GOES)</button>
+                </div>
+                <div class="imagery-note">SAR is swath-based — zoom or change dates to see coverage. GOES fire layers focus on the Americas.</div>
+              </div>
             </div>
           </div>
-          <div class="imagery-group imagery-dates">
-            <div class="imagery-date">
-              <label class="imagery-label" for="imageryDatePanel">Imagery Date</label>
-              <input id="imageryDatePanel" name="imageryDatePanel" type="date" />
-              <button class="chip chip-small" id="imageryPanelAutoBtn" type="button">Latest</button>
-            </div>
-            <div class="imagery-date">
-              <label class="imagery-label" for="sarDatePanel">SAR Date</label>
-              <input id="sarDatePanel" name="sarDatePanel" type="date" />
-              <button class="chip chip-small" id="sarPanelAutoBtn" type="button">Latest</button>
+          <div class="command-section imagery-section">
+            <button class="command-section-toggle" type="button" aria-expanded="false">
+              <span>Opacity Controls</span>
+              <span class="command-section-note">Tune visibility for each overlay.</span>
+            </button>
+            <div class="command-section-body">
+              <div class="imagery-group">
+                <div class="imagery-label">Overlay Opacity</div>
+                <div class="imagery-slider">
+                  <label for="opacityHillshade">Hillshade</label>
+                  <input id="opacityHillshade" name="opacityHillshade" type="range" min="0" max="100" step="5" data-overlay-opacity="hillshade" />
+                  <span data-overlay-opacity-value="hillshade">--%</span>
+                </div>
+                <div class="imagery-slider">
+                  <label for="opacitySar">SAR</label>
+                  <input id="opacitySar" name="opacitySar" type="range" min="0" max="100" step="5" data-overlay-opacity="sar" />
+                  <span data-overlay-opacity-value="sar">--%</span>
+                </div>
+                <div class="imagery-slider">
+                  <label for="opacityAerosol">Aerosol</label>
+                  <input id="opacityAerosol" name="opacityAerosol" type="range" min="0" max="100" step="5" data-overlay-opacity="aerosol" />
+                  <span data-overlay-opacity-value="aerosol">--%</span>
+                </div>
+                <div class="imagery-slider">
+                  <label for="opacityLidar">LiDAR Coverage</label>
+                  <input id="opacityLidar" name="opacityLidar" type="range" min="0" max="100" step="5" data-overlay-opacity="lidar" />
+                  <span data-overlay-opacity-value="lidar">--%</span>
+                </div>
+                <div class="imagery-slider">
+                  <label for="opacityThermal">Thermal</label>
+                  <input id="opacityThermal" name="opacityThermal" type="range" min="0" max="100" step="5" data-overlay-opacity="thermal" />
+                  <span data-overlay-opacity-value="thermal">--%</span>
+                </div>
+                <div class="imagery-slider">
+                  <label for="opacityFire">Fire</label>
+                  <input id="opacityFire" name="opacityFire" type="range" min="0" max="100" step="5" data-overlay-opacity="fire" />
+                  <span data-overlay-opacity-value="fire">--%</span>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="imagery-actions">
-            <button class="chip" id="imageryResetPanelBtn" type="button">Reset Imagery</button>
+          <div class="command-section imagery-section">
+            <button class="command-section-toggle" type="button" aria-expanded="false">
+              <span>Dates</span>
+              <span class="command-section-note">Select imagery time windows.</span>
+            </button>
+            <div class="command-section-body">
+              <div class="imagery-group imagery-dates">
+                <div class="imagery-date">
+                  <label class="imagery-label" for="imageryDatePanel">Imagery Date</label>
+                  <input id="imageryDatePanel" name="imageryDatePanel" type="date" />
+                  <button class="chip chip-small" id="imageryPanelAutoBtn" type="button">Latest</button>
+                </div>
+                <div class="imagery-date">
+                  <label class="imagery-label" for="sarDatePanel">SAR Date</label>
+                  <input id="sarDatePanel" name="sarDatePanel" type="date" />
+                  <button class="chip chip-small" id="sarPanelAutoBtn" type="button">Latest</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
