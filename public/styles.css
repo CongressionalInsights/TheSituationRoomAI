@@ -202,6 +202,8 @@ body::before {
   gap: 20px;
   min-width: 0;
   margin-left: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar {
@@ -219,6 +221,8 @@ body::before {
   background: var(--panel);
   box-shadow: var(--shadow-soft);
   overflow: hidden;
+  z-index: 5;
+  pointer-events: auto;
 }
 
 .sidebar-brand {
