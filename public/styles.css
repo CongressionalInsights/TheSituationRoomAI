@@ -1148,6 +1148,25 @@ a:focus-visible {
   animation: rise 0.6s ease both;
 }
 
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.feed-panel {
+  height: clamp(320px, 46vh, 520px);
+}
+
+.feed-panel .list,
+.feed-panel .tab-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 .panel::after {
   content: "";
   position: absolute;

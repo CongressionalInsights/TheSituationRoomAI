@@ -888,7 +888,7 @@
         </div>
       </section>
 
-      <section class="panel news-panel" data-panel="news" data-category="news">
+      <section class="panel feed-panel news-panel" data-panel="news" data-category="news">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-news"><svg class="icon" aria-hidden="true"><use href="#icon-news"></use></svg></span>News Layer</div>
@@ -898,72 +898,86 @@
             <button class="chip" id="newsSort">Sort: Impact</button>
           </div>
         </div>
-        <div class="list" id="newsList"></div>
+        <div class="panel-body">
+          <div class="list" id="newsList"></div>
+        </div>
       </section>
 
-      <section class="panel finance-panel" data-panel="finance" data-category="finance">
+      <section class="panel feed-panel finance-panel" data-panel="finance" data-category="finance">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-finance"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg></span>Finance & Policy</div>
             <div class="panel-sub">Macro, debt, disclosures</div>
           </div>
         </div>
-        <div class="panel-tabs" id="financeTabs">
-          <button class="tab active" data-tab="markets">Markets</button>
-          <button class="tab" data-tab="regulatory">Regulatory</button>
+        <div class="panel-body">
+          <div class="panel-tabs" id="financeTabs">
+            <button class="tab active" data-tab="markets">Markets</button>
+            <button class="tab" data-tab="regulatory">Regulatory</button>
+          </div>
+          <div class="list tab-panel active" id="financeMarketsList"></div>
+          <div class="list tab-panel" id="financePolicyList"></div>
         </div>
-        <div class="list tab-panel active" id="financeMarketsList"></div>
-        <div class="list tab-panel" id="financePolicyList"></div>
       </section>
 
-      <section class="panel crypto-panel" data-panel="crypto" data-category="crypto">
+      <section class="panel feed-panel crypto-panel" data-panel="crypto" data-category="crypto">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-crypto"><svg class="icon" aria-hidden="true"><use href="#icon-crypto"></use></svg></span>Crypto / Web3</div>
             <div class="panel-sub">Market heat & chain signals</div>
           </div>
         </div>
-        <div class="list" id="cryptoList"></div>
+        <div class="panel-body">
+          <div class="list" id="cryptoList"></div>
+        </div>
       </section>
 
-      <section class="panel prediction-panel" data-panel="prediction" data-category="prediction">
+      <section class="panel feed-panel prediction-panel" data-panel="prediction" data-category="prediction">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-prediction"><svg class="icon" aria-hidden="true"><use href="#icon-ticker"></use></svg></span>Prediction Markets</div>
             <div class="panel-sub">Polymarket activity + odds</div>
           </div>
         </div>
-        <div class="list" id="predictionList"></div>
+        <div class="panel-body">
+          <div class="list" id="predictionList"></div>
+        </div>
       </section>
 
-      <section class="panel disaster-panel" data-panel="hazards" data-category="hazards">
+      <section class="panel feed-panel disaster-panel" data-panel="hazards" data-category="hazards">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-geo"><svg class="icon" aria-hidden="true"><use href="#icon-hazard"></use></svg></span>Hazards & Weather</div>
             <div class="panel-sub">Natural events + alerts</div>
           </div>
         </div>
-        <div class="list" id="disasterList"></div>
+        <div class="panel-body">
+          <div class="list" id="disasterList"></div>
+        </div>
       </section>
 
-      <section class="panel security-panel" data-panel="security" data-category="security">
+      <section class="panel feed-panel security-panel" data-panel="security" data-category="security">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-security"><svg class="icon" aria-hidden="true"><use href="#icon-security"></use></svg></span>Conflict &amp; Security</div>
             <div class="panel-sub">ACLED + kinetic events</div>
           </div>
         </div>
-        <div class="list" id="securityList"></div>
+        <div class="panel-body">
+          <div class="list" id="securityList"></div>
+        </div>
       </section>
 
-      <section class="panel local-panel" data-panel="local" data-category="local">
+      <section class="panel feed-panel local-panel" data-panel="local" data-category="local">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-local"><svg class="icon" aria-hidden="true"><use href="#icon-local"></use></svg></span>Local Lens</div>
             <div class="panel-sub">What’s near you</div>
           </div>
         </div>
-        <div class="list" id="localList"></div>
+        <div class="panel-body">
+          <div class="list" id="localList"></div>
+        </div>
       </section>
 
       <section class="panel community-panel" data-panel="community" data-category="community" data-no-update="true">
@@ -977,65 +991,77 @@
             <a class="chip" href="https://app.nym.bar/#e:situationroom" target="_blank" rel="noopener noreferrer">Open NYM</a>
           </div>
         </div>
-        <div class="chat-panel">
-          <div class="chat-panel-head">
-            <div class="chat-panel-title">Join: <strong>#situationroom</strong></div>
-            <div class="chat-panel-sub">Auto-join uses the share URL. If needed, type <span class="chat-inline">/j #situationroom</span>.</div>
-          </div>
-          <div class="chat-frame-wrap">
-            <iframe class="chat-frame" title="Bitchat Channel via NYM" data-src="https://app.nym.bar/#e:situationroom" loading="lazy"></iframe>
+        <div class="panel-body">
+          <div class="chat-panel">
+            <div class="chat-panel-head">
+              <div class="chat-panel-title">Join: <strong>#situationroom</strong></div>
+              <div class="chat-panel-sub">Auto-join uses the share URL. If needed, type <span class="chat-inline">/j #situationroom</span>.</div>
+            </div>
+            <div class="chat-frame-wrap">
+              <iframe class="chat-frame" title="Bitchat Channel via NYM" data-src="https://app.nym.bar/#e:situationroom" loading="lazy"></iframe>
+            </div>
           </div>
         </div>
       </section>
 
-      <section class="panel policy-panel" data-panel="policy" data-category="gov">
+      <section class="panel feed-panel policy-panel" data-panel="policy" data-category="gov">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-policy"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg></span>Policy & Government</div>
             <div class="panel-sub">Disclosures, regs, public intel</div>
           </div>
         </div>
-        <div class="list" id="policyList"></div>
+        <div class="panel-body">
+          <div class="list" id="policyList"></div>
+        </div>
       </section>
 
-      <section class="panel cyber-panel" data-panel="cyber" data-category="cyber">
+      <section class="panel feed-panel cyber-panel" data-panel="cyber" data-category="cyber">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-cyber"><svg class="icon" aria-hidden="true"><use href="#icon-cyber"></use></svg></span>Cyber Pulse</div>
             <div class="panel-sub">Known exploited vulns</div>
           </div>
         </div>
-        <div class="list" id="cyberList"></div>
+        <div class="panel-body">
+          <div class="list" id="cyberList"></div>
+        </div>
       </section>
 
-      <section class="panel agriculture-panel" data-panel="agriculture" data-category="agriculture">
+      <section class="panel feed-panel agriculture-panel" data-panel="agriculture" data-category="agriculture">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-agri"><svg class="icon" aria-hidden="true"><use href="#icon-agri"></use></svg></span>Agriculture</div>
             <div class="panel-sub">Reports, supply, yields</div>
           </div>
         </div>
-        <div class="list" id="agricultureList"></div>
+        <div class="panel-body">
+          <div class="list" id="agricultureList"></div>
+        </div>
       </section>
 
-      <section class="panel research-panel" data-panel="research" data-category="research">
+      <section class="panel feed-panel research-panel" data-panel="research" data-category="research">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-research"><svg class="icon" aria-hidden="true"><use href="#icon-research"></use></svg></span>Research Watch</div>
             <div class="panel-sub">arXiv + open science</div>
           </div>
         </div>
-        <div class="list" id="researchList"></div>
+        <div class="panel-body">
+          <div class="list" id="researchList"></div>
+        </div>
       </section>
 
-      <section class="panel space-panel" data-panel="space" data-category="space">
+      <section class="panel feed-panel space-panel" data-panel="space" data-category="space">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-space"><svg class="icon" aria-hidden="true"><use href="#icon-space"></use></svg></span>Space Weather</div>
             <div class="panel-sub">Solar + geomagnetic signals</div>
           </div>
         </div>
-        <div class="list" id="spaceList"></div>
+        <div class="panel-body">
+          <div class="list" id="spaceList"></div>
+        </div>
       </section>
 
       <section class="panel energy-map-panel" data-panel="energy-map" data-category="energy">
@@ -1052,34 +1078,40 @@
         </div>
       </section>
 
-      <section class="panel energy-panel" data-panel="energy" data-category="energy">
+      <section class="panel feed-panel energy-panel" data-panel="energy" data-category="energy">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-energy"><svg class="icon" aria-hidden="true"><use href="#icon-energy"></use></svg></span>Energy</div>
             <div class="panel-sub">EIA Today in Energy</div>
           </div>
         </div>
-        <div class="list" id="energyList"></div>
+        <div class="panel-body">
+          <div class="list" id="energyList"></div>
+        </div>
       </section>
 
-      <section class="panel health-panel" data-panel="health" data-category="health">
+      <section class="panel feed-panel health-panel" data-panel="health" data-category="health">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-health"><svg class="icon" aria-hidden="true"><use href="#icon-health"></use></svg></span>Health</div>
             <div class="panel-sub">Public health updates</div>
           </div>
         </div>
-        <div class="list" id="healthList"></div>
+        <div class="panel-body">
+          <div class="list" id="healthList"></div>
+        </div>
       </section>
 
-      <section class="panel transport-panel" data-panel="transport" data-category="transport">
+      <section class="panel feed-panel transport-panel" data-panel="transport" data-category="transport">
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-transport"><svg class="icon" aria-hidden="true"><use href="#icon-transport"></use></svg></span>Transport & Logistics</div>
             <div class="panel-sub">Aviation, maritime, rail</div>
           </div>
         </div>
-        <div class="list" id="transportList"></div>
+        <div class="panel-body">
+          <div class="list" id="transportList"></div>
+        </div>
       </section>
 
         </main>
