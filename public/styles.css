@@ -3951,7 +3951,7 @@ a.list-title:hover {
 
 @media (max-width: 1200px) {
   .app-shell {
-    padding: 22px 22px 70px;
+    padding: 22px 22px 70px calc(var(--sidebar-width) + 44px);
   }
 
   .summary-grid {
