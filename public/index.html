@@ -23,9 +23,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.14.0/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl-lidar@0.6.1/dist/maplibre-gl-lidar.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl-usgs-lidar@0.3.0/dist/maplibre-gl-usgs-lidar.css" />
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Skip to main content</a>
@@ -468,9 +466,10 @@
             </div>
             <div class="legend-group">
               <div class="legend-group-title">Imagery Overlays</div>
-              <label class="legend-item"><input id="legendOverlayHillshade" name="legendOverlayHillshade" type="checkbox" data-overlay="hillshade" /> Terrain / Lidar Hillshade</label>
+              <label class="legend-item"><input id="legendOverlayHillshade" name="legendOverlayHillshade" type="checkbox" data-overlay="hillshade" /> Terrain Hillshade</label>
               <label class="legend-item"><input id="legendOverlaySar" name="legendOverlaySar" type="checkbox" data-overlay="sar" /> SAR (Sentinel-1)</label>
               <label class="legend-item"><input id="legendOverlayAerosol" name="legendOverlayAerosol" type="checkbox" data-overlay="aerosol" /> Aerosol / Smoke Index</label>
+              <label class="legend-item"><input id="legendOverlayLidar" name="legendOverlayLidar" type="checkbox" data-overlay="lidar" /> LiDAR Coverage (3DEP)</label>
               <label class="legend-item"><input id="legendOverlayThermal" name="legendOverlayThermal" type="checkbox" data-overlay="thermal" /> Thermal Brightness</label>
               <label class="legend-item"><input id="legendOverlayFire" name="legendOverlayFire" type="checkbox" data-overlay="fire" /> Wildfire Heat (GOES)</label>
               <div class="legend-note">SAR is swath-based; zoom in or change dates to see coverage.</div>
@@ -654,6 +653,7 @@
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="hillshade">Terrain Hillshade</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol / Smoke</button>
+              <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="lidar">LiDAR Coverage</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Brightness</button>
               <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat (GOES)</button>
             </div>
@@ -675,6 +675,11 @@
               <label for="opacityAerosol">Aerosol</label>
               <input id="opacityAerosol" name="opacityAerosol" type="range" min="0" max="100" step="5" data-overlay-opacity="aerosol" />
               <span data-overlay-opacity-value="aerosol">--%</span>
+            </div>
+            <div class="imagery-slider">
+              <label for="opacityLidar">LiDAR Coverage</label>
+              <input id="opacityLidar" name="opacityLidar" type="range" min="0" max="100" step="5" data-overlay-opacity="lidar" />
+              <span data-overlay-opacity-value="lidar">--%</span>
             </div>
             <div class="imagery-slider">
               <label for="opacityThermal">Thermal</label>
@@ -700,33 +705,8 @@
             </div>
           </div>
           <div class="imagery-actions">
-            <button class="chip" id="lidarOverlayOpen" type="button">Open LiDAR Explorer</button>
             <button class="chip" id="imageryResetPanelBtn" type="button">Reset Imagery</button>
           </div>
-        </div>
-      </section>
-
-      <div class="lidar-scrim" id="lidarScrim" aria-hidden="true"></div>
-      <section class="panel lidar-panel" aria-modal="true" role="dialog" aria-label="LiDAR Explorer">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title"><span class="panel-icon tone-geo"><svg class="icon" aria-hidden="true"><use href="#icon-map"></use></svg></span>LiDAR Explorer</div>
-            <div class="panel-sub">USGS 3DEP LiDAR point cloud search (MapLibre)</div>
-          </div>
-          <div class="panel-actions">
-            <button class="chip" id="lidarLoad" type="button">Load</button>
-            <button class="chip" id="lidarReload" type="button">Reload</button>
-            <button class="chip" id="lidarOpen" type="button">Open Full</button>
-            <button class="chip chip-toggle" id="lidarClose" type="button">Close</button>
-          </div>
-        </div>
-        <div class="lidar-shell">
-          <div class="lidar-empty" id="lidarEmpty">
-            <div class="lidar-empty-title" id="lidarEmptyTitle">USGS LiDAR Explorer</div>
-            <div class="lidar-empty-sub" id="lidarEmptySub">Search 3DEP LiDAR tiles and visualize point clouds using the USGS MapLibre control.</div>
-            <button class="btn ghost" type="button" id="lidarLoadInline">Load LiDAR Explorer</button>
-          </div>
-          <div class="lidar-map" id="lidarMap" aria-label="USGS LiDAR map"></div>
         </div>
       </section>
 

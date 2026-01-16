@@ -54,6 +54,7 @@ const state = {
       sar: false
       ,
       aerosol: false,
+      lidar: false,
       thermal: false,
       fire: false
     },
@@ -63,6 +64,7 @@ const state = {
       hillshade: 0.45,
       sar: 0.55,
       aerosol: 0.45,
+      lidar: 0.25,
       thermal: 0.45,
       fire: 0.45
     },
@@ -139,7 +141,9 @@ const state = {
   flightTrack: null,
   flightTrackLayer: null,
   flightTrackLoading: false,
-  flightTrackFetchedAt: 0
+  flightTrackFetchedAt: 0,
+  lidarCoverageLayer: null,
+  lidarCoverageLoading: false
 };
 
 const elements = {
@@ -506,6 +510,7 @@ const GIBS_OVERLAYS = {
     opacity: 0.45
   }
 };
+const LIDAR_BOUNDARY_URL = 'https://raw.githubusercontent.com/hobuinc/usgs-lidar/master/boundaries/boundaries.topojson';
 const severityLabels = [
   { min: 8, label: 'Great' },
   { min: 7, label: 'Major' },
@@ -6544,12 +6549,6 @@ function initSidebarNav() {
   navLinks.forEach((link) => {
     link.addEventListener('click', () => {
       const target = link.dataset.panelTarget;
-      if (target === 'lidar' && typeof state.openLidarOverlay === 'function') {
-        state.openLidarOverlay();
-        setActive(target);
-        setNavOpen(false);
-        return;
-      }
       const panel = panels.find((entry) => entry.dataset.panel === target);
       if (panel) {
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -6647,6 +6646,51 @@ function buildSarTileUrl(date) {
 
 function buildSarTileUrlForTile(date, z, y, x) {
   return `https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=CGS_S1_GRD_SIGMA0&style=default&format=image/png&tilematrixset=EPSG:3857&tilematrix=EPSG:3857:${z}&tilerow=${y}&tilecol=${x}&time=${date}`;
+}
+
+function getLidarCoverageStyle(opacity = 0.25) {
+  const fillOpacity = Math.max(0, Math.min(opacity, 0.6));
+  const strokeOpacity = Math.min(1, fillOpacity + 0.35);
+  return {
+    color: `rgba(58, 148, 255, ${strokeOpacity.toFixed(2)})`,
+    weight: 1,
+    fillColor: `rgba(58, 148, 255, ${fillOpacity.toFixed(2)})`,
+    fillOpacity
+  };
+}
+
+async function loadLidarCoverageLayer() {
+  if (!state.map || state.lidarCoverageLoading || state.lidarCoverageLayer) return;
+  if (!window.topojson) {
+    console.warn('TopoJSON not available for LiDAR coverage.');
+    return;
+  }
+  state.lidarCoverageLoading = true;
+  try {
+    const response = await fetch(LIDAR_BOUNDARY_URL);
+    if (!response.ok) throw new Error(`LiDAR coverage fetch failed: ${response.status}`);
+    const topo = await response.json();
+    const objectKey = topo?.objects ? Object.keys(topo.objects)[0] : null;
+    if (!objectKey) throw new Error('LiDAR coverage data missing.');
+    const geo = window.topojson.feature(topo, topo.objects[objectKey]);
+    const opacity = getOverlayOpacity('lidar', 0.25);
+    const layer = window.L.geoJSON(geo, {
+      style: () => getLidarCoverageStyle(opacity),
+      onEachFeature: (feature, layerRef) => {
+        const name = feature?.properties?.name || 'LiDAR coverage';
+        const count = feature?.properties?.count;
+        const meta = count ? `${name} • ${count} tiles` : name;
+        if (layerRef?.bindPopup) layerRef.bindPopup(meta);
+      }
+    });
+    state.lidarCoverageLayer = layer;
+    state.mapOverlayLayers = { ...state.mapOverlayLayers, lidar: layer };
+    syncMapRasterOverlays();
+  } catch (err) {
+    console.warn('LiDAR coverage load failed', err);
+  } finally {
+    state.lidarCoverageLoading = false;
+  }
 }
 
 function sampleTileUrl(template) {
@@ -6833,6 +6877,7 @@ function resetImagerySettings() {
     hillshade: false,
     sar: false,
     aerosol: false,
+    lidar: false,
     thermal: false,
     fire: false
   };
@@ -6840,6 +6885,7 @@ function resetImagerySettings() {
     hillshade: 0.45,
     sar: 0.55,
     aerosol: 0.45,
+    lidar: 0.25,
     thermal: 0.45,
     fire: 0.45
   };
@@ -6902,7 +6948,9 @@ function syncMapRasterOverlays() {
       state.map.removeLayer(layer);
     }
     const opacity = getOverlayOpacity(overlayKey, layer.options?.opacity ?? 0.5);
-    if (typeof layer.setOpacity === 'function' && Number.isFinite(opacity)) {
+    if (overlayKey === 'lidar' && typeof layer.setStyle === 'function' && Number.isFinite(opacity)) {
+      layer.setStyle(getLidarCoverageStyle(opacity));
+    } else if (typeof layer.setOpacity === 'function' && Number.isFinite(opacity)) {
       layer.setOpacity(opacity);
     }
   });
@@ -7003,6 +7051,7 @@ function initMap() {
     })
   };
 
+  loadLidarCoverageLayer();
   applyMapBasemap(state.settings.mapBasemap, { skipSave: true });
   syncMapRasterOverlays();
 
@@ -8776,7 +8825,6 @@ async function init() {
   initEvents();
   initListModal();
   initCommunityEmbed();
-  initLidarEmbed();
   initWorldClocks();
   initSidebarNav();
   initCommandSections();
