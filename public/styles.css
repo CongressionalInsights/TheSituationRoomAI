@@ -192,7 +192,7 @@ body::before {
 
 .app-shell {
   position: relative;
-  padding: 24px 28px 80px;
+  padding: 24px 28px 80px calc(var(--sidebar-width) + 52px);
   min-height: 100vh;
 }
 
@@ -201,7 +201,7 @@ body::before {
   flex-direction: column;
   gap: 20px;
   min-width: 0;
-  margin-left: calc(var(--sidebar-width) + 24px);
+  margin-left: 0;
 }
 
 .sidebar {
