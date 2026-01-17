@@ -3168,7 +3168,42 @@ const parseCongressList = (data, feed) => {
       ? Date.parse(actionDate)
       : (item.PublishDate ? Date.parse(item.PublishDate) : (updateDate ? Date.parse(updateDate) : Date.now()));
     const actionText = item.latestAction?.text || item.latestAction?.action || item.latestAction?.actionDesc || '';
-    const summary = actionText || item.summary || item.description || item.action || '';
+    const derivedType = feed.congressType
+      || (item.type && item.type.includes('AMDT') ? 'Amendment' : '')
+      || (item.type && item.type.includes('RPT') ? 'Committee Report' : '')
+      || (item.citation && item.citation.startsWith('PN') ? 'Nomination' : '')
+      || (item.topic ? 'Treaty' : '')
+      || (item.Links ? 'Congressional Record' : '')
+      || ((item.jacketNumber || item.chamber) ? 'Hearing' : '')
+      || 'Bill';
+    let summary = actionText || item.summary || item.description || item.action || '';
+    if (!summary) {
+      if (derivedType === 'Bill') {
+        const chamber = item.originChamber || item.chamber || '';
+        const label = billTitle(item) || `${item.type || ''} ${item.number || ''}`.trim();
+        summary = [chamber, label, item.latestAction?.actionDate].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Amendment') {
+        summary = item.purpose ? `Purpose: ${item.purpose}` : (amendTitle(item) || 'Amendment');
+      } else if (derivedType === 'Committee Report') {
+        const reportLabel = item.citation || reportTitle(item);
+        const part = item.part ? `Part ${item.part}` : '';
+        summary = [item.chamber, reportLabel, part].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Hearing') {
+        const hearingNo = item.number ? `Hearing ${item.number}` : '';
+        const jacket = item.jacketNumber ? `Jacket ${item.jacketNumber}` : '';
+        summary = [item.chamber, hearingNo, jacket].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Nomination') {
+        summary = item.description || (item.organization ? `Organization: ${item.organization}` : 'Nomination');
+      } else if (derivedType === 'Treaty') {
+        const transmitted = item.transmittedDate ? `Transmitted ${formatShortDate(item.transmittedDate)}` : '';
+        summary = [item.topic || 'Treaty', transmitted].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Congressional Record') {
+        const issue = item.Issue ? `Issue ${item.Issue}` : '';
+        const volume = item.Volume ? `Volume ${item.Volume}` : '';
+        const session = item.Session ? `Session ${item.Session}` : '';
+        summary = [issue, volume, session].filter(Boolean).join(' • ');
+      }
+    }
     let url = item.url || item.link || item.links?.self || item.bill?.url || item.report?.url || '';
     if (item.Links) {
       url = buildRecordUrl(item);
@@ -3192,7 +3227,7 @@ const parseCongressList = (data, feed) => {
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
       source: 'Congress.gov',
       category: feed.category,
-      alertType: feed.congressType || 'Congress',
+      alertType: derivedType,
       location: item.originChamber
         || item.committeeName
         || item.chamber
