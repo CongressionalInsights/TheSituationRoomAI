@@ -41,6 +41,17 @@ function sendJson(res, status, payload, origin) {
   res.end(JSON.stringify(payload));
 }
 
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
 function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
   if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
