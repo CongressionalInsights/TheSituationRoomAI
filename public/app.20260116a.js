@@ -201,6 +201,11 @@ const elements = {
   listModalMeta: document.getElementById('listModalMeta'),
   listModalList: document.getElementById('listModalList'),
   listModalClose: document.getElementById('listModalClose'),
+  detailOverlay: document.getElementById('detailOverlay'),
+  detailTitle: document.getElementById('detailTitle'),
+  detailMeta: document.getElementById('detailMeta'),
+  detailBody: document.getElementById('detailBody'),
+  detailClose: document.getElementById('detailClose'),
   feedScope: document.getElementById('feedScope'),
   searchInput: document.getElementById('searchInput'),
   searchBtn: document.getElementById('searchBtn'),
@@ -1462,6 +1467,82 @@ function toggleListModal(open) {
     elements.listModalList.innerHTML = '';
     elements.listModalList.dataset.listContext = '';
   }
+}
+
+function toggleDetailModal(open) {
+  if (!elements.detailOverlay) return;
+  elements.detailOverlay.classList.toggle('open', open);
+  elements.detailOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.detailOverlay.inert = !open;
+  if (!open && elements.detailBody) {
+    elements.detailBody.innerHTML = '';
+  }
+}
+
+function openDetailModal(item) {
+  if (!elements.detailOverlay || !item) return;
+  if (elements.detailTitle) {
+    elements.detailTitle.textContent = item.detailTitle || item.title || 'Details';
+  }
+  if (elements.detailMeta) {
+    const metaParts = [
+      item.source || item.feedName || '',
+      toRelativeTime(item.publishedAt || Date.now())
+    ].filter(Boolean);
+    elements.detailMeta.textContent = metaParts.join(' • ');
+  }
+  if (elements.detailBody) {
+    elements.detailBody.innerHTML = '';
+    const summaryText = item.summaryHtml
+      ? sanitizeHtml(item.summaryHtml)
+      : (item.translatedSummary || item.summary || '');
+    if (summaryText) {
+      const summary = document.createElement('div');
+      summary.className = 'detail-summary';
+      if (item.summaryHtml) {
+        summary.innerHTML = sanitizeHtml(item.summaryHtml);
+      } else {
+        const p = document.createElement('p');
+        p.textContent = summaryText;
+        summary.appendChild(p);
+      }
+      elements.detailBody.appendChild(summary);
+    }
+    if (Array.isArray(item.detailFields)) {
+      item.detailFields
+        .filter((field) => field && field.label && field.value)
+        .forEach((field) => {
+          const row = document.createElement('div');
+          row.className = 'detail-row';
+          const label = document.createElement('div');
+          label.className = 'detail-label';
+          label.textContent = field.label;
+          const value = document.createElement('div');
+          value.className = 'detail-value';
+          value.textContent = field.value;
+          row.appendChild(label);
+          row.appendChild(value);
+          elements.detailBody.appendChild(row);
+        });
+    }
+    if (item.externalUrl) {
+      const actions = document.createElement('div');
+      actions.className = 'detail-actions';
+      const link = document.createElement('a');
+      link.className = 'btn primary';
+      link.href = item.externalUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Open on Congress.gov';
+      actions.appendChild(link);
+      elements.detailBody.appendChild(actions);
+    }
+  }
+  toggleDetailModal(true);
+}
+
+function closeDetailModal() {
+  toggleDetailModal(false);
 }
 
 function setNavOpen(open) {
@@ -3053,6 +3134,7 @@ const parseCongressList = (data, feed) => {
     return item.citation || formatCodeNumber(reportCode, reportNumber, prettyMap);
   };
   const buildSearchUrl = (query) => `https://www.congress.gov/search?q=${encodeURIComponent(query)}`;
+  const isSearchUrl = (value) => typeof value === 'string' && value.includes('congress.gov/search?');
   const buildBillUrl = (item) => {
     const congress = item.congress || item.bill?.congress || item.congressReceived;
     const billCode = String(item.type || item.billType || '').toUpperCase();
@@ -3102,11 +3184,7 @@ const parseCongressList = (data, feed) => {
     if (congress && number) return `https://www.congress.gov/treaty/${congress}th-congress/${number}`;
     return buildSearchUrl(`treaty ${number || ''}`.trim());
   };
-  const buildHearingUrl = (item) => {
-    if (item.jacketNumber) return buildSearchUrl(String(item.jacketNumber));
-    if (item.number) return buildSearchUrl(`hearing ${item.number}`);
-    return item.url || '';
-  };
+  const buildHearingUrl = (item) => item.url || '';
   const buildRecordUrl = (item) => {
     const links = item.Links || {};
     const pick = links.FullRecord || links.Digest || links.Senate || links.House || links.Remarks;
@@ -3243,14 +3321,42 @@ const parseCongressList = (data, feed) => {
     } else if (item.type || item.billNumber || item.bill?.number) {
       url = buildBillUrl(item) || url;
     }
+    const externalUrl = url && !isSearchUrl(url) ? url : '';
+    const congressValue = item.congress
+      || item.bill?.congress
+      || item.congressReceived
+      || item.congressConsidered
+      || '';
+    const detailFields = [];
+    const pushDetail = (label, value) => {
+      if (!value) return;
+      detailFields.push({ label, value: String(value) });
+    };
+    pushDetail('Type', derivedType);
+    pushDetail('Chamber', item.originChamber || item.chamber || item.committeeName);
+    pushDetail('Congress', congressValue ? `${congressValue}th Congress` : '');
+    pushDetail('Number', number);
+    pushDetail('Jacket', item.jacketNumber);
+    pushDetail('Citation', item.citation || item.report?.citation);
+    pushDetail('Committee', item.committeeName || item.committees?.[0]?.name);
+    pushDetail('Topic', item.topic);
+    pushDetail('Organization', item.organization);
+    pushDetail('Latest Action', actionText);
+    pushDetail('Action Date', actionDate ? formatShortDate(actionDate) : '');
+    pushDetail('Updated', updateDate ? formatShortDate(updateDate) : '');
+    pushDetail('Source ID', item.systemCode || item.billId || item.reportId || item.hearingId);
+
     return {
       title: displayTitle,
-      url,
+      url: '',
+      externalUrl,
       summary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
       source: 'Congress.gov',
       category: feed.category,
       alertType: derivedType,
+      detailTitle: displayTitle,
+      detailFields,
       location: item.originChamber
         || item.committeeName
         || item.chamber
@@ -5505,18 +5611,41 @@ function renderList(container, items, { withCoverage = false, append = false } =
     const div = document.createElement('div');
     div.className = 'list-item';
 
-    const title = document.createElement(item.url ? 'a' : 'div');
-    title.className = 'list-title';
+    const hasDetail = Array.isArray(item.detailFields) && item.detailFields.length;
+    const isDetailItem = hasDetail || item.detailSummary || item.detailTitle;
+    if (isDetailItem) {
+      div.classList.add('is-clickable');
+    }
+    const shouldLinkTitle = Boolean(item.url && !isDetailItem);
+    const title = document.createElement(shouldLinkTitle ? 'a' : (isDetailItem ? 'button' : 'div'));
+    title.className = `list-title${isDetailItem ? ' btn-link' : ''}`;
     title.textContent = item.translatedTitle || item.title;
-    if (item.url) {
+    if (shouldLinkTitle) {
       title.href = item.url;
       title.target = '_blank';
       title.rel = 'noopener noreferrer';
+    } else if (isDetailItem) {
+      title.type = 'button';
+      title.addEventListener('click', () => openDetailModal(item));
     }
 
     const meta = document.createElement('div');
     meta.className = 'list-meta';
-    meta.innerHTML = `<span>${item.source || 'Source'}</span><span>${toRelativeTime(item.publishedAt || Date.now())}</span>`;
+    const metaSource = document.createElement('span');
+    metaSource.textContent = item.source || 'Source';
+    const metaTime = document.createElement('span');
+    metaTime.textContent = toRelativeTime(item.publishedAt || Date.now());
+    meta.appendChild(metaSource);
+    meta.appendChild(metaTime);
+    if (item.externalUrl) {
+      const openLink = document.createElement('a');
+      openLink.className = 'list-open-link';
+      openLink.href = item.externalUrl;
+      openLink.target = '_blank';
+      openLink.rel = 'noopener noreferrer';
+      openLink.textContent = 'Open';
+      meta.appendChild(openLink);
+    }
 
     let predictionOdds = null;
     if (item.category === 'prediction' && Number.isFinite(item.probability)) {
@@ -5592,10 +5721,22 @@ function renderList(container, items, { withCoverage = false, append = false } =
   }
 }
 
+function renderListWithLimit(container, items, options = {}) {
+  if (!container) return;
+  const limit = Math.min(getListLimit(container.id), items.length);
+  renderList(container, items.slice(0, limit), options);
+  const rowEstimate = options.rowEstimate || 92;
+  if (!container.clientHeight || items.length <= limit) return;
+  const target = Math.min(items.length, Math.max(limit, Math.floor(container.clientHeight / rowEstimate)));
+  if (target > limit) {
+    state.listLimits[container.id] = target;
+    renderList(container, items.slice(0, target), options);
+  }
+}
+
 function renderNews(clusters) {
   const items = buildNewsItems(clusters);
-  const limit = Math.min(getListLimit(elements.newsList?.id), items.length);
-  renderList(elements.newsList, items.slice(0, limit), { withCoverage: true });
+  renderListWithLimit(elements.newsList, items, { withCoverage: true });
 }
 
 function renderSignals() {
@@ -6414,8 +6555,7 @@ function getConflictType(item) {
 
 function renderLocal() {
   const items = getLocalItemsForPanel();
-  const limit = Math.min(getListLimit(elements.localList?.id), items.length);
-  renderList(elements.localList, items.slice(0, limit));
+  renderListWithLimit(elements.localList, items);
 }
 
 function getCategoryItems(category) {
@@ -6468,15 +6608,13 @@ function renderCategory(category, container) {
     container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
     return;
   }
-  const limit = Math.min(getListLimit(container.id), items.length);
-  renderList(container, items.slice(0, limit));
+  renderListWithLimit(container, items);
 }
 
 function renderCongress() {
   if (!elements.congressList) return;
   const items = getCongressItems();
-  const limit = Math.min(getListLimit(elements.congressList.id), items.length);
-  renderList(elements.congressList, items.slice(0, limit));
+  renderListWithLimit(elements.congressList, items);
 }
 
 function getCombinedItems(categories) {
@@ -6496,15 +6634,13 @@ function getCombinedItems(categories) {
 function renderCombined(categories, container) {
   if (!container) return;
   const items = getCombinedItems(categories);
-  const limit = Math.min(getListLimit(container.id), items.length);
-  renderList(container, items.slice(0, limit));
+  renderListWithLimit(container, items);
 }
 
 function renderEnergyNews() {
   if (!elements.energyList) return;
   const items = getEnergyNewsItems();
-  const limit = Math.min(getListLimit(elements.energyList.id), items.length);
-  renderList(elements.energyList, items.slice(0, limit));
+  renderListWithLimit(elements.energyList, items);
 }
 
 async function loadPredictionFallback() {
@@ -6567,8 +6703,7 @@ function renderPrediction() {
   if (!items.length && state.predictionFallback.items.length) {
     items = state.predictionFallback.items;
   }
-  const limit = Math.min(getListLimit(elements.predictionList.id), items.length);
-  renderList(elements.predictionList, items.slice(0, limit));
+  renderListWithLimit(elements.predictionList, items);
 }
 
 async function loadEnergyGeoJson() {
@@ -6800,6 +6935,19 @@ function initListModal() {
     elements.listOverlay.addEventListener('click', (event) => {
       if (event.target === elements.listOverlay) {
         closeListModal();
+      }
+    });
+  }
+}
+
+function initDetailModal() {
+  if (elements.detailClose) {
+    elements.detailClose.addEventListener('click', () => closeDetailModal());
+  }
+  if (elements.detailOverlay) {
+    elements.detailOverlay.addEventListener('click', (event) => {
+      if (event.target === elements.detailOverlay) {
+        closeDetailModal();
       }
     });
   }
@@ -7106,6 +7254,45 @@ function initInfiniteScroll() {
       state.listLimits[config.id] = next;
       renderList(container, items.slice(current, next), { withCoverage: config.withCoverage, append: true });
     });
+  });
+}
+
+function initListAutoSizing() {
+  if (typeof ResizeObserver === 'undefined') return;
+  const configs = [
+    { id: 'newsList', withCoverage: true, getItems: () => buildNewsItems(state.clusters) },
+    { id: 'financeMarketsList', getItems: () => getCombinedItems(['finance', 'energy']) },
+    { id: 'financePolicyList', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
+    { id: 'cryptoList', getItems: () => getCategoryItems('crypto').items },
+    { id: 'predictionList', getItems: () => getPredictionItems() },
+    { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
+    { id: 'localList', getItems: () => getLocalItemsForPanel() },
+    { id: 'policyList', getItems: () => getCategoryItems('gov').items },
+    { id: 'congressList', getItems: () => getCongressItems() },
+    { id: 'cyberList', getItems: () => getCategoryItems('cyber').items },
+    { id: 'agricultureList', getItems: () => getCategoryItems('agriculture').items },
+    { id: 'researchList', getItems: () => getCategoryItems('research').items },
+    { id: 'spaceList', getItems: () => getCategoryItems('space').items },
+    { id: 'energyList', getItems: () => getEnergyNewsItems() },
+    { id: 'healthList', getItems: () => getCategoryItems('health').items },
+    { id: 'transportList', getItems: () => getCategoryItems('transport').items }
+  ];
+
+  const configMap = new Map(configs.map((config) => [config.id, config]));
+  const observer = new ResizeObserver((entries) => {
+    entries.forEach((entry) => {
+      const config = configMap.get(entry.target.id);
+      if (!config) return;
+      const items = config.getItems();
+      if (!items || !items.length) return;
+      renderListWithLimit(entry.target, items, { withCoverage: config.withCoverage });
+    });
+  });
+
+  configs.forEach((config) => {
+    const container = document.getElementById(config.id);
+    if (!container) return;
+    observer.observe(container);
   });
 }
 
@@ -9306,7 +9493,10 @@ async function init() {
   initMap();
   updateMapDateUI();
   initEvents();
+  initInfiniteScroll();
+  initListAutoSizing();
   initListModal();
+  initDetailModal();
   initCommunityEmbed();
   initWorldClocks();
   initSidebarNav();

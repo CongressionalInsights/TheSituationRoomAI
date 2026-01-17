@@ -1459,6 +1459,21 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="detailOverlay" aria-hidden="true">
+    <div class="modal detail-modal" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+      <div class="modal-header">
+        <div>
+          <div class="panel-title" id="detailTitle">Details</div>
+          <div class="panel-sub" id="detailMeta"></div>
+        </div>
+        <button class="btn ghost" id="detailClose">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-grid" id="detailBody"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="config.js"></script>
   <script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js" defer></script>
