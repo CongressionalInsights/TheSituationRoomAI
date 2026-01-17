@@ -2969,24 +2969,57 @@ const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => (
   deadline: doc.comments_close_on || doc.effective_on || null
 }));
 
-const parseCongressBills = (data, feed) => {
-  const list = Array.isArray(data?.bills)
-    ? data.bills
-    : Array.isArray(data?.bills?.bill)
-      ? data.bills.bill
-      : Array.isArray(data?.results)
-        ? data.results
-        : [];
-  return list.map((bill) => {
-    const number = bill.number || bill.billNumber || bill.bill?.number || '';
-    const title = bill.title || bill.shortTitle || bill.name || 'Untitled Bill';
+const parseCongressList = (data, feed) => {
+  const pickArray = (value) => {
+    if (!value) return null;
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value.items)) return value.items;
+    if (Array.isArray(value.item)) return value.item;
+    if (Array.isArray(value.bill)) return value.bill;
+    if (Array.isArray(value.amendment)) return value.amendment;
+    if (Array.isArray(value.report)) return value.report;
+    if (Array.isArray(value.hearing)) return value.hearing;
+    if (Array.isArray(value.nomination)) return value.nomination;
+    if (Array.isArray(value.treaty)) return value.treaty;
+    return null;
+  };
+  const list = pickArray(data?.bills)
+    || pickArray(data?.amendments)
+    || pickArray(data?.committeeReports)
+    || pickArray(data?.committeeReport)
+    || pickArray(data?.nominations)
+    || pickArray(data?.treaties)
+    || pickArray(data?.hearings)
+    || pickArray(data?.committeeMeetings)
+    || pickArray(data?.congressionalRecord)
+    || pickArray(data?.dailyCongressionalRecord)
+    || pickArray(data?.records)
+    || pickArray(data?.results)
+    || [];
+  return list.map((item) => {
+    const number = item.number
+      || item.billNumber
+      || item.amendmentNumber
+      || item.reportNumber
+      || item.nominationNumber
+      || item.treatyNumber
+      || item.citation
+      || item.report?.citation
+      || '';
+    const title = item.title
+      || item.shortTitle
+      || item.name
+      || item.description
+      || item.bill?.title
+      || item.report?.title
+      || 'Untitled';
     const displayTitle = number ? `${number} — ${title}` : title;
-    const actionDate = bill.latestAction?.actionDate || bill.latestAction?.actionDateTime || bill.actionDate;
-    const actionText = bill.latestAction?.text || bill.latestAction?.action || bill.latestAction?.actionDesc || '';
-    const updateDate = bill.updateDate || bill.updateDateIncludingText || bill.updateDateTime;
+    const actionDate = item.latestAction?.actionDate || item.latestAction?.actionDateTime || item.actionDate || item.date;
+    const updateDate = item.updateDate || item.updateDateIncludingText || item.updateDateTime || item.updatedDate;
     const publishedAt = actionDate ? Date.parse(actionDate) : (updateDate ? Date.parse(updateDate) : Date.now());
-    const url = bill.url || bill.link || bill.links?.self || bill.bill?.url || '';
-    const summary = actionText || bill.latestAction?.text || bill.latestAction?.action || bill.description || '';
+    const actionText = item.latestAction?.text || item.latestAction?.action || item.latestAction?.actionDesc || '';
+    const summary = actionText || item.summary || item.description || item.action || '';
+    const url = item.url || item.link || item.links?.self || item.bill?.url || item.report?.url || '';
     return {
       title: displayTitle,
       url,
@@ -2994,8 +3027,8 @@ const parseCongressBills = (data, feed) => {
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
       source: 'Congress.gov',
       category: feed.category,
-      alertType: 'Bill',
-      location: bill.originChamber || bill.latestAction?.actionType || ''
+      alertType: feed.congressType || 'Congress',
+      location: item.originChamber || item.committeeName || item.chamber || item.latestAction?.actionType || ''
     };
   });
 };
@@ -3199,7 +3232,13 @@ const feedParsers = {
   'ucdp-candidate-events': parseUcdpCandidateEvents,
   'federal-register': parseFederalRegister,
   'federal-register-transport': parseFederalRegister,
-  'congress-api': parseCongressBills,
+  'congress-api': parseCongressList,
+  'congress-amendments': parseCongressList,
+  'congress-reports': parseCongressList,
+  'congress-hearings': parseCongressList,
+  'congress-nominations': parseCongressList,
+  'congress-treaties': parseCongressList,
+  'congress-record': parseCongressList,
   'nws-alerts': (data, feed) => (data.features || []).map((feature) => ({
     title: feature.properties.event,
     url: feature.properties.uri,

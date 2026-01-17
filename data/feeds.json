@@ -1068,6 +1068,138 @@
       ]
     },
     {
+      "id": "congress-amendments",
+      "name": "Congress.gov Amendments",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 20000,
+      "congressType": "Amendment",
+      "url": "https://api.congress.gov/v3/amendment?format=json&sort=updateDate+desc&limit=20",
+      "ttlMinutes": 120,
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "key"
+      ]
+    },
+    {
+      "id": "congress-reports",
+      "name": "Congress.gov Committee Reports",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 20000,
+      "congressType": "Committee Report",
+      "url": "https://api.congress.gov/v3/committee-report?format=json&sort=updateDate+desc&limit=20",
+      "ttlMinutes": 120,
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "key"
+      ]
+    },
+    {
+      "id": "congress-hearings",
+      "name": "Congress.gov Hearings",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 20000,
+      "congressType": "Hearing",
+      "url": "https://api.congress.gov/v3/hearing?format=json&sort=updateDate+desc&limit=20",
+      "ttlMinutes": 120,
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "key"
+      ]
+    },
+    {
+      "id": "congress-nominations",
+      "name": "Congress.gov Nominations",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 20000,
+      "congressType": "Nomination",
+      "url": "https://api.congress.gov/v3/nomination?format=json&sort=updateDate+desc&limit=20",
+      "ttlMinutes": 120,
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "key"
+      ]
+    },
+    {
+      "id": "congress-treaties",
+      "name": "Congress.gov Treaties",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 20000,
+      "congressType": "Treaty",
+      "url": "https://api.congress.gov/v3/treaty?format=json&sort=updateDate+desc&limit=20",
+      "ttlMinutes": 120,
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "key"
+      ]
+    },
+    {
+      "id": "congress-record",
+      "name": "Congress.gov Congressional Record",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 20000,
+      "congressType": "Congressional Record",
+      "url": "https://api.congress.gov/v3/congressional-record?format=json&sort=updateDate+desc&limit=20",
+      "ttlMinutes": 120,
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "key"
+      ]
+    },
+    {
       "id": "openaq-api",
       "name": "OpenAQ API",
       "docsUrl": "https://docs.openaq.org/",
