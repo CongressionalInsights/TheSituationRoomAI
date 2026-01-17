@@ -68,3 +68,13 @@ jobs:
             --allow-unauthenticated \
             --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest \
             --env-vars-file /tmp/sr-feed-env.yaml
+      - name: Health check feed proxy
+        run: |
+          set -euo pipefail
+          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
+          echo "Feed proxy URL: ${SERVICE_URL}"
+          curl -fsS "${SERVICE_URL}/health" >/dev/null
+          FEED_RESP=$(curl -s -X POST "${SERVICE_URL}/api/feed" -H "Content-Type: application/json" -d '{"id":"gdelt-doc"}')
+          node -e 'const data = JSON.parse(process.argv[1]); if (data.error || !data.body) { console.error(data); process.exit(1); }' "$FEED_RESP"
+          CONGRESS_RESP=$(curl -s -X POST "${SERVICE_URL}/api/feed" -H "Content-Type: application/json" -d '{"id":"congress-api"}')
+          node -e 'const data = JSON.parse(process.argv[1]); if (data.error || !data.body) { console.error(data); process.exit(1); }' "$CONGRESS_RESP"
