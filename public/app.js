@@ -172,6 +172,7 @@ const elements = {
   refreshNow: document.getElementById('refreshNow'),
   statusText: document.getElementById('statusText'),
   dataFresh: document.getElementById('dataFresh'),
+  proxyHealth: document.getElementById('proxyHealth'),
   refreshValue: document.getElementById('refreshValue'),
   refreshRange: document.getElementById('refreshRange'),
   refreshRangeValue: document.getElementById('refreshRangeValue'),
@@ -2456,6 +2457,46 @@ function canonicalUrl(url) {
     return parsed.toString();
   } catch (err) {
     return url;
+  }
+}
+
+function sanitizeSensitiveParams() {
+  try {
+    const url = new URL(window.location.href);
+    const sensitiveParams = ['key', 'api_key', 'apikey', 'openai_key', 'openai', 'x-api-key', 'token', 'access_token'];
+    let changed = false;
+    sensitiveParams.forEach((param) => {
+      if (url.searchParams.has(param)) {
+        url.searchParams.delete(param);
+        changed = true;
+      }
+    });
+    if (changed) {
+      const search = url.searchParams.toString();
+      const nextUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
+      window.history.replaceState({}, document.title, nextUrl);
+    }
+  } catch (err) {
+    // ignore URL parsing errors
+  }
+}
+
+async function updateProxyHealth() {
+  if (!elements.proxyHealth) return;
+  elements.proxyHealth.textContent = 'Feed API: Checking';
+  elements.proxyHealth.classList.remove('ok', 'error');
+  try {
+    const { response, data } = await apiJson('/health', {}, 8000);
+    if (response?.ok && data?.ok) {
+      elements.proxyHealth.textContent = 'Feed API: Healthy';
+      elements.proxyHealth.classList.add('ok');
+      return;
+    }
+    elements.proxyHealth.textContent = 'Feed API: Degraded';
+    elements.proxyHealth.classList.add('error');
+  } catch (err) {
+    elements.proxyHealth.textContent = 'Feed API: Offline';
+    elements.proxyHealth.classList.add('error');
   }
 }
 
@@ -8076,6 +8117,7 @@ function hideSearchResults() {
 async function refreshAll(force = false) {
   setRefreshing(true);
   setHealth('Fetching feeds');
+  updateProxyHealth();
   const liveOverride = force && isStaticMode();
   try {
     if (isStaticMode()) {
@@ -9021,6 +9063,7 @@ function initEvents() {
 }
 
 async function init() {
+  sanitizeSensitiveParams();
   loadSettings();
   loadKeys();
   loadKeyGroups();
