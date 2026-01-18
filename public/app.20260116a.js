@@ -285,6 +285,7 @@ const elements = {
   marketPulse: document.getElementById('marketPulse'),
   marketPulseMeta: document.getElementById('marketPulseMeta'),
   signalHealthChip: document.getElementById('signalHealthChip'),
+  signalHealthDetail: document.getElementById('signalHealthDetail'),
   mapCanvas: document.getElementById('mapCanvas'),
   mapBase: document.getElementById('mapBase'),
   mapEmpty: document.getElementById('mapEmpty'),
@@ -5990,14 +5991,34 @@ function renderSignals() {
         if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return false;
         return true;
       });
+    const degradedFeedIds = criticalFeedIds.filter((id) => {
+      const status = state.feedStatus[id];
+      if (!status) return false;
+      if (status.stale) return true;
+      if (!status.error) return false;
+      if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return false;
+      return true;
+    });
+    const degradedNames = degradedFeedIds
+      .map((id) => state.feeds.find((feed) => feed.id === id)?.name || id);
     if (degraded.length) {
       elements.signalHealthChip.textContent = `Feed Health: Degraded (${degraded.length})`;
       elements.signalHealthChip.classList.add('degraded');
       elements.signalHealthChip.classList.remove('healthy');
+      if (elements.signalHealthDetail) {
+        const shortList = degradedNames.slice(0, 3).join(', ');
+        const suffix = degradedNames.length > 3 ? ` +${degradedNames.length - 3} more` : '';
+        elements.signalHealthDetail.textContent = `Degraded: ${shortList}${suffix}`;
+        elements.signalHealthDetail.title = degradedNames.join(', ');
+      }
     } else {
       elements.signalHealthChip.textContent = 'Feed Health: Healthy';
       elements.signalHealthChip.classList.add('healthy');
       elements.signalHealthChip.classList.remove('degraded');
+      if (elements.signalHealthDetail) {
+        elements.signalHealthDetail.textContent = '';
+        elements.signalHealthDetail.removeAttribute('title');
+      }
     }
   }
 
