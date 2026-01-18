@@ -1741,6 +1741,57 @@ a:focus-visible {
   color: #ff9f9f;
 }
 
+.imagery-lidar-meta {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(12, 18, 28, 0.55);
+  border: 1px solid rgba(148, 180, 210, 0.18);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imagery-lidar-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.imagery-lidar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.imagery-lidar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.imagery-lidar-row span {
+  color: var(--muted);
+}
+
+.imagery-lidar-row a {
+  color: #9ecbff;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+  white-space: nowrap;
+}
+
+.imagery-lidar-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .imagery-actions {
   display: flex;
   justify-content: flex-end;

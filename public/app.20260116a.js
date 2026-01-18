@@ -159,7 +159,10 @@ const state = {
   lidarPointAnchor: null,
   lidarPointProject: null,
   lidarPointEptUrl: null,
-  lidarPointTelemetry: []
+  lidarPointTelemetry: [],
+  lidarPointEptAvailable: false,
+  lidarSelectedLayer: null,
+  lidarSelectedBounds: null
 };
 
 const elements = {
@@ -295,6 +298,13 @@ const elements = {
   imageryResetBtn: document.getElementById('imageryResetBtn'),
   imageryResetPanelBtn: document.getElementById('imageryResetPanelBtn'),
   imageryStatus: document.getElementById('imageryStatus'),
+  lidarPointMeta: document.getElementById('lidarPointMeta'),
+  lidarPointProject: document.getElementById('lidarPointProject'),
+  lidarPointEpt: document.getElementById('lidarPointEpt'),
+  lidarPointTelemetry: document.getElementById('lidarPointTelemetry'),
+  lidarPointCenter: document.getElementById('lidarPointCenter'),
+  lidarPointRefresh: document.getElementById('lidarPointRefresh'),
+  lidarPointLoad: document.getElementById('lidarPointLoad'),
   mapDetail: document.getElementById('mapDetail'),
   mapDetailList: document.getElementById('mapDetailList'),
   mapDetailMeta: document.getElementById('mapDetailMeta'),
@@ -2025,6 +2035,42 @@ function updateOverlayStatusUI() {
   });
 }
 
+function updateLidarMetaUI() {
+  if (!elements.lidarPointMeta) return;
+  const project = state.lidarPointProject || '—';
+  const eptUrl = state.lidarPointEptUrl;
+  const eptState = state.lidarPointEptAvailable ? 'available' : (eptUrl ? 'unavailable' : '—');
+  const telemetry = state.lidarPointTelemetry?.slice(-1)[0];
+  const overlayStatus = state.overlayStatus?.lidarPoints?.message || '';
+  const telemetryLabel = telemetry?.status
+    ? `${telemetry.status}${telemetry.loadMs ? ` • ${telemetry.loadMs}ms` : ''}${telemetry.points ? ` • ${telemetry.points} pts` : ''}`
+    : (overlayStatus || '—');
+
+  if (elements.lidarPointProject) elements.lidarPointProject.textContent = project;
+  if (elements.lidarPointEpt) {
+    elements.lidarPointEpt.textContent = eptState;
+    if (eptUrl) {
+      elements.lidarPointEpt.href = eptUrl;
+      elements.lidarPointEpt.setAttribute('aria-disabled', 'false');
+    } else {
+      elements.lidarPointEpt.removeAttribute('href');
+      elements.lidarPointEpt.setAttribute('aria-disabled', 'true');
+    }
+  }
+  if (elements.lidarPointTelemetry) {
+    elements.lidarPointTelemetry.textContent = telemetryLabel;
+  }
+  if (elements.lidarPointCenter) {
+    elements.lidarPointCenter.disabled = !state.lidarSelectedBounds;
+  }
+  if (elements.lidarPointRefresh) {
+    elements.lidarPointRefresh.disabled = !eptUrl;
+  }
+  if (elements.lidarPointLoad) {
+    elements.lidarPointLoad.disabled = !state.lidarPointEptAvailable;
+  }
+}
+
 function getOverlayOpacity(key, fallback = 0.5) {
   const value = state.settings.mapOverlayOpacity?.[key];
   return Number.isFinite(value) ? value : fallback;
@@ -2046,6 +2092,7 @@ function updateImageryPanelUI() {
     const label = document.querySelector(`[data-overlay-opacity-value="${overlay}"]`);
     if (label) label.textContent = `${value}%`;
   });
+  updateLidarMetaUI();
   updateOverlayStatusUI();
 }
 
@@ -7446,17 +7493,42 @@ function getLidarCoverageStyle(opacity = 0.25) {
   };
 }
 
+function getLidarSelectedStyle(opacity = 0.3) {
+  const fillOpacity = Math.max(0.15, Math.min(opacity, 0.7));
+  return {
+    color: 'rgba(255, 189, 64, 0.95)',
+    weight: 2,
+    fillColor: `rgba(255, 189, 64, ${fillOpacity.toFixed(2)})`,
+    fillOpacity
+  };
+}
+
+function applyLidarSelection(layerRef) {
+  const opacity = getOverlayOpacity('lidar', 0.25);
+  if (state.lidarSelectedLayer && state.lidarSelectedLayer.setStyle) {
+    state.lidarSelectedLayer.setStyle(getLidarCoverageStyle(opacity));
+  }
+  state.lidarSelectedLayer = layerRef || null;
+  if (layerRef?.setStyle) {
+    layerRef.setStyle(getLidarSelectedStyle(opacity + 0.1));
+    if (layerRef.bringToFront) layerRef.bringToFront();
+  }
+}
+
 function buildLidarEptUrl(projectName) {
   if (!projectName) return null;
   const safe = projectName.replace(/\s+/g, '_');
   return `https://s3-us-west-2.amazonaws.com/usgs-lidar-public/${encodeURIComponent(safe)}/ept.json`;
 }
 
-function setLidarPointProjectFromFeature(feature, bounds) {
+function setLidarPointProjectFromFeature(feature, bounds, layerRef) {
   if (!feature || !bounds) return;
   const name = feature?.properties?.name || null;
   state.lidarPointProject = name;
   state.lidarPointEptUrl = buildLidarEptUrl(name);
+  state.lidarPointEptAvailable = false;
+  state.lidarSelectedBounds = bounds;
+  applyLidarSelection(layerRef);
   if (state.lidarPointEptUrl) {
     checkLidarEptAvailability(state.lidarPointEptUrl);
   }
@@ -7467,6 +7539,7 @@ function setLidarPointProjectFromFeature(feature, bounds) {
   if (state.settings.mapRasterOverlays?.lidarPoints) {
     loadLidarPointOverlay();
   }
+  updateLidarMetaUI();
 }
 
 async function checkLidarEptAvailability(url) {
@@ -7475,10 +7548,12 @@ async function checkLidarEptAvailability(url) {
   try {
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw new Error(`EPT status ${response.status}`);
+    state.lidarPointEptAvailable = true;
     setOverlayStatus('lidarPoints', 'ready', `ept ok • ${state.lidarPointProject || 'project'}`);
     recordLidarPointTelemetry({ status: 'ept_ok', project: state.lidarPointProject || null, eptUrl: url });
   } catch (err) {
     console.warn('LiDAR EPT check failed', err);
+    state.lidarPointEptAvailable = false;
     setOverlayStatus('lidarPoints', 'unavailable', 'ept unavailable');
     recordLidarPointTelemetry({
       status: 'ept_unavailable',
@@ -7486,6 +7561,8 @@ async function checkLidarEptAvailability(url) {
       eptUrl: url,
       reason: err?.message || 'ept unavailable'
     });
+  } finally {
+    updateLidarMetaUI();
   }
 }
 
@@ -7520,7 +7597,7 @@ async function loadLidarCoverageLayer() {
         if (layerRef?.bindPopup) layerRef.bindPopup(meta);
         if (layerRef?.on && layerRef.getBounds) {
           layerRef.on('click', () => {
-            setLidarPointProjectFromFeature(feature, layerRef.getBounds());
+            setLidarPointProjectFromFeature(feature, layerRef.getBounds(), layerRef);
           });
         }
       }
@@ -7544,7 +7621,7 @@ async function loadLidarCoverageLayer() {
             onEachFeature: (feature, layerRef) => {
               if (layerRef?.on && layerRef.getBounds) {
                 layerRef.on('click', () => {
-                  setLidarPointProjectFromFeature(feature, layerRef.getBounds());
+                  setLidarPointProjectFromFeature(feature, layerRef.getBounds(), layerRef);
                 });
               }
             }
@@ -7618,7 +7695,7 @@ async function loadLidarPointOverlay() {
     state.lidarPointLayer = leafletLayer;
     state.mapOverlayLayers = { ...state.mapOverlayLayers, lidarPoints: leafletLayer };
     syncMapRasterOverlays();
-    const label = state.lidarPointProject ? `project ${state.lidarPointProject}` : 'sample';
+    const label = state.lidarPointProject ? `sample • ${state.lidarPointProject}` : 'sample';
     setOverlayStatus('lidarPoints', 'ready', `points ${state.lidarPointData.length} • ${label}`);
     recordLidarPointTelemetry({
       status: 'ready',
@@ -7726,6 +7803,22 @@ function buildSarSampleUrls(date) {
     const { x, y } = latLonToTile(lat, lon, zoom);
     return buildSarTileUrlForTile(date, zoom, y, x);
   });
+}
+
+async function refreshSarCoverageStatus(date) {
+  if (!date || !state.settings.mapRasterOverlays?.sar) return;
+  const urls = buildSarSampleUrls(date);
+  let ok = false;
+  for (const url of urls) {
+    // eslint-disable-next-line no-await-in-loop
+    ok = await checkTileAvailable(url);
+    if (ok) break;
+  }
+  if (!ok) {
+    setOverlayStatus('sar', 'unavailable', 'no coverage for AOI/date');
+  } else {
+    setOverlayStatus('sar', 'ready', `date ${date}`);
+  }
 }
 
 function shiftIsoDate(base, offsetDays) {
@@ -7855,6 +7948,7 @@ function updateSarDate(date) {
   updateMapDateUI();
   saveSettings();
   setOverlayStatus('sar', 'ready', `date ${date}`);
+  refreshSarCoverageStatus(date);
 }
 
 function applyMapPreset(preset) {
@@ -9616,6 +9710,26 @@ function initEvents() {
   if (elements.imageryResetPanelBtn) {
     elements.imageryResetPanelBtn.addEventListener('click', resetImagerySettings);
   }
+  if (elements.lidarPointCenter) {
+    elements.lidarPointCenter.addEventListener('click', () => {
+      if (state.lidarSelectedBounds && state.map?.fitBounds) {
+        state.map.fitBounds(state.lidarSelectedBounds, { padding: [28, 28] });
+      }
+    });
+  }
+  if (elements.lidarPointRefresh) {
+    elements.lidarPointRefresh.addEventListener('click', () => {
+      if (!state.lidarPointEptUrl) return;
+      checkLidarEptAvailability(state.lidarPointEptUrl);
+    });
+  }
+  if (elements.lidarPointLoad) {
+    elements.lidarPointLoad.addEventListener('click', () => {
+      if (state.lidarPointEptAvailable) {
+        loadLidarPointOverlay();
+      }
+    });
+  }
 
   document.querySelectorAll('[data-imagery-preset]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -9649,14 +9763,24 @@ function initEvents() {
           loadLidarCoverageLayer();
         } else {
           setOverlayStatus('lidar', 'off', '');
+          state.lidarSelectedLayer = null;
+          state.lidarSelectedBounds = null;
+          updateLidarMetaUI();
         }
       }
       if (overlay === 'lidarPoints') {
         if (next) {
-          loadLidarPointOverlay();
+          if (!state.lidarPointEptUrl) {
+            setOverlayStatus('lidarPoints', 'unavailable', 'select a LiDAR AOI');
+          } else if (state.lidarPointEptAvailable) {
+            loadLidarPointOverlay();
+          } else {
+            setOverlayStatus('lidarPoints', 'unavailable', 'ept unavailable');
+          }
         } else {
           setOverlayStatus('lidarPoints', 'off', '');
         }
+        updateLidarMetaUI();
       }
       updateImageryPanelUI();
       updateMapLegendUI();
