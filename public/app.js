@@ -115,6 +115,11 @@ const state = {
   sarDateManual: false,
   imageryResolveInFlight: false,
   sarResolveInFlight: false,
+  overlayStatus: {
+    imagery: { state: 'idle', message: '' },
+    sar: { state: 'idle', message: '' },
+    lidar: { state: 'idle', message: '' }
+  },
   energyMap: null,
   energyMapLayer: null,
   energyGeo: null,
@@ -279,6 +284,7 @@ const elements = {
   sarPanelAutoBtn: document.getElementById('sarPanelAutoBtn'),
   imageryResetBtn: document.getElementById('imageryResetBtn'),
   imageryResetPanelBtn: document.getElementById('imageryResetPanelBtn'),
+  imageryStatus: document.getElementById('imageryStatus'),
   mapDetail: document.getElementById('mapDetail'),
   mapDetailList: document.getElementById('mapDetailList'),
   mapDetailMeta: document.getElementById('mapDetailMeta'),
@@ -522,6 +528,7 @@ const GIBS_OVERLAYS = {
   }
 };
 const LIDAR_BOUNDARY_URL = 'https://raw.githubusercontent.com/hobuinc/usgs-lidar/master/boundaries/boundaries.topojson';
+const LIDAR_CACHE_KEY = 'lidarCoverageCache';
 const severityLabels = [
   { min: 8, label: 'Great' },
   { min: 7, label: 'Major' },
@@ -837,6 +844,12 @@ function loadSettings() {
       if (!state.settings.mapSarDate) {
         state.settings.mapSarDate = '';
       }
+      if (!state.settings.lastImageryDate) {
+        state.settings.lastImageryDate = '';
+      }
+      if (!state.settings.lastSarDate) {
+        state.settings.lastSarDate = '';
+      }
     if (!state.settings.mapFlightDensity) {
       state.settings.mapFlightDensity = 'medium';
     }
@@ -892,6 +905,8 @@ function loadSettings() {
       state.settings.mapRasterOverlays = { ...state.settings.mapRasterOverlays };
       state.settings.mapImageryDate = '';
       state.settings.mapSarDate = '';
+      state.settings.lastImageryDate = '';
+      state.settings.lastSarDate = '';
       state.settings.mapOverlayOpacity = { ...state.settings.mapOverlayOpacity };
       state.settings.country = 'US';
       state.settings.countryAuto = true;
@@ -1963,6 +1978,32 @@ function updateMapDateUI() {
   updateImageryPanelUI();
 }
 
+function setOverlayStatus(key, stateValue, message = '') {
+  if (!state.overlayStatus) {
+    state.overlayStatus = {};
+  }
+  state.overlayStatus[key] = { state: stateValue, message };
+  updateOverlayStatusUI();
+}
+
+function formatOverlayStatusLabel(key, entry) {
+  const label = key === 'imagery' ? 'Imagery' : key.toUpperCase();
+  if (!entry) return `${label}: --`;
+  const base = `${label}: ${entry.state || '--'}`;
+  return entry.message ? `${base} — ${entry.message}` : base;
+}
+
+function updateOverlayStatusUI() {
+  const container = elements.imageryStatus;
+  if (!container) return;
+  container.querySelectorAll('[data-imagery-status]').forEach((item) => {
+    const key = item.dataset.imageryStatus;
+    const entry = state.overlayStatus?.[key];
+    item.textContent = formatOverlayStatusLabel(key, entry);
+    item.dataset.state = entry?.state || '';
+  });
+}
+
 function getOverlayOpacity(key, fallback = 0.5) {
   const value = state.settings.mapOverlayOpacity?.[key];
   return Number.isFinite(value) ? value : fallback;
@@ -1984,6 +2025,7 @@ function updateImageryPanelUI() {
     const label = document.querySelector(`[data-overlay-opacity-value="${overlay}"]`);
     if (label) label.textContent = `${value}%`;
   });
+  updateOverlayStatusUI();
 }
 
 function isServerManagedKey(feed) {
@@ -7387,13 +7429,20 @@ async function loadLidarCoverageLayer() {
   if (!state.map || state.lidarCoverageLoading || state.lidarCoverageLayer) return;
   if (!window.topojson) {
     console.warn('TopoJSON not available for LiDAR coverage.');
+    setOverlayStatus('lidar', 'unavailable', 'topojson missing');
     return;
   }
   state.lidarCoverageLoading = true;
+  setOverlayStatus('lidar', 'loading', 'loading coverage');
   try {
     const response = await fetch(LIDAR_BOUNDARY_URL);
     if (!response.ok) throw new Error(`LiDAR coverage fetch failed: ${response.status}`);
     const topo = await response.json();
+    try {
+      localStorage.setItem(LIDAR_CACHE_KEY, JSON.stringify(topo));
+    } catch (err) {
+      console.warn('LiDAR cache write failed', err);
+    }
     const objectKey = topo?.objects ? Object.keys(topo.objects)[0] : null;
     if (!objectKey) throw new Error('LiDAR coverage data missing.');
     const geo = window.topojson.feature(topo, topo.objects[objectKey]);
@@ -7410,8 +7459,31 @@ async function loadLidarCoverageLayer() {
     state.lidarCoverageLayer = layer;
     state.mapOverlayLayers = { ...state.mapOverlayLayers, lidar: layer };
     syncMapRasterOverlays();
+    setOverlayStatus('lidar', 'ready', 'coverage loaded');
   } catch (err) {
     console.warn('LiDAR coverage load failed', err);
+    try {
+      const cached = localStorage.getItem(LIDAR_CACHE_KEY);
+      if (cached) {
+        const topo = JSON.parse(cached);
+        const objectKey = topo?.objects ? Object.keys(topo.objects)[0] : null;
+        if (objectKey) {
+          const geo = window.topojson.feature(topo, topo.objects[objectKey]);
+          const opacity = getOverlayOpacity('lidar', 0.25);
+          const layer = window.L.geoJSON(geo, {
+            style: () => getLidarCoverageStyle(opacity)
+          });
+          state.lidarCoverageLayer = layer;
+          state.mapOverlayLayers = { ...state.mapOverlayLayers, lidar: layer };
+          syncMapRasterOverlays();
+          setOverlayStatus('lidar', 'ready', 'cached coverage');
+          return;
+        }
+      }
+    } catch (cacheErr) {
+      console.warn('LiDAR cache read failed', cacheErr);
+    }
+    setOverlayStatus('lidar', 'unavailable', 'coverage fetch failed');
   } finally {
     state.lidarCoverageLoading = false;
   }
@@ -7450,11 +7522,26 @@ function latLonToTile(lat, lon, z) {
 }
 
 function buildSarSampleUrls(date) {
+  const map = state.map;
+  if (map && typeof map.getBounds === 'function') {
+    const bounds = map.getBounds();
+    const center = map.getCenter();
+    const zoom = Math.min(6, Math.max(3, Math.round(map.getZoom() || 4)));
+    const samples = [
+      { lat: center.lat, lon: center.lng },
+      { lat: bounds.getNorth(), lon: bounds.getWest() },
+      { lat: bounds.getSouth(), lon: bounds.getEast() }
+    ];
+    return samples.map(({ lat, lon }) => {
+      const { x, y } = latLonToTile(lat, lon, zoom);
+      return buildSarTileUrlForTile(date, zoom, y, x);
+    });
+  }
   const zoom = 4;
   const samples = [
-    { lat: 50.0, lon: 4.5 },   // Western Europe
-    { lat: 34.0, lon: -118.2 }, // US West
-    { lat: 35.6, lon: 139.6 }  // Japan
+    { lat: 50.0, lon: 4.5 },
+    { lat: 34.0, lon: -118.2 },
+    { lat: 35.6, lon: 139.6 }
   ];
   return samples.map(({ lat, lon }) => {
     const { x, y } = latLonToTile(lat, lon, zoom);
@@ -7477,6 +7564,7 @@ function getDefaultImageryDate(layerKey) {
 async function resolveLatestImageryDate() {
   if (state.imageryResolveInFlight || state.imageryDateManual) return;
   state.imageryResolveInFlight = true;
+  setOverlayStatus('imagery', 'loading', 'checking tiles');
   try {
     const activeKey = state.settings.mapBasemap?.startsWith('gibs') ? state.settings.mapBasemap : 'gibs-viirs';
     const layer = GIBS_LAYERS[activeKey] || GIBS_LAYERS['gibs-viirs'];
@@ -7485,6 +7573,7 @@ async function resolveLatestImageryDate() {
       return;
     }
     const base = getRecentIsoDate(1);
+    let found = false;
     for (let i = 0; i < 8; i += 1) {
       const candidate = shiftIsoDate(base, -i);
       const url = sampleTileUrl(buildGibsTileUrl(layer.id, candidate, layer.format, layer.matrixSet));
@@ -7492,7 +7581,17 @@ async function resolveLatestImageryDate() {
       const ok = await checkTileAvailable(url);
       if (ok) {
         updateImageryDate(candidate);
+        found = true;
         return;
+      }
+    }
+    if (!found) {
+      const fallback = state.settings.lastImageryDate;
+      if (fallback) {
+        updateImageryDate(fallback);
+        setOverlayStatus('imagery', 'ready', 'using last known');
+      } else {
+        setOverlayStatus('imagery', 'unavailable', 'try Latest');
       }
     }
   } finally {
@@ -7503,12 +7602,15 @@ async function resolveLatestImageryDate() {
 async function resolveLatestSarDate() {
   if (state.sarResolveInFlight || state.sarDateManual) return;
   if (!state.settings.mapRasterOverlays?.sar) {
+    setOverlayStatus('sar', 'off', '');
     updateMapDateUI();
     return;
   }
   state.sarResolveInFlight = true;
+  setOverlayStatus('sar', 'loading', 'checking tiles');
   try {
     const base = getRecentIsoDate(1);
+    let found = false;
     for (let i = 0; i < 12; i += 1) {
       const candidate = shiftIsoDate(base, -i);
       const urls = buildSarSampleUrls(candidate);
@@ -7517,8 +7619,18 @@ async function resolveLatestSarDate() {
         const ok = await checkTileAvailable(url);
         if (ok) {
           updateSarDate(candidate);
+          found = true;
           return;
         }
+      }
+    }
+    if (!found) {
+      const fallback = state.settings.lastSarDate;
+      if (fallback) {
+        updateSarDate(fallback);
+        setOverlayStatus('sar', 'ready', 'using last known');
+      } else {
+        setOverlayStatus('sar', 'unavailable', 'try Latest');
       }
     }
   } finally {
@@ -7530,6 +7642,7 @@ function updateImageryDate(date) {
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
   state.imageryDate = date;
   state.settings.mapImageryDate = date;
+  state.settings.lastImageryDate = date;
   Object.entries(state.mapBaseLayers || {}).forEach(([key, layer]) => {
     if (!key.startsWith('gibs')) return;
     const layerConfig = GIBS_LAYERS[key];
@@ -7547,12 +7660,14 @@ function updateImageryDate(date) {
   });
   updateMapDateUI();
   saveSettings();
+  setOverlayStatus('imagery', 'ready', `date ${date}`);
 }
 
 function updateSarDate(date) {
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
   state.sarDate = date;
   state.settings.mapSarDate = date;
+  state.settings.lastSarDate = date;
   const layer = state.mapOverlayLayers?.sar;
   if (layer) {
     layer.setUrl(buildSarTileUrl(date));
@@ -7560,6 +7675,7 @@ function updateSarDate(date) {
   }
   updateMapDateUI();
   saveSettings();
+  setOverlayStatus('sar', 'ready', `date ${date}`);
 }
 
 function applyMapPreset(preset) {
@@ -7775,7 +7891,11 @@ function initMap() {
     })
   };
 
-  loadLidarCoverageLayer();
+  if (state.settings.mapRasterOverlays?.lidar) {
+    loadLidarCoverageLayer();
+  } else {
+    setOverlayStatus('lidar', 'off', '');
+  }
   applyMapBasemap(state.settings.mapBasemap, { skipSave: true });
   syncMapRasterOverlays();
 
@@ -7800,6 +7920,8 @@ function initMap() {
   resolveLatestImageryDate();
   if (state.settings.mapRasterOverlays?.sar) {
     resolveLatestSarDate();
+  } else {
+    setOverlayStatus('sar', 'off', '');
   }
 }
 
@@ -9214,8 +9336,19 @@ function initEvents() {
         state.settings.mapRasterOverlays[overlay] = overlayInput.checked;
         saveSettings();
         syncMapRasterOverlays();
-        if (overlay === 'sar' && overlayInput.checked) {
-          resolveLatestSarDate();
+        if (overlay === 'sar') {
+          if (overlayInput.checked) {
+            resolveLatestSarDate();
+          } else {
+            setOverlayStatus('sar', 'off', '');
+          }
+        }
+        if (overlay === 'lidar') {
+          if (overlayInput.checked) {
+            loadLidarCoverageLayer();
+          } else {
+            setOverlayStatus('lidar', 'off', '');
+          }
         }
       }
       const densityInput = event.target.closest('input[data-flight-density]');
@@ -9309,8 +9442,19 @@ function initEvents() {
       state.settings.mapRasterOverlays[overlay] = next;
       saveSettings();
       syncMapRasterOverlays();
-      if (overlay === 'sar' && next) {
-        resolveLatestSarDate();
+      if (overlay === 'sar') {
+        if (next) {
+          resolveLatestSarDate();
+        } else {
+          setOverlayStatus('sar', 'off', '');
+        }
+      }
+      if (overlay === 'lidar') {
+        if (next) {
+          loadLidarCoverageLayer();
+        } else {
+          setOverlayStatus('lidar', 'off', '');
+        }
       }
       updateImageryPanelUI();
       updateMapLegendUI();

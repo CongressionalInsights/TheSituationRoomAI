@@ -1721,6 +1721,26 @@ a:focus-visible {
   color: var(--muted);
 }
 
+.imagery-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.imagery-status span[data-state="ready"] {
+  color: #8fe6a2;
+}
+
+.imagery-status span[data-state="loading"] {
+  color: #ffd68a;
+}
+
+.imagery-status span[data-state="unavailable"] {
+  color: #ff9f9f;
+}
+
 .imagery-actions {
   display: flex;
   justify-content: flex-end;
