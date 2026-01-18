@@ -120,6 +120,7 @@ const state = {
   sarCapabilitiesChecked: false,
   sarCapabilitiesDate: null,
   sarCoverageTimer: null,
+  sarCoverageCache: {},
   overlayStatus: {
     imagery: { state: 'idle', message: '' },
     sar: { state: 'idle', message: '' },
@@ -164,6 +165,7 @@ const state = {
   lidarPointEptUrl: null,
   lidarPointTelemetry: [],
   lidarPointEptAvailable: false,
+  lidarPointEptMeta: null,
   lidarSelectedLayer: null,
   lidarSelectedBounds: null
 };
@@ -7544,12 +7546,23 @@ function buildLidarEptUrl(projectName) {
   return `https://s3-us-west-2.amazonaws.com/usgs-lidar-public/${encodeURIComponent(safe)}/ept.json`;
 }
 
+function getLidarEptCenter(meta) {
+  if (!meta) return null;
+  const bounds = meta.boundsConforming || meta.bounds;
+  if (!Array.isArray(bounds) || bounds.length < 6) return null;
+  const centerLon = (bounds[0] + bounds[3]) / 2;
+  const centerLat = (bounds[1] + bounds[4]) / 2;
+  const centerAlt = (bounds[2] + bounds[5]) / 2;
+  return [centerLon, centerLat, centerAlt];
+}
+
 function setLidarPointProjectFromFeature(feature, bounds, layerRef) {
   if (!feature || !bounds) return;
   const name = feature?.properties?.name || null;
   state.lidarPointProject = name;
   state.lidarPointEptUrl = buildLidarEptUrl(name);
   state.lidarPointEptAvailable = false;
+  state.lidarPointEptMeta = null;
   state.lidarSelectedBounds = bounds;
   applyLidarSelection(layerRef);
   if (state.lidarPointEptUrl) {
@@ -7572,11 +7585,23 @@ async function checkLidarEptAvailability(url) {
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw new Error(`EPT status ${response.status}`);
     state.lidarPointEptAvailable = true;
+    try {
+      const meta = await response.clone().json();
+      state.lidarPointEptMeta = meta;
+      const center = getLidarEptCenter(meta);
+      if (center) {
+        state.lidarPointAnchor = [center[0], center[1], 0];
+      }
+      recordLidarPointTelemetry({ status: 'ept_meta', project: state.lidarPointProject || null });
+    } catch (metaErr) {
+      console.warn('LiDAR EPT meta parse failed', metaErr);
+    }
     setOverlayStatus('lidarPoints', 'ready', `ept ok • ${state.lidarPointProject || 'project'}`);
     recordLidarPointTelemetry({ status: 'ept_ok', project: state.lidarPointProject || null, eptUrl: url });
   } catch (err) {
     console.warn('LiDAR EPT check failed', err);
     state.lidarPointEptAvailable = false;
+    state.lidarPointEptMeta = null;
     setOverlayStatus('lidarPoints', 'unavailable', 'ept unavailable');
     recordLidarPointTelemetry({
       status: 'ept_unavailable',
@@ -7832,12 +7857,27 @@ function buildSarSampleUrls(date) {
 
 async function refreshSarCoverageStatus(date) {
   if (!date || !state.settings.mapRasterOverlays?.sar) return;
+  const cacheKey = getSarCoverageCacheKey(date);
+  if (cacheKey) {
+    const cached = state.sarCoverageCache?.[cacheKey];
+    if (cached && (Date.now() - cached.ts < 5 * 60 * 1000)) {
+      if (cached.ok) {
+        setOverlayStatus('sar', 'ready', `date ${date}`);
+      } else {
+        setOverlayStatus('sar', 'unavailable', 'no coverage for AOI/date');
+      }
+      return;
+    }
+  }
   const urls = buildSarSampleUrls(date);
   let ok = false;
   for (const url of urls) {
     // eslint-disable-next-line no-await-in-loop
     ok = await checkTileAvailable(url);
     if (ok) break;
+  }
+  if (cacheKey) {
+    state.sarCoverageCache[cacheKey] = { ok, ts: Date.now() };
   }
   if (!ok) {
     setOverlayStatus('sar', 'unavailable', 'no coverage for AOI/date');
@@ -7855,6 +7895,15 @@ function scheduleSarCoverageCheck() {
   state.sarCoverageTimer = setTimeout(() => {
     refreshSarCoverageStatus(state.sarDate);
   }, 600);
+}
+
+function getSarCoverageCacheKey(date) {
+  const map = state.map;
+  if (!map || !date) return null;
+  const zoom = Math.round(map.getZoom() || 4);
+  const center = map.getCenter?.();
+  if (!center) return `${date}:${zoom}`;
+  return `${date}:${zoom}:${center.lat.toFixed(2)},${center.lng.toFixed(2)}`;
 }
 
 function shiftIsoDate(base, offsetDays) {
