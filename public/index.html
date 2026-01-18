@@ -489,6 +489,7 @@
               <label class="legend-item"><input id="legendOverlaySar" name="legendOverlaySar" type="checkbox" data-overlay="sar" /> SAR (Sentinel-1)</label>
               <label class="legend-item"><input id="legendOverlayAerosol" name="legendOverlayAerosol" type="checkbox" data-overlay="aerosol" /> Aerosol / Smoke Index</label>
               <label class="legend-item"><input id="legendOverlayLidar" name="legendOverlayLidar" type="checkbox" data-overlay="lidar" /> LiDAR Coverage (3DEP)</label>
+              <label class="legend-item"><input id="legendOverlayLidarPoints" name="legendOverlayLidarPoints" type="checkbox" data-overlay="lidarPoints" /> LiDAR Points (Beta)</label>
               <label class="legend-item"><input id="legendOverlayThermal" name="legendOverlayThermal" type="checkbox" data-overlay="thermal" /> Thermal Brightness</label>
               <label class="legend-item"><input id="legendOverlayFire" name="legendOverlayFire" type="checkbox" data-overlay="fire" /> Wildfire Heat (GOES)</label>
               <div class="legend-note">SAR is swath-based; zoom in or change dates to see coverage.</div>
@@ -671,6 +672,7 @@
                   <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="sar">SAR (Sentinel‑1)</button>
                   <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="aerosol">Aerosol / Smoke</button>
                   <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="lidar">LiDAR Coverage</button>
+                  <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="lidarPoints">LiDAR Points (Beta)</button>
                   <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="thermal">Thermal Brightness</button>
                   <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat (GOES)</button>
                 </div>
@@ -738,6 +740,11 @@
                   <label for="opacityLidar">LiDAR Coverage</label>
                   <input id="opacityLidar" name="opacityLidar" type="range" min="0" max="100" step="5" data-overlay-opacity="lidar" />
                   <span data-overlay-opacity-value="lidar">--%</span>
+                </div>
+                <div class="imagery-slider">
+                  <label for="opacityLidarPoints">LiDAR Points</label>
+                  <input id="opacityLidarPoints" name="opacityLidarPoints" type="range" min="0" max="100" step="5" data-overlay-opacity="lidarPoints" />
+                  <span data-overlay-opacity-value="lidarPoints">--%</span>
                 </div>
                 <div class="imagery-slider">
                   <label for="opacityThermal">Thermal</label>
@@ -1471,6 +1478,8 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/deck.gl@9.2.0/dist.min.js"></script>
+  <script src="https://unpkg.com/deck.gl-leaflet@latest/dist/deck.gl-leaflet.umd.min.js"></script>
   <script src="config.js"></script>
   <script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js" defer></script>
   <script type="module" src="app.20260116a.js"></script>

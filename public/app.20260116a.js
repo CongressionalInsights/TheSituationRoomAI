@@ -55,6 +55,7 @@ const state = {
       ,
       aerosol: false,
       lidar: false,
+      lidarPoints: false,
       thermal: false,
       fire: false
     },
@@ -65,6 +66,7 @@ const state = {
       sar: 0.55,
       aerosol: 0.45,
       lidar: 0.25,
+      lidarPoints: 0.65,
       thermal: 0.45,
       fire: 0.45
     },
@@ -118,7 +120,8 @@ const state = {
   overlayStatus: {
     imagery: { state: 'idle', message: '' },
     sar: { state: 'idle', message: '' },
-    lidar: { state: 'idle', message: '' }
+    lidar: { state: 'idle', message: '' },
+    lidarPoints: { state: 'idle', message: '' }
   },
   energyMap: null,
   energyMapLayer: null,
@@ -149,7 +152,12 @@ const state = {
   flightTrackLoading: false,
   flightTrackFetchedAt: 0,
   lidarCoverageLayer: null,
-  lidarCoverageLoading: false
+  lidarCoverageLoading: false,
+  lidarPointLayer: null,
+  lidarPointData: null,
+  lidarPointLoading: false,
+  lidarPointAnchor: null,
+  lidarPointTelemetry: []
 };
 
 const elements = {
@@ -529,6 +537,9 @@ const GIBS_OVERLAYS = {
 };
 const LIDAR_BOUNDARY_URL = 'https://raw.githubusercontent.com/hobuinc/usgs-lidar/master/boundaries/boundaries.topojson';
 const LIDAR_CACHE_KEY = 'lidarCoverageCache';
+const LIDAR_POINT_SAMPLE_URL = 'https://raw.githubusercontent.com/visgl/loaders.gl/master/modules/las/test/data/indoor.laz';
+const LIDAR_POINT_TARGET_COUNT = 45000;
+const LIDAR_POINT_TELEMETRY_KEY = 'lidarPointTelemetry';
 const severityLabels = [
   { min: 8, label: 'Great' },
   { min: 7, label: 'Major' },
@@ -886,6 +897,14 @@ function loadSettings() {
       }
       if (!Array.isArray(state.settings.tickerWatchlist)) {
         state.settings.tickerWatchlist = [];
+      }
+      try {
+        const telemetry = localStorage.getItem(LIDAR_POINT_TELEMETRY_KEY);
+        if (telemetry) {
+          state.lidarPointTelemetry = JSON.parse(telemetry);
+        }
+      } catch (err) {
+        console.warn('LiDAR telemetry read failed', err);
       }
       if (!state.settings.country) {
         state.settings.country = 'US';
@@ -7489,6 +7508,106 @@ async function loadLidarCoverageLayer() {
   }
 }
 
+async function loadLidarPointOverlay() {
+  if (!state.map || state.lidarPointLoading || state.lidarPointLayer) return;
+  if (!window.deck || !window.DeckGlLeaflet) {
+    setOverlayStatus('lidarPoints', 'unavailable', 'deck.gl missing');
+    recordLidarPointTelemetry({ status: 'unavailable', reason: 'deck.gl missing' });
+    return;
+  }
+  const startedAt = performance.now();
+  state.lidarPointLoading = true;
+  setOverlayStatus('lidarPoints', 'loading', 'loading sample');
+  try {
+    if (!state.lidarPointData) {
+      const { LASLoader } = await import('https://unpkg.com/@loaders.gl/las@3.4.14/dist/esm/index.js');
+      const response = await fetch(LIDAR_POINT_SAMPLE_URL);
+      if (!response.ok) throw new Error(`LiDAR sample fetch failed: ${response.status}`);
+      const buffer = await response.arrayBuffer();
+      const mesh = await LASLoader.parse(buffer, {});
+      const positions = mesh?.attributes?.POSITION?.value;
+      if (!positions) throw new Error('LiDAR sample missing POSITION data.');
+      const total = positions.length / 3;
+      const bbox = mesh?.header?.boundingBox;
+      const center = bbox ? [
+        (bbox[0][0] + bbox[1][0]) / 2,
+        (bbox[0][1] + bbox[1][1]) / 2,
+        (bbox[0][2] + bbox[1][2]) / 2
+      ] : [0, 0, 0];
+      const intensities = mesh?.attributes?.intensity?.value;
+      const step = Math.max(1, Math.ceil(total / LIDAR_POINT_TARGET_COUNT));
+      const points = [];
+      for (let i = 0; i < total; i += step) {
+        const idx = i * 3;
+        const intensity = intensities ? intensities[i] : 0;
+        const shade = Math.min(255, Math.max(30, Math.round(30 + (intensity / 65535) * 225)));
+        points.push({
+          position: [
+            positions[idx] - center[0],
+            positions[idx + 1] - center[1],
+            positions[idx + 2] - center[2]
+          ],
+          color: [60, shade, 255, 200]
+        });
+      }
+      state.lidarPointData = points;
+      const anchor = state.map.getCenter();
+      state.lidarPointAnchor = [anchor.lng, anchor.lat, 0];
+    }
+    const layer = buildLidarPointLayer();
+    const leafletLayer = new window.DeckGlLeaflet.LeafletLayer({
+      layers: [layer]
+    });
+    state.lidarPointLayer = leafletLayer;
+    state.mapOverlayLayers = { ...state.mapOverlayLayers, lidarPoints: leafletLayer };
+    syncMapRasterOverlays();
+    setOverlayStatus('lidarPoints', 'ready', `points ${state.lidarPointData.length}`);
+    recordLidarPointTelemetry({
+      status: 'ready',
+      points: state.lidarPointData.length,
+      loadMs: Math.round(performance.now() - startedAt)
+    });
+  } catch (err) {
+    console.warn('LiDAR point overlay failed', err);
+    setOverlayStatus('lidarPoints', 'unavailable', 'sample load failed');
+    recordLidarPointTelemetry({
+      status: 'unavailable',
+      reason: err?.message || 'sample load failed',
+      loadMs: Math.round(performance.now() - startedAt)
+    });
+  } finally {
+    state.lidarPointLoading = false;
+  }
+}
+
+function buildLidarPointLayer() {
+  const { PointCloudLayer, COORDINATE_SYSTEM } = window.deck;
+  const opacity = getOverlayOpacity('lidarPoints', 0.65);
+  const origin = state.lidarPointAnchor || [state.location.lon, state.location.lat, 0];
+  return new PointCloudLayer({
+    id: 'lidar-points',
+    data: state.lidarPointData || [],
+    getPosition: (d) => d.position,
+    getColor: (d) => d.color,
+    pointSize: 2,
+    opacity,
+    coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
+    coordinateOrigin: origin,
+    pickable: false
+  });
+}
+
+function recordLidarPointTelemetry(entry) {
+  const payload = { ts: new Date().toISOString(), ...entry };
+  const next = [...(state.lidarPointTelemetry || []), payload].slice(-50);
+  state.lidarPointTelemetry = next;
+  try {
+    localStorage.setItem(LIDAR_POINT_TELEMETRY_KEY, JSON.stringify(next));
+  } catch (err) {
+    console.warn('LiDAR telemetry write failed', err);
+  }
+}
+
 function sampleTileUrl(template) {
   return template.replace('{z}', '2').replace('{y}', '1').replace('{x}', '1');
 }
@@ -7718,6 +7837,7 @@ function resetImagerySettings() {
     sar: false,
     aerosol: false,
     lidar: false,
+    lidarPoints: false,
     thermal: false,
     fire: false
   };
@@ -7726,6 +7846,7 @@ function resetImagerySettings() {
     sar: 0.55,
     aerosol: 0.45,
     lidar: 0.25,
+    lidarPoints: 0.65,
     thermal: 0.45,
     fire: 0.45
   };
@@ -7790,6 +7911,8 @@ function syncMapRasterOverlays() {
     const opacity = getOverlayOpacity(overlayKey, layer.options?.opacity ?? 0.5);
     if (overlayKey === 'lidar' && typeof layer.setStyle === 'function' && Number.isFinite(opacity)) {
       layer.setStyle(getLidarCoverageStyle(opacity));
+    } else if (overlayKey === 'lidarPoints' && typeof layer.setProps === 'function' && Number.isFinite(opacity)) {
+      layer.setProps({ layers: [buildLidarPointLayer()] });
     } else if (typeof layer.setOpacity === 'function' && Number.isFinite(opacity)) {
       layer.setOpacity(opacity);
     }
@@ -7895,6 +8018,11 @@ function initMap() {
     loadLidarCoverageLayer();
   } else {
     setOverlayStatus('lidar', 'off', '');
+  }
+  if (state.settings.mapRasterOverlays?.lidarPoints) {
+    loadLidarPointOverlay();
+  } else {
+    setOverlayStatus('lidarPoints', 'off', '');
   }
   applyMapBasemap(state.settings.mapBasemap, { skipSave: true });
   syncMapRasterOverlays();
@@ -9350,6 +9478,13 @@ function initEvents() {
             setOverlayStatus('lidar', 'off', '');
           }
         }
+        if (overlay === 'lidarPoints') {
+          if (overlayInput.checked) {
+            loadLidarPointOverlay();
+          } else {
+            setOverlayStatus('lidarPoints', 'off', '');
+          }
+        }
       }
       const densityInput = event.target.closest('input[data-flight-density]');
       if (densityInput) {
@@ -9454,6 +9589,13 @@ function initEvents() {
           loadLidarCoverageLayer();
         } else {
           setOverlayStatus('lidar', 'off', '');
+        }
+      }
+      if (overlay === 'lidarPoints') {
+        if (next) {
+          loadLidarPointOverlay();
+        } else {
+          setOverlayStatus('lidarPoints', 'off', '');
         }
       }
       updateImageryPanelUI();
