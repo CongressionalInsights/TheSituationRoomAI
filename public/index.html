@@ -404,6 +404,23 @@
         </section>
 
         <main class="grid" id="panelGrid">
+          <section class="panel briefing-panel" data-panel="briefing" data-category="analysis">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title"><span class="panel-icon tone-analysis"><svg class="icon" aria-hidden="true"><use href="#icon-signal"></use></svg></span>Briefing</div>
+                <div class="panel-sub">Concise situation summary from live or cached feeds.</div>
+              </div>
+              <div class="panel-actions">
+                <button class="btn" id="analysisRun">Create Brief</button>
+              </div>
+            </div>
+            <div class="analysis-output" id="analysisOutput">
+              <div class="analysis-title">AI Analysis</div>
+              <div class="analysis-meta" id="analysisMeta">Awaiting briefing.</div>
+              <div class="analysis-story" id="analysisStory"></div>
+              <div class="analysis-body">Pull data or run analysis to generate a briefing.</div>
+            </div>
+          </section>
       <section class="panel map-panel" data-panel="map" data-category="geo">
         <div class="panel-header">
           <div>
@@ -631,8 +648,8 @@
         <div class="imagery-body">
           <div class="command-section imagery-section" data-default-open="true">
             <button class="command-section-toggle" type="button" aria-expanded="false">
-              <span>Basemaps</span>
-              <span class="command-section-note">Switch the primary basemap layer.</span>
+              <span>Basemaps & Overlays</span>
+              <span class="command-section-note">Switch basemap layers and toggle overlays.</span>
             </button>
             <div class="command-section-body">
               <div class="imagery-group">
@@ -647,33 +664,6 @@
                   <button class="chip imagery-basemap" data-imagery-basemap="gibs-daynight">Day/Night Band</button>
                 </div>
               </div>
-            </div>
-          </div>
-          <div class="command-section imagery-section">
-            <button class="command-section-toggle" type="button" aria-expanded="false">
-              <span>Presets & Actions</span>
-              <span class="command-section-note">Quick toggles for night/thermal views.</span>
-            </button>
-            <div class="command-section-body">
-              <div class="imagery-group">
-                <div class="imagery-label">Presets</div>
-                <div class="chip-group">
-                  <button class="chip" data-imagery-preset="night">Night</button>
-                  <button class="chip" data-imagery-preset="thermal">Thermal</button>
-                  <button class="chip" id="imageryResetBtn" type="button">Reset Imagery</button>
-                </div>
-              </div>
-              <div class="imagery-actions">
-                <button class="chip" id="imageryResetPanelBtn" type="button">Reset Imagery</button>
-              </div>
-            </div>
-          </div>
-          <div class="command-section imagery-section" data-default-open="true">
-            <button class="command-section-toggle" type="button" aria-expanded="false">
-              <span>Overlays</span>
-              <span class="command-section-note">SAR, LiDAR, aerosol, thermal, wildfire layers.</span>
-            </button>
-            <div class="command-section-body">
               <div class="imagery-group">
                 <div class="imagery-label">Overlays</div>
                 <div class="chip-group">
@@ -685,6 +675,34 @@
                   <button class="chip chip-toggle imagery-overlay" data-imagery-overlay="fire">Wildfire Heat (GOES)</button>
                 </div>
                 <div class="imagery-note">SAR is swath-based — zoom or change dates to see coverage. GOES fire layers focus on the Americas.</div>
+              </div>
+            </div>
+          </div>
+          <div class="command-section imagery-section">
+            <button class="command-section-toggle" type="button" aria-expanded="false">
+              <span>Presets, Actions & Dates</span>
+              <span class="command-section-note">Quick toggles and time windows.</span>
+            </button>
+            <div class="command-section-body">
+              <div class="imagery-group">
+                <div class="imagery-label">Presets</div>
+                <div class="chip-group">
+                  <button class="chip" data-imagery-preset="night">Night</button>
+                  <button class="chip" data-imagery-preset="thermal">Thermal</button>
+                  <button class="chip" id="imageryResetBtn" type="button">Reset Imagery</button>
+                </div>
+              </div>
+              <div class="imagery-group imagery-dates">
+                <div class="imagery-date">
+                  <label class="imagery-label" for="imageryDatePanel">Imagery Date</label>
+                  <input id="imageryDatePanel" name="imageryDatePanel" type="date" />
+                  <button class="chip chip-small" id="imageryPanelAutoBtn" type="button">Latest</button>
+                </div>
+                <div class="imagery-date">
+                  <label class="imagery-label" for="sarDatePanel">SAR Date</label>
+                  <input id="sarDatePanel" name="sarDatePanel" type="date" />
+                  <button class="chip chip-small" id="sarPanelAutoBtn" type="button">Latest</button>
+                </div>
               </div>
             </div>
           </div>
@@ -725,26 +743,6 @@
                   <label for="opacityFire">Fire</label>
                   <input id="opacityFire" name="opacityFire" type="range" min="0" max="100" step="5" data-overlay-opacity="fire" />
                   <span data-overlay-opacity-value="fire">--%</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="command-section imagery-section">
-            <button class="command-section-toggle" type="button" aria-expanded="false">
-              <span>Dates</span>
-              <span class="command-section-note">Select imagery time windows.</span>
-            </button>
-            <div class="command-section-body">
-              <div class="imagery-group imagery-dates">
-                <div class="imagery-date">
-                  <label class="imagery-label" for="imageryDatePanel">Imagery Date</label>
-                  <input id="imageryDatePanel" name="imageryDatePanel" type="date" />
-                  <button class="chip chip-small" id="imageryPanelAutoBtn" type="button">Latest</button>
-                </div>
-                <div class="imagery-date">
-                  <label class="imagery-label" for="sarDatePanel">SAR Date</label>
-                  <input id="sarDatePanel" name="sarDatePanel" type="date" />
-                  <button class="chip chip-small" id="sarPanelAutoBtn" type="button">Latest</button>
                 </div>
               </div>
             </div>
@@ -872,7 +870,6 @@
                     <div class="analysis-chat-title">Situational Analysis</div>
                     <div class="analysis-chat-sub">Chat-style briefing and quick questions.</div>
                   </div>
-                  <button class="chip" id="analysisRun">Briefing</button>
                 </div>
                 <div class="chat-wrap compact">
                   <div class="chat-log" id="chatLog">
@@ -921,12 +918,6 @@
             <div class="signal-value" id="marketPulse">--</div>
             <div class="signal-meta" id="marketPulseMeta">Awaiting feeds</div>
           </div>
-        </div>
-        <div class="analysis-output" id="analysisOutput">
-          <div class="analysis-title">AI Analysis</div>
-          <div class="analysis-meta" id="analysisMeta">Awaiting briefing.</div>
-          <div class="analysis-story" id="analysisStory"></div>
-          <div class="analysis-body">Pull data or run analysis to generate a briefing.</div>
         </div>
       </section>
 

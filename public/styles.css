@@ -384,10 +384,10 @@ body::before {
 
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 10px 12px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--panel);
@@ -408,7 +408,7 @@ body::before {
 
 .topbar-heading {
   font-family: var(--font-display);
-  font-size: 15px;
+  font-size: 14px;
   letter-spacing: 0.15px;
 }
 
@@ -453,30 +453,30 @@ body::before {
 
 .topbar-meta {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
 }
 
 .status {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 9px;
+  font-size: 8px;
   text-transform: uppercase;
-  letter-spacing: 1.4px;
+  letter-spacing: 1.2px;
   color: var(--accent-2);
 }
 
 .data-fresh-badge {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
-  padding: 4px 8px;
+  padding: 3px 6px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--muted);
-  letter-spacing: 0.2px;
+  letter-spacing: 0.1px;
 }
 
 .status-dot {
@@ -490,9 +490,19 @@ body::before {
 .top-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+#analysisRun {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #071018;
+  box-shadow: 0 12px 20px rgba(5, 10, 16, 0.22);
+}
+
+#analysisRun:hover {
+  filter: brightness(1.08);
 }
 
 .country-select {
@@ -1146,6 +1156,16 @@ a:focus-visible {
   position: relative;
   overflow: hidden;
   animation: rise 0.6s ease both;
+}
+
+.panel.command-panel {
+  border-color: rgba(94, 161, 255, 0.45);
+  box-shadow: 0 16px 28px rgba(29, 82, 159, 0.18), var(--shadow-soft);
+}
+
+.panel.command-panel::after {
+  border-top-color: rgba(94, 161, 255, 0.55);
+  opacity: 0.6;
 }
 
 .panel-body {
@@ -2804,39 +2824,39 @@ a:focus-visible {
 }
 
 .signals-panel {
-  min-height: 420px;
+  min-height: 300px;
 }
 
 .signal-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  gap: 10px;
 }
 
 .signal-card {
   background: var(--surface-3);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-soft);
 }
 
 .signal-label {
-  font-size: 11px;
-  letter-spacing: 0.6px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .signal-value {
-  font-size: 22px;
+  font-size: 18px;
   margin-top: 4px;
   font-weight: 600;
   color: var(--text);
 }
 
 .signal-meta {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
 }
 
