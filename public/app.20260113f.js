@@ -5659,7 +5659,7 @@ async function callOpenAIDirect({ messages, context, temperature = 0.2, model } 
     throw new Error('missing_api_key');
   }
   const payload = {
-    model: model || 'gpt-4o-mini',
+    model: model || 'gpt-5.2',
     input: [
       { role: 'system', content: 'You are an intelligence assistant for a situational awareness dashboard.' },
       ...(Array.isArray(messages) ? messages : [])

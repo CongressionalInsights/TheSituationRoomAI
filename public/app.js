@@ -117,6 +117,8 @@ const state = {
   sarDateManual: false,
   imageryResolveInFlight: false,
   sarResolveInFlight: false,
+  sarCapabilitiesChecked: false,
+  sarCapabilitiesDate: null,
   overlayStatus: {
     imagery: { state: 'idle', message: '' },
     sar: { state: 'idle', message: '' },
@@ -6298,7 +6300,7 @@ async function callOpenAIDirect({ messages, context, temperature = 0.2, model } 
     throw new Error('missing_api_key');
   }
   const payload = {
-    model: model || 'gpt-4o-mini',
+    model: model || 'gpt-5.2',
     input: [
       { role: 'system', content: 'You are an intelligence assistant for a situational awareness dashboard.' },
       ...(Array.isArray(messages) ? messages : [])
@@ -7495,6 +7497,26 @@ function buildSarTileUrlForTile(date, z, y, x) {
   return `https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=CGS_S1_GRD_SIGMA0&style=default&format=image/png&tilematrixset=EPSG:3857&tilematrix=EPSG:3857:${z}&tilerow=${y}&tilecol=${x}&time=${date}`;
 }
 
+async function fetchSarCapabilitiesDate() {
+  if (state.sarCapabilitiesChecked) return state.sarCapabilitiesDate;
+  state.sarCapabilitiesChecked = true;
+  const url = 'https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetCapabilities';
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`GetCapabilities ${response.status}`);
+    const text = await response.text();
+    const layerMatch = text.match(/<Layer[^>]*>[\s\S]*?<Identifier>CGS_S1_GRD_SIGMA0<\/Identifier>[\s\S]*?<\/Layer>/i);
+    const block = layerMatch ? layerMatch[0] : text;
+    const dates = block.match(/\d{4}-\d{2}-\d{2}/g);
+    if (dates && dates.length) {
+      state.sarCapabilitiesDate = dates[dates.length - 1];
+    }
+  } catch (err) {
+    console.warn('SAR GetCapabilities fetch failed', err);
+  }
+  return state.sarCapabilitiesDate;
+}
+
 function getLidarCoverageStyle(opacity = 0.25) {
   const fillOpacity = Math.max(0, Math.min(opacity, 0.6));
   const strokeOpacity = Math.min(1, fillOpacity + 0.35);
@@ -7799,6 +7821,8 @@ function buildSarSampleUrls(date) {
     const samples = [
       { lat: center.lat, lon: center.lng },
       { lat: bounds.getNorth(), lon: bounds.getWest() },
+      { lat: bounds.getNorth(), lon: bounds.getEast() },
+      { lat: bounds.getSouth(), lon: bounds.getWest() },
       { lat: bounds.getSouth(), lon: bounds.getEast() }
     ];
     return samples.map(({ lat, lon }) => {
@@ -7894,7 +7918,8 @@ async function resolveLatestSarDate() {
   state.sarResolveInFlight = true;
   setOverlayStatus('sar', 'loading', 'checking tiles');
   try {
-    const base = getRecentIsoDate(1);
+    const capabilityDate = await fetchSarCapabilitiesDate();
+    const base = capabilityDate || getRecentIsoDate(1);
     let found = false;
     for (let i = 0; i < 12; i += 1) {
       const candidate = shiftIsoDate(base, -i);
