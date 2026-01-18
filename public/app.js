@@ -2920,6 +2920,63 @@ function parseAcledEvents(data, feed) {
   });
 }
 
+function parseWarspottingLosses(data, feed) {
+  const list = Array.isArray(data?.losses) ? data.losses : [];
+  const max = Number(feed.limit) || 300;
+  return list.slice(0, max).map((loss) => {
+    const geoRaw = typeof loss.geo === 'string' ? loss.geo : '';
+    let geo = null;
+    if (geoRaw && geoRaw.includes(',')) {
+      const [latRaw, lonRaw] = geoRaw.split(',');
+      const lat = Number(latRaw);
+      const lon = Number(lonRaw);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        geo = { lat, lon };
+      }
+    }
+    const location = loss.nearest_location || '';
+    const status = loss.status || 'Loss';
+    const type = loss.type || 'Equipment';
+    const model = loss.model || '';
+    const unit = loss.unit || '';
+    const tags = loss.tags || '';
+    const summaryParts = [];
+    if (type) summaryParts.push(type);
+    if (model && model !== type) summaryParts.push(model);
+    if (unit) summaryParts.push(`Unit: ${unit}`);
+    if (tags) summaryParts.push(`Tags: ${tags}`);
+    const dateStr = loss.date || '';
+    const publishedAt = dateStr ? Date.parse(dateStr) : Date.now();
+    const titleBase = model || type || 'Equipment Loss';
+    const title = `${status} — ${titleBase}${location ? ` • ${location}` : ''}`;
+    const conflictKey = (() => {
+      if (!geo) return '';
+      const roundedLat = Math.round(geo.lat * 5) / 5;
+      const roundedLon = Math.round(geo.lon * 5) / 5;
+      const typeKey = normalizeTitle(type || '').slice(0, 24);
+      return `${dateStr || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+    })();
+    return {
+      title,
+      url: 'https://ukr.warspotting.net/',
+      summary: summaryParts.join(' • '),
+      summaryHtml: summaryParts.join(' • '),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: 'Warspotting',
+      category: feed.category,
+      geo,
+      alertType: status,
+      eventType: status,
+      hazardType: type,
+      severity: status,
+      location,
+      geoLabel: location,
+      conflictKey,
+      tags: ['conflict', 'security', 'kinetic']
+    };
+  });
+}
+
 function parseGdeltConflictGeo(data, feed) {
   const features = Array.isArray(data?.features) ? data.features : [];
   const extractFirstLink = (html = '') => {
@@ -3643,6 +3700,7 @@ const feedParsers = {
   'energy-eia-brent': parseEiaSeries,
   'energy-eia-ng': parseEiaSeries,
   'acled-events': parseAcledEvents,
+  'warspotting-losses': parseWarspottingLosses,
   'polymarket-markets': parsePolymarketMarkets,
   'noaa-incidentnews': parseIncidentNewsCsv,
   'stooq-quote': parseStooqCsv,
@@ -7783,6 +7841,7 @@ function getSignalType(item) {
   if (item.feedId === 'usgs-quakes-hour' || item.feedId === 'usgs-quakes-day') return 'quake';
   if (item.feedId === 'arcgis-border-crisis') return 'border';
   if (item.feedId === 'arcgis-kinetic-oconus' || item.feedId === 'arcgis-kinetic-domestic' || item.feedId === 'arcgis-kinetic-europe' || item.feedId === 'arcgis-kinetic-venezuela') return 'kinetic';
+  if (item.feedId === 'warspotting-losses') return 'kinetic';
   if (item.feedId === 'arcgis-drone-reports') return 'drone';
   if (item.feedId === 'arcgis-logistics-shortages') return 'logistics';
   if (item.feedId === 'arcgis-tipline-reports') return 'warning';

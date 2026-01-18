@@ -510,6 +510,23 @@
       ]
     },
     {
+      "id": "warspotting-losses",
+      "name": "Warspotting Losses (Russia)",
+      "docsUrl": "https://ukr.warspotting.net/api/docs/",
+      "category": "security",
+      "format": "json",
+      "url": "https://ukr.warspotting.net/api/losses/russia/",
+      "limit": 300,
+      "ttlMinutes": 60,
+      "tags": [
+        "global",
+        "security",
+        "conflict",
+        "geo",
+        "kinetic"
+      ]
+    },
+    {
       "id": "gdelt-conflict-geo",
       "name": "GDELT Conflict Signals",
       "category": "security",
