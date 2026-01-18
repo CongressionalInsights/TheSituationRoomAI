@@ -166,6 +166,7 @@ const state = {
   lidarPointTelemetry: [],
   lidarPointEptAvailable: false,
   lidarPointEptMeta: null,
+  lidarPointSource: null,
   lidarSelectedLayer: null,
   lidarSelectedBounds: null
 };
@@ -7590,6 +7591,120 @@ function getLidarEptCenter(meta) {
   return [centerLon, centerLat, centerAlt];
 }
 
+function getLidarPointLimits() {
+  const isMobile = window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+  return {
+    pointCap: 150000,
+    radiusKm: 5,
+    maxTiles: isMobile ? 8 : 16
+  };
+}
+
+function getEptSrsCode(meta) {
+  const srs = meta?.srs;
+  if (!srs) return null;
+  const code = srs?.horizontal || srs?.authority || srs?.horizontalEPSG || srs?.authorityCode;
+  const value = Number(code);
+  return Number.isFinite(value) ? value : null;
+}
+
+function isEptSrsSupported(meta) {
+  const code = getEptSrsCode(meta);
+  return code === 4326 || code === 3857;
+}
+
+function mercatorToLonLat(x, y) {
+  const R = 6378137;
+  const lon = (x / R) * (180 / Math.PI);
+  const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * (180 / Math.PI);
+  return [lon, lat];
+}
+
+function buildEptBaseUrl(eptUrl) {
+  if (!eptUrl) return null;
+  return eptUrl.replace(/\/ept\.json$/i, '/');
+}
+
+function buildEptHierarchyUrl(baseUrl, key) {
+  return `${baseUrl}ept-hierarchy/${key}.json`;
+}
+
+function buildEptDataUrl(baseUrl, key, dataType) {
+  return `${baseUrl}data/${key}.${dataType}`;
+}
+
+async function fetchEptHierarchyKeys(baseUrl) {
+  const rootKey = '0-0-0-0';
+  const url = buildEptHierarchyUrl(baseUrl, rootKey);
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`EPT hierarchy ${response.status}`);
+  const data = await response.json();
+  return Object.entries(data || {}).map(([key, count]) => ({ key, count: Number(count) || 0 }));
+}
+
+function selectEptKeys(entries, maxTiles) {
+  if (!entries.length) return [];
+  const sorted = entries.slice().sort((a, b) => b.count - a.count);
+  return sorted.slice(0, maxTiles).map((entry) => entry.key);
+}
+
+async function loadLidarPointOverlayFromEpt() {
+  const eptUrl = state.lidarPointEptUrl;
+  const meta = state.lidarPointEptMeta;
+  if (!eptUrl || !meta) throw new Error('EPT metadata missing');
+  if (!isEptSrsSupported(meta)) throw new Error('EPT SRS unsupported');
+
+  const baseUrl = buildEptBaseUrl(eptUrl);
+  const dataType = meta.dataType || 'laz';
+  const limits = getLidarPointLimits();
+  const hierarchy = await fetchEptHierarchyKeys(baseUrl);
+  const keys = selectEptKeys(hierarchy, limits.maxTiles);
+  if (!keys.length) throw new Error('EPT hierarchy empty');
+
+  const { LASLoader } = await import('https://unpkg.com/@loaders.gl/las@3.4.14/dist/esm/index.js');
+  const points = [];
+  const srsCode = getEptSrsCode(meta);
+  let totalLoaded = 0;
+
+  for (const key of keys) {
+    const url = buildEptDataUrl(baseUrl, key, dataType);
+    // eslint-disable-next-line no-await-in-loop
+    const response = await fetch(url);
+    if (!response.ok) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const buffer = await response.arrayBuffer();
+    // eslint-disable-next-line no-await-in-loop
+    const mesh = await LASLoader.parse(buffer, {});
+    const positions = mesh?.attributes?.POSITION?.value;
+    if (!positions) continue;
+    const total = positions.length / 3;
+    const step = Math.max(1, Math.ceil(total / Math.max(1, Math.floor(limits.pointCap / keys.length))));
+    for (let i = 0; i < total && totalLoaded < limits.pointCap; i += step) {
+      const idx = i * 3;
+      let lon = positions[idx];
+      let lat = positions[idx + 1];
+      const alt = positions[idx + 2];
+      if (srsCode === 3857) {
+        const lngLat = mercatorToLonLat(lon, lat);
+        lon = lngLat[0];
+        lat = lngLat[1];
+      }
+      points.push({
+        position: [lon, lat, alt],
+        color: [80, 195, 255, 200]
+      });
+      totalLoaded += 1;
+      if (totalLoaded >= limits.pointCap) break;
+    }
+    if (totalLoaded >= limits.pointCap) break;
+  }
+
+  if (!points.length) throw new Error('EPT tiles empty');
+  state.lidarPointSource = 'ept';
+  state.lidarPointData = points;
+  return points.length;
+}
+
 function setLidarPointProjectFromFeature(feature, bounds, layerRef) {
   if (!feature || !bounds) return;
   const name = feature?.properties?.name || null;
@@ -7597,6 +7712,7 @@ function setLidarPointProjectFromFeature(feature, bounds, layerRef) {
   state.lidarPointEptUrl = buildLidarEptUrl(name);
   state.lidarPointEptAvailable = false;
   state.lidarPointEptMeta = null;
+  state.lidarPointSource = null;
   state.lidarSelectedBounds = bounds;
   applyLidarSelection(layerRef);
   if (state.lidarPointEptUrl) {
@@ -7733,8 +7849,16 @@ async function loadLidarPointOverlay() {
   }
   const startedAt = performance.now();
   state.lidarPointLoading = true;
-  setOverlayStatus('lidarPoints', 'loading', 'loading sample');
+  const useEpt = state.lidarPointEptAvailable && state.lidarPointEptMeta && isEptSrsSupported(state.lidarPointEptMeta);
+  setOverlayStatus('lidarPoints', 'loading', useEpt ? 'loading ept tiles' : 'loading sample');
   try {
+    if (!state.lidarPointData || state.lidarPointSource !== (useEpt ? 'ept' : 'sample')) {
+      state.lidarPointData = null;
+      state.lidarPointSource = null;
+    }
+    if (!state.lidarPointData && useEpt) {
+      await loadLidarPointOverlayFromEpt();
+    }
     if (!state.lidarPointData) {
       const { LASLoader } = await import('https://unpkg.com/@loaders.gl/las@3.4.14/dist/esm/index.js');
       const response = await fetch(LIDAR_POINT_SAMPLE_URL);
@@ -7767,6 +7891,7 @@ async function loadLidarPointOverlay() {
         });
       }
       state.lidarPointData = points;
+      state.lidarPointSource = 'sample';
       const anchor = state.map.getCenter();
       state.lidarPointAnchor = [anchor.lng, anchor.lat, 0];
     }
@@ -7777,21 +7902,26 @@ async function loadLidarPointOverlay() {
     state.lidarPointLayer = leafletLayer;
     state.mapOverlayLayers = { ...state.mapOverlayLayers, lidarPoints: leafletLayer };
     syncMapRasterOverlays();
-    const label = state.lidarPointProject ? `sample • ${state.lidarPointProject}` : 'sample';
+    const label = state.lidarPointSource === 'ept'
+      ? `project ${state.lidarPointProject || 'ept'}`
+      : (state.lidarPointProject ? `sample • ${state.lidarPointProject}` : 'sample');
     setOverlayStatus('lidarPoints', 'ready', `points ${state.lidarPointData.length} • ${label}`);
     recordLidarPointTelemetry({
       status: 'ready',
       points: state.lidarPointData.length,
       project: state.lidarPointProject || null,
       eptUrl: state.lidarPointEptUrl || null,
+      source: state.lidarPointSource || null,
       loadMs: Math.round(performance.now() - startedAt)
     });
   } catch (err) {
     console.warn('LiDAR point overlay failed', err);
-    setOverlayStatus('lidarPoints', 'unavailable', 'sample load failed');
+    state.lidarPointSource = null;
+    setOverlayStatus('lidarPoints', 'unavailable', useEpt ? 'ept load failed' : 'sample load failed');
     recordLidarPointTelemetry({
       status: 'unavailable',
       reason: err?.message || 'sample load failed',
+      source: state.lidarPointSource || null,
       loadMs: Math.round(performance.now() - startedAt)
     });
   } finally {
@@ -7803,15 +7933,17 @@ function buildLidarPointLayer() {
   const { PointCloudLayer, COORDINATE_SYSTEM } = window.deck;
   const opacity = getOverlayOpacity('lidarPoints', 0.65);
   const origin = state.lidarPointAnchor || [state.location.lon, state.location.lat, 0];
+  const source = state.lidarPointSource || 'sample';
+  const coordinateSystem = source === 'ept' ? COORDINATE_SYSTEM.LNGLAT : COORDINATE_SYSTEM.METER_OFFSETS;
   return new PointCloudLayer({
     id: 'lidar-points',
     data: state.lidarPointData || [],
     getPosition: (d) => d.position,
     getColor: (d) => d.color,
-    pointSize: 2,
+    pointSize: source === 'ept' ? 1.5 : 2,
     opacity,
-    coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
-    coordinateOrigin: origin,
+    coordinateSystem,
+    coordinateOrigin: source === 'ept' ? undefined : origin,
     pickable: false
   });
 }
