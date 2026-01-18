@@ -119,6 +119,7 @@ const state = {
   sarResolveInFlight: false,
   sarCapabilitiesChecked: false,
   sarCapabilitiesDate: null,
+  sarCoverageTimer: null,
   overlayStatus: {
     imagery: { state: 'idle', message: '' },
     sar: { state: 'idle', message: '' },
@@ -7845,6 +7846,17 @@ async function refreshSarCoverageStatus(date) {
   }
 }
 
+function scheduleSarCoverageCheck() {
+  if (!state.settings.mapRasterOverlays?.sar) return;
+  if (!state.sarDate || state.sarResolveInFlight) return;
+  if (state.sarCoverageTimer) {
+    clearTimeout(state.sarCoverageTimer);
+  }
+  state.sarCoverageTimer = setTimeout(() => {
+    refreshSarCoverageStatus(state.sarDate);
+  }, 600);
+}
+
 function shiftIsoDate(base, offsetDays) {
   const date = new Date(`${base}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + offsetDays);
@@ -8208,6 +8220,7 @@ function initMap() {
 
   state.map.on('moveend zoomend', () => {
     drawMap();
+    scheduleSarCoverageCheck();
   });
   state.map.on('movestart zoomstart', () => {
     hideMapDetail();
