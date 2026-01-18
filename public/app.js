@@ -7633,6 +7633,42 @@ function buildEptDataUrl(baseUrl, key, dataType) {
   return `${baseUrl}data/${key}.${dataType}`;
 }
 
+function parseEptKey(key) {
+  const parts = String(key).split('-').map((value) => Number(value));
+  if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value))) return null;
+  const [depth, x, y, z] = parts;
+  return { depth, x, y, z };
+}
+
+function getEptNodeBounds(meta, key) {
+  const parsed = parseEptKey(key);
+  if (!parsed) return null;
+  const bounds = meta?.boundsConforming || meta?.bounds;
+  if (!Array.isArray(bounds) || bounds.length < 6) return null;
+  const [minX, minY, minZ, maxX, maxY, maxZ] = bounds;
+  const divisions = 2 ** parsed.depth;
+  const sizeX = (maxX - minX) / divisions;
+  const sizeY = (maxY - minY) / divisions;
+  const sizeZ = (maxZ - minZ) / divisions;
+  const nodeMinX = minX + parsed.x * sizeX;
+  const nodeMaxX = nodeMinX + sizeX;
+  const nodeMinY = minY + parsed.y * sizeY;
+  const nodeMaxY = nodeMinY + sizeY;
+  const nodeMinZ = minZ + parsed.z * sizeZ;
+  const nodeMaxZ = nodeMinZ + sizeZ;
+  return [nodeMinX, nodeMinY, nodeMinZ, nodeMaxX, nodeMaxY, nodeMaxZ];
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 async function fetchEptHierarchyKeys(baseUrl) {
   const rootKey = '0-0-0-0';
   const url = buildEptHierarchyUrl(baseUrl, rootKey);
@@ -7642,9 +7678,35 @@ async function fetchEptHierarchyKeys(baseUrl) {
   return Object.entries(data || {}).map(([key, count]) => ({ key, count: Number(count) || 0 }));
 }
 
-function selectEptKeys(entries, maxTiles) {
+function selectEptKeys(entries, maxTiles, meta, center, radiusKm) {
   if (!entries.length) return [];
-  const sorted = entries.slice().sort((a, b) => b.count - a.count);
+  const srsCode = getEptSrsCode(meta);
+  const radiusMeters = (radiusKm || 0) * 1000;
+  const withDistance = entries.map((entry) => {
+    const bounds = getEptNodeBounds(meta, entry.key);
+    if (!bounds || !center) {
+      return { ...entry, distance: Number.POSITIVE_INFINITY };
+    }
+    const centerX = (bounds[0] + bounds[3]) / 2;
+    const centerY = (bounds[1] + bounds[4]) / 2;
+    let distance = Number.POSITIVE_INFINITY;
+    if (srsCode === 4326) {
+      distance = haversineMeters(center[1], center[0], centerY, centerX);
+    } else if (srsCode === 3857) {
+      const dx = centerX - center[0];
+      const dy = centerY - center[1];
+      distance = Math.sqrt(dx * dx + dy * dy);
+    }
+    return { ...entry, distance };
+  });
+  const withinRadius = radiusMeters
+    ? withDistance.filter((entry) => entry.distance <= radiusMeters)
+    : withDistance;
+  const pool = withinRadius.length ? withinRadius : withDistance;
+  const sorted = pool.slice().sort((a, b) => {
+    if (a.distance !== b.distance) return a.distance - b.distance;
+    return b.count - a.count;
+  });
   return sorted.slice(0, maxTiles).map((entry) => entry.key);
 }
 
@@ -7658,7 +7720,8 @@ async function loadLidarPointOverlayFromEpt() {
   const dataType = meta.dataType || 'laz';
   const limits = getLidarPointLimits();
   const hierarchy = await fetchEptHierarchyKeys(baseUrl);
-  const keys = selectEptKeys(hierarchy, limits.maxTiles);
+  const center = getLidarEptCenter(meta);
+  const keys = selectEptKeys(hierarchy, limits.maxTiles, meta, center, limits.radiusKm);
   if (!keys.length) throw new Error('EPT hierarchy empty');
 
   const { LASLoader } = await import('https://unpkg.com/@loaders.gl/las@3.4.14/dist/esm/index.js');
