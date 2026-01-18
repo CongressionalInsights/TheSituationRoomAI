@@ -157,6 +157,8 @@ const state = {
   lidarPointData: null,
   lidarPointLoading: false,
   lidarPointAnchor: null,
+  lidarPointProject: null,
+  lidarPointEptUrl: null,
   lidarPointTelemetry: []
 };
 
@@ -7444,6 +7446,26 @@ function getLidarCoverageStyle(opacity = 0.25) {
   };
 }
 
+function buildLidarEptUrl(projectName) {
+  if (!projectName) return null;
+  const safe = projectName.replace(/\s+/g, '_');
+  return `https://s3-us-west-2.amazonaws.com/usgs-lidar-public/${encodeURIComponent(safe)}/ept.json`;
+}
+
+function setLidarPointProjectFromFeature(feature, bounds) {
+  if (!feature || !bounds) return;
+  const name = feature?.properties?.name || null;
+  state.lidarPointProject = name;
+  state.lidarPointEptUrl = buildLidarEptUrl(name);
+  const center = bounds.getCenter?.();
+  if (center) {
+    state.lidarPointAnchor = [center.lng, center.lat, 0];
+  }
+  if (state.settings.mapRasterOverlays?.lidarPoints) {
+    loadLidarPointOverlay();
+  }
+}
+
 async function loadLidarCoverageLayer() {
   if (!state.map || state.lidarCoverageLoading || state.lidarCoverageLayer) return;
   if (!window.topojson) {
@@ -7473,6 +7495,11 @@ async function loadLidarCoverageLayer() {
         const count = feature?.properties?.count;
         const meta = count ? `${name} • ${count} tiles` : name;
         if (layerRef?.bindPopup) layerRef.bindPopup(meta);
+        if (layerRef?.on && layerRef.getBounds) {
+          layerRef.on('click', () => {
+            setLidarPointProjectFromFeature(feature, layerRef.getBounds());
+          });
+        }
       }
     });
     state.lidarCoverageLayer = layer;
@@ -7490,7 +7517,14 @@ async function loadLidarCoverageLayer() {
           const geo = window.topojson.feature(topo, topo.objects[objectKey]);
           const opacity = getOverlayOpacity('lidar', 0.25);
           const layer = window.L.geoJSON(geo, {
-            style: () => getLidarCoverageStyle(opacity)
+            style: () => getLidarCoverageStyle(opacity),
+            onEachFeature: (feature, layerRef) => {
+              if (layerRef?.on && layerRef.getBounds) {
+                layerRef.on('click', () => {
+                  setLidarPointProjectFromFeature(feature, layerRef.getBounds());
+                });
+              }
+            }
           });
           state.lidarCoverageLayer = layer;
           state.mapOverlayLayers = { ...state.mapOverlayLayers, lidar: layer };
@@ -7561,10 +7595,13 @@ async function loadLidarPointOverlay() {
     state.lidarPointLayer = leafletLayer;
     state.mapOverlayLayers = { ...state.mapOverlayLayers, lidarPoints: leafletLayer };
     syncMapRasterOverlays();
-    setOverlayStatus('lidarPoints', 'ready', `points ${state.lidarPointData.length}`);
+    const label = state.lidarPointProject ? `project ${state.lidarPointProject}` : 'sample';
+    setOverlayStatus('lidarPoints', 'ready', `points ${state.lidarPointData.length} • ${label}`);
     recordLidarPointTelemetry({
       status: 'ready',
       points: state.lidarPointData.length,
+      project: state.lidarPointProject || null,
+      eptUrl: state.lidarPointEptUrl || null,
       loadMs: Math.round(performance.now() - startedAt)
     });
   } catch (err) {
