@@ -7457,12 +7457,35 @@ function setLidarPointProjectFromFeature(feature, bounds) {
   const name = feature?.properties?.name || null;
   state.lidarPointProject = name;
   state.lidarPointEptUrl = buildLidarEptUrl(name);
+  if (state.lidarPointEptUrl) {
+    checkLidarEptAvailability(state.lidarPointEptUrl);
+  }
   const center = bounds.getCenter?.();
   if (center) {
     state.lidarPointAnchor = [center.lng, center.lat, 0];
   }
   if (state.settings.mapRasterOverlays?.lidarPoints) {
     loadLidarPointOverlay();
+  }
+}
+
+async function checkLidarEptAvailability(url) {
+  if (!url) return;
+  setOverlayStatus('lidarPoints', 'loading', 'checking ept');
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`EPT status ${response.status}`);
+    setOverlayStatus('lidarPoints', 'ready', `ept ok • ${state.lidarPointProject || 'project'}`);
+    recordLidarPointTelemetry({ status: 'ept_ok', project: state.lidarPointProject || null, eptUrl: url });
+  } catch (err) {
+    console.warn('LiDAR EPT check failed', err);
+    setOverlayStatus('lidarPoints', 'unavailable', 'ept unavailable');
+    recordLidarPointTelemetry({
+      status: 'ept_unavailable',
+      project: state.lidarPointProject || null,
+      eptUrl: url,
+      reason: err?.message || 'ept unavailable'
+    });
   }
 }
 
