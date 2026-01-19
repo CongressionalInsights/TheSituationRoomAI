@@ -1,0 +1,9 @@
+{
+  "id": "ucdp-candidate-events",
+  "fetchedAt": 1768790982785,
+  "contentType": "text/plain; charset=utf-8",
+  "body": "{\"Message\":\"Conversion failed when converting date and/or time from character string.\"}",
+  "httpStatus": 400,
+  "error": "http_400",
+  "message": "HTTP 400"
+}
