@@ -187,6 +187,9 @@ const state = {
   searchCategories: [],
   translationCache: {},
   translationInFlight: new Set(),
+  congressAmendmentCache: new Map(),
+  congressBillAmendments: new Map(),
+  congressAmendmentsLoading: false,
   staticAnalysis: null,
   customTickers: [],
   energyMarket: {},
@@ -1589,6 +1592,58 @@ function openDetailModal(item) {
           row.appendChild(value);
           elements.detailBody.appendChild(row);
         });
+    }
+    if (Array.isArray(item.amendments) && item.amendments.length) {
+      const section = document.createElement('div');
+      section.className = 'detail-section';
+      const heading = document.createElement('div');
+      heading.className = 'detail-section-title';
+      heading.textContent = 'Amendments';
+      section.appendChild(heading);
+      const list = document.createElement('div');
+      list.className = 'detail-list';
+      const ordered = [...item.amendments].sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
+      ordered.forEach((amendment) => {
+        const row = document.createElement('div');
+        row.className = 'detail-item';
+        const title = document.createElement('div');
+        title.className = 'detail-item-title';
+        if (amendment.externalUrl) {
+          const link = document.createElement('a');
+          link.href = amendment.externalUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = amendment.title || 'Amendment';
+          title.appendChild(link);
+        } else {
+          title.textContent = amendment.title || 'Amendment';
+        }
+        row.appendChild(title);
+        const meta = document.createElement('div');
+        meta.className = 'detail-item-meta';
+        const parts = [
+          amendment.type && amendment.number ? `${amendment.type} ${amendment.number}` : '',
+          amendment.chamber,
+          amendment.publishedAt ? formatShortDate(amendment.publishedAt) : ''
+        ].filter(Boolean);
+        meta.textContent = parts.join(' • ');
+        row.appendChild(meta);
+        if (amendment.summary) {
+          const summary = document.createElement('div');
+          summary.className = 'detail-item-summary';
+          summary.textContent = amendment.summary;
+          row.appendChild(summary);
+        }
+        if (amendment.purpose) {
+          const purpose = document.createElement('div');
+          purpose.className = 'detail-item-summary';
+          purpose.textContent = amendment.purpose;
+          row.appendChild(purpose);
+        }
+        list.appendChild(row);
+      });
+      section.appendChild(list);
+      elements.detailBody.appendChild(section);
     }
     if (item.externalUrl) {
       const actions = document.createElement('div');
@@ -3384,6 +3439,16 @@ const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => (
 
 const parseCongressList = (data, feed) => {
   const isUntitled = (value) => !value || String(value).trim().toLowerCase() === 'untitled';
+  const stripApiKey = (value) => {
+    if (!value) return '';
+    try {
+      const parsed = new URL(value);
+      parsed.searchParams.delete('api_key');
+      return parsed.toString();
+    } catch {
+      return value;
+    }
+  };
   const formatCodeNumber = (code, number, prefixes = {}) => {
     if (!code || !number) return '';
     const upper = String(code).toUpperCase();
@@ -3638,6 +3703,9 @@ const parseCongressList = (data, feed) => {
     if (!summary) {
       summary = [item.chamber, item.organization, item.topic, item.purpose].filter(Boolean).join(' • ');
     }
+    const apiUrl = stripApiKey((item.url && String(item.url).includes('api.congress.gov'))
+      ? item.url
+      : ((item.link && String(item.link).includes('api.congress.gov')) ? item.link : ''));
     let url = item.url || item.link || item.links?.self || item.bill?.url || item.report?.url || '';
     if (item.Links) {
       url = buildRecordUrl(item);
@@ -3660,6 +3728,10 @@ const parseCongressList = (data, feed) => {
       || item.congressReceived
       || item.congressConsidered
       || '';
+    const billTypeValue = item.billType || item.bill?.type || (derivedType === 'Bill' ? item.type : '') || '';
+    const billNumberValue = item.billNumber || item.bill?.number || (derivedType === 'Bill' ? item.number : '') || '';
+    const amendmentTypeValue = derivedType === 'Amendment' ? (item.type || item.amendmentType || '') : '';
+    const amendmentNumberValue = derivedType === 'Amendment' ? (item.number || item.amendmentNumber || '') : '';
     const detailFields = [];
     const pushDetail = (label, value) => {
       if (!value) return;
@@ -3687,6 +3759,7 @@ const parseCongressList = (data, feed) => {
       title: displayTitle,
       url: '',
       externalUrl,
+      apiUrl,
       summary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
       source: 'Congress.gov',
@@ -3694,6 +3767,11 @@ const parseCongressList = (data, feed) => {
       alertType: derivedType,
       detailTitle: displayTitle,
       detailFields,
+      congress: congressValue,
+      billType: billTypeValue,
+      billNumber: billNumberValue,
+      amendmentType: amendmentTypeValue,
+      amendmentNumber: amendmentNumberValue,
       location: item.originChamber
         || item.committeeName
         || item.chamber
@@ -6954,6 +7032,88 @@ function getCategoryItems(category) {
   return { items, mapOnlyNotice: false };
 }
 
+function normalizeCongressBillType(value) {
+  if (!value) return '';
+  return String(value).toUpperCase().replace(/\./g, '').trim();
+}
+
+function getCongressBillKey(congress, type, number) {
+  const congressValue = Number(congress);
+  if (!congressValue || !type || !number) return '';
+  return `${congressValue}:${normalizeCongressBillType(type)}:${number}`;
+}
+
+function getCongressBillKeyFromItem(item) {
+  if (!item) return '';
+  return getCongressBillKey(item.congress, item.billType, item.billNumber);
+}
+
+function isCongressAmendment(item) {
+  return item?.alertType === 'Amendment';
+}
+
+function extractAmendedBill(detail) {
+  if (!detail) return { amendment: null, bill: null };
+  const amendment = detail.amendment
+    || detail.amendments?.[0]
+    || detail.results?.[0]
+    || detail;
+  const bill = amendment?.amendedBill
+    || amendment?.amendedBills?.[0]
+    || amendment?.bill
+    || amendment?.legislation
+    || null;
+  return { amendment, bill };
+}
+
+async function fetchCongressDetail(apiUrl) {
+  if (!apiUrl) return null;
+  const { response, data } = await apiJson(`/api/congress-detail?url=${encodeURIComponent(apiUrl)}`, {}, 12000);
+  if (!response?.ok) return null;
+  return data;
+}
+
+async function enrichCongressAmendments(items) {
+  if (!items.length || state.congressAmendmentsLoading) return;
+  const pending = items.filter((item) => item.apiUrl && !state.congressAmendmentCache.has(item.apiUrl));
+  if (!pending.length) return;
+  state.congressAmendmentsLoading = true;
+  try {
+    const sample = pending.slice(0, 30);
+    for (const item of sample) {
+      const detail = await fetchCongressDetail(item.apiUrl);
+      state.congressAmendmentCache.set(item.apiUrl, detail || null);
+      const { amendment, bill } = extractAmendedBill(detail);
+      const billKey = getCongressBillKey(
+        bill?.congress || item.congress,
+        bill?.type || item.billType,
+        bill?.number || item.billNumber
+      );
+      if (!billKey) continue;
+      const entry = {
+        title: item.title,
+        summary: item.summary,
+        publishedAt: item.publishedAt,
+        externalUrl: item.externalUrl,
+        type: normalizeCongressBillType(item.amendmentType || item.type),
+        number: item.amendmentNumber || item.number,
+        chamber: item.location || item.chamber || '',
+        purpose: amendment?.purpose || amendment?.description || ''
+      };
+      const existing = state.congressBillAmendments.get(billKey) || [];
+      const merged = [...existing, entry].filter((value, idx, list) => {
+        if (!value.externalUrl) return list.findIndex((item) => item.title === value.title) === idx;
+        return list.findIndex((item) => item.externalUrl === value.externalUrl) === idx;
+      });
+      merged.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+      state.congressBillAmendments.set(billKey, merged.slice(0, 50));
+    }
+    renderCongress();
+  } finally {
+    state.congressAmendmentsLoading = false;
+  }
+}
+
 function getCongressItems() {
   const filterCongress = (item) => item.feedId === 'congress-api' || item.tags?.includes('congress');
   let items = state.scopedItems.filter(filterCongress);
@@ -6961,7 +7121,19 @@ function getCongressItems() {
     items = applyLanguageFilter(applyFreshnessFilter(state.items)).filter(filterCongress);
   }
   items = items.filter((item) => !item.mapOnly);
-  return dedupeItems(items);
+  const deduped = dedupeItems(items);
+  const amendments = deduped.filter(isCongressAmendment);
+  const base = deduped.filter((item) => !isCongressAmendment(item));
+  enrichCongressAmendments(amendments);
+  const hydrated = base.map((item) => {
+    const billKey = getCongressBillKeyFromItem(item);
+    const amendmentList = billKey ? (state.congressBillAmendments.get(billKey) || []) : [];
+    const latestAmendment = amendmentList[0]?.publishedAt || 0;
+    const sortTime = Math.max(item.publishedAt || 0, latestAmendment || 0);
+    return { ...item, amendments: amendmentList, congressSortTime: sortTime };
+  });
+  hydrated.sort((a, b) => (b.congressSortTime || 0) - (a.congressSortTime || 0));
+  return hydrated.map(({ congressSortTime, ...rest }) => rest);
 }
 
 function renderCategory(category, container) {

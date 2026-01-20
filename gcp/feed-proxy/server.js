@@ -483,6 +483,42 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (url.pathname === '/api/congress-detail') {
+    const target = url.searchParams.get('url');
+    if (!target) {
+      return sendJson(res, 400, { error: 'missing_url' }, origin);
+    }
+    let parsed;
+    try {
+      parsed = new URL(target);
+    } catch (error) {
+      return sendJson(res, 400, { error: 'invalid_url', message: error.message }, origin);
+    }
+    if (parsed.hostname !== 'api.congress.gov') {
+      return sendJson(res, 400, { error: 'invalid_host' }, origin);
+    }
+    const key = process.env.DATA_GOV;
+    if (!key) {
+      return sendJson(res, 502, { error: 'missing_key', message: 'Server API key required.' }, origin);
+    }
+    parsed.searchParams.set('api_key', key);
+    try {
+      const response = await fetchWithTimeout(parsed.toString(), {
+        headers: {
+          'User-Agent': appConfig.userAgent,
+          'Accept': 'application/json'
+        }
+      }, FETCH_TIMEOUT_MS);
+      if (!response.ok) {
+        return sendJson(res, 502, { error: 'fetch_failed', status: response.status }, origin);
+      }
+      const data = await response.json();
+      return sendJson(res, 200, data, origin);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message }, origin);
+    }
+  }
+
   if (url.pathname === '/api/feed') {
     let body = {};
     if (req.method === 'POST') {

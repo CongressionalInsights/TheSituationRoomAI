@@ -2669,6 +2669,89 @@ a:focus-visible {
   text-align: center;
 }
 
+.detail-summary {
+  margin-bottom: 12px;
+}
+
+.detail-summary p {
+  margin: 0;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--grid-line);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.detail-value {
+  font-size: 13px;
+  color: var(--text);
+  text-align: right;
+}
+
+.detail-section {
+  margin-top: 16px;
+}
+
+.detail-section-title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  margin-bottom: 8px;
+}
+
+.detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.detail-item {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.detail-item-title a {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.detail-item-title a:hover {
+  color: var(--accent);
+}
+
+.detail-item-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.detail-item-summary {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
 .map-focus {
   position: absolute;
   left: 14px;

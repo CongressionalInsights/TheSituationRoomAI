@@ -66,6 +66,9 @@ function mapStatic(path) {
   if (path.startsWith('/api/geocode') || path.startsWith('/api/chat') || path.startsWith('/api/snapshot')) {
     return `${STATIC_BASE}/unavailable.json`;
   }
+  if (path.startsWith('/api/congress-detail')) {
+    return `${STATIC_BASE}/unavailable.json`;
+  }
   return `${STATIC_BASE}/unavailable.json`;
 }
 

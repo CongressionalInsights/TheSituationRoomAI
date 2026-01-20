@@ -414,6 +414,41 @@ export default {
       }
     }
 
+    if (url.pathname === '/api/congress-detail') {
+      const target = url.searchParams.get('url');
+      if (!target) {
+        return jsonResponse({ error: 'missing_url' }, 400, env);
+      }
+      let parsed;
+      try {
+        parsed = new URL(target);
+      } catch (error) {
+        return jsonResponse({ error: 'invalid_url', message: error.message }, 400, env);
+      }
+      if (parsed.hostname !== 'api.congress.gov') {
+        return jsonResponse({ error: 'invalid_host' }, 400, env);
+      }
+      if (!env.DATA_GOV) {
+        return jsonResponse({ error: 'missing_key', message: 'Server API key required.' }, 502, env);
+      }
+      parsed.searchParams.set('api_key', env.DATA_GOV);
+      try {
+        const response = await fetchWithTimeout(parsed.toString(), {
+          headers: {
+            'User-Agent': appConfig.userAgent,
+            'Accept': 'application/json'
+          }
+        }, FETCH_TIMEOUT_MS);
+        if (!response.ok) {
+          return jsonResponse({ error: 'fetch_failed', status: response.status }, 502, env);
+        }
+        const data = await response.json();
+        return jsonResponse(data, 200, env);
+      } catch (error) {
+        return jsonResponse({ error: 'fetch_failed', message: error.message }, 502, env);
+      }
+    }
+
     if (url.pathname === '/api/energy-map') {
       try {
         const result = await fetchEnergyMap(env);
