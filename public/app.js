@@ -3563,21 +3563,25 @@ const parseCongressList = (data, feed) => {
     return `https://www.congress.gov/congressional-report/${congress}th-congress/${slug}/${reportNumber}`;
   };
   const parseNominationId = (item) => {
-    const number = item.number;
-    const part = item.partNumber ? String(item.partNumber).replace(/^0+/, '') : '';
-    if (number && part) return `${number}-${part}`;
-    if (number) return String(number);
-    const citation = item.citation || '';
+    const primary = item?.nomination || {};
+    const number = item.number
+      || item.nominationNumber
+      || primary.number
+      || primary.nominationNumber
+      || primary.nominationId;
+    if (number) return String(number).replace(/^PN/i, '').split('-')[0];
+    const citation = item.citation || primary.citation || '';
     const match = citation.match(/PN(\d+)(?:-(\d+))?/i);
-    if (match) {
-      const base = match[1];
-      const partNum = match[2] ? match[2].replace(/^0+/, '') : '';
-      return partNum ? `${base}-${partNum}` : base;
-    }
+    if (match) return match[1];
     return '';
   };
   const buildNominationUrl = (item) => {
     const congress = item.congress;
+    const citation = String(item.citation || item.nomination?.citation || '').toUpperCase();
+    const citationMatch = citation.match(/PN\d+(?:-\d+)?/);
+    if (congress && citationMatch) {
+      return `https://www.congress.gov/nomination/${congress}th-congress/${citationMatch[0]}`;
+    }
     const nominationId = parseNominationId(item);
     if (congress && nominationId) {
       return `https://www.congress.gov/nomination/${congress}th-congress/${nominationId}`;
@@ -3776,6 +3780,7 @@ const parseCongressList = (data, feed) => {
       url = buildBillUrl(item) || url;
     }
     const externalUrl = url && !isSearchUrl(url) ? url : '';
+    const fallbackUrl = url || '';
     const congressValue = item.congress
       || item.bill?.congress
       || item.congressReceived
@@ -3819,6 +3824,7 @@ const parseCongressList = (data, feed) => {
       title: displayTitle,
       url: '',
       externalUrl,
+      fallbackUrl,
       apiUrl,
       summary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
@@ -7243,9 +7249,11 @@ function getCongressItems() {
       publishedAt: item.publishedAt,
       externalUrl: item.externalUrl
     }));
+    const latestPublished = sorted[0]?.publishedAt || primary.publishedAt;
     mergedNominations.push({
       ...primary,
-      nominationActions: actions
+      nominationActions: actions,
+      publishedAt: latestPublished
     });
   });
   const hydratedHearings = new Map();
@@ -7255,7 +7263,19 @@ function getCongressItems() {
     const title = detail.meetingTitle || detail.title || detail.eventTitle || detail.description || item.title;
     const committee = detail.committee?.name || detail.committees?.[0]?.name || detail.committeeName;
     const when = detail.date || detail.meetingDate || detail.startDate;
-    const link = detail.url || detail.websiteUrl || detail.eventUrl || detail.congressUrl || item.externalUrl;
+    const detailChamber = (detail.chamber || item.chamber || '').toLowerCase();
+    const detailCongress = detail.congress || item.congress;
+    const eventId = detail.eventId || detail.hearingId || detail.meetingId || detail.event;
+    const eventLink = (detailCongress && eventId && (detailChamber === 'house' || detailChamber === 'senate'))
+      ? `https://www.congress.gov/event/${detailCongress}th-congress/${detailChamber}-event/${eventId}`
+      : '';
+    const link = detail.url
+      || detail.websiteUrl
+      || detail.eventUrl
+      || detail.congressUrl
+      || eventLink
+      || item.externalUrl
+      || item.fallbackUrl;
     hydratedHearings.set(item.apiUrl, {
       title: title || item.title,
       committee,
@@ -7265,6 +7285,7 @@ function getCongressItems() {
   });
   const filteredBase = base.filter((item) => !item.nominationId);
   const hydrated = [...filteredBase, ...mergedNominations].map((item) => {
+    const baseSortTime = item.publishedAt || 0;
     if (item.alertType === 'Hearing' && item.apiUrl && hydratedHearings.has(item.apiUrl)) {
       const detail = hydratedHearings.get(item.apiUrl);
       const summaryParts = [detail.committee, item.chamber, detail.when ? formatShortDate(detail.when) : '']
@@ -7274,7 +7295,7 @@ function getCongressItems() {
         title: detail.title || item.title,
         detailTitle: detail.title || item.detailTitle,
         summary: summaryParts.length ? summaryParts.join(' • ') : item.summary,
-        externalUrl: detail.link ? detail.link : item.externalUrl,
+        externalUrl: detail.link ? detail.link : (item.externalUrl || item.fallbackUrl),
         detailFields: item.detailFields?.map((field) => {
           if (field.label === 'Committee' && detail.committee) {
             return { ...field, value: detail.committee };
@@ -7283,13 +7304,14 @@ function getCongressItems() {
             return { ...field, value: formatShortDate(detail.when) };
           }
           return field;
-        })
+        }),
+        congressSortTime: baseSortTime
       };
     }
     const billKey = getCongressBillKeyFromItem(item);
     const amendmentList = billKey ? (state.congressBillAmendments.get(billKey) || []) : [];
     const latestAmendment = amendmentList[0]?.publishedAt || 0;
-    const sortTime = Math.max(item.publishedAt || 0, latestAmendment || 0);
+    const sortTime = Math.max(baseSortTime, latestAmendment || 0);
     return { ...item, amendments: amendmentList, congressSortTime: sortTime };
   });
   hydrated.sort((a, b) => (b.congressSortTime || 0) - (a.congressSortTime || 0));
