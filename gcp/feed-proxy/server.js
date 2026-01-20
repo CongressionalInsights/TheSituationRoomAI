@@ -394,28 +394,59 @@ async function geocodeQuery(query) {
   geoUrl.searchParams.set('limit', '1');
   geoUrl.searchParams.set('q', query);
 
-  const response = await fetchWithTimeout(geoUrl.toString(), {
+  try {
+    const response = await fetchWithTimeout(geoUrl.toString(), {
+      headers: {
+        'User-Agent': appConfig.userAgent,
+        'Accept': 'application/json'
+      }
+    }, FETCH_TIMEOUT_MS);
+
+    if (response.ok) {
+      const data = await response.json();
+      const result = data?.[0];
+      if (result) {
+        return {
+          query,
+          lat: Number(result.lat),
+          lon: Number(result.lon),
+          displayName: result.display_name
+        };
+      }
+    }
+  } catch (error) {
+    // fall through to secondary provider
+  }
+
+  const fallbackUrl = new URL('https://geocoding-api.open-meteo.com/v1/search');
+  fallbackUrl.searchParams.set('name', query);
+  fallbackUrl.searchParams.set('count', '1');
+  fallbackUrl.searchParams.set('language', 'en');
+  fallbackUrl.searchParams.set('format', 'json');
+
+  const fallbackResponse = await fetchWithTimeout(fallbackUrl.toString(), {
     headers: {
       'User-Agent': appConfig.userAgent,
       'Accept': 'application/json'
     }
   }, FETCH_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error(`Geocode failed (${response.status})`);
+  if (!fallbackResponse.ok) {
+    throw new Error(`Geocode failed (${fallbackResponse.status})`);
   }
 
-  const data = await response.json();
-  const result = data?.[0];
-  if (!result) {
+  const fallbackData = await fallbackResponse.json();
+  const fallback = fallbackData?.results?.[0];
+  if (!fallback) {
     return { query, notFound: true };
   }
 
+  const parts = [fallback.name, fallback.admin1, fallback.country].filter(Boolean);
   return {
     query,
-    lat: Number(result.lat),
-    lon: Number(result.lon),
-    displayName: result.display_name
+    lat: Number(fallback.latitude),
+    lon: Number(fallback.longitude),
+    displayName: parts.join(', ')
   };
 }
 
