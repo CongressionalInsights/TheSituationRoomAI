@@ -4,6 +4,168 @@ const LAYOUT_VERSION = 4;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
 const CLIENT_FETCH_TIMEOUT_MS = 12000;
 
+const DEFAULT_MAP_RASTER_OVERLAYS = {
+  hillshade: false,
+  sar: false,
+  aerosol: false,
+  lidar: false,
+  lidarPoints: false,
+  thermal: false,
+  fire: false
+};
+
+const DEFAULT_MAP_OVERLAY_OPACITY = {
+  hillshade: 0.45,
+  sar: 0.55,
+  aerosol: 0.45,
+  lidar: 0.25,
+  lidarPoints: 0.65,
+  thermal: 0.45,
+  fire: 0.45
+};
+
+const DEFAULT_LIDAR_POINT_LIMITS = {
+  useCustom: false,
+  pointCap: 150000,
+  radiusKm: 5,
+  maxTilesDesktop: 16,
+  maxTilesMobile: 8
+};
+
+const DEFAULT_MAP_CONFLICT_TYPES = {
+  battle: true,
+  explosion: true,
+  violence: true,
+  protest: true,
+  riot: true,
+  other: true
+};
+
+const DEFAULT_MAP_LAYERS = {
+  weather: true,
+  disaster: true,
+  space: true,
+  news: true,
+  spill: true,
+  health: true,
+  travel: true,
+  transport: true,
+  security: true,
+  securityLagged: true,
+  military: true,
+  gpsjam: true,
+  infrastructure: true,
+  outage: true,
+  local: true
+};
+
+const DEFAULT_SETTINGS = {
+  refreshMinutes: 60,
+  theme: 'system',
+  maxAgeDays: 30,
+  languageMode: 'en',
+  radiusKm: 150,
+  scope: 'global',
+  country: 'US',
+  countryAuto: true,
+  aiTranslate: true,
+  superMonitor: false,
+  showStatus: true,
+  showTravelTicker: true,
+  showKeys: true,
+  liveSearch: true,
+  tickerWatchlist: [],
+  useClientOpenAI: false,
+  mapBasemap: 'osm',
+  mapRasterOverlays: DEFAULT_MAP_RASTER_OVERLAYS,
+  mapImageryDate: '',
+  mapSarDate: '',
+  lastImageryDate: '',
+  lastSarDate: '',
+  mapOverlayOpacity: DEFAULT_MAP_OVERLAY_OPACITY,
+  lidarPointLimits: DEFAULT_LIDAR_POINT_LIMITS,
+  lidarEnabled: false,
+  mapConflictTypes: DEFAULT_MAP_CONFLICT_TYPES,
+  mapLayers: DEFAULT_MAP_LAYERS,
+  mapFlightDensity: 'medium'
+};
+
+function cloneDefaultSettings() {
+  return {
+    ...DEFAULT_SETTINGS,
+    tickerWatchlist: [...DEFAULT_SETTINGS.tickerWatchlist],
+    mapRasterOverlays: { ...DEFAULT_SETTINGS.mapRasterOverlays },
+    mapOverlayOpacity: { ...DEFAULT_SETTINGS.mapOverlayOpacity },
+    lidarPointLimits: { ...DEFAULT_SETTINGS.lidarPointLimits },
+    mapConflictTypes: { ...DEFAULT_SETTINGS.mapConflictTypes },
+    mapLayers: { ...DEFAULT_SETTINGS.mapLayers }
+  };
+}
+
+function normalizeSettings(parsed = {}) {
+  const defaults = cloneDefaultSettings();
+  const merged = { ...defaults, ...parsed };
+
+  merged.mapLayers = { ...defaults.mapLayers, ...(parsed.mapLayers || {}) };
+  merged.mapRasterOverlays = { ...defaults.mapRasterOverlays, ...(parsed.mapRasterOverlays || {}) };
+  merged.mapOverlayOpacity = { ...defaults.mapOverlayOpacity, ...(parsed.mapOverlayOpacity || {}) };
+  merged.lidarPointLimits = normalizeLidarPointLimits({
+    ...defaults.lidarPointLimits,
+    ...(parsed.lidarPointLimits || {})
+  });
+
+  if (!merged.mapBasemap) {
+    merged.mapBasemap = defaults.mapBasemap;
+  }
+  if (merged.mapBasemap === 'gibs') {
+    merged.mapBasemap = 'gibs-viirs';
+  }
+  if (!merged.mapImageryDate) {
+    merged.mapImageryDate = '';
+  }
+  if (!merged.mapSarDate) {
+    merged.mapSarDate = '';
+  }
+  if (!merged.lastImageryDate) {
+    merged.lastImageryDate = '';
+  }
+  if (!merged.lastSarDate) {
+    merged.lastSarDate = '';
+  }
+  if (!merged.mapFlightDensity) {
+    merged.mapFlightDensity = defaults.mapFlightDensity;
+  }
+  if (!merged.mapConflictTypes || typeof merged.mapConflictTypes !== 'object') {
+    merged.mapConflictTypes = { ...defaults.mapConflictTypes };
+  }
+  if (typeof merged.lidarEnabled !== 'boolean') {
+    merged.lidarEnabled = defaults.lidarEnabled;
+  }
+
+  merged.aiTranslate = typeof merged.aiTranslate === 'boolean' ? merged.aiTranslate : defaults.aiTranslate;
+  merged.showStatus = typeof merged.showStatus === 'boolean' ? merged.showStatus : defaults.showStatus;
+  merged.showTravelTicker = typeof merged.showTravelTicker === 'boolean'
+    ? merged.showTravelTicker
+    : defaults.showTravelTicker;
+  merged.showKeys = typeof merged.showKeys === 'boolean' ? merged.showKeys : defaults.showKeys;
+  merged.liveSearch = typeof merged.liveSearch === 'boolean' ? merged.liveSearch : defaults.liveSearch;
+  const hasSuperMonitor = Object.prototype.hasOwnProperty.call(parsed, 'superMonitor')
+    && typeof parsed.superMonitor === 'boolean';
+  merged.superMonitor = hasSuperMonitor ? parsed.superMonitor : isStaticMode();
+
+  if (!Array.isArray(merged.tickerWatchlist)) {
+    merged.tickerWatchlist = [];
+  }
+  if (!merged.country) {
+    merged.country = defaults.country;
+  }
+  if (typeof merged.countryAuto !== 'boolean') {
+    merged.countryAuto = defaults.countryAuto;
+  }
+
+  return merged;
+}
+
 const state = {
   feeds: [],
   baseFeeds: [],
@@ -31,80 +193,7 @@ const state = {
   listLimits: {},
   countries: [],
   countryIndex: {},
-  settings: {
-    refreshMinutes: 60,
-    theme: 'system',
-    maxAgeDays: 30,
-    languageMode: 'en',
-    radiusKm: 150,
-    scope: 'global',
-    country: 'US',
-    countryAuto: true,
-    aiTranslate: true,
-    superMonitor: false,
-    showStatus: true,
-    showTravelTicker: true,
-    showKeys: true,
-    liveSearch: true,
-    tickerWatchlist: [],
-    useClientOpenAI: false,
-    mapBasemap: 'osm',
-    mapRasterOverlays: {
-      hillshade: false,
-      sar: false
-      ,
-      aerosol: false,
-      lidar: false,
-      lidarPoints: false,
-      thermal: false,
-      fire: false
-    },
-    mapImageryDate: '',
-    mapSarDate: '',
-    mapOverlayOpacity: {
-      hillshade: 0.45,
-      sar: 0.55,
-      aerosol: 0.45,
-      lidar: 0.25,
-      lidarPoints: 0.65,
-      thermal: 0.45,
-      fire: 0.45
-    },
-    lidarPointLimits: {
-      useCustom: false,
-      pointCap: 150000,
-      radiusKm: 5,
-      maxTilesDesktop: 16,
-      maxTilesMobile: 8
-    },
-    lidarEnabled: false,
-    mapConflictTypes: {
-      battle: true,
-      explosion: true,
-      violence: true,
-      protest: true,
-      riot: true,
-      other: true
-    },
-    mapLayers: {
-      weather: true,
-      disaster: true,
-      space: true,
-      news: true,
-      spill: true,
-      health: true,
-      travel: true,
-      transport: true,
-      security: true,
-      securityLagged: true,
-      military: true,
-      gpsjam: true,
-      infrastructure: true,
-      outage: true,
-      local: true
-    },
-    mapFlightDensity: 'medium'
-  },
+  settings: cloneDefaultSettings(),
   location: {
     lat: 35.5951,
     lon: -82.5515,
@@ -387,115 +476,112 @@ const elements = {
   customFeedStatus: document.getElementById('customFeedStatus')
 };
 
-const defaultPanelSizes = {
-  map: { cols: 12 },
-  ticker: { cols: 12 },
-  'finance-spotlight': { cols: 12 },
-  imagery: { cols: 12 },
-  command: { cols: 12 },
-  signals: { cols: 5 },
-  news: { cols: 6 },
-  finance: { cols: 3 },
-  crypto: { cols: 3 },
-  prediction: { cols: 4 },
-  hazards: { cols: 4 },
-  security: { cols: 4 },
-  local: { cols: 8 },
-  community: { cols: 6 },
-  policy: { cols: 4 },
-  congress: { cols: 4 },
-  cyber: { cols: 4 },
-  agriculture: { cols: 4 },
-  research: { cols: 4 },
-  space: { cols: 4 },
-  'energy-map': { cols: 6 },
-  energy: { cols: 4 },
-  health: { cols: 4 },
-  transport: { cols: 4 }
-};
+const DEFAULT_PANEL_SIZE_CONFIG = [
+  { id: 'map', cols: 12 },
+  { id: 'ticker', cols: 12 },
+  { id: 'finance-spotlight', cols: 12 },
+  { id: 'imagery', cols: 12 },
+  { id: 'command', cols: 12 },
+  { id: 'signals', cols: 5 },
+  { id: 'news', cols: 6 },
+  { id: 'finance', cols: 3 },
+  { id: 'crypto', cols: 3 },
+  { id: 'prediction', cols: 4 },
+  { id: 'hazards', cols: 4 },
+  { id: 'security', cols: 4 },
+  { id: 'local', cols: 8 },
+  { id: 'community', cols: 6 },
+  { id: 'policy', cols: 4 },
+  { id: 'congress', cols: 4 },
+  { id: 'cyber', cols: 4 },
+  { id: 'agriculture', cols: 4 },
+  { id: 'research', cols: 4 },
+  { id: 'space', cols: 4 },
+  { id: 'energy-map', cols: 6 },
+  { id: 'energy', cols: 4 },
+  { id: 'health', cols: 4 },
+  { id: 'transport', cols: 4 }
+];
+const DEFAULT_PANEL_SIZES = Object.fromEntries(
+  DEFAULT_PANEL_SIZE_CONFIG.map((entry) => [entry.id, { cols: entry.cols }])
+);
 
 let editingCustomFeedId = null;
 
-const stopwords = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have']);
-const allowedSummaryTags = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'span', 'a', 'font']);
-const docsMap = {
-  openai: 'https://platform.openai.com/api-keys'
-};
-const keyGroupLabels = {
-  'api.data.gov': 'Data.gov (FOIA + GovInfo)',
-  'eia': 'EIA (Energy)'
-};
-const panelKeyFilters = {
-  hazards: ['weather', 'disaster', 'space'],
-  finance: ['finance', 'gov', 'cyber', 'agriculture'],
-  map: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'],
-  geo: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'],
-  local: ['news', 'gov', 'disaster', 'weather'],
-  assistant: ['assistant']
-};
-const categoryLabels = {
-  news: 'News',
-  finance: 'Finance',
-  gov: 'Government',
-  crypto: 'Crypto / Web3',
-  prediction: 'Prediction Markets',
-  spill: 'Oil Spills',
-  disaster: 'Disasters',
-  weather: 'Weather',
-  space: 'Space',
-  cyber: 'Cyber',
-  agriculture: 'Agriculture',
-  research: 'Research',
-  energy: 'Energy',
-  health: 'Health',
-  travel: 'Travel',
-  transport: 'Transport',
-  security: 'Conflict & Security',
-  infrastructure: 'Infrastructure',
-  local: 'Local'
-};
-const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'prediction', 'spill', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
-const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health', 'security']);
-const listDefaults = {
-  newsList: 30,
-  securityList: 20,
-  financeMarketsList: 20,
-  financePolicyList: 20,
-  cryptoList: 20,
-  predictionList: 20,
-  disasterList: 20,
-  localList: 20,
-  policyList: 20,
-  congressList: 20,
-  cyberList: 20,
-  agricultureList: 20,
-  researchList: 20,
-  spaceList: 20,
-  energyList: 20,
-  healthList: 20,
-  transportList: 20
-};
-const listPageSize = 8;
-const listModalConfigs = [
-  { id: 'newsList', title: 'News Layer', withCoverage: true, getItems: () => buildNewsItems(state.clusters) },
-  { id: 'securityList', title: 'Conflict & Security', getItems: () => getCategoryItems('security').items },
-  { id: 'financeMarketsList', title: 'Finance: Markets', getItems: () => getCombinedItems(['finance', 'energy']) },
-  { id: 'financePolicyList', title: 'Finance: Regulatory', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
-  { id: 'cryptoList', title: 'Crypto / Web3', getItems: () => getCategoryItems('crypto').items },
-  { id: 'predictionList', title: 'Prediction Markets', getItems: () => getPredictionItems() },
-  { id: 'disasterList', title: 'Hazards & Weather', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
-  { id: 'localList', title: 'Local Lens', getItems: () => getLocalItemsForPanel() },
-  { id: 'policyList', title: 'Policy & Government', getItems: () => getCategoryItems('gov').items },
-  { id: 'congressList', title: 'Congressional Insights', getItems: () => getCongressItems() },
-  { id: 'cyberList', title: 'Cyber Pulse', getItems: () => getCategoryItems('cyber').items },
-  { id: 'agricultureList', title: 'Agriculture', getItems: () => getCategoryItems('agriculture').items },
-  { id: 'researchList', title: 'Research Watch', getItems: () => getCategoryItems('research').items },
-  { id: 'spaceList', title: 'Space Weather', getItems: () => getCategoryItems('space').items },
-  { id: 'energyList', title: 'Energy', getItems: () => getEnergyNewsItems() },
-  { id: 'healthList', title: 'Health', getItems: () => getCategoryItems('health').items },
-  { id: 'transportList', title: 'Transport & Logistics', getItems: () => getCategoryItems('transport').items }
+const STOPWORD_LIST = ['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have'];
+const STOPWORDS = new Set(STOPWORD_LIST);
+const SUMMARY_TAGS_ALLOWED = ['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'span', 'a', 'font'];
+const ALLOWED_SUMMARY_TAGS = new Set(SUMMARY_TAGS_ALLOWED);
+const DOCS_CONFIG = [
+  { id: 'openai', url: 'https://platform.openai.com/api-keys' }
 ];
-const listModalConfigMap = Object.fromEntries(listModalConfigs.map((config) => [config.id, config]));
+const DOCS_MAP = Object.fromEntries(DOCS_CONFIG.map((entry) => [entry.id, entry.url]));
+const KEY_GROUP_CONFIG = [
+  { id: 'api.data.gov', label: 'Data.gov (FOIA + GovInfo)' },
+  { id: 'eia', label: 'EIA (Energy)' }
+];
+const KEY_GROUP_LABELS = Object.fromEntries(KEY_GROUP_CONFIG.map((group) => [group.id, group.label]));
+const PANEL_KEY_FILTER_CONFIG = [
+  { id: 'hazards', filters: ['weather', 'disaster', 'space'] },
+  { id: 'finance', filters: ['finance', 'gov', 'cyber', 'agriculture'] },
+  { id: 'map', filters: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'] },
+  { id: 'geo', filters: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'] },
+  { id: 'local', filters: ['news', 'gov', 'disaster', 'weather'] },
+  { id: 'assistant', filters: ['assistant'] }
+];
+const PANEL_KEY_FILTERS = Object.fromEntries(
+  PANEL_KEY_FILTER_CONFIG.map((entry) => [entry.id, entry.filters])
+);
+const CATEGORY_CONFIG = [
+  { id: 'news', label: 'News' },
+  { id: 'finance', label: 'Finance' },
+  { id: 'gov', label: 'Government' },
+  { id: 'crypto', label: 'Crypto / Web3' },
+  { id: 'prediction', label: 'Prediction Markets' },
+  { id: 'spill', label: 'Oil Spills' },
+  { id: 'disaster', label: 'Disasters' },
+  { id: 'weather', label: 'Weather' },
+  { id: 'space', label: 'Space' },
+  { id: 'cyber', label: 'Cyber' },
+  { id: 'agriculture', label: 'Agriculture' },
+  { id: 'research', label: 'Research' },
+  { id: 'energy', label: 'Energy' },
+  { id: 'health', label: 'Health' },
+  { id: 'travel', label: 'Travel' },
+  { id: 'transport', label: 'Transport' },
+  { id: 'security', label: 'Conflict & Security' },
+  { id: 'infrastructure', label: 'Infrastructure' },
+  { id: 'local', label: 'Local' }
+];
+const CATEGORY_LABELS = Object.fromEntries(CATEGORY_CONFIG.map((entry) => [entry.id, entry.label]));
+const CATEGORY_ORDER = CATEGORY_CONFIG.map((entry) => entry.id);
+const GLOBAL_FALLBACK_CATEGORIES = new Set(['crypto', 'research', 'space', 'travel', 'health', 'security']);
+const LIST_PAGE_SIZE = 8;
+const LIST_CONFIG = [
+  { id: 'newsList', title: 'News Layer', withCoverage: true, defaultLimit: 30, getItems: () => buildNewsItems(state.clusters) },
+  { id: 'securityList', title: 'Conflict & Security', defaultLimit: 20, getItems: () => getCategoryItems('security').items },
+  { id: 'financeMarketsList', title: 'Finance: Markets', defaultLimit: 20, getItems: () => getCombinedItems(['finance', 'energy']) },
+  { id: 'financePolicyList', title: 'Finance: Regulatory', defaultLimit: 20, getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
+  { id: 'cryptoList', title: 'Crypto / Web3', defaultLimit: 20, getItems: () => getCategoryItems('crypto').items },
+  { id: 'predictionList', title: 'Prediction Markets', defaultLimit: 20, getItems: () => getPredictionItems() },
+  { id: 'disasterList', title: 'Hazards & Weather', defaultLimit: 20, getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
+  { id: 'localList', title: 'Local Lens', defaultLimit: 20, getItems: () => getLocalItemsForPanel() },
+  { id: 'policyList', title: 'Policy & Government', defaultLimit: 20, getItems: () => getCategoryItems('gov').items },
+  { id: 'congressList', title: 'Congressional Insights', defaultLimit: 20, getItems: () => getCongressItems() },
+  { id: 'cyberList', title: 'Cyber Pulse', defaultLimit: 20, getItems: () => getCategoryItems('cyber').items },
+  { id: 'agricultureList', title: 'Agriculture', defaultLimit: 20, getItems: () => getCategoryItems('agriculture').items },
+  { id: 'researchList', title: 'Research Watch', defaultLimit: 20, getItems: () => getCategoryItems('research').items },
+  { id: 'spaceList', title: 'Space Weather', defaultLimit: 20, getItems: () => getCategoryItems('space').items },
+  { id: 'energyList', title: 'Energy', defaultLimit: 20, getItems: () => getEnergyNewsItems() },
+  { id: 'healthList', title: 'Health', defaultLimit: 20, getItems: () => getCategoryItems('health').items },
+  { id: 'transportList', title: 'Transport & Logistics', defaultLimit: 20, getItems: () => getCategoryItems('transport').items }
+];
+const LIST_DEFAULTS = Object.fromEntries(
+  LIST_CONFIG.filter((config) => typeof config.defaultLimit === 'number')
+    .map((config) => [config.id, config.defaultLimit])
+);
+const LIST_MODAL_CONFIGS = LIST_CONFIG.map(({ defaultLimit, ...config }) => config);
+const LIST_MODAL_CONFIG_MAP = Object.fromEntries(LIST_MODAL_CONFIGS.map((config) => [config.id, config]));
 
 const GIBS_LAYERS = {
   'gibs-viirs': {
@@ -873,71 +959,7 @@ function loadSettings() {
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      const defaultLayers = { ...state.settings.mapLayers };
-      const defaultOverlays = { ...state.settings.mapRasterOverlays };
-      const defaultOpacity = { ...state.settings.mapOverlayOpacity };
-      const defaultLidarLimits = { ...state.settings.lidarPointLimits };
-      Object.assign(state.settings, parsed);
-      state.settings.mapLayers = { ...defaultLayers, ...(parsed.mapLayers || {}) };
-      state.settings.mapRasterOverlays = { ...defaultOverlays, ...(parsed.mapRasterOverlays || {}) };
-      state.settings.mapOverlayOpacity = { ...defaultOpacity, ...(parsed.mapOverlayOpacity || {}) };
-      state.settings.lidarPointLimits = { ...defaultLidarLimits, ...(parsed.lidarPointLimits || {}) };
-      state.settings.lidarPointLimits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
-      if (!state.settings.mapBasemap) {
-        state.settings.mapBasemap = 'osm';
-      }
-      if (state.settings.mapBasemap === 'gibs') {
-        state.settings.mapBasemap = 'gibs-viirs';
-      }
-      if (!state.settings.mapImageryDate) {
-        state.settings.mapImageryDate = '';
-      }
-      if (!state.settings.mapSarDate) {
-        state.settings.mapSarDate = '';
-      }
-      if (!state.settings.lastImageryDate) {
-        state.settings.lastImageryDate = '';
-      }
-      if (!state.settings.lastSarDate) {
-        state.settings.lastSarDate = '';
-      }
-    if (!state.settings.mapFlightDensity) {
-      state.settings.mapFlightDensity = 'medium';
-    }
-    if (!state.settings.mapConflictTypes || typeof state.settings.mapConflictTypes !== 'object') {
-      state.settings.mapConflictTypes = {
-        battle: true,
-        explosion: true,
-        violence: true,
-        protest: true,
-        riot: true,
-        other: true
-      };
-    }
-    if (typeof state.settings.lidarEnabled !== 'boolean') {
-      state.settings.lidarEnabled = false;
-    }
-      if (typeof state.settings.aiTranslate !== 'boolean') {
-        state.settings.aiTranslate = true;
-      }
-      if (typeof state.settings.showStatus !== 'boolean') {
-        state.settings.showStatus = true;
-      }
-      if (typeof state.settings.showTravelTicker !== 'boolean') {
-        state.settings.showTravelTicker = true;
-      }
-      if (typeof state.settings.showKeys !== 'boolean') {
-        state.settings.showKeys = true;
-      }
-      if (typeof state.settings.liveSearch !== 'boolean') {
-        state.settings.liveSearch = true;
-      }
-    if (typeof state.settings.superMonitor !== 'boolean') {
-      state.settings.superMonitor = isStaticMode();
-    }
-    if (!Array.isArray(state.settings.tickerWatchlist)) {
-      state.settings.tickerWatchlist = [];
-    }
+      state.settings = normalizeSettings(parsed);
       try {
         const telemetry = localStorage.getItem(LIDAR_POINT_TELEMETRY_KEY);
         if (telemetry) {
@@ -946,39 +968,8 @@ function loadSettings() {
       } catch (err) {
         console.warn('LiDAR telemetry read failed', err);
       }
-      if (!state.settings.country) {
-        state.settings.country = 'US';
-      }
-      if (typeof state.settings.countryAuto !== 'boolean') {
-        state.settings.countryAuto = true;
-      }
     } catch (err) {
-      state.settings.aiTranslate = true;
-      state.settings.showStatus = true;
-      state.settings.showTravelTicker = true;
-      state.settings.showKeys = true;
-      state.settings.liveSearch = true;
-      state.settings.superMonitor = isStaticMode();
-      state.settings.tickerWatchlist = [];
-      state.settings.mapBasemap = 'osm';
-      state.settings.mapRasterOverlays = { ...state.settings.mapRasterOverlays };
-      state.settings.mapImageryDate = '';
-      state.settings.mapSarDate = '';
-      state.settings.lastImageryDate = '';
-      state.settings.lastSarDate = '';
-      state.settings.mapOverlayOpacity = { ...state.settings.mapOverlayOpacity };
-      state.settings.country = 'US';
-      state.settings.countryAuto = true;
-      state.settings.mapFlightDensity = 'medium';
-      state.settings.lidarEnabled = false;
-      state.settings.mapConflictTypes = {
-        battle: true,
-        explosion: true,
-        violence: true,
-        protest: true,
-        riot: true,
-        other: true
-      };
+      state.settings = normalizeSettings();
     }
   }
 }
@@ -1225,7 +1216,7 @@ function applyPanelOrder() {
 
 function applyPanelSizes() {
   getPanelRegistry().forEach((panel) => {
-    const size = state.panels.sizes[panel.id] || defaultPanelSizes[panel.id];
+    const size = state.panels.sizes[panel.id] || DEFAULT_PANEL_SIZES[panel.id];
     if (!size) {
       panel.element.style.gridColumnEnd = '';
       panel.element.style.height = '';
@@ -1654,8 +1645,8 @@ function buildFeedOptions() {
 
   const categories = Array.from(new Set(state.feeds.map((feed) => feed.category).filter(Boolean)));
   const sortedCategories = [
-    ...categoryOrder.filter((cat) => categories.includes(cat)),
-    ...categories.filter((cat) => !categoryOrder.includes(cat))
+    ...CATEGORY_ORDER.filter((cat) => categories.includes(cat)),
+    ...categories.filter((cat) => !CATEGORY_ORDER.includes(cat))
   ];
 
   if (elements.categoryFilters) {
@@ -1665,7 +1656,7 @@ function buildFeedOptions() {
       chip.className = 'chip chip-toggle';
       chip.type = 'button';
       chip.dataset.category = category;
-      chip.textContent = categoryLabels[category] || category;
+      chip.textContent = CATEGORY_LABELS[category] || category;
       chip.addEventListener('click', () => {
         const selected = state.searchCategories.includes(category);
         if (selected) {
@@ -1684,14 +1675,14 @@ function buildFeedOptions() {
   sortedCategories.forEach((category) => {
     const option = document.createElement('option');
     option.value = `cat:${category}`;
-    option.textContent = `All ${categoryLabels[category] || category}`;
+    option.textContent = `All ${CATEGORY_LABELS[category] || category}`;
     categoryGroup.appendChild(option);
   });
   elements.feedScope.appendChild(categoryGroup);
 
   sortedCategories.forEach((category) => {
     const group = document.createElement('optgroup');
-    group.label = `${categoryLabels[category] || category} Feeds`;
+    group.label = `${CATEGORY_LABELS[category] || category} Feeds`;
     state.feeds
       .filter((feed) => feed.category === category)
       .forEach((feed) => {
@@ -1720,10 +1711,10 @@ function updateCategoryFilters() {
 function populateCustomFeedCategories() {
   if (!elements.customFeedCategory) return;
   elements.customFeedCategory.innerHTML = '';
-  categoryOrder.forEach((category) => {
+  CATEGORY_ORDER.forEach((category) => {
     const option = document.createElement('option');
     option.value = category;
-    option.textContent = categoryLabels[category] || category;
+    option.textContent = CATEGORY_LABELS[category] || category;
     elements.customFeedCategory.appendChild(option);
   });
 }
@@ -2164,14 +2155,14 @@ function getKeyFeeds() {
   const keyFeeds = state.feeds
     .filter((feed) => !isServerManagedKey(feed))
     .filter((feed) => feed.requiresKey || feed.keyParam || feed.keyHeader || (feed.tags || []).includes('key'))
-    .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || docsMap[feed.id] }));
+    .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || DOCS_MAP[feed.id] }));
   if (!keyFeeds.find((feed) => feed.id === 'openai')) {
     keyFeeds.unshift({
       id: 'openai',
       name: 'OpenAI Assistant',
       category: 'assistant',
       requiresKey: true,
-      docsUrl: docsMap.openai
+      docsUrl: DOCS_MAP.openai
     });
   }
   return keyFeeds;
@@ -2194,7 +2185,7 @@ function buildKeyManager(filterCategory) {
   state.keyFilter = filterCategory || state.keyFilter;
   const keyFeeds = getKeyFeeds();
   const filter = state.keyFilter;
-  const filterList = filter ? (panelKeyFilters[filter] || [filter]) : null;
+  const filterList = filter ? (PANEL_KEY_FILTERS[filter] || [filter]) : null;
   let displayFeeds = filterList ? keyFeeds.filter((feed) => filterList.includes(feed.category)) : keyFeeds;
   if (filter && !displayFeeds.length) {
     displayFeeds = keyFeeds;
@@ -2258,7 +2249,7 @@ function buildKeyManager(filterCategory) {
       head.className = 'key-row-head';
       const name = document.createElement('div');
       name.className = 'list-title';
-      name.textContent = keyGroupLabels[groupId] || groupId;
+      name.textContent = KEY_GROUP_LABELS[groupId] || groupId;
       const meta = document.createElement('div');
       meta.className = 'key-group-meta';
       const groupFeeds = displayFeeds.filter((feed) => feed.keyGroup === groupId);
@@ -2388,7 +2379,7 @@ function buildKeyManager(filterCategory) {
     keyInput.autocomplete = 'new-password';
     keyLabel.setAttribute('for', keyInput.id);
     const keyConfig = getKeyConfig(feed);
-    const groupLabel = feed.keyGroup ? (keyGroupLabels[feed.keyGroup] || feed.keyGroup) : null;
+    const groupLabel = feed.keyGroup ? (KEY_GROUP_LABELS[feed.keyGroup] || feed.keyGroup) : null;
     keyInput.placeholder = feed.keyGroup ? 'Set in Shared Keys' : 'Paste key';
     keyInput.value = keyConfig.key || '';
     keyInput.disabled = Boolean(feed.keyGroup);
@@ -2695,7 +2686,7 @@ function normalizeTitle(title = '') {
     .replace(/https?:\/\/\S+/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter((token) => token && !stopwords.has(token))
+    .filter((token) => token && !STOPWORDS.has(token))
     .join(' ')
     .trim();
 }
@@ -4241,7 +4232,7 @@ function normalizeSummary(rawDesc, rawHtml) {
 function getListLimit(id) {
   if (!id) return 6;
   if (!(id in state.listLimits)) {
-    state.listLimits[id] = listDefaults[id] ?? 6;
+    state.listLimits[id] = LIST_DEFAULTS[id] ?? 6;
   }
   return state.listLimits[id];
 }
@@ -4250,7 +4241,7 @@ function bumpListLimit(id, total) {
   if (!id) return false;
   const current = getListLimit(id);
   if (current >= total) return false;
-  state.listLimits[id] = Math.min(total, current + listPageSize);
+  state.listLimits[id] = Math.min(total, current + LIST_PAGE_SIZE);
   return true;
 }
 
@@ -4272,7 +4263,7 @@ function sanitizeHtml(input) {
       return;
     }
     const tag = node.tagName.toLowerCase();
-    if (!allowedSummaryTags.has(tag)) {
+    if (!ALLOWED_SUMMARY_TAGS.has(tag)) {
       const text = doc.createTextNode(node.textContent || '');
       node.replaceWith(text);
       return;
@@ -6886,7 +6877,7 @@ function renderLocal() {
 
 function getCategoryItems(category) {
   let items = state.scopedItems.filter((item) => item.category === category);
-  if (!items.length && globalFallbackCategories.has(category)) {
+  if (!items.length && GLOBAL_FALLBACK_CATEGORIES.has(category)) {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
       .filter((item) => item.category === category);
   }
@@ -7233,7 +7224,7 @@ function renderAllPanels() {
 }
 
 function openListModal(listId) {
-  const config = listModalConfigMap[listId];
+  const config = LIST_MODAL_CONFIG_MAP[listId];
   if (!config || !elements.listModalList) return;
   const items = config.getItems() || [];
   if (elements.listModalTitle) {
@@ -7596,7 +7587,7 @@ function initInfiniteScroll() {
       if (!items || !items.length) return;
       const current = getListLimit(config.id);
       if (current >= items.length) return;
-      const next = Math.min(items.length, current + listPageSize);
+      const next = Math.min(items.length, current + LIST_PAGE_SIZE);
       state.listLimits[config.id] = next;
       renderList(container, items.slice(current, next), { withCoverage: config.withCoverage, append: true });
     });
@@ -9282,7 +9273,7 @@ function showMapDetail(cluster, x, y) {
     badges.className = 'map-detail-badges';
     const categoryBadge = document.createElement('span');
     categoryBadge.className = `badge badge-${item.category || 'news'}`;
-    categoryBadge.textContent = categoryLabels[item.category] || item.category || 'Signal';
+    categoryBadge.textContent = CATEGORY_LABELS[item.category] || item.category || 'Signal';
     badges.appendChild(categoryBadge);
     const alertType = resolveAlertType(item);
     if (alertType) {
@@ -9696,7 +9687,7 @@ async function handleSearch() {
       const liveItems = await runLiveSearch(liveFeeds);
       const combined = [...filtered, ...liveItems];
       const freshFiltered = applySearchFilters(combined);
-      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => categoryLabels[cat] || cat).join(', ')}`);
+      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => CATEGORY_LABELS[cat] || cat).join(', ')}`);
       elements.searchHint.textContent = liveFeeds.length
         ? 'Showing cached + live search results.'
         : 'Showing multi-category search results.';
@@ -9734,10 +9725,10 @@ async function handleSearch() {
       const liveItems = await runLiveSearch(liveFeeds);
       const combined = [...filtered, ...liveItems];
       const freshFiltered = applySearchFilters(combined);
-      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${categoryLabels[category] || category}`);
+      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${CATEGORY_LABELS[category] || category}`);
       elements.searchHint.textContent = liveFeeds.length
         ? `Showing cached + live results (${freshFiltered.length}).`
-        : `Showing ${freshFiltered.length} matches in ${categoryLabels[category] || category}.`;
+        : `Showing ${freshFiltered.length} matches in ${CATEGORY_LABELS[category] || category}.`;
       return;
     }
 
