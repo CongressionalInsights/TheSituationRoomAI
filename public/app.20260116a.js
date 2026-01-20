@@ -3500,6 +3500,8 @@ const parseCongressList = (data, feed) => {
     return desc;
   };
   const formatHearingTitle = (item) => {
+    const explicit = item.hearingTitle || item.meetingTitle || item.title || item.topic;
+    if (explicit && !isUntitled(explicit)) return explicit;
     if (item.number) return `Hearing ${item.number}`;
     if (item.jacketNumber) return `Hearing Jacket ${item.jacketNumber}`;
     return 'Hearing';
@@ -3619,9 +3621,14 @@ const parseCongressList = (data, feed) => {
         const part = item.part ? `Part ${item.part}` : '';
         summary = [item.chamber, reportLabel, part].filter(Boolean).join(' • ');
       } else if (derivedType === 'Hearing') {
+        const hearingTitle = item.hearingTitle || item.meetingTitle || item.title || '';
         const hearingNo = item.number ? `Hearing ${item.number}` : '';
         const jacket = item.jacketNumber ? `Jacket ${item.jacketNumber}` : '';
-        summary = [item.chamber, hearingNo, jacket].filter(Boolean).join(' • ');
+        const committee = item.committeeName || '';
+        const when = item.date ? formatShortDate(item.date) : '';
+        summary = [committee, item.chamber, hearingTitle, hearingNo, jacket, when]
+          .filter(Boolean)
+          .join(' • ');
       } else if (derivedType === 'Nomination') {
         summary = item.description || (item.organization ? `Organization: ${item.organization}` : 'Nomination');
       } else if (derivedType === 'Treaty') {
@@ -3678,6 +3685,11 @@ const parseCongressList = (data, feed) => {
     pushDetail('Jacket', item.jacketNumber);
     pushDetail('Citation', item.citation || item.report?.citation);
     pushDetail('Committee', item.committeeName || item.committees?.[0]?.name);
+    if (derivedType === 'Hearing') {
+      pushDetail('Hearing Title', item.hearingTitle || item.meetingTitle || item.title || '');
+      pushDetail('Meeting Type', item.meetingType || item.type);
+      pushDetail('Hearing Date', item.date ? formatShortDate(item.date) : '');
+    }
     pushDetail('Topic', item.topic);
     pushDetail('Organization', item.organization);
     if (derivedType === 'Nomination') {
