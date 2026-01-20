@@ -3510,10 +3510,25 @@ const parseCongressList = (data, feed) => {
     if (match) return match[1];
     return '';
   };
+  const normalizeCongressUrl = (value) => {
+    if (!value) return '';
+    try {
+      const url = new URL(value);
+      const normalized = `${url.origin}${url.pathname}`;
+      if (normalized.includes('/event/') && normalized.includes('/text')) {
+        return normalized.split('/text')[0];
+      }
+      return normalized;
+    } catch (err) {
+      return value.split('#')[0].split('?')[0];
+    }
+  };
   const buildNominationUrl = (item) => {
     const congress = item.congress;
-    const citation = String(item.citation || item.nomination?.citation || '').toUpperCase();
-    const citationMatch = citation.match(/PN\d+(?:-\d+)?/);
+    const direct = item.nomination?.url || item.url || item.link || '';
+    if (direct && direct.includes('congress.gov/nomination')) return direct;
+    const citationSource = String(item.citation || item.nomination?.citation || item.title || item.detailTitle || '').toUpperCase();
+    const citationMatch = citationSource.match(/PN\d+(?:-\d+)?/);
     if (congress && citationMatch) {
       const base = citationMatch[0].replace(/^PN/i, '').split('-')[0];
       return `https://www.congress.gov/nomination/${congress}th-congress/${base}`;
@@ -3528,8 +3543,8 @@ const parseCongressList = (data, feed) => {
       return `https://www.congress.gov/nomination/${congress}th-congress/${number}`;
     }
     if (item.citation) return buildSearchUrl(item.citation);
-    const direct = item.nomination?.url || item.url || item.link || '';
-    return direct;
+    const fallback = item.nomination?.url || item.url || item.link || '';
+    return fallback;
   };
   const formatNominationTitle = (item) => {
     const desc = item.description || '';
@@ -7207,13 +7222,13 @@ function getCongressItems() {
     const eventLink = (detailCongress && eventId && (detailChamber === 'house' || detailChamber === 'senate'))
       ? `https://www.congress.gov/event/${detailCongress}th-congress/${detailChamber}-event/${eventId}`
       : '';
-    const link = detail.url
-      || detail.websiteUrl
-      || detail.eventUrl
-      || detail.congressUrl
-      || eventLink
-      || item.externalUrl
-      || item.fallbackUrl;
+    const link = normalizeCongressUrl(detail.url)
+      || normalizeCongressUrl(detail.websiteUrl)
+      || normalizeCongressUrl(detail.eventUrl)
+      || normalizeCongressUrl(detail.congressUrl)
+      || normalizeCongressUrl(eventLink)
+      || normalizeCongressUrl(item.externalUrl)
+      || normalizeCongressUrl(item.fallbackUrl);
     hydratedHearings.set(item.apiUrl, {
       title: title || item.title,
       committee,
