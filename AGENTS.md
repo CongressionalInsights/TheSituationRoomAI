@@ -1,9 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `public/` contains the client UI (`index.html`, `styles.css`, `app.js`) plus static assets and Leaflet styles. The Energy Map uses `public/geo/us-states.geojson`.
-- `server.mjs` is the Node.js server that serves the UI and proxies feed requests.
+- `public/` contains the client UI (`index.html`, `styles.css`, `app.js`, `services/api.js`, `config.js`) plus static assets and Leaflet styles. The Energy Map uses `public/geo/us-states.geojson`.
 - `data/feeds.json` is the canonical feed registry and default settings (refresh interval, user agent, key groups).
+- `gcp/` contains Cloud Run proxies (feed, openai, opensky, acled). `worker/` mirrors a Cloudflare Worker fallback.
+- `server.mjs` serves the UI locally and proxies feed requests for local development.
 - `analysis/` stores snapshot exports and geo cache output (`analysis/denario/`, `analysis/geo/`).
 - `logos/` holds branding assets (favicon, logo, OG image).
 
@@ -17,6 +18,7 @@
 - Prefer explicit IDs for panel content: `data-panel="energy-map"`, `id="energyMap"`, `id="energyList"`.
 - Feed IDs are lowercase kebab case (e.g., `state-travel-advisories`).
 - Keep theme changes centralized in CSS variables and `data-theme` rules.
+- Layout defaults, list defaults, and modal configs live in `public/app.js`. Update those constants first, then wire UI.
 
 ## Testing Guidelines
 - No automated test suite is configured.
@@ -28,6 +30,16 @@
 - PRs should include: summary, screenshots for UI work, and any new key requirements or feed IDs touched.
 
 ## Security & Configuration Notes
-- API keys are entered via Settings and stored locally in the browser.
-- Do not hard‑code secrets in `data/feeds.json`; use `requiresKey` and key groups instead.
-- For server-side keys, set environment variables (e.g., `OPENAI_API_KEY`).
+- Server‑managed keys (DATA_GOV, EIA, NASA_FIRMS, OPEN_AQ, etc.) live in GCP Secret Manager and are injected by GitHub Actions when deploying Cloud Run.
+- Client‑side Settings only hold user BYO keys (OpenAI) and local preferences; do not add server keys to the UI.
+- Do not hard‑code secrets in `data/feeds.json`; use `requiresKey`, `keyGroup`, and server proxy routing.
+
+## Architecture & Data Flow
+- Browser → `public/services/api.js` → `window.SR_CONFIG.apiBase` (Cloud Run feed proxy) for key‑protected feeds.
+- Static cache lives in `data/` and is used as a fallback when proxies are unavailable.
+- Map overlays and legend state are driven by settings defaults in `public/app.js`.
+
+## Safe Change Checklist
+- Add feeds in `data/feeds.json`, then update panel list defaults in `public/app.js`.
+- Keep panel IDs and list keys stable; they drive layout persistence and settings.
+- When adding map layers, also update legend groups and default toggles to avoid hidden layers.
