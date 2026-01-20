@@ -1681,12 +1681,13 @@ function openDetailModal(item) {
       section.appendChild(list);
       elements.detailBody.appendChild(section);
     }
-    if (item.externalUrl) {
+    const detailUrl = item.externalUrl || item.fallbackUrl;
+    if (detailUrl) {
       const actions = document.createElement('div');
       actions.className = 'detail-actions';
       const link = document.createElement('a');
       link.className = 'btn primary';
-      link.href = item.externalUrl;
+      link.href = detailUrl;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.textContent = 'Open on Congress.gov';
@@ -3577,17 +3578,25 @@ const parseCongressList = (data, feed) => {
   };
   const buildNominationUrl = (item) => {
     const congress = item.congress;
+    const direct = item.nomination?.url || item.url || item.link || '';
+    if (direct && direct.includes('congress.gov/nomination')) return direct;
     const citation = String(item.citation || item.nomination?.citation || '').toUpperCase();
     const citationMatch = citation.match(/PN\d+(?:-\d+)?/);
     if (congress && citationMatch) {
-      return `https://www.congress.gov/nomination/${congress}th-congress/${citationMatch[0]}`;
+      const base = citationMatch[0].split('-')[0];
+      return `https://www.congress.gov/nomination/${congress}th-congress/${base}`;
     }
-    const nominationId = parseNominationId(item);
-    if (congress && nominationId) {
-      return `https://www.congress.gov/nomination/${congress}th-congress/${nominationId}`;
+    const number = item.number || item.nomination?.number || item.nominationNumber;
+    const part = item.partNumber || item.nomination?.partNumber;
+    if (congress && number) {
+      if (part) {
+        const cleanPart = String(part).replace(/^0+/, '');
+        return `https://www.congress.gov/nomination/${congress}th-congress/PN${number}-${cleanPart}`;
+      }
+      return `https://www.congress.gov/nomination/${congress}th-congress/${number}`;
     }
     if (item.citation) return buildSearchUrl(item.citation);
-    return item.url || '';
+    return direct;
   };
   const formatNominationTitle = (item) => {
     const desc = item.description || '';
