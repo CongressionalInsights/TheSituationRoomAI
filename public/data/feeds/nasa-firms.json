@@ -1,0 +1,6 @@
+{
+  "id": "nasa-firms",
+  "fetchedAt": 1768507999523,
+  "error": "missing_server_key",
+  "message": "Server API key required for this feed."
+}

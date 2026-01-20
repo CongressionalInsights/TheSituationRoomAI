@@ -70,6 +70,13 @@ const state = {
       thermal: 0.45,
       fire: 0.45
     },
+    lidarPointLimits: {
+      useCustom: false,
+      pointCap: 150000,
+      radiusKm: 5,
+      maxTilesDesktop: 16,
+      maxTilesMobile: 8
+    },
     lidarEnabled: false,
     mapConflictTypes: {
       battle: true,
@@ -309,6 +316,13 @@ const elements = {
   lidarPointProject: document.getElementById('lidarPointProject'),
   lidarPointEpt: document.getElementById('lidarPointEpt'),
   lidarPointTelemetry: document.getElementById('lidarPointTelemetry'),
+  lidarPointPerfNote: document.getElementById('lidarPointPerfNote'),
+  lidarPointCustomize: document.getElementById('lidarPointCustomize'),
+  lidarPointCap: document.getElementById('lidarPointCap'),
+  lidarPointRadius: document.getElementById('lidarPointRadius'),
+  lidarPointTilesDesktop: document.getElementById('lidarPointTilesDesktop'),
+  lidarPointTilesMobile: document.getElementById('lidarPointTilesMobile'),
+  lidarPointLimitGrid: document.getElementById('lidarPointLimitGrid'),
   lidarPointCenter: document.getElementById('lidarPointCenter'),
   lidarPointRefresh: document.getElementById('lidarPointRefresh'),
   lidarPointLoad: document.getElementById('lidarPointLoad'),
@@ -858,10 +872,13 @@ function loadSettings() {
       const defaultLayers = { ...state.settings.mapLayers };
       const defaultOverlays = { ...state.settings.mapRasterOverlays };
       const defaultOpacity = { ...state.settings.mapOverlayOpacity };
+      const defaultLidarLimits = { ...state.settings.lidarPointLimits };
       Object.assign(state.settings, parsed);
       state.settings.mapLayers = { ...defaultLayers, ...(parsed.mapLayers || {}) };
       state.settings.mapRasterOverlays = { ...defaultOverlays, ...(parsed.mapRasterOverlays || {}) };
       state.settings.mapOverlayOpacity = { ...defaultOpacity, ...(parsed.mapOverlayOpacity || {}) };
+      state.settings.lidarPointLimits = { ...defaultLidarLimits, ...(parsed.lidarPointLimits || {}) };
+      state.settings.lidarPointLimits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
       if (!state.settings.mapBasemap) {
         state.settings.mapBasemap = 'osm';
       }
@@ -2052,6 +2069,10 @@ function updateLidarMetaUI() {
   const telemetryLabel = telemetry?.status
     ? `${telemetry.status}${telemetry.loadMs ? ` • ${telemetry.loadMs}ms` : ''}${telemetry.points ? ` • ${telemetry.points} pts` : ''}`
     : (overlayStatus || '—');
+  const limits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const perfLabel = limits.useCustom
+    ? `Custom caps: ${limits.pointCap.toLocaleString()} pts • ${limits.radiusKm}km radius • ${limits.maxTilesMobile}/${limits.maxTilesDesktop} tiles`
+    : 'Defaults: 150k pts • 5km radius • 8/16 tiles';
 
   if (elements.lidarPointProject) elements.lidarPointProject.textContent = project;
   if (elements.lidarPointEpt) {
@@ -2067,6 +2088,15 @@ function updateLidarMetaUI() {
   if (elements.lidarPointTelemetry) {
     elements.lidarPointTelemetry.textContent = telemetryLabel;
   }
+  if (elements.lidarPointPerfNote) elements.lidarPointPerfNote.textContent = perfLabel;
+  if (elements.lidarPointCustomize) elements.lidarPointCustomize.checked = limits.useCustom;
+  if (elements.lidarPointCap) elements.lidarPointCap.value = String(limits.pointCap);
+  if (elements.lidarPointRadius) elements.lidarPointRadius.value = String(limits.radiusKm);
+  if (elements.lidarPointTilesDesktop) elements.lidarPointTilesDesktop.value = String(limits.maxTilesDesktop);
+  if (elements.lidarPointTilesMobile) elements.lidarPointTilesMobile.value = String(limits.maxTilesMobile);
+  if (elements.lidarPointLimitGrid) {
+    elements.lidarPointLimitGrid.classList.toggle('is-hidden', !limits.useCustom);
+  }
   if (elements.lidarPointCenter) {
     elements.lidarPointCenter.disabled = !state.lidarSelectedBounds;
   }
@@ -2076,6 +2106,27 @@ function updateLidarMetaUI() {
   if (elements.lidarPointLoad) {
     elements.lidarPointLoad.disabled = !state.lidarPointEptAvailable;
   }
+}
+
+function readNumberInput(input, fallback) {
+  if (!input) return fallback;
+  const value = Number(input.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function applyLidarPointLimitSettings() {
+  const current = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const next = {
+    ...current,
+    useCustom: elements.lidarPointCustomize ? Boolean(elements.lidarPointCustomize.checked) : current.useCustom,
+    pointCap: readNumberInput(elements.lidarPointCap, current.pointCap),
+    radiusKm: readNumberInput(elements.lidarPointRadius, current.radiusKm),
+    maxTilesDesktop: readNumberInput(elements.lidarPointTilesDesktop, current.maxTilesDesktop),
+    maxTilesMobile: readNumberInput(elements.lidarPointTilesMobile, current.maxTilesMobile)
+  };
+  state.settings.lidarPointLimits = normalizeLidarPointLimits(next);
+  saveSettings();
+  updateLidarMetaUI();
 }
 
 function getOverlayOpacity(key, fallback = 0.5) {
@@ -7578,12 +7629,33 @@ function getLidarEptCenter(meta) {
   return [centerLon, centerLat, centerAlt];
 }
 
+function clampNumber(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function normalizeLidarPointLimits(limits = {}) {
+  return {
+    useCustom: Boolean(limits.useCustom),
+    pointCap: clampNumber(limits.pointCap, 150000, 10000, 500000),
+    radiusKm: clampNumber(limits.radiusKm, 5, 1, 25),
+    maxTilesDesktop: clampNumber(limits.maxTilesDesktop, 16, 1, 32),
+    maxTilesMobile: clampNumber(limits.maxTilesMobile, 8, 1, 16)
+  };
+}
+
 function getLidarPointLimits() {
   const isMobile = window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+  const defaults = normalizeLidarPointLimits();
+  const limits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const useCustom = limits.useCustom;
   return {
-    pointCap: 150000,
-    radiusKm: 5,
-    maxTiles: isMobile ? 8 : 16
+    pointCap: useCustom ? limits.pointCap : defaults.pointCap,
+    radiusKm: useCustom ? limits.radiusKm : defaults.radiusKm,
+    maxTiles: useCustom
+      ? (isMobile ? limits.maxTilesMobile : limits.maxTilesDesktop)
+      : (isMobile ? defaults.maxTilesMobile : defaults.maxTilesDesktop)
   };
 }
 
@@ -8305,6 +8377,13 @@ function resetImagerySettings() {
     lidarPoints: 0.65,
     thermal: 0.45,
     fire: 0.45
+  };
+  state.settings.lidarPointLimits = {
+    useCustom: false,
+    pointCap: 150000,
+    radiusKm: 5,
+    maxTilesDesktop: 16,
+    maxTilesMobile: 8
   };
   state.settings.mapImageryDate = '';
   state.settings.mapSarDate = '';
@@ -10032,6 +10111,21 @@ function initEvents() {
         loadLidarPointOverlay();
       }
     });
+  }
+  if (elements.lidarPointCustomize) {
+    elements.lidarPointCustomize.addEventListener('change', applyLidarPointLimitSettings);
+  }
+  if (elements.lidarPointCap) {
+    elements.lidarPointCap.addEventListener('change', applyLidarPointLimitSettings);
+  }
+  if (elements.lidarPointRadius) {
+    elements.lidarPointRadius.addEventListener('change', applyLidarPointLimitSettings);
+  }
+  if (elements.lidarPointTilesDesktop) {
+    elements.lidarPointTilesDesktop.addEventListener('change', applyLidarPointLimitSettings);
+  }
+  if (elements.lidarPointTilesMobile) {
+    elements.lidarPointTilesMobile.addEventListener('change', applyLidarPointLimitSettings);
   }
 
   document.querySelectorAll('[data-imagery-preset]').forEach((button) => {

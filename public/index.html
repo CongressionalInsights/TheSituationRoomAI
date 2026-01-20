@@ -72,6 +72,13 @@
       <path d="M12 9v4" />
       <path d="M12 17h.01" />
     </symbol>
+    <symbol id="icon-military" viewBox="0 0 24 24">
+      <path d="M4 22h16" />
+      <path d="M6 22V9l6-3 6 3v13" />
+      <path d="M10 22v-6h4v6" />
+      <path d="M12 2v4" />
+      <path d="M12 2h4l-4 2" />
+    </symbol>
     <symbol id="icon-local" viewBox="0 0 24 24">
       <line x1="2" x2="5" y1="12" y2="12" />
       <line x1="19" x2="22" y1="12" y2="12" />
@@ -536,6 +543,18 @@
                   <svg class="icon" aria-hidden="true"><use href="#icon-warning"></use></svg>
                 </span>
               </label>
+              <label class="legend-item">
+                <input id="legendSecurityLagged" name="legendSecurityLagged" type="checkbox" data-layer="securityLagged" checked />
+                <span class="legend-swatch tone-security tone-muted"><svg class="icon" aria-hidden="true"><use href="#icon-security"></use></svg></span>
+                Conflict (Lagged)
+                <span class="legend-note">latest available</span>
+              </label>
+              <label class="legend-item">
+                <input id="legendMilitaryInstallations" name="legendMilitaryInstallations" type="checkbox" data-layer="military" checked />
+                <span class="legend-swatch tone-military"><svg class="icon" aria-hidden="true"><use href="#icon-military"></use></svg></span>
+                Military Installations
+                <span class="legend-note">static</span>
+              </label>
               <div class="legend-subgroup">
                 <div class="legend-subgroup-title">Conflict types</div>
                 <label class="legend-item legend-subitem">
@@ -688,13 +707,34 @@
                     <div class="imagery-lidar-row"><span>Project</span><strong id="lidarPointProject">—</strong></div>
                     <div class="imagery-lidar-row"><span>EPT</span><a id="lidarPointEpt" href="#" target="_blank" rel="noopener">—</a></div>
                     <div class="imagery-lidar-row"><span>Telemetry</span><span id="lidarPointTelemetry">—</span></div>
+                    <div class="imagery-lidar-note" id="lidarPointPerfNote">Defaults: 150k pts • 5km radius • 8/16 tiles</div>
                   </div>
-                <div class="imagery-lidar-actions">
-                  <button class="chip chip-small" id="lidarPointCenter" type="button">Center AOI</button>
-                  <button class="chip chip-small" id="lidarPointRefresh" type="button">Recheck</button>
-                  <button class="chip chip-small" id="lidarPointLoad" type="button">Load Points</button>
+                  <div class="imagery-lidar-controls">
+                    <label class="imagery-lidar-toggle">
+                      <input id="lidarPointCustomize" type="checkbox" />
+                      Customize load caps
+                    </label>
+                    <div class="imagery-lidar-grid is-hidden" id="lidarPointLimitGrid">
+                      <label>Point cap
+                        <input id="lidarPointCap" type="number" min="10000" max="500000" step="10000" />
+                      </label>
+                      <label>Radius (km)
+                        <input id="lidarPointRadius" type="number" min="1" max="25" step="1" />
+                      </label>
+                      <label>Tiles (desktop)
+                        <input id="lidarPointTilesDesktop" type="number" min="1" max="32" step="1" />
+                      </label>
+                      <label>Tiles (mobile)
+                        <input id="lidarPointTilesMobile" type="number" min="1" max="16" step="1" />
+                      </label>
+                    </div>
+                  </div>
+                  <div class="imagery-lidar-actions">
+                    <button class="chip chip-small" id="lidarPointCenter" type="button">Center AOI</button>
+                    <button class="chip chip-small" id="lidarPointRefresh" type="button">Recheck</button>
+                    <button class="chip chip-small" id="lidarPointLoad" type="button">Load Points</button>
+                  </div>
                 </div>
-              </div>
               </div>
             </div>
           </div>

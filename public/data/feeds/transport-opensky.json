@@ -1,0 +1,6 @@
+{
+  "id": "transport-opensky",
+  "fetchedAt": 1768507975978,
+  "error": "missing_server_key",
+  "message": "OpenSky OAuth token unavailable."
+}

@@ -245,8 +245,12 @@ function buildAcledProxyUrl(feed) {
   params.set('start', start);
   params.set('end', end);
   params.set('limit', String(feed.limit || 500));
+  if (feed.acledMode === 'aggregated') {
+    params.set('region', feed.acledRegion || 'global');
+  }
   const base = ACLED_PROXY.endsWith('/') ? ACLED_PROXY.slice(0, -1) : ACLED_PROXY;
-  return `${base}/events?${params.toString()}`;
+  const endpoint = feed.acledMode === 'aggregated' ? 'aggregated' : 'events';
+  return `${base}/${endpoint}?${params.toString()}`;
 }
 
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader } = {}) {

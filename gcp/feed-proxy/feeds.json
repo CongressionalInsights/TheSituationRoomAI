@@ -499,6 +499,8 @@
       "category": "security",
       "format": "json",
       "url": "https://acleddata.com/api/acled/read",
+      "acledMode": "aggregated",
+      "acledRegion": "global",
       "limit": 500,
       "ttlMinutes": 60,
       "tags": [

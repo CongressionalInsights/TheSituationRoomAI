@@ -1,0 +1,7 @@
+{
+  "id": "nhc-atlantic",
+  "fetchedAt": 1768507941931,
+  "contentType": "text/xml",
+  "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\"\n  xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n  xmlns:georss=\"http://www.georss.org/georss\"\n  xmlns:gml=\"http://www.opengis.net/gml\"\n  xmlns:nhc=\"https://www.nhc.noaa.gov\">\n  <channel>\n    <pubDate>Thu, 15 Jan 2026 20:06:45 GMT</pubDate>\n    <title>NHC Atlantic</title>\n    <description>Active tropical cyclones in the Atlantic, Caribbean, and the Gulf of America</description>\n    <link>https://www.nhc.noaa.gov/</link>\n    <copyright>none</copyright>\n    <managingEditor>nhcwebmaster@noaa.gov (NHC Webmaster)</managingEditor>\n    <language>en-us</language>\n    <webMaster>nhcwebmaster@noaa.gov (NHC Webmaster)</webMaster>\n    <image>\n      <url>https://www.nhc.noaa.gov/gifs/xml_logo_nhc.gif</url>\n      <link>https://www.nhc.noaa.gov/</link>\n      <title>NHC Atlantic</title>\n      <description>NOAA logo</description>\n      <width>95</width>\n      <height>45</height>\n    </image>\n    <item>\n      <title>The Atlantic hurricane season runs from June 1st through November 30th.</title>\n      <description>The Atlantic hurricane season runs from June 1st through November 30th.</description>\n        <pubDate>Thu, 15 Jan 2026 20:06:45 GMT</pubDate>\n      <link>https://www.nhc.noaa.gov/</link>\n      <guid>https://www.nhc.noaa.gov/</guid>\n      <author>nhcwebmaster@noaa.gov (NHC Webmaster)</author>\n    </item>\n  </channel>\n</rss>\n",
+  "httpStatus": 200
+}

@@ -1,0 +1,6 @@
+{
+  "id": "openaq-api",
+  "fetchedAt": 1768507999522,
+  "error": "missing_server_key",
+  "message": "Server API key required for this feed."
+}

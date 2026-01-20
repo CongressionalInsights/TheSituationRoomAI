@@ -1,0 +1,7 @@
+{
+  "id": "coinpaprika-global",
+  "fetchedAt": 1768507944330,
+  "contentType": "application/json; charset=UTF-8",
+  "body": "{\"market_cap_usd\":3375742877165,\"volume_24h_usd\":201280325057,\"bitcoin_dominance_percentage\":56.56,\"cryptocurrencies_number\":13286,\"market_cap_ath_value\":4823580636226,\"market_cap_ath_date\":\"2025-10-05T10:10:00Z\",\"volume_24h_ath_value\":5913215281801,\"volume_24h_ath_date\":\"2023-02-15T13:40:00Z\",\"volume_24h_percent_from_ath\":-96.6,\"volume_24h_percent_to_ath\":2837.8,\"market_cap_change_24h\":-2.21,\"volume_24h_change_24h\":-24.92,\"last_updated\":1768507705}\n",
+  "httpStatus": 200
+}

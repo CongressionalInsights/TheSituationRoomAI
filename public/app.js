@@ -70,6 +70,13 @@ const state = {
       thermal: 0.45,
       fire: 0.45
     },
+    lidarPointLimits: {
+      useCustom: false,
+      pointCap: 150000,
+      radiusKm: 5,
+      maxTilesDesktop: 16,
+      maxTilesMobile: 8
+    },
     lidarEnabled: false,
     mapConflictTypes: {
       battle: true,
@@ -89,6 +96,8 @@ const state = {
       travel: true,
       transport: true,
       security: true,
+      securityLagged: true,
+      military: true,
       gpsjam: true,
       infrastructure: true,
       outage: true,
@@ -309,6 +318,13 @@ const elements = {
   lidarPointProject: document.getElementById('lidarPointProject'),
   lidarPointEpt: document.getElementById('lidarPointEpt'),
   lidarPointTelemetry: document.getElementById('lidarPointTelemetry'),
+  lidarPointPerfNote: document.getElementById('lidarPointPerfNote'),
+  lidarPointCustomize: document.getElementById('lidarPointCustomize'),
+  lidarPointCap: document.getElementById('lidarPointCap'),
+  lidarPointRadius: document.getElementById('lidarPointRadius'),
+  lidarPointTilesDesktop: document.getElementById('lidarPointTilesDesktop'),
+  lidarPointTilesMobile: document.getElementById('lidarPointTilesMobile'),
+  lidarPointLimitGrid: document.getElementById('lidarPointLimitGrid'),
   lidarPointCenter: document.getElementById('lidarPointCenter'),
   lidarPointRefresh: document.getElementById('lidarPointRefresh'),
   lidarPointLoad: document.getElementById('lidarPointLoad'),
@@ -836,18 +852,20 @@ function applyOpenSkyProxyOverride() {
 
 function applyAcledProxyOverride() {
   const proxy = getAcledProxy();
-  const feed = state.feeds.find((entry) => entry.id === 'acled-events');
-  if (!feed) return;
-  if (proxy) {
+  const feeds = state.feeds.filter((entry) => entry.id === 'acled-events' || entry.acledMode);
+  if (!feeds.length) return;
+  feeds.forEach((feed) => {
+    if (!proxy) return;
     const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
-    feed.url = `${base}/events`;
+    const endpoint = feed.acledMode === 'aggregated' ? 'aggregated' : 'events';
+    feed.url = `${base}/${endpoint}`;
     feed.proxy = null;
     feed.requiresKey = false;
     feed.keySource = null;
     feed.keyParam = null;
     feed.keyHeader = null;
     feed.requiresConfig = false;
-  }
+  });
 }
 
 function loadSettings() {
@@ -858,10 +876,13 @@ function loadSettings() {
       const defaultLayers = { ...state.settings.mapLayers };
       const defaultOverlays = { ...state.settings.mapRasterOverlays };
       const defaultOpacity = { ...state.settings.mapOverlayOpacity };
+      const defaultLidarLimits = { ...state.settings.lidarPointLimits };
       Object.assign(state.settings, parsed);
       state.settings.mapLayers = { ...defaultLayers, ...(parsed.mapLayers || {}) };
       state.settings.mapRasterOverlays = { ...defaultOverlays, ...(parsed.mapRasterOverlays || {}) };
       state.settings.mapOverlayOpacity = { ...defaultOpacity, ...(parsed.mapOverlayOpacity || {}) };
+      state.settings.lidarPointLimits = { ...defaultLidarLimits, ...(parsed.lidarPointLimits || {}) };
+      state.settings.lidarPointLimits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
       if (!state.settings.mapBasemap) {
         state.settings.mapBasemap = 'osm';
       }
@@ -2052,6 +2073,10 @@ function updateLidarMetaUI() {
   const telemetryLabel = lastTelemetry?.status
     ? `${lastTelemetry.status}${lastTelemetry.loadMs ? ` • ${lastTelemetry.loadMs}ms` : ''}`
     : (overlayStatus || '—');
+  const limits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const perfLabel = limits.useCustom
+    ? `Custom caps: ${limits.pointCap.toLocaleString()} pts • ${limits.radiusKm}km radius • ${limits.maxTilesMobile}/${limits.maxTilesDesktop} tiles`
+    : 'Defaults: 150k pts • 5km radius • 8/16 tiles';
 
   if (elements.lidarPointProject) elements.lidarPointProject.textContent = project;
   if (elements.lidarPointEpt) {
@@ -2065,6 +2090,15 @@ function updateLidarMetaUI() {
     }
   }
   if (elements.lidarPointTelemetry) elements.lidarPointTelemetry.textContent = telemetryLabel;
+  if (elements.lidarPointPerfNote) elements.lidarPointPerfNote.textContent = perfLabel;
+  if (elements.lidarPointCustomize) elements.lidarPointCustomize.checked = limits.useCustom;
+  if (elements.lidarPointCap) elements.lidarPointCap.value = String(limits.pointCap);
+  if (elements.lidarPointRadius) elements.lidarPointRadius.value = String(limits.radiusKm);
+  if (elements.lidarPointTilesDesktop) elements.lidarPointTilesDesktop.value = String(limits.maxTilesDesktop);
+  if (elements.lidarPointTilesMobile) elements.lidarPointTilesMobile.value = String(limits.maxTilesMobile);
+  if (elements.lidarPointLimitGrid) {
+    elements.lidarPointLimitGrid.classList.toggle('is-hidden', !limits.useCustom);
+  }
   if (elements.lidarPointCenter) {
     elements.lidarPointCenter.disabled = !state.lidarSelectedBounds;
   }
@@ -2074,6 +2108,27 @@ function updateLidarMetaUI() {
   if (elements.lidarPointLoad) {
     elements.lidarPointLoad.disabled = !state.lidarPointEptAvailable;
   }
+}
+
+function readNumberInput(input, fallback) {
+  if (!input) return fallback;
+  const value = Number(input.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function applyLidarPointLimitSettings() {
+  const current = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const next = {
+    ...current,
+    useCustom: elements.lidarPointCustomize ? Boolean(elements.lidarPointCustomize.checked) : current.useCustom,
+    pointCap: readNumberInput(elements.lidarPointCap, current.pointCap),
+    radiusKm: readNumberInput(elements.lidarPointRadius, current.radiusKm),
+    maxTilesDesktop: readNumberInput(elements.lidarPointTilesDesktop, current.maxTilesDesktop),
+    maxTilesMobile: readNumberInput(elements.lidarPointTilesMobile, current.maxTilesMobile)
+  };
+  state.settings.lidarPointLimits = normalizeLidarPointLimits(next);
+  saveSettings();
+  updateLidarMetaUI();
 }
 
 function getOverlayOpacity(key, fallback = 0.5) {
@@ -2990,28 +3045,101 @@ function parseAcledEvents(data, feed) {
     : Array.isArray(data?.response?.data)
       ? data.response.data
       : [];
-  return list.map((event) => {
-    const lat = Number(event.latitude);
-    const lon = Number(event.longitude);
-    const fatalities = Number(event.fatalities);
-    const eventDate = event.event_date || '';
-    const publishedAt = eventDate ? Date.parse(eventDate) : Date.now();
-    const eventType = event.event_type || 'Conflict Event';
-    const subEvent = event.sub_event_type || '';
-    const location = event.location || event.admin2 || event.admin1 || event.country || '';
-    const title = `${eventType}${location ? ` — ${location}` : ''}`;
+  if (!list.length) return [];
+  const sample = list[0] || {};
+  const isEventLevel = Boolean(sample.event_id_cnty || sample.event_date || sample.latitude || sample.longitude);
+  if (isEventLevel) {
+    return list.map((event) => {
+      const lat = Number(event.latitude);
+      const lon = Number(event.longitude);
+      const fatalities = Number(event.fatalities);
+      const eventDate = event.event_date || '';
+      const publishedAt = eventDate ? Date.parse(eventDate) : Date.now();
+      const eventType = event.event_type || 'Conflict Event';
+      const subEvent = event.sub_event_type || '';
+      const location = event.location || event.admin2 || event.admin1 || event.country || '';
+      const title = `${eventType}${location ? ` — ${location}` : ''}`;
+      const summaryParts = [];
+      if (subEvent) summaryParts.push(subEvent);
+      if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${fatalities}`);
+      const actors = [event.actor1, event.actor2].filter(Boolean).join(' vs ');
+      if (actors) summaryParts.push(`Actors: ${actors}`);
+      const summary = summaryParts.join(' • ');
+      const conflictKey = (() => {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
+        const roundedLat = Math.round(lat * 5) / 5;
+        const roundedLon = Math.round(lon * 5) / 5;
+        const typeKey = normalizeTitle(eventType || '').slice(0, 24);
+        return `${eventDate || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+      })();
+      return {
+        title,
+        url: '',
+        summary,
+        summaryHtml: summary,
+        publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+        source: event.source || feed.name,
+        category: feed.category,
+        geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null,
+        alertType: eventType,
+        eventType,
+        subEventType: subEvent,
+        hazardType: event.disorder_type || '',
+        severity: Number.isNaN(fatalities) ? '' : `Fatalities ${fatalities}`,
+        location,
+        geoLabel: location,
+        conflictKey,
+        tags: ['conflict', 'security']
+      };
+    });
+  }
+
+  const pickFirst = (obj, keys) => {
+    for (const key of keys) {
+      const value = obj?.[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return value;
+      }
+    }
+    return null;
+  };
+  const pickNumber = (obj, keys) => {
+    const raw = pickFirst(obj, keys);
+    const num = raw === null ? NaN : Number(raw);
+    return Number.isFinite(num) ? num : NaN;
+  };
+  const dateField = pickFirst(sample, ['week', 'week_start', 'week_end', 'event_date', 'date']);
+  const lagWindowMs = 1000 * 60 * 60 * 24 * 30;
+  return list.map((row) => {
+    const lat = pickNumber(row, ['latitude', 'lat', 'centroid_latitude', 'admin1_latitude', 'location_latitude']);
+    const lon = pickNumber(row, ['longitude', 'lon', 'centroid_longitude', 'admin1_longitude', 'location_longitude']);
+    const eventType = pickFirst(row, ['event_type', 'event', 'type']) || pickFirst(row, ['sub_event_type', 'subevent_type']) || 'Conflict';
+    const disorder = pickFirst(row, ['disorder_type', 'disorder']) || '';
+    const subEvent = pickFirst(row, ['sub_event_type', 'subevent_type']) || '';
+    const week = pickFirst(row, ['week', 'week_start', 'week_end', 'event_date', 'date']) || '';
+    const publishedAt = week ? Date.parse(week) : Date.now();
+    const isLagged = Number.isFinite(publishedAt) ? (Date.now() - publishedAt > lagWindowMs) : false;
+    const location = pickFirst(row, ['admin1', 'admin_1', 'region', 'location', 'country']) || '';
+    const country = pickFirst(row, ['country']) || '';
+    const admin1 = pickFirst(row, ['admin1', 'admin_1']) || '';
+    const eventCount = pickNumber(row, ['event_count', 'events', 'event_cnt', 'event_number']);
+    const fatalities = pickNumber(row, ['fatalities', 'fatality', 'fatalities_count']);
+    const exposure = pickNumber(row, ['population_exposure', 'pop_exposure', 'exposure', 'population']);
+    const titleBase = disorder || eventType || 'Conflict';
+    const title = `${titleBase}${admin1 || country ? ` — ${admin1 || country}` : ''}`;
     const summaryParts = [];
-    if (subEvent) summaryParts.push(subEvent);
-    if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${fatalities}`);
-    const actors = [event.actor1, event.actor2].filter(Boolean).join(' vs ');
-    if (actors) summaryParts.push(`Actors: ${actors}`);
+    if (subEvent && subEvent !== eventType) summaryParts.push(subEvent);
+    if (!Number.isNaN(eventCount)) summaryParts.push(`Events: ${formatNumber(eventCount)}`);
+    if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${formatNumber(fatalities)}`);
+    if (!Number.isNaN(exposure)) summaryParts.push(`Exposure: ${formatNumber(exposure)}`);
+    if (week) summaryParts.push(`Week: ${week}`);
     const summary = summaryParts.join(' • ');
     const conflictKey = (() => {
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
       const roundedLat = Math.round(lat * 5) / 5;
       const roundedLon = Math.round(lon * 5) / 5;
-      const typeKey = normalizeTitle(eventType || '').slice(0, 24);
-      return `${eventDate || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+      const typeKey = normalizeTitle(titleBase || '').slice(0, 24);
+      return `${week || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
     })();
     return {
       title,
@@ -3019,20 +3147,20 @@ function parseAcledEvents(data, feed) {
       summary,
       summaryHtml: summary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
-      source: event.source || feed.name,
-      category: feed.category,
+      source: feed.name,
+      category: isLagged ? 'security-lagged' : feed.category,
       geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null,
-      alertType: eventType,
-      eventType,
+      alertType: titleBase,
+      eventType: titleBase,
       subEventType: subEvent,
-      hazardType: event.disorder_type || '',
-      severity: Number.isNaN(fatalities) ? '' : `Fatalities ${fatalities}`,
-      location,
-      geoLabel: location,
+      hazardType: disorder,
+      severity: !Number.isNaN(fatalities) ? `Fatalities ${formatNumber(fatalities)}` : '',
+      location: location || admin1 || country,
+      geoLabel: location || admin1 || country,
       conflictKey,
-      tags: ['conflict', 'security']
+      tags: ['conflict', 'security', 'aggregated'].concat(isLagged ? ['lagged'] : [])
     };
-  });
+  }).filter((item) => item.geo);
 }
 
 function parseWarspottingLosses(data, feed) {
@@ -5010,6 +5138,11 @@ function buildAcledUrl(feed) {
     params.set('start', startDate);
     params.set('end', endDate);
     params.set('limit', limit);
+    if (feed.acledMode === 'aggregated') {
+      params.set('region', feed.acledRegion || 'global');
+      if (country) params.set('country', country);
+      return `${base}/aggregated?${params.toString()}`;
+    }
     if (country) params.set('country', country);
     return `${base}/events?${params.toString()}`;
   }
@@ -5055,7 +5188,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = CLIENT_FETCH_TIME
 
 async function fetchCustomFeedDirect(feed, query) {
   const keyConfig = getKeyConfig(feed);
-  let url = feed.id === 'acled-events'
+  let url = feed.acledMode
     ? buildAcledUrl(feed)
     : feed.id === 'gdelt-conflict-geo'
       ? buildGdeltConflictUrl(feed, query)
@@ -7275,6 +7408,11 @@ function initLidarEmbed() {
       loadLidarPointOverlay();
     }
   });
+  elements.lidarPointCustomize?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointCap?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointRadius?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointTilesDesktop?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointTilesMobile?.addEventListener('change', applyLidarPointLimitSettings);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && document.body.classList.contains('lidar-open')) {
       closeOverlay();
@@ -7591,12 +7729,33 @@ function getLidarEptCenter(meta) {
   return [centerLon, centerLat, centerAlt];
 }
 
+function clampNumber(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function normalizeLidarPointLimits(limits = {}) {
+  return {
+    useCustom: Boolean(limits.useCustom),
+    pointCap: clampNumber(limits.pointCap, 150000, 10000, 500000),
+    radiusKm: clampNumber(limits.radiusKm, 5, 1, 25),
+    maxTilesDesktop: clampNumber(limits.maxTilesDesktop, 16, 1, 32),
+    maxTilesMobile: clampNumber(limits.maxTilesMobile, 8, 1, 16)
+  };
+}
+
 function getLidarPointLimits() {
   const isMobile = window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+  const defaults = normalizeLidarPointLimits();
+  const limits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const useCustom = limits.useCustom;
   return {
-    pointCap: 150000,
-    radiusKm: 5,
-    maxTiles: isMobile ? 8 : 16
+    pointCap: useCustom ? limits.pointCap : defaults.pointCap,
+    radiusKm: useCustom ? limits.radiusKm : defaults.radiusKm,
+    maxTiles: useCustom
+      ? (isMobile ? limits.maxTilesMobile : limits.maxTilesDesktop)
+      : (isMobile ? defaults.maxTilesMobile : defaults.maxTilesDesktop)
   };
 }
 
@@ -8319,6 +8478,13 @@ function resetImagerySettings() {
     thermal: 0.45,
     fire: 0.45
   };
+  state.settings.lidarPointLimits = {
+    useCustom: false,
+    pointCap: 150000,
+    radiusKm: 5,
+    maxTilesDesktop: 16,
+    maxTilesMobile: 8
+  };
   state.settings.mapImageryDate = '';
   state.settings.mapSarDate = '';
   state.imageryDateManual = false;
@@ -8526,10 +8692,12 @@ function initMap() {
 function getLayerForItem(item) {
   if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
   if (item.feedId === 'gpsjam') return 'gpsjam';
+  if (item.feedId === 'arcgis-military-installations') return 'military';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId?.startsWith('arcgis-outage-')) return 'outage';
   if (item.category === 'travel') return 'travel';
   if (item.category === 'transport') return 'transport';
+  if (item.category === 'security-lagged') return 'securityLagged';
   if (item.category === 'security') return 'security';
   if (item.category === 'infrastructure') return 'infrastructure';
   if (item.category === 'weather') return 'weather';
@@ -8547,6 +8715,8 @@ function getLayerColor(layer) {
   if (layer === 'transport') return 'rgba(94,232,160,0.9)';
   if (layer === 'gpsjam') return 'rgba(244,104,102,0.92)';
   if (layer === 'security') return 'rgba(255,144,99,0.92)';
+  if (layer === 'securityLagged') return 'rgba(199,156,137,0.78)';
+  if (layer === 'military') return 'rgba(214,174,118,0.88)';
   if (layer === 'infrastructure') return 'rgba(132,190,255,0.9)';
   if (layer === 'outage') return 'rgba(255,210,90,0.92)';
   if (layer === 'health') return 'rgba(109,209,255,0.9)';
@@ -8565,6 +8735,7 @@ function getSignalType(item) {
   if (item.feedId === 'arcgis-drone-reports') return 'drone';
   if (item.feedId === 'arcgis-logistics-shortages') return 'logistics';
   if (item.feedId === 'arcgis-tipline-reports') return 'warning';
+  if (item.feedId === 'arcgis-military-installations') return 'military';
   if (item.feedId === 'arcgis-hms-fire') return 'fire';
   if (item.feedId === 'arcgis-wildfire-incidents' || item.feedId === 'arcgis-wildfire-perimeters') return 'fire';
   if (item.feedId?.startsWith('arcgis-noaa-')) return 'warning';
@@ -8607,6 +8778,7 @@ const MAP_ICON_LIBRARY = {
   power: 'bolt',
   travel: 'plane',
   air: 'plane',
+  military: 'barracks',
   battle: 'crosshair',
   explosion: 'alert-octagon',
   violence: 'shield',
@@ -8639,6 +8811,7 @@ const MAP_ICON_SVGS = {
   satellite: '<path d="M13 7 9 3 5 7l4 4" /><path d="m17 11 4 4-4 4-4-4" /><path d="m8 12 4 4 6-6-4-4Z" /><path d="m16 8 3-3" /><path d="M9 21a6 6 0 0 0-6-6" />',
   shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />',
   factory: '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M17 18h1" /><path d="M12 18h1" /><path d="M7 18h1" />',
+  barracks: '<path d="M4 22h16" /><path d="M6 22V9l6-3 6 3v13" /><path d="M10 22v-6h4v6" /><path d="M12 2v4" /><path d="M12 2h4l-4 2" />',
   droplet: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />',
   newspaper: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" /><path d="M18 14h-8" /><path d="M15 18h-5" /><path d="M10 6h8v4h-8V6Z" />'
 };
@@ -8809,7 +8982,7 @@ function drawMap() {
     return { x, y, item, layer, type };
   }).filter((point) => state.settings.mapLayers[point.layer])
     .filter((point) => {
-      if (point.layer !== 'security') return true;
+      if (point.layer !== 'security' && point.layer !== 'securityLagged') return true;
       const conflictType = getConflictType(point.item);
       return state.settings.mapConflictTypes?.[conflictType] !== false;
     });
