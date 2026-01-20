@@ -3595,9 +3595,6 @@ const parseCongressList = (data, feed) => {
       return `https://www.congress.gov/event/${congress}th-congress/${chamber}-event/${eventId}`;
     }
     const jacket = item.jacketNumber;
-    if (congress && jacket && (chamber === 'house' || chamber === 'senate')) {
-      return `https://www.congress.gov/event/${congress}th-congress/${chamber}-event/${jacket}`;
-    }
     return buildSearchUrl(['hearing', jacket || eventId || '', item.committeeName || ''].filter(Boolean).join(' '));
   };
   const buildRecordUrl = (item) => {
