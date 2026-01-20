@@ -3461,13 +3461,49 @@ const parseCongressList = (data, feed) => {
     const slug = reportCode.startsWith('S') ? 'senate-report' : 'house-report';
     return `https://www.congress.gov/congressional-report/${congress}th-congress/${slug}/${reportNumber}`;
   };
+  const parseNominationId = (item) => {
+    const number = item.number;
+    const part = item.partNumber ? String(item.partNumber).replace(/^0+/, '') : '';
+    if (number && part) return `${number}-${part}`;
+    if (number) return String(number);
+    const citation = item.citation || '';
+    const match = citation.match(/PN(\d+)(?:-(\d+))?/i);
+    if (match) {
+      const base = match[1];
+      const partNum = match[2] ? match[2].replace(/^0+/, '') : '';
+      return partNum ? `${base}-${partNum}` : base;
+    }
+    return '';
+  };
   const buildNominationUrl = (item) => {
     const congress = item.congress;
-    const citation = item.citation;
-    const number = item.number;
-    if (congress && number) return `https://www.congress.gov/nomination/${congress}th-congress/${number}`;
-    if (citation) return buildSearchUrl(citation);
+    const nominationId = parseNominationId(item);
+    if (congress && nominationId) {
+      return `https://www.congress.gov/nomination/${congress}th-congress/${nominationId}`;
+    }
+    if (item.citation) return buildSearchUrl(item.citation);
     return item.url || '';
+  };
+  const formatNominationTitle = (item) => {
+    const desc = item.description || '';
+    if (!desc) return '';
+    const [namePart, rest] = desc.split(', of ');
+    const roleSplit = desc.split(' to be ');
+    if (roleSplit.length > 1) {
+      const name = roleSplit[0].replace(/,? of .*/i, '').trim();
+      const role = roleSplit[1].replace(/, vice .*/i, '').trim();
+      if (name && role) return `${name} — ${role}`;
+    }
+    if (namePart && rest) {
+      const role = rest.split(', vice ')[0];
+      if (role) return `${namePart.trim()} — ${role.trim()}`;
+    }
+    return desc;
+  };
+  const formatHearingTitle = (item) => {
+    if (item.number) return `Hearing ${item.number}`;
+    if (item.jacketNumber) return `Hearing Jacket ${item.jacketNumber}`;
+    return 'Hearing';
   };
   const buildTreatyUrl = (item) => {
     const congress = item.congressReceived || item.congressConsidered;
@@ -3475,7 +3511,15 @@ const parseCongressList = (data, feed) => {
     if (congress && number) return `https://www.congress.gov/treaty/${congress}th-congress/${number}`;
     return buildSearchUrl(`treaty ${number || ''}`.trim());
   };
-  const buildHearingUrl = (item) => item.url || '';
+  const buildHearingUrl = (item) => {
+    const congress = item.congress;
+    const jacket = item.jacketNumber;
+    const chamber = (item.chamber || '').toLowerCase();
+    if (congress && jacket && (chamber === 'house' || chamber === 'senate')) {
+      return `https://www.congress.gov/event/${congress}th-congress/${chamber}-event/${jacket}`;
+    }
+    return item.url || '';
+  };
   const buildRecordUrl = (item) => {
     const links = item.Links || {};
     const pick = links.FullRecord || links.Digest || links.Senate || links.House || links.Remarks;
@@ -3544,17 +3588,15 @@ const parseCongressList = (data, feed) => {
       || (item.Links ? 'Congressional Record' : '')
       || ((item.jacketNumber || item.chamber) ? 'Hearing' : '')
       || 'Bill';
-    if (isUntitled(title)) {
+    if (isUntitled(title) || String(title).toLowerCase().includes('untitled')) {
       if (derivedType === 'Hearing') {
-        if (item.number) title = `Hearing ${item.number}`;
-        else if (item.jacketNumber) title = `Hearing Jacket ${item.jacketNumber}`;
-        else title = 'Hearing';
+        title = formatHearingTitle(item);
       } else if (derivedType === 'Committee Report') {
         title = reportTitle(item) || `Committee Report ${number || ''}`.trim();
       } else if (derivedType === 'Amendment') {
         title = amendTitle(item) || `Amendment ${number || ''}`.trim();
       } else if (derivedType === 'Nomination') {
-        title = item.citation || `Nomination ${number || ''}`.trim();
+        title = formatNominationTitle(item) || item.citation || `Nomination ${number || ''}`.trim();
       } else if (derivedType === 'Treaty') {
         title = item.topic ? `${item.topic} Treaty` : `Treaty ${number || ''}`.trim();
       } else if (derivedType === 'Congressional Record') {
@@ -3632,6 +3674,10 @@ const parseCongressList = (data, feed) => {
     pushDetail('Committee', item.committeeName || item.committees?.[0]?.name);
     pushDetail('Topic', item.topic);
     pushDetail('Organization', item.organization);
+    if (derivedType === 'Nomination') {
+      const nominee = formatNominationTitle(item);
+      if (nominee) pushDetail('Nominee', nominee);
+    }
     pushDetail('Latest Action', actionText);
     pushDetail('Action Date', actionDate ? formatShortDate(actionDate) : '');
     pushDetail('Updated', updateDate ? formatShortDate(updateDate) : '');
