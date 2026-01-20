@@ -3502,8 +3502,14 @@ const parseCongressList = (data, feed) => {
   const formatHearingTitle = (item) => {
     const explicit = item.hearingTitle || item.meetingTitle || item.title || item.topic;
     if (explicit && !isUntitled(explicit)) return explicit;
-    if (item.number) return `Hearing ${item.number}`;
-    if (item.jacketNumber) return `Hearing Jacket ${item.jacketNumber}`;
+    const committee = item.committeeName || '';
+    const when = item.date ? formatShortDate(item.date) : '';
+    if (item.number) {
+      return [committee || `Hearing ${item.number}`, committee ? `Hearing ${item.number}` : '', when]
+        .filter(Boolean)
+        .join(' • ');
+    }
+    if (item.jacketNumber) return [committee || `Hearing Jacket ${item.jacketNumber}`, when].filter(Boolean).join(' • ');
     return 'Hearing';
   };
   const buildTreatyUrl = (item) => {
