@@ -3585,13 +3585,20 @@ const parseCongressList = (data, feed) => {
     return buildSearchUrl(`treaty ${number || ''}`.trim());
   };
   const buildHearingUrl = (item) => {
+    const direct = [item.eventUrl, item.hearingUrl, item.meetingUrl, item.congressUrl, item.url, item.link]
+      .find((value) => typeof value === 'string' && value.includes('congress.gov') && !value.includes('api.congress.gov'));
+    if (direct) return direct;
     const congress = item.congress;
-    const jacket = item.jacketNumber;
     const chamber = (item.chamber || '').toLowerCase();
+    const eventId = item.eventId || item.meetingId || item.event;
+    if (congress && eventId && (chamber === 'house' || chamber === 'senate')) {
+      return `https://www.congress.gov/event/${congress}th-congress/${chamber}-event/${eventId}`;
+    }
+    const jacket = item.jacketNumber;
     if (congress && jacket && (chamber === 'house' || chamber === 'senate')) {
       return `https://www.congress.gov/event/${congress}th-congress/${chamber}-event/${jacket}`;
     }
-    return item.url || '';
+    return buildSearchUrl(['hearing', jacket || eventId || '', item.committeeName || ''].filter(Boolean).join(' '));
   };
   const buildRecordUrl = (item) => {
     const links = item.Links || {};
@@ -3758,9 +3765,10 @@ const parseCongressList = (data, feed) => {
     pushDetail('Citation', item.citation || item.report?.citation);
     pushDetail('Committee', item.committeeName || item.committees?.[0]?.name);
     if (derivedType === 'Hearing') {
-      pushDetail('Hearing Title', item.hearingTitle || item.meetingTitle || item.title || '');
+      pushDetail('Hearing Title', item.hearingTitle || item.meetingTitle || item.title || item.topic || '');
       pushDetail('Meeting Type', item.meetingType || item.type);
       pushDetail('Hearing Date', item.date ? formatShortDate(item.date) : '');
+      pushDetail('Event ID', item.eventId || item.meetingId || '');
     }
     pushDetail('Topic', item.topic);
     pushDetail('Organization', item.organization);
