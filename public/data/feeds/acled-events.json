@@ -1,0 +1,9 @@
+{
+  "id": "acled-events",
+  "fetchedAt": 1768507977358,
+  "contentType": "application/json; charset=utf-8",
+  "body": "{\"error\":\"acled_error\",\"message\":\"{\\\"message\\\":\\\"Access denied\\\"}\"}",
+  "httpStatus": 403,
+  "error": "http_403",
+  "message": "HTTP 403"
+}

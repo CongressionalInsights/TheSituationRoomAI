@@ -1,0 +1,7 @@
+{
+  "id": "usda-nass-reports",
+  "fetchedAt": 1768507948176,
+  "contentType": "text/xml",
+  "body": "\r\n<rss  version=\"2\">\r\n  <channel>\r\n    <title>USDA - National Agricultural Statistics Service Reports</title>\r\n    <link>https://www.nass.usda.gov/</link>\r\n    <description>National Agricultural Statistics Service provides timely, accurate, and useful statistics in service to U. S. agriculture.</description>\r\n    <language>en-us</language>\r\n    <ttl>30</ttl>\r\n    <image>\r\n      <url>https://www.nass.usda.gov/rss/logo.gif</url>\r\n      <title>USDA - National Agricultural Statistics Service Reports</title>\r\n      <link>https://www.nass.usda.gov/</link>\r\n    </image>\r\n    <copyright>Copyright 2005</copyright>\r\n    <webMaster>nass@nass.usda.gov</webMaster>\r\n    <item>\r\n      <title>Broiler Hatchery</title>\r\n      <link>http://www.nass.usda.gov/Publications/Todays_Reports/reports/brls0226.pdf</link>\r\n      <description>Broiler-Type Eggs Set in the United States Up 1 Percent. Broiler-Type Chicks Placed in the United States Up 3 Percent...</description>\r\n    </item>\r\n  </channel>\r\n</rss>",
+  "httpStatus": 200
+}

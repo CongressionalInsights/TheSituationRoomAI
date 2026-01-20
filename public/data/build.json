@@ -1,0 +1,285 @@
+{
+  "generatedAt": "2026-01-15T20:13:21.528Z",
+  "feeds": [
+    {
+      "id": "gdelt-doc",
+      "ok": true
+    },
+    {
+      "id": "google-news-us",
+      "ok": true
+    },
+    {
+      "id": "google-news-search",
+      "ok": true
+    },
+    {
+      "id": "bbc-world",
+      "ok": true
+    },
+    {
+      "id": "guardian-world",
+      "ok": true
+    },
+    {
+      "id": "pbs-headlines",
+      "ok": true
+    },
+    {
+      "id": "dw-top",
+      "ok": true
+    },
+    {
+      "id": "federal-register",
+      "ok": true
+    },
+    {
+      "id": "federal-register-transport",
+      "ok": true
+    },
+    {
+      "id": "nws-alerts",
+      "ok": true
+    },
+    {
+      "id": "usgs-quakes-hour",
+      "ok": true
+    },
+    {
+      "id": "usgs-quakes-day",
+      "ok": true
+    },
+    {
+      "id": "eonet-events",
+      "ok": true
+    },
+    {
+      "id": "gdacs-alerts",
+      "ok": true
+    },
+    {
+      "id": "nhc-atlantic",
+      "ok": true
+    },
+    {
+      "id": "swpc-json",
+      "ok": true
+    },
+    {
+      "id": "swpc-kp",
+      "ok": true
+    },
+    {
+      "id": "arxiv-ai",
+      "ok": true
+    },
+    {
+      "id": "arxiv-rss-ai",
+      "ok": true
+    },
+    {
+      "id": "coinpaprika-global",
+      "ok": true
+    },
+    {
+      "id": "coinpaprika-tickers",
+      "ok": true
+    },
+    {
+      "id": "blockstream-mempool",
+      "ok": true
+    },
+    {
+      "id": "treasury-debt",
+      "ok": true
+    },
+    {
+      "id": "bls-cpi",
+      "ok": true
+    },
+    {
+      "id": "stooq-quote",
+      "ok": true
+    },
+    {
+      "id": "cisa-kev",
+      "ok": true
+    },
+    {
+      "id": "usda-nass-reports",
+      "ok": true
+    },
+    {
+      "id": "fda-medwatch",
+      "ok": true
+    },
+    {
+      "id": "energy-eia",
+      "ok": false
+    },
+    {
+      "id": "energy-eia-brent",
+      "ok": false
+    },
+    {
+      "id": "energy-eia-ng",
+      "ok": false
+    },
+    {
+      "id": "eia-today",
+      "ok": true
+    },
+    {
+      "id": "polymarket-markets",
+      "ok": true
+    },
+    {
+      "id": "noaa-incidentnews",
+      "ok": true
+    },
+    {
+      "id": "transport-opensky",
+      "ok": false
+    },
+    {
+      "id": "acled-events",
+      "ok": false
+    },
+    {
+      "id": "cdc-travel-notices",
+      "ok": true
+    },
+    {
+      "id": "arcgis-border-crisis",
+      "ok": true
+    },
+    {
+      "id": "arcgis-kinetic-oconus",
+      "ok": true
+    },
+    {
+      "id": "arcgis-kinetic-domestic",
+      "ok": true
+    },
+    {
+      "id": "arcgis-drone-reports",
+      "ok": true
+    },
+    {
+      "id": "arcgis-logistics-shortages",
+      "ok": true
+    },
+    {
+      "id": "arcgis-tipline-reports",
+      "ok": true
+    },
+    {
+      "id": "arcgis-kinetic-europe",
+      "ok": true
+    },
+    {
+      "id": "arcgis-kinetic-venezuela",
+      "ok": true
+    },
+    {
+      "id": "arcgis-noaa-severe",
+      "ok": true
+    },
+    {
+      "id": "arcgis-noaa-tornado",
+      "ok": true
+    },
+    {
+      "id": "arcgis-noaa-flood",
+      "ok": true
+    },
+    {
+      "id": "arcgis-hms-fire",
+      "ok": true
+    },
+    {
+      "id": "arcgis-wildfire-incidents",
+      "ok": true
+    },
+    {
+      "id": "arcgis-wildfire-perimeters",
+      "ok": true
+    },
+    {
+      "id": "arcgis-power-plants",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-area",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-isolated-services",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-isolated-main",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-service-connection",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-fire-hydrant",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-service-valve",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-hydrant-valve",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-system-valve",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-isolating-valve",
+      "ok": true
+    },
+    {
+      "id": "arcgis-outage-project-inputs",
+      "ok": true
+    },
+    {
+      "id": "arcgis-submarine-cables",
+      "ok": true
+    },
+    {
+      "id": "arcgis-submarine-landing",
+      "ok": true
+    },
+    {
+      "id": "arcgis-military-installations",
+      "ok": true
+    },
+    {
+      "id": "govinfo-rss",
+      "ok": true
+    },
+    {
+      "id": "foia-api",
+      "ok": false
+    },
+    {
+      "id": "govinfo-api",
+      "ok": false
+    },
+    {
+      "id": "openaq-api",
+      "ok": false
+    },
+    {
+      "id": "nasa-firms",
+      "ok": false
+    }
+  ]
+}

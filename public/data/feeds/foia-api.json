@@ -1,0 +1,6 @@
+{
+  "id": "foia-api",
+  "fetchedAt": 1768507999521,
+  "error": "missing_server_key",
+  "message": "Server API key required for this feed."
+}
