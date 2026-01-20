@@ -1646,6 +1646,41 @@ function openDetailModal(item) {
       section.appendChild(list);
       elements.detailBody.appendChild(section);
     }
+    if (Array.isArray(item.nominationActions) && item.nominationActions.length) {
+      const section = document.createElement('div');
+      section.className = 'detail-section';
+      const heading = document.createElement('div');
+      heading.className = 'detail-section-title';
+      heading.textContent = 'Nomination Actions';
+      section.appendChild(heading);
+      const list = document.createElement('div');
+      list.className = 'detail-list';
+      const ordered = [...item.nominationActions].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+      ordered.forEach((action) => {
+        const row = document.createElement('div');
+        row.className = 'detail-item';
+        const title = document.createElement('div');
+        title.className = 'detail-item-title';
+        if (action.externalUrl) {
+          const link = document.createElement('a');
+          link.href = action.externalUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = action.title || 'Action';
+          title.appendChild(link);
+        } else {
+          title.textContent = action.title || 'Action';
+        }
+        row.appendChild(title);
+        const meta = document.createElement('div');
+        meta.className = 'detail-item-meta';
+        meta.textContent = action.publishedAt ? formatShortDate(action.publishedAt) : '';
+        row.appendChild(meta);
+        list.appendChild(row);
+      });
+      section.appendChild(list);
+      elements.detailBody.appendChild(section);
+    }
     if (item.externalUrl) {
       const actions = document.createElement('div');
       actions.className = 'detail-actions';
@@ -3779,6 +3814,7 @@ const parseCongressList = (data, feed) => {
     pushDetail('Updated', updateDate ? formatShortDate(updateDate) : '');
     pushDetail('Source ID', item.systemCode || item.billId || item.reportId || item.hearingId);
 
+    const nominationId = derivedType === 'Nomination' ? parseNominationId(item) : '';
     return {
       title: displayTitle,
       url: '',
@@ -3796,6 +3832,7 @@ const parseCongressList = (data, feed) => {
       billNumber: billNumberValue,
       amendmentType: amendmentTypeValue,
       amendmentNumber: amendmentNumberValue,
+      nominationId,
       location: item.originChamber
         || item.committeeName
         || item.chamber
@@ -7076,6 +7113,21 @@ function isCongressAmendment(item) {
   return item?.alertType === 'Amendment';
 }
 
+function getNominationKey(congress, nominationId) {
+  const congressValue = Number(congress);
+  if (!congressValue || !nominationId) return '';
+  return `${congressValue}:PN:${nominationId}`;
+}
+
+function selectNominationPrimary(items) {
+  if (!items.length) return null;
+  const enriched = items.find((item) => {
+    const title = item.detailTitle || item.title || '';
+    return title.includes('—') || title.includes('—') || title.length > 40;
+  });
+  return enriched || items[0];
+}
+
 function extractAmendedBill(detail) {
   if (!detail) return { amendment: null, bill: null };
   const amendment = detail.amendment
@@ -7169,9 +7221,33 @@ function getCongressItems() {
   const deduped = dedupeItems(items);
   const amendments = deduped.filter(isCongressAmendment);
   const hearings = deduped.filter((item) => item.alertType === 'Hearing');
+  const nominations = deduped.filter((item) => item.nominationId);
   const base = deduped.filter((item) => !isCongressAmendment(item));
   enrichCongressAmendments(amendments);
   enrichCongressHearings(hearings);
+  const nominationGroups = new Map();
+  nominations.forEach((item) => {
+    const key = getNominationKey(item.congress, item.nominationId);
+    if (!key) return;
+    const bucket = nominationGroups.get(key) || [];
+    bucket.push(item);
+    nominationGroups.set(key, bucket);
+  });
+  const mergedNominations = [];
+  nominationGroups.forEach((bucket) => {
+    const sorted = [...bucket].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+    const primary = selectNominationPrimary(sorted) || sorted[0];
+    if (!primary) return;
+    const actions = sorted.map((item) => ({
+      title: item.summary || item.title,
+      publishedAt: item.publishedAt,
+      externalUrl: item.externalUrl
+    }));
+    mergedNominations.push({
+      ...primary,
+      nominationActions: actions
+    });
+  });
   const hydratedHearings = new Map();
   hearings.forEach((item) => {
     const detail = extractHearingDetail(state.congressHearingCache.get(item.apiUrl));
@@ -7187,7 +7263,8 @@ function getCongressItems() {
       link
     });
   });
-  const hydrated = base.map((item) => {
+  const filteredBase = base.filter((item) => !item.nominationId);
+  const hydrated = [...filteredBase, ...mergedNominations].map((item) => {
     if (item.alertType === 'Hearing' && item.apiUrl && hydratedHearings.has(item.apiUrl)) {
       const detail = hydratedHearings.get(item.apiUrl);
       const summaryParts = [detail.committee, item.chamber, detail.when ? formatShortDate(detail.when) : '']
@@ -7197,7 +7274,7 @@ function getCongressItems() {
         title: detail.title || item.title,
         detailTitle: detail.title || item.detailTitle,
         summary: summaryParts.length ? summaryParts.join(' • ') : item.summary,
-        externalUrl: detail.link || item.externalUrl,
+        externalUrl: detail.link ? detail.link : item.externalUrl,
         detailFields: item.detailFields?.map((field) => {
           if (field.label === 'Committee' && detail.committee) {
             return { ...field, value: detail.committee };
