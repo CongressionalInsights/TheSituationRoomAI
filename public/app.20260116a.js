@@ -32,6 +32,7 @@ const state = {
   congressAmendmentCache: new Map(),
   congressBillAmendments: new Map(),
   congressAmendmentsLoading: false,
+  congressHearingCache: new Map(),
   countries: [],
   countryIndex: {},
   settings: {
@@ -7018,11 +7019,32 @@ function extractAmendedBill(detail) {
   return { amendment, bill };
 }
 
+function extractHearingDetail(detail) {
+  if (!detail) return null;
+  return detail.hearing
+    || detail.hearings?.[0]
+    || detail.meeting
+    || detail.meetings?.[0]
+    || detail.results?.[0]
+    || detail;
+}
+
 async function fetchCongressDetail(apiUrl) {
   if (!apiUrl) return null;
   const { response, data } = await apiJson(`/api/congress-detail?url=${encodeURIComponent(apiUrl)}`, {}, 12000);
   if (!response?.ok) return null;
   return data;
+}
+
+async function enrichCongressHearings(items) {
+  if (!items.length) return;
+  const pending = items.filter((item) => item.apiUrl && !state.congressHearingCache.has(item.apiUrl));
+  if (!pending.length) return;
+  const sample = pending.slice(0, 40);
+  for (const item of sample) {
+    const detail = await fetchCongressDetail(item.apiUrl);
+    state.congressHearingCache.set(item.apiUrl, detail || null);
+  }
 }
 
 async function enrichCongressAmendments(items) {
@@ -7075,9 +7097,47 @@ function getCongressItems() {
   items = items.filter((item) => !item.mapOnly);
   const deduped = dedupeItems(items);
   const amendments = deduped.filter(isCongressAmendment);
+  const hearings = deduped.filter((item) => item.alertType === 'Hearing');
   const base = deduped.filter((item) => !isCongressAmendment(item));
   enrichCongressAmendments(amendments);
+  enrichCongressHearings(hearings);
+  const hydratedHearings = new Map();
+  hearings.forEach((item) => {
+    const detail = extractHearingDetail(state.congressHearingCache.get(item.apiUrl));
+    if (!detail) return;
+    const title = detail.meetingTitle || detail.title || detail.eventTitle || detail.description || item.title;
+    const committee = detail.committee?.name || detail.committees?.[0]?.name || detail.committeeName;
+    const when = detail.date || detail.meetingDate || detail.startDate;
+    const link = detail.url || detail.websiteUrl || detail.eventUrl || detail.congressUrl || item.externalUrl;
+    hydratedHearings.set(item.apiUrl, {
+      title: title || item.title,
+      committee,
+      when,
+      link
+    });
+  });
   const hydrated = base.map((item) => {
+    if (item.alertType === 'Hearing' && item.apiUrl && hydratedHearings.has(item.apiUrl)) {
+      const detail = hydratedHearings.get(item.apiUrl);
+      const summaryParts = [detail.committee, item.chamber, detail.when ? formatShortDate(detail.when) : '']
+        .filter(Boolean);
+      return {
+        ...item,
+        title: detail.title || item.title,
+        detailTitle: detail.title || item.detailTitle,
+        summary: summaryParts.length ? summaryParts.join(' • ') : item.summary,
+        externalUrl: detail.link || item.externalUrl,
+        detailFields: item.detailFields?.map((field) => {
+          if (field.label === 'Committee' && detail.committee) {
+            return { ...field, value: detail.committee };
+          }
+          if (field.label === 'Hearing Date' && detail.when) {
+            return { ...field, value: formatShortDate(detail.when) };
+          }
+          return field;
+        })
+      };
+    }
     const billKey = getCongressBillKeyFromItem(item);
     const amendmentList = billKey ? (state.congressBillAmendments.get(billKey) || []) : [];
     const latestAmendment = amendmentList[0]?.publishedAt || 0;
