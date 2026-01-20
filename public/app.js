@@ -570,7 +570,7 @@ const LIST_CONFIG = [
   { id: 'disasterList', title: 'Hazards & Weather', defaultLimit: 20, getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
   { id: 'localList', title: 'Local Lens', defaultLimit: 20, getItems: () => getLocalItemsForPanel() },
   { id: 'policyList', title: 'Policy & Government', defaultLimit: 20, getItems: () => getCategoryItems('gov').items },
-  { id: 'congressList', title: 'Congressional Insights', defaultLimit: 20, getItems: () => getCongressItems() },
+  { id: 'congressList', title: 'Congressional Insights', defaultLimit: 30, getItems: () => getCongressItems() },
   { id: 'cyberList', title: 'Cyber Pulse', defaultLimit: 20, getItems: () => getCategoryItems('cyber').items },
   { id: 'agricultureList', title: 'Agriculture', defaultLimit: 20, getItems: () => getCategoryItems('agriculture').items },
   { id: 'researchList', title: 'Research Watch', defaultLimit: 20, getItems: () => getCategoryItems('research').items },
@@ -3571,11 +3571,11 @@ const parseCongressList = (data, feed) => {
     const committee = item.committeeName || '';
     const when = item.date ? formatShortDate(item.date) : '';
     if (item.number) {
-      return [committee || `Hearing ${item.number}`, committee ? `Hearing ${item.number}` : '', when]
-        .filter(Boolean)
-        .join(' • ');
+      return committee ? `${committee} — Hearing ${item.number}` : `Hearing ${item.number}`;
     }
-    if (item.jacketNumber) return [committee || `Hearing Jacket ${item.jacketNumber}`, when].filter(Boolean).join(' • ');
+    if (item.jacketNumber) {
+      return committee ? `${committee} — Jacket ${item.jacketNumber}` : `Hearing Jacket ${item.jacketNumber}`;
+    }
     return 'Hearing';
   };
   const buildTreatyUrl = (item) => {
@@ -7097,7 +7097,7 @@ async function enrichCongressAmendments(items) {
   if (!pending.length) return;
   state.congressAmendmentsLoading = true;
   try {
-    const sample = pending.slice(0, 30);
+    const sample = pending.slice(0, 80);
     for (const item of sample) {
       const detail = await fetchCongressDetail(item.apiUrl);
       state.congressAmendmentCache.set(item.apiUrl, detail || null);
