@@ -4075,12 +4075,12 @@ a.list-title:hover {
 
 .about-sources {
   margin-top: 12px;
-  max-height: 140px;
+  max-height: 184px;
   overflow-y: auto;
   padding-right: 6px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: minmax(24px, auto);
+  grid-auto-rows: minmax(32px, auto);
   gap: 6px;
 }
 
@@ -4122,12 +4122,12 @@ a.list-title:hover {
 .modal-overlay.about .sources-card {
   display: flex;
   flex-direction: column;
-  max-height: 220px;
+  max-height: 240px;
   overflow: hidden;
 }
 
 .modal-overlay.about .sources-card .about-sources {
-  max-height: 148px;
+  max-height: 184px;
   flex: 1;
   min-height: 0;
 }
