@@ -101,6 +101,23 @@ function buildUcdpCandidateUrl(feed) {
   return url;
 }
 
+function buildEiaLegacyUrl(feed, apiKey) {
+  if (!apiKey) return null;
+  try {
+    const parsed = new URL(feed.url || '');
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    const seriesIndex = parts.findIndex((part) => part === 'seriesid');
+    if (seriesIndex === -1 || !parts[seriesIndex + 1]) return null;
+    const seriesId = parts[seriesIndex + 1];
+    const legacy = new URL('https://api.eia.gov/series/');
+    legacy.searchParams.set('api_key', apiKey);
+    legacy.searchParams.set('series_id', seriesId);
+    return legacy.toString();
+  } catch {
+    return null;
+  }
+}
+
 function buildUrl(template, params = {}) {
   let url = template;
   Object.entries(params).forEach(([key, value]) => {
@@ -305,9 +322,34 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   };
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
-  const response = await fetchWithFallbacks(applied.url, headers, proxyList);
-  const contentType = response.headers.get('content-type') || 'text/plain';
-  let body = await response.text();
+  const isEiaSeries = feed.id === 'energy-eia'
+    || feed.id === 'energy-eia-brent'
+    || feed.id === 'energy-eia-ng';
+  let response;
+  let contentType = 'text/plain';
+  let body = '';
+  try {
+    response = await fetchWithFallbacks(applied.url, headers, proxyList);
+    contentType = response.headers.get('content-type') || 'text/plain';
+    body = await response.text();
+  } catch (error) {
+    if (!isEiaSeries) throw error;
+  }
+
+  if (isEiaSeries && (!response || !response.ok)) {
+    const legacyUrl = buildEiaLegacyUrl(feed, effectiveKey);
+    if (legacyUrl) {
+      const legacyResponse = await fetchWithTimeout(legacyUrl, { headers }, FETCH_TIMEOUT_MS * 2);
+      if (legacyResponse.ok) {
+        response = legacyResponse;
+        contentType = legacyResponse.headers.get('content-type') || 'text/plain';
+        body = await legacyResponse.text();
+      }
+    }
+  }
+  if (!response) {
+    throw new Error('fetch_failed');
+  }
 
   if (feed.id === 'ucdp-candidate-events' && response.ok) {
     try {
