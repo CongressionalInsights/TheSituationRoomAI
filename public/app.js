@@ -7615,6 +7615,25 @@ function formatNominationTitleSafe(item) {
   return desc;
 }
 
+function normalizeCongressUrlSafe(value) {
+  const globalNormalize =
+    typeof globalThis !== 'undefined' ? globalThis.normalizeCongressUrl : undefined;
+  if (typeof globalNormalize === 'function') {
+    return globalNormalize(value);
+  }
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    const normalized = `${url.origin}${url.pathname}`;
+    if (normalized.includes('/event/') && normalized.includes('/text')) {
+      return normalized.split('/text')[0];
+    }
+    return normalized;
+  } catch (err) {
+    return value.split('#')[0].split('?')[0];
+  }
+}
+
 function selectNominationPrimary(items) {
   if (!items.length) return null;
   const enriched = items.find((item) => {
@@ -7760,13 +7779,13 @@ function getCongressItems() {
     const eventLink = (detailCongress && eventId && (detailChamber === 'house' || detailChamber === 'senate'))
       ? `https://www.congress.gov/event/${detailCongress}th-congress/${detailChamber}-event/${eventId}`
       : '';
-    const link = normalizeCongressUrl(detail.url)
-      || normalizeCongressUrl(detail.websiteUrl)
-      || normalizeCongressUrl(detail.eventUrl)
-      || normalizeCongressUrl(detail.congressUrl)
-      || normalizeCongressUrl(eventLink)
-      || normalizeCongressUrl(item.externalUrl)
-      || normalizeCongressUrl(item.fallbackUrl);
+    const link = normalizeCongressUrlSafe(detail.url)
+      || normalizeCongressUrlSafe(detail.websiteUrl)
+      || normalizeCongressUrlSafe(detail.eventUrl)
+      || normalizeCongressUrlSafe(detail.congressUrl)
+      || normalizeCongressUrlSafe(eventLink)
+      || normalizeCongressUrlSafe(item.externalUrl)
+      || normalizeCongressUrlSafe(item.fallbackUrl);
     hydratedHearings.set(item.apiUrl, {
       title: title || item.title,
       committee,
