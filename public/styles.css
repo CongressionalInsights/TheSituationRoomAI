@@ -4122,7 +4122,6 @@ a.list-title:hover {
 .modal-overlay.about .sources-card {
   display: flex;
   flex-direction: column;
-  max-height: 240px;
   overflow: hidden;
 }
 
@@ -4130,6 +4129,7 @@ a.list-title:hover {
   max-height: 184px;
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
 }
 
 @media (max-width: 900px) {
