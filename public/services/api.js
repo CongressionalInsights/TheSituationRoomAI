@@ -101,7 +101,30 @@ export async function apiFetch(path, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
 }
 
 export async function apiJson(path, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const response = await apiFetch(path, options, timeoutMs);
+  const fallback = async () => {
+    if (!path.startsWith('/api/feed')) return null;
+    const feedId = extractFeedId(path, options);
+    if (!feedId) return null;
+    if (!['energy-eia', 'energy-eia-brent', 'energy-eia-ng'].includes(feedId)) return null;
+    const staticUrl = mapStatic(`/api/feed?id=${encodeURIComponent(feedId)}`);
+    try {
+      const response = await fetch(`${staticUrl}?_ts=${Date.now()}`);
+      const data = await response.json();
+      return { response, data, error: null };
+    } catch (err) {
+      return null;
+    }
+  };
+
+  let response;
+  try {
+    response = await apiFetch(path, options, timeoutMs);
+  } catch (err) {
+    const rescued = await fallback();
+    if (rescued) return rescued;
+    return { response: null, data: null, error: err };
+  }
+
   let data = null;
   let error = null;
   try {
@@ -109,5 +132,28 @@ export async function apiJson(path, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS
   } catch (err) {
     error = err;
   }
+
+  if (!response.ok) {
+    const rescued = await fallback();
+    if (rescued) return rescued;
+  }
+
   return { response, data, error };
+}
+
+function extractFeedId(path, options) {
+  if (path.startsWith('/api/feed')) {
+    const parsed = new URL(path, 'http://local');
+    const id = parsed.searchParams.get('id');
+    if (id) return id;
+  }
+  if (options?.body) {
+    try {
+      const payload = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+      return payload?.id || null;
+    } catch (err) {
+      return null;
+    }
+  }
+  return null;
 }
