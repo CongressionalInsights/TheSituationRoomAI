@@ -507,7 +507,10 @@ async function buildFeedPayload(feed) {
     }
   }
 
-  if (payload.error && (feed.id === 'energy-eia-brent' || feed.id === 'energy-eia-ng')) {
+  const isEiaSeries = feed.id === 'energy-eia'
+    || feed.id === 'energy-eia-brent'
+    || feed.id === 'energy-eia-ng';
+  if (payload.error && isEiaSeries) {
     const seriesId = feed.url?.split('/seriesid/')[1]?.split('?')[0];
     if (seriesId) {
       const legacyUrl = `https://api.eia.gov/series/?series_id=${encodeURIComponent(seriesId)}`;
@@ -528,6 +531,17 @@ async function buildFeedPayload(feed) {
       } catch {
         // keep original payload
       }
+    }
+  }
+
+  if (payload.error && isEiaSeries) {
+    const fallback = await fetchLiveFallback(feed.id);
+    if (fallback) {
+      return {
+        ...fallback,
+        fetchedAt: Date.now(),
+        fallback: 'live-cache'
+      };
     }
   }
   if (payload.error && feed.id === 'foia-api') {
