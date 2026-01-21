@@ -23,6 +23,9 @@ const state = {
   feedStatus: {},
   keyGroups: {},
   searchCategories: [],
+  lastSearchQuery: '',
+  lastSearchScope: 'all',
+  lastSearchCategories: [],
   translationCache: {},
   translationInFlight: new Set(),
   staticAnalysis: null,
@@ -351,6 +354,12 @@ const elements = {
   searchResultsList: document.getElementById('searchResultsList'),
   searchResultsMeta: document.getElementById('searchResultsMeta'),
   searchResultsClose: document.getElementById('searchResultsClose'),
+  aboutSources: document.getElementById('aboutSources'),
+  attributionOverlay: document.getElementById('attributionOverlay'),
+  attributionTitle: document.getElementById('attributionTitle'),
+  attributionMeta: document.getElementById('attributionMeta'),
+  attributionBody: document.getElementById('attributionBody'),
+  attributionClose: document.getElementById('attributionClose'),
   categoryFilters: document.getElementById('categoryFilters'),
   savedSearches: document.getElementById('savedSearches'),
   chatLog: document.getElementById('chatLog'),
@@ -498,6 +507,336 @@ const listModalConfigs = [
   { id: 'transportList', title: 'Transport & Logistics', getItems: () => getCategoryItems('transport').items }
 ];
 const listModalConfigMap = Object.fromEntries(listModalConfigs.map((config) => [config.id, config]));
+const DATA_ATTRIBUTIONS = [
+  {
+    id: 'openstreetmap',
+    name: 'OpenStreetMap',
+    short: 'Basemap + geocoding',
+    url: 'https://www.openstreetmap.org/copyright',
+    attribution: '© OpenStreetMap contributors (ODbL).',
+    notes: 'OpenStreetMap data used for basemaps and geocoding.'
+  },
+  {
+    id: 'esri',
+    name: 'Esri Basemaps',
+    short: 'Imagery tiles',
+    url: 'https://www.esri.com/en-us/arcgis/products/arcgis-online',
+    attribution: 'Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community.',
+    notes: 'Satellite basemaps and ArcGIS Online services.'
+  },
+  {
+    id: 'arcgis-online',
+    name: 'ArcGIS Online (Esri)',
+    short: 'ArcGIS datasets',
+    url: 'https://www.arcgis.com',
+    attribution: 'Data provided via Esri ArcGIS Online services.',
+    notes: 'ArcGIS-hosted feature layers referenced by the map overlays.'
+  },
+  {
+    id: 'nasa-gibs',
+    name: 'NASA EOSDIS GIBS',
+    short: 'Global imagery',
+    url: 'https://earthdata.nasa.gov/eosdis/science-system-description/eosdis-components/gibs',
+    attribution: 'NASA EOSDIS GIBS imagery.',
+    notes: 'Global imagery layers (VIIRS/MODIS/Day-Night).'
+  },
+  {
+    id: 'nasa-firms',
+    name: 'NASA FIRMS',
+    short: 'Fire data',
+    url: 'https://firms.modaps.eosdis.nasa.gov',
+    attribution: 'NASA FIRMS (Fire Information for Resource Management System).',
+    notes: 'Global fire detections.'
+  },
+  {
+    id: 'nasa-eonet',
+    name: 'NASA EONET',
+    short: 'Natural events',
+    url: 'https://eonet.gsfc.nasa.gov',
+    attribution: 'NASA EONET (Earth Observatory Natural Event Tracker).',
+    notes: 'Natural events and hazards.'
+  },
+  {
+    id: 'noaa-nws',
+    name: 'NOAA/NWS',
+    short: 'Alerts + warnings',
+    url: 'https://www.weather.gov/documentation/services-web-api',
+    attribution: 'NOAA/NWS alerts and warnings.',
+    notes: 'US weather alerts and short-term warnings.'
+  },
+  {
+    id: 'noaa-nhc',
+    name: 'NOAA NHC',
+    short: 'Hurricane outlooks',
+    url: 'https://www.nhc.noaa.gov',
+    attribution: 'NOAA National Hurricane Center.',
+    notes: 'Atlantic basin outlooks and advisories.'
+  },
+  {
+    id: 'noaa-swpc',
+    name: 'NOAA SWPC',
+    short: 'Space weather',
+    url: 'https://www.swpc.noaa.gov',
+    attribution: 'NOAA Space Weather Prediction Center.',
+    notes: 'Kp index and solar wind conditions.'
+  },
+  {
+    id: 'noaa-hms',
+    name: 'NOAA HMS',
+    short: 'Fire detections',
+    url: 'https://hms.smfc.nasa.gov',
+    attribution: 'NOAA/NESDIS HMS fire detections.',
+    notes: 'Satellite fire detection overlays.'
+  },
+  {
+    id: 'noaa-incidentnews',
+    name: 'NOAA IncidentNews',
+    short: 'Spill reports',
+    url: 'https://incidentnews.noaa.gov',
+    attribution: 'NOAA Office of Response and Restoration IncidentNews.',
+    notes: 'Oil spill and incident reports.'
+  },
+  {
+    id: 'usgs-earthquakes',
+    name: 'USGS Earthquakes',
+    short: 'Seismic events',
+    url: 'https://earthquake.usgs.gov',
+    attribution: 'USGS Earthquake Hazards Program.',
+    notes: 'Recent seismic activity feeds.'
+  },
+  {
+    id: 'cdc-travel',
+    name: 'CDC Travel Notices',
+    short: 'Travel alerts',
+    url: 'https://www.cdc.gov/travel',
+    attribution: 'Centers for Disease Control and Prevention.',
+    notes: 'Travel health notices.'
+  },
+  {
+    id: 'eia',
+    name: 'U.S. EIA',
+    short: 'Energy data',
+    url: 'https://www.eia.gov',
+    attribution: 'U.S. Energy Information Administration.',
+    notes: 'Energy market data and Today in Energy.'
+  },
+  {
+    id: 'bls',
+    name: 'U.S. BLS',
+    short: 'Economic data',
+    url: 'https://www.bls.gov',
+    attribution: 'U.S. Bureau of Labor Statistics.',
+    notes: 'CPI and macroeconomic releases.'
+  },
+  {
+    id: 'treasury',
+    name: 'U.S. Treasury Fiscal Data',
+    short: 'Debt & fiscal',
+    url: 'https://fiscaldata.treasury.gov',
+    attribution: 'U.S. Department of the Treasury, Fiscal Service.',
+    notes: 'Debt to the Penny and fiscal releases.'
+  },
+  {
+    id: 'cisa-kev',
+    name: 'CISA KEV',
+    short: 'Cyber advisories',
+    url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+    attribution: 'Cybersecurity & Infrastructure Security Agency.',
+    notes: 'Known Exploited Vulnerabilities catalog.'
+  },
+  {
+    id: 'openaq',
+    name: 'OpenAQ',
+    short: 'Air quality',
+    url: 'https://openaq.org',
+    attribution: 'OpenAQ air quality data.',
+    notes: 'Air quality alerts and station readings.'
+  },
+  {
+    id: 'opensky',
+    name: 'OpenSky Network',
+    short: 'Flight data',
+    url: 'https://opensky-network.org',
+    attribution: 'Data from The OpenSky Network.',
+    notes: 'Live aviation data and aircraft tracking.'
+  },
+  {
+    id: 'coinpaprika',
+    name: 'CoinPaprika',
+    short: 'Crypto markets',
+    url: 'https://coinpaprika.com',
+    attribution: 'CoinPaprika API data.',
+    notes: 'Crypto prices and market caps.'
+  },
+  {
+    id: 'polymarket',
+    name: 'Polymarket (Gamma)',
+    short: 'Prediction markets',
+    url: 'https://polymarket.com',
+    attribution: 'Polymarket market data via Gamma API.',
+    notes: 'Prediction market prices and volumes.'
+  },
+  {
+    id: 'gdelt',
+    name: 'GDELT Project',
+    short: 'Global news',
+    url: 'https://www.gdeltproject.org',
+    attribution: 'The GDELT Project.',
+    notes: 'Global news and conflict signals.'
+  },
+  {
+    id: 'acled',
+    name: 'ACLED',
+    short: 'Conflict events',
+    url: 'https://acleddata.com',
+    attribution: '© ACLED (Armed Conflict Location & Event Data Project).',
+    notes: 'Conflict and security event data.'
+  },
+  {
+    id: 'ucdp',
+    name: 'UCDP',
+    short: 'Conflict data',
+    url: 'https://ucdp.uu.se',
+    attribution: 'Uppsala Conflict Data Program (UCDP).',
+    notes: 'Candidate conflict events.'
+  },
+  {
+    id: 'gpsjam',
+    name: 'GPSJAM',
+    short: 'GPS jamming',
+    url: 'https://gpsjam.org',
+    attribution: 'GPSJAM.org data.',
+    notes: 'GPS jamming risk overlays.'
+  },
+  {
+    id: 'warspotting',
+    name: 'Warspotting',
+    short: 'Loss tracking',
+    url: 'https://warspotting.net',
+    attribution: 'Warspotting.net data.',
+    notes: 'Conflict equipment loss tracking.'
+  },
+  {
+    id: 'gdacs',
+    name: 'GDACS',
+    short: 'Disaster alerts',
+    url: 'https://www.gdacs.org',
+    attribution: 'GDACS alerts.',
+    notes: 'Global disaster alerts and coordination.'
+  },
+  {
+    id: 'govinfo',
+    name: 'GovInfo',
+    short: 'Gov publications',
+    url: 'https://www.govinfo.gov',
+    attribution: 'U.S. Government Publishing Office (govinfo.gov).',
+    notes: 'Federal publications and documents.'
+  },
+  {
+    id: 'foia',
+    name: 'FOIA.gov',
+    short: 'FOIA logs',
+    url: 'https://www.foia.gov',
+    attribution: 'FOIA.gov (U.S. Department of Justice).',
+    notes: 'FOIA request data.'
+  },
+  {
+    id: 'federal-register',
+    name: 'Federal Register',
+    short: 'Regulatory updates',
+    url: 'https://www.federalregister.gov',
+    attribution: 'Federal Register (Office of the Federal Register, NARA).',
+    notes: 'Regulations, rules, and notices.'
+  },
+  {
+    id: 'congress-gov',
+    name: 'Congress.gov',
+    short: 'Legislative data',
+    url: 'https://www.congress.gov',
+    attribution: 'Congress.gov (Library of Congress).',
+    notes: 'Bills, nominations, hearings, treaties, and record.'
+  },
+  {
+    id: 'fda',
+    name: 'FDA MedWatch',
+    short: 'Health alerts',
+    url: 'https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program',
+    attribution: 'U.S. Food & Drug Administration (FDA).',
+    notes: 'MedWatch safety alerts and recalls.'
+  },
+  {
+    id: 'usda-nass',
+    name: 'USDA NASS',
+    short: 'Ag reports',
+    url: 'https://www.nass.usda.gov',
+    attribution: 'USDA National Agricultural Statistics Service.',
+    notes: 'Agricultural reports and price summaries.'
+  },
+  {
+    id: 'stooq',
+    name: 'Stooq',
+    short: 'Market data',
+    url: 'https://stooq.com',
+    attribution: 'Stooq market data.',
+    notes: 'Equities and index snapshots.'
+  },
+  {
+    id: 'google-news',
+    name: 'Google News',
+    short: 'News headlines',
+    url: 'https://news.google.com',
+    attribution: 'Google News.',
+    notes: 'News aggregation results.'
+  },
+  {
+    id: 'bbc',
+    name: 'BBC News',
+    short: 'RSS source',
+    url: 'https://www.bbc.com/news',
+    attribution: 'BBC News content.',
+    notes: 'Headlines via RSS.'
+  },
+  {
+    id: 'guardian',
+    name: 'The Guardian',
+    short: 'RSS source',
+    url: 'https://www.theguardian.com/world',
+    attribution: 'The Guardian content.',
+    notes: 'Headlines via RSS.'
+  },
+  {
+    id: 'pbs',
+    name: 'PBS NewsHour',
+    short: 'RSS source',
+    url: 'https://www.pbs.org/newshour',
+    attribution: 'PBS NewsHour content.',
+    notes: 'Headlines via RSS.'
+  },
+  {
+    id: 'dw',
+    name: 'Deutsche Welle (DW)',
+    short: 'RSS source',
+    url: 'https://www.dw.com',
+    attribution: 'Deutsche Welle content.',
+    notes: 'Headlines via RSS.'
+  },
+  {
+    id: 'arxiv',
+    name: 'arXiv',
+    short: 'Research preprints',
+    url: 'https://arxiv.org',
+    attribution: 'arXiv.org e-print archive.',
+    notes: 'Research preprints and metadata.'
+  },
+  {
+    id: 'blockstream',
+    name: 'mempool.space',
+    short: 'Bitcoin mempool',
+    url: 'https://mempool.space',
+    attribution: 'mempool.space (Blockstream).',
+    notes: 'Bitcoin mempool and fee data.'
+  }
+];
 
 const GIBS_LAYERS = {
   'gibs-viirs': {
@@ -1530,6 +1869,90 @@ function toggleAbout(open) {
   elements.aboutOverlay.classList.toggle('open', open);
   elements.aboutOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
   elements.aboutOverlay.inert = !open;
+}
+
+function toggleAttribution(open) {
+  if (!elements.attributionOverlay) return;
+  elements.attributionOverlay.classList.toggle('open', open);
+  elements.attributionOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.attributionOverlay.inert = !open;
+}
+
+function renderAboutSources() {
+  if (!elements.aboutSources) return;
+  elements.aboutSources.innerHTML = '';
+  DATA_ATTRIBUTIONS.forEach((source) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'about-source';
+    button.dataset.attributionId = source.id;
+    button.setAttribute('role', 'listitem');
+    button.title = `${source.name}${source.short ? ` — ${source.short}` : ''}`;
+    const name = document.createElement('div');
+    name.textContent = source.name;
+    const meta = document.createElement('span');
+    meta.className = 'about-source-meta';
+    meta.textContent = source.short || 'Details';
+    button.appendChild(name);
+    button.appendChild(meta);
+    button.addEventListener('click', () => openAttribution(source.id));
+    elements.aboutSources.appendChild(button);
+  });
+}
+
+function openAttribution(sourceId) {
+  const source = DATA_ATTRIBUTIONS.find((entry) => entry.id === sourceId);
+  if (!source || !elements.attributionBody) return;
+  if (elements.attributionTitle) {
+    elements.attributionTitle.textContent = source.name;
+  }
+  if (elements.attributionMeta) {
+    elements.attributionMeta.textContent = source.short || 'Attribution requirements';
+  }
+  elements.attributionBody.innerHTML = '';
+
+  if (source.notes) {
+    const summary = document.createElement('div');
+    summary.className = 'detail-summary';
+    const p = document.createElement('p');
+    p.textContent = source.notes;
+    summary.appendChild(p);
+    elements.attributionBody.appendChild(summary);
+  }
+
+  const rows = [
+    { label: 'Attribution', value: source.attribution },
+    { label: 'Source', value: source.url }
+  ];
+  if (source.termsUrl) {
+    rows.push({ label: 'Terms', value: source.termsUrl });
+  }
+
+  rows.forEach((row) => {
+    if (!row.value) return;
+    const detail = document.createElement('div');
+    detail.className = 'detail-row';
+    const label = document.createElement('div');
+    label.className = 'detail-label';
+    label.textContent = row.label;
+    const value = document.createElement('div');
+    value.className = 'detail-value';
+    if (typeof row.value === 'string' && row.value.startsWith('http')) {
+      const link = document.createElement('a');
+      link.href = row.value;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = row.value;
+      value.appendChild(link);
+    } else {
+      value.textContent = row.value;
+    }
+    detail.appendChild(label);
+    detail.appendChild(value);
+    elements.attributionBody.appendChild(detail);
+  });
+
+  toggleAttribution(true);
 }
 
 function toggleListModal(open) {
@@ -6542,6 +6965,13 @@ function buildChatContext() {
       fetchedAt: status.fetchedAt || null
     };
   }).filter(Boolean).slice(0, 6);
+  const congressItems = getCongressItems();
+  const congressSample = congressItems.slice(0, 6).map((item) => ({
+    title: item.title,
+    type: item.alertType || item.category,
+    publishedAt: item.publishedAt,
+    url: item.externalUrl || item.url
+  }));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -6556,7 +6986,14 @@ function buildChatContext() {
     signals: {
       totalItems: state.scopedItems.length,
       newsClusters: state.clusters.length,
-      localEvents: getLocalItems().length
+      localEvents: getLocalItems().length,
+      congressItems: congressItems.length
+    },
+    congressSignals: congressSample,
+    searchContext: {
+      query: state.lastSearchQuery || null,
+      scope: state.lastSearchScope,
+      categories: state.lastSearchCategories
     },
     themes: getTopThemes(5),
     focusCluster: focusCluster ? {
@@ -6683,6 +7120,8 @@ function generateAnalysis(emitChat = false, options = {}) {
   const localCount = getLocalItems().length;
   const marketCount = applyLanguageFilter(applyFreshnessFilter(state.items))
     .filter((item) => item.category === 'crypto' || item.category === 'finance').length;
+  const congressItems = getCongressItems();
+  const congressCount = congressItems.length;
 
   if (!totalItems && !newsClusters) {
     const fallback = `Awaiting signals. Check feed health or refresh. Local radius: ${state.settings.radiusKm} km.`;
@@ -6697,6 +7136,7 @@ function generateAnalysis(emitChat = false, options = {}) {
   const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
     .filter((item) => item.category === 'crypto' || item.category === 'finance');
   const marketItem = getLatestItem(marketSignals);
+  const congressItem = getLatestItem(congressItems);
   const topThemes = getTopThemes(4);
 
   const storyline = ['## Storyline'];
@@ -6716,6 +7156,10 @@ function generateAnalysis(emitChat = false, options = {}) {
     const marketTitle = truncateText(marketItem.title || '', 140);
     storyline.push(`- Market: ${marketTitle}`);
   }
+  if (congressItem) {
+    const congressTitle = truncateText(congressItem.title || '', 140);
+    storyline.push(`- Congress: ${congressTitle}`);
+  }
   if (topThemes.length) {
     storyline.push(`- Themes: ${topThemes.join(', ')}`);
   }
@@ -6724,7 +7168,8 @@ function generateAnalysis(emitChat = false, options = {}) {
     '## Signals',
     `- Signals in view: ${totalItems || 'awaiting'} across ${newsClusters || 'no'} news clusters.`,
     `- Local risks: ${localCount || 'no'} events within ${state.settings.radiusKm} km.`,
-    `- Market pulse: ${marketCount || 'no'} finance/crypto signals.`
+    `- Market pulse: ${marketCount || 'no'} finance/crypto signals.`,
+    `- Congress: ${congressCount || 'no'} legislative updates.`
   ];
 
   const text = [...storyline, ...signals].join('\n');
@@ -9982,6 +10427,10 @@ async function handleSearch() {
     return;
   }
 
+  state.lastSearchQuery = query;
+  state.lastSearchScope = scope;
+  state.lastSearchCategories = [...state.searchCategories];
+
   const originalLabel = elements.searchBtn?.textContent;
   if (elements.searchBtn) {
     elements.searchBtn.disabled = true;
@@ -10184,6 +10633,16 @@ function initEvents() {
     elements.aboutOverlay.addEventListener('click', (event) => {
       if (event.target === elements.aboutOverlay) {
         toggleAbout(false);
+      }
+    });
+  }
+  if (elements.attributionClose) {
+    elements.attributionClose.addEventListener('click', () => toggleAttribution(false));
+  }
+  if (elements.attributionOverlay) {
+    elements.attributionOverlay.addEventListener('click', (event) => {
+      if (event.target === elements.attributionOverlay) {
+        toggleAttribution(false);
       }
     });
   }
@@ -10780,6 +11239,7 @@ function initEvents() {
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       toggleAbout(false);
+      toggleAttribution(false);
       toggleListModal(false);
       setNavOpen(false);
     }
@@ -10808,6 +11268,7 @@ async function init() {
   applyPanelVisibility();
   applyPanelSizes();
   buildPanelToggles();
+  renderAboutSources();
   updateCategoryFilters();
   initPanelDrag();
   initPanelResize();

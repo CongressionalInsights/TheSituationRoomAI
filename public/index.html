@@ -1449,7 +1449,7 @@
       </div>
       <div class="modal-body">
         <div class="modal-grid">
-          <section class="modal-card">
+          <section class="modal-card sources-card">
             <div class="modal-card-title">What this is</div>
             <p>
               The Situation Room is a unified situational awareness dashboard that fuses news, hazards, policy, finance, research, and geo‑tagged signals into a single operational view. It is built for fast scanning, strong signal density, and resilience.
@@ -1458,8 +1458,9 @@
           <section class="modal-card">
             <div class="modal-card-title">Where the data comes from</div>
             <p>
-              NOAA/NWS alerts, USGS earthquakes, NASA EONET & FIRMS, CDC travel notices, EIA energy data, BLS & US Treasury releases, CISA KEV, OpenAQ air quality, OpenSky aviation, CoinPaprika crypto markets, Polymarket, arXiv research, NOAA IncidentNews spills, and curated RSS sources (BBC, Guardian, PBS, Google News, etc.).
+              Tap any provider to view required attribution details.
             </p>
+            <div class="about-sources" id="aboutSources" role="list"></div>
           </section>
           <section class="modal-card">
             <div class="modal-card-title">How to use it</div>
@@ -1512,6 +1513,21 @@
       </div>
       <div class="modal-body">
         <div class="list modal-list" id="listModalList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay about" id="attributionOverlay" aria-hidden="true">
+    <div class="modal attribution-modal" role="dialog" aria-modal="true" aria-labelledby="attributionTitle">
+      <div class="modal-header">
+        <div>
+          <div class="panel-title" id="attributionTitle">Data Attribution</div>
+          <div class="panel-sub" id="attributionMeta">Source requirements</div>
+        </div>
+        <button class="btn ghost" id="attributionClose">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-grid" id="attributionBody"></div>
       </div>
     </div>
   </div>

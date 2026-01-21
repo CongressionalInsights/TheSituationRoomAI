@@ -38,8 +38,10 @@
 - Browser → `public/services/api.js` → `window.SR_CONFIG.apiBase` (Cloud Run feed proxy) for key‑protected feeds.
 - Static cache lives in `data/` and is used as a fallback when proxies are unavailable.
 - Map overlays and legend state are driven by settings defaults in `public/app.js`.
+- AI briefings and chat context are assembled in `buildChatContext()` inside `public/app.js` (and mirrored in the versioned bundle). If you add a new feed category or panel, include it in the context so AI analysis and search stay aligned.
 
 ## Safe Change Checklist
 - Add feeds in `data/feeds.json`, then update panel list defaults in `public/app.js`.
 - Keep panel IDs and list keys stable; they drive layout persistence and settings.
 - When adding map layers, also update legend groups and default toggles to avoid hidden layers.
+- If you change search behavior or add categories, update `state.lastSearch*` tracking and the AI context to reflect the new filters.

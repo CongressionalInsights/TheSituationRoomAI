@@ -44,6 +44,7 @@ Then open `http://localhost:5173`.
 - Add your OpenAI key under **OpenAI Assistant** in Settings → API Keys for local/server mode.
 - Chat, AI briefings, and AI query translation use `/api/chat` (OpenAI Responses API).
 - Optional: set `OPENAI_API_KEY` on the server if you prefer not to send the key from the browser.
+- AI briefing context includes Congress.gov signals and the most recent search query/scope so legislative updates stay visible in the summary.
 
 ## GitHub Pages static mode (recommended for this repo)
 GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snapshot mode** by default. A scheduled GitHub Action pulls all feeds using repo secrets and publishes the cached results under `public/data/`. The UI reads those cached JSON files when hosted on `*.github.io`.

@@ -4073,6 +4073,76 @@ a.list-title:hover {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
+.about-sources {
+  margin-top: 12px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding-right: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(24px, auto);
+  gap: 6px;
+}
+
+.about-source {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+[data-theme="light"] .about-source {
+  border-color: rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.about-source .about-source-meta {
+  display: none;
+}
+
+.modal-overlay.about .modal-grid {
+  align-items: start;
+}
+
+.modal-overlay.about .modal-card p {
+  margin-bottom: 10px;
+}
+
+.modal-overlay.about .sources-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.modal-overlay.about .sources-card .about-sources {
+  max-height: 148px;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .about-sources {
+    grid-template-columns: 1fr;
+  }
+}
+
+.modal.attribution-modal .detail-grid {
+  display: grid;
+  gap: 12px;
+}
+
 .modal-overlay.about .modal-card-title,
 .modal-overlay.about .panel-title,
 .modal-overlay.about .panel-sub,
