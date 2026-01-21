@@ -416,12 +416,18 @@ async function buildFeedPayload(feed) {
   }
 
   const query = feed.supportsQuery ? (feed.defaultQuery || '') : undefined;
+  const now = new Date();
+  const end = now.toISOString().slice(0, 10);
+  const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const dateParams = (feed.url || '').includes('{{start}}') || (feed.url || '').includes('{{end}}')
+    ? { start, end }
+    : {};
   const fallbackUrl = feed.id === 'acled-events'
     ? 'https://situation-room-acled-382918878290.us-central1.run.app/api/acled/events'
     : '';
   const baseUrl = feed.supportsQuery
-    ? buildUrl(feed.url || fallbackUrl, { query, key })
-    : buildUrl(feed.url || fallbackUrl, { key });
+    ? buildUrl(feed.url || fallbackUrl, { query, key, ...dateParams })
+    : buildUrl(feed.url || fallbackUrl, { key, ...dateParams });
   const applied = applyKey(baseUrl, feed, key);
   const headers = {
     'User-Agent': appConfig.userAgent,
@@ -498,6 +504,30 @@ async function buildFeedPayload(feed) {
       }
     } catch {
       // keep original payload
+    }
+  }
+
+  if (payload.error && (feed.id === 'energy-eia-brent' || feed.id === 'energy-eia-ng')) {
+    const seriesId = feed.url?.split('/seriesid/')[1]?.split('?')[0];
+    if (seriesId) {
+      const legacyUrl = `https://api.eia.gov/series/?series_id=${encodeURIComponent(seriesId)}`;
+      const legacyApplied = applyKey(legacyUrl, feed, key);
+      try {
+        const legacyResponse = await fetchWithFallbacks(legacyApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
+        const legacyBody = await legacyResponse.text();
+        if (legacyResponse.ok && legacyBody) {
+          payload = {
+            id: feed.id,
+            fetchedAt: Date.now(),
+            contentType: legacyResponse.headers.get('content-type') || 'text/plain',
+            body: legacyBody,
+            httpStatus: legacyResponse.status,
+            fallback: 'series_v1'
+          };
+        }
+      } catch {
+        // keep original payload
+      }
     }
   }
   if (payload.error && feed.id === 'foia-api') {
