@@ -7522,10 +7522,30 @@ function getNominationKey(congress, nominationId) {
   return `${congressValue}:PN:${nominationId}`;
 }
 
+function formatNominationTitleSafe(item) {
+  if (typeof formatNominationTitle === 'function') {
+    return formatNominationTitle(item);
+  }
+  const desc = item?.description || '';
+  if (!desc) return '';
+  const [namePart, rest] = desc.split(', of ');
+  const roleSplit = desc.split(' to be ');
+  if (roleSplit.length > 1) {
+    const name = roleSplit[0].replace(/,? of .*/i, '').trim();
+    const role = roleSplit[1].replace(/, vice .*/i, '').trim();
+    if (name && role) return `${name} — ${role}`;
+  }
+  if (namePart && rest) {
+    const role = rest.split(', vice ')[0];
+    if (role) return `${namePart.trim()} — ${role.trim()}`;
+  }
+  return desc;
+}
+
 function selectNominationPrimary(items) {
   if (!items.length) return null;
   const enriched = items.find((item) => {
-    const nominee = formatNominationTitle(item);
+    const nominee = formatNominationTitleSafe(item);
     const title = item.detailTitle || item.title || '';
     return nominee || item.description || title.includes('—') || title.length > 40;
   });

@@ -38,6 +38,8 @@ jobs:
           OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
           OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
         run: node scripts/build_static_cache.mjs
+      - name: Verify public bundle
+        run: node scripts/verify_public.mjs
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
