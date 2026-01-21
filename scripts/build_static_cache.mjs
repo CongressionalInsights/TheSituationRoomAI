@@ -566,47 +566,51 @@ async function buildEnergyMap() {
     return { error: 'missing_server_key', message: 'Server EIA key required for energy map.' };
   }
 
-  const url = new URL('https://api.eia.gov/v2/electricity/retail-sales/data/');
-  url.searchParams.set('api_key', process.env.EIA);
-  url.searchParams.set('frequency', 'monthly');
-  url.searchParams.set('data[0]', 'price');
-  url.searchParams.set('facets[sectorid][]', 'RES');
-  url.searchParams.set('sort[0][column]', 'period');
-  url.searchParams.set('sort[0][direction]', 'desc');
-  url.searchParams.set('offset', '0');
-  url.searchParams.set('length', '200');
+  try {
+    const url = new URL('https://api.eia.gov/v2/electricity/retail-sales/data/');
+    url.searchParams.set('api_key', process.env.EIA);
+    url.searchParams.set('frequency', 'monthly');
+    url.searchParams.set('data[0]', 'price');
+    url.searchParams.set('facets[sectorid][]', 'RES');
+    url.searchParams.set('sort[0][column]', 'period');
+    url.searchParams.set('sort[0][direction]', 'desc');
+    url.searchParams.set('offset', '0');
+    url.searchParams.set('length', '200');
 
-  const response = await fetchWithTimeout(url.toString(), {
-    'User-Agent': appConfig.userAgent,
-    'Accept': 'application/json'
-  });
-  if (!response.ok) {
-    return { error: 'fetch_failed', message: `EIA energy map request failed (${response.status})` };
-  }
+    const response = await fetchWithTimeout(url.toString(), {
+      'User-Agent': appConfig.userAgent,
+      'Accept': 'application/json'
+    });
+    if (!response.ok) {
+      return { error: 'fetch_failed', message: `EIA energy map request failed (${response.status})` };
+    }
 
-  const data = await response.json();
-  const rows = Array.isArray(data?.response?.data) ? data.response.data : [];
-  const latestByState = {};
-  rows.forEach((row) => {
-    if (!row.stateid || latestByState[row.stateid]) return;
-    const value = Number(row.price);
-    if (!Number.isFinite(value)) return;
-    latestByState[row.stateid] = {
-      value,
-      period: row.period,
-      state: row.stateDescription || row.stateid
+    const data = await response.json();
+    const rows = Array.isArray(data?.response?.data) ? data.response.data : [];
+    const latestByState = {};
+    rows.forEach((row) => {
+      if (!row.stateid || latestByState[row.stateid]) return;
+      const value = Number(row.price);
+      if (!Number.isFinite(value)) return;
+      latestByState[row.stateid] = {
+        value,
+        period: row.period,
+        state: row.stateDescription || row.stateid
+      };
+    });
+    const values = Object.values(latestByState).map((entry) => entry.value);
+    const min = values.length ? Math.min(...values) : 0;
+    const max = values.length ? Math.max(...values) : 1;
+    return {
+      period: rows[0]?.period || '',
+      units: rows[0]?.['price-units'] || 'cents/kWh',
+      values: latestByState,
+      min,
+      max
     };
-  });
-  const values = Object.values(latestByState).map((entry) => entry.value);
-  const min = values.length ? Math.min(...values) : 0;
-  const max = values.length ? Math.max(...values) : 1;
-  return {
-    period: rows[0]?.period || '',
-    units: rows[0]?.['price-units'] || 'cents/kWh',
-    values: latestByState,
-    min,
-    max
-  };
+  } catch (err) {
+    return { error: 'fetch_failed', message: err.message || 'EIA energy map request failed.' };
+  }
 }
 
 async function buildEnergyMarket() {
