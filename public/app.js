@@ -601,7 +601,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'OpenStreetMap',
     short: 'Basemap + geocoding',
     url: 'https://www.openstreetmap.org/copyright',
-    attribution: '© OpenStreetMap contributors (ODbL).',
+    attribution: '© OpenStreetMap contributors. Open Data Commons Open Database License (ODbL).',
+    termsUrl: 'https://osmfoundation.org/wiki/Licence/Attribution_Guidelines',
     notes: 'OpenStreetMap data used for basemaps and geocoding.'
   },
   {
@@ -609,7 +610,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'Esri Basemaps',
     short: 'Imagery tiles',
     url: 'https://www.esri.com/en-us/arcgis/products/arcgis-online',
-    attribution: 'Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community.',
+    attribution: 'Sources: Esri, DigitalGlobe, GeoEye, i-cubed, USDA FSA, USGS, AEX, Getmapping, Aerogrid, IGN, IGP, swisstopo, and the GIS User Community.',
+    termsUrl: 'https://support.esri.com/en-us/knowledge-base/what-is-the-correct-way-to-cite-an-arcgis-online-basema-000012040',
     notes: 'Satellite basemaps and ArcGIS Online services.'
   },
   {
@@ -617,7 +619,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'ArcGIS Online (Esri)',
     short: 'ArcGIS datasets',
     url: 'https://www.arcgis.com',
-    attribution: 'Data provided via Esri ArcGIS Online services.',
+    attribution: '© Esri. Data provided via ArcGIS Online services.',
+    termsUrl: 'https://www.esri.com/en-us/legal/terms/full-master-agreement',
     notes: 'ArcGIS-hosted feature layers referenced by the map overlays.'
   },
   {
@@ -625,7 +628,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'NASA EOSDIS GIBS',
     short: 'Global imagery',
     url: 'https://earthdata.nasa.gov/eosdis/science-system-description/eosdis-components/gibs',
-    attribution: 'NASA EOSDIS GIBS imagery.',
+    attribution: "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS).",
+    termsUrl: 'https://earthdata.nasa.gov/eosdis/science-system-description/eosdis-components/gibs',
     notes: 'Global imagery layers (VIIRS/MODIS/Day-Night).'
   },
   {
@@ -633,7 +637,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'NASA FIRMS',
     short: 'Fire data',
     url: 'https://firms.modaps.eosdis.nasa.gov',
-    attribution: 'NASA FIRMS (Fire Information for Resource Management System).',
+    attribution: "We acknowledge the use of data and/or imagery from NASA's Land, Atmosphere Near real-time Capability for Earth observations (LANCE) (https://earthdata.nasa.gov/lance), part of NASA's Earth Science Data and Information System (ESDIS).",
+    termsUrl: 'https://www.earthdata.nasa.gov/data/projects/lance#ed-firms-citation',
     notes: 'Global fire detections.'
   },
   {
@@ -641,7 +646,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'NASA EONET',
     short: 'Natural events',
     url: 'https://eonet.gsfc.nasa.gov',
-    attribution: 'NASA EONET (Earth Observatory Natural Event Tracker).',
+    attribution: 'NASA EONET (Earth Observatory Natural Event Tracker). Source: NASA/GSFC.',
+    termsUrl: 'https://eonet.gsfc.nasa.gov/docs/v3',
     notes: 'Natural events and hazards.'
   },
   {
@@ -649,7 +655,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'NOAA/NWS',
     short: 'Alerts + warnings',
     url: 'https://www.weather.gov/documentation/services-web-api',
-    attribution: 'NOAA/NWS alerts and warnings.',
+    attribution: 'Source: National Weather Service (NOAA). Data are public domain; credit NOAA/NWS.',
+    termsUrl: 'https://www.weather.gov/documentation/services-web-api',
     notes: 'US weather alerts and short-term warnings.'
   },
   {
@@ -657,7 +664,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'NOAA NHC',
     short: 'Hurricane outlooks',
     url: 'https://www.nhc.noaa.gov',
-    attribution: 'NOAA National Hurricane Center.',
+    attribution: 'Source: NOAA National Hurricane Center. Data are public domain; credit NOAA/NHC.',
+    termsUrl: 'https://www.nhc.noaa.gov',
     notes: 'Atlantic basin outlooks and advisories.'
   },
   {
@@ -665,7 +673,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'NOAA SWPC',
     short: 'Space weather',
     url: 'https://www.swpc.noaa.gov',
-    attribution: 'NOAA Space Weather Prediction Center.',
+    attribution: 'Source: NOAA Space Weather Prediction Center. Data are public domain; credit NOAA/SWPC.',
+    termsUrl: 'https://www.swpc.noaa.gov',
     notes: 'Kp index and solar wind conditions.'
   },
   {
@@ -673,7 +682,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'NOAA HMS',
     short: 'Fire detections',
     url: 'https://hms.smfc.nasa.gov',
-    attribution: 'NOAA/NESDIS HMS fire detections.',
+    attribution: 'Source: NOAA/NESDIS Hazard Mapping System (HMS).',
+    termsUrl: 'https://hms.smfc.nasa.gov',
     notes: 'Satellite fire detection overlays.'
   },
   {
@@ -681,7 +691,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'NOAA IncidentNews',
     short: 'Spill reports',
     url: 'https://incidentnews.noaa.gov',
-    attribution: 'NOAA Office of Response and Restoration IncidentNews.',
+    attribution: 'Source: NOAA Office of Response and Restoration IncidentNews.',
+    termsUrl: 'https://incidentnews.noaa.gov',
     notes: 'Oil spill and incident reports.'
   },
   {
@@ -689,7 +700,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'USGS Earthquakes',
     short: 'Seismic events',
     url: 'https://earthquake.usgs.gov',
-    attribution: 'USGS Earthquake Hazards Program.',
+    attribution: 'USGS Earthquake Hazards Program. Data courtesy of the U.S. Geological Survey.',
+    termsUrl: 'https://www.usgs.gov/information-policies-and-instructions/acknowledging-or-crediting-usgs',
     notes: 'Recent seismic activity feeds.'
   },
   {
@@ -697,7 +709,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'CDC Travel Notices',
     short: 'Travel alerts',
     url: 'https://www.cdc.gov/travel',
-    attribution: 'Centers for Disease Control and Prevention.',
+    attribution: 'Source: Centers for Disease Control and Prevention (CDC). Data are public domain; credit CDC.',
+    termsUrl: 'https://www.cdc.gov/other/policies.html',
     notes: 'Travel health notices.'
   },
   {
@@ -705,7 +718,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'U.S. EIA',
     short: 'Energy data',
     url: 'https://www.eia.gov',
-    attribution: 'U.S. Energy Information Administration.',
+    attribution: 'Source: U.S. Energy Information Administration (EIA). Data are public domain; credit EIA.',
+    termsUrl: 'https://www.eia.gov/about/copyrights_reuse.php',
     notes: 'Energy market data and Today in Energy.'
   },
   {
@@ -713,7 +727,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'U.S. BLS',
     short: 'Economic data',
     url: 'https://www.bls.gov',
-    attribution: 'U.S. Bureau of Labor Statistics.',
+    attribution: 'Source: U.S. Bureau of Labor Statistics (BLS). Data are public domain; credit BLS.',
+    termsUrl: 'https://www.bls.gov/bls/linksite.htm',
     notes: 'CPI and macroeconomic releases.'
   },
   {
@@ -721,7 +736,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'U.S. Treasury Fiscal Data',
     short: 'Debt & fiscal',
     url: 'https://fiscaldata.treasury.gov',
-    attribution: 'U.S. Department of the Treasury, Fiscal Service.',
+    attribution: 'Source: U.S. Department of the Treasury, Fiscal Service. Data are public domain; credit Treasury Fiscal Service.',
+    termsUrl: 'https://fiscaldata.treasury.gov/developer/api-documentation/',
     notes: 'Debt to the Penny and fiscal releases.'
   },
   {
@@ -729,7 +745,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'CISA KEV',
     short: 'Cyber advisories',
     url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
-    attribution: 'Cybersecurity & Infrastructure Security Agency.',
+    attribution: 'Source: Cybersecurity and Infrastructure Security Agency (CISA). Data are public domain; credit CISA.',
+    termsUrl: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
     notes: 'Known Exploited Vulnerabilities catalog.'
   },
   {
@@ -737,7 +754,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'OpenAQ',
     short: 'Air quality',
     url: 'https://openaq.org',
-    attribution: 'OpenAQ air quality data.',
+    attribution: 'Source: OpenAQ air quality data. Please credit OpenAQ.',
+    termsUrl: 'https://openaq.org/terms/',
     notes: 'Air quality alerts and station readings.'
   },
   {
@@ -745,7 +763,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'OpenSky Network',
     short: 'Flight data',
     url: 'https://opensky-network.org',
-    attribution: 'Data from The OpenSky Network.',
+    attribution: 'The OpenSky Network (https://opensky-network.org). Cite: “Bringing up OpenSky: A large-scale ADS-B sensor network for research” (Schäfer et al., ACM/IEEE IPSN 2014).',
+    termsUrl: 'https://opensky-network.org/about/terms-of-use',
     notes: 'Live aviation data and aircraft tracking.'
   },
   {
@@ -753,7 +772,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'CoinPaprika',
     short: 'Crypto markets',
     url: 'https://coinpaprika.com',
-    attribution: 'CoinPaprika API data.',
+    attribution: 'Source: CoinPaprika API data. Please credit CoinPaprika.',
+    termsUrl: 'https://coinpaprika.com/terms-of-use/',
     notes: 'Crypto prices and market caps.'
   },
   {
@@ -761,7 +781,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'Polymarket (Gamma)',
     short: 'Prediction markets',
     url: 'https://polymarket.com',
-    attribution: 'Polymarket market data via Gamma API.',
+    attribution: 'Source: Polymarket market data via Gamma API. Please credit Polymarket/Gamma.',
+    termsUrl: 'https://docs.polymarket.com',
     notes: 'Prediction market prices and volumes.'
   },
   {
@@ -769,7 +790,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'GDELT Project',
     short: 'Global news',
     url: 'https://www.gdeltproject.org',
-    attribution: 'The GDELT Project.',
+    attribution: 'The GDELT Project (https://www.gdeltproject.org). Any use or redistribution must cite the GDELT Project and link to the website.',
+    termsUrl: 'https://www.gdeltproject.org/about.html#termsofuse',
     notes: 'Global news and conflict signals.'
   },
   {
@@ -777,7 +799,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'ACLED',
     short: 'Conflict events',
     url: 'https://acleddata.com',
-    attribution: '© ACLED (Armed Conflict Location & Event Data Project).',
+    attribution: 'ACLED (Armed Conflict Location & Event Data). Cite ACLED as the source and include a link to https://acleddata.com.',
+    termsUrl: 'https://acleddata.com/attributionpolicy',
     notes: 'Conflict and security event data.'
   },
   {
@@ -785,7 +808,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'UCDP',
     short: 'Conflict data',
     url: 'https://ucdp.uu.se',
-    attribution: 'Uppsala Conflict Data Program (UCDP).',
+    attribution: 'Uppsala Conflict Data Program (UCDP) Candidate Events Dataset. Please cite the UCDP Georeferenced Event Dataset (GED); datasets are licensed CC BY 4.0.',
+    termsUrl: 'https://ucdp.uu.se/downloads/',
     notes: 'Candidate conflict events.'
   },
   {
@@ -793,7 +817,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'GPSJAM',
     short: 'GPS jamming',
     url: 'https://gpsjam.org',
-    attribution: 'GPSJAM.org data.',
+    attribution: 'Source: GPSJAM.org. Please credit GPSJAM.org.',
+    termsUrl: 'https://gpsjam.org',
     notes: 'GPS jamming risk overlays.'
   },
   {
@@ -801,7 +826,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'Warspotting',
     short: 'Loss tracking',
     url: 'https://warspotting.net',
-    attribution: 'Warspotting.net data.',
+    attribution: 'Source: Warspotting.net. Please credit Warspotting.',
+    termsUrl: 'https://warspotting.net',
     notes: 'Conflict equipment loss tracking.'
   },
   {
@@ -809,7 +835,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'GDACS',
     short: 'Disaster alerts',
     url: 'https://www.gdacs.org',
-    attribution: 'GDACS alerts.',
+    attribution: 'GDACS (Global Disaster Alert and Coordination System), a cooperation framework between the United Nations and the European Commission.',
+    termsUrl: 'https://www.gdacs.org/About',
     notes: 'Global disaster alerts and coordination.'
   },
   {
@@ -817,7 +844,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'GovInfo',
     short: 'Gov publications',
     url: 'https://www.govinfo.gov',
-    attribution: 'U.S. Government Publishing Office (govinfo.gov).',
+    attribution: 'Source: U.S. Government Publishing Office (govinfo.gov). Data are public domain; credit GPO.',
+    termsUrl: 'https://www.govinfo.gov/help',
     notes: 'Federal publications and documents.'
   },
   {
@@ -825,7 +853,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'FOIA.gov',
     short: 'FOIA logs',
     url: 'https://www.foia.gov',
-    attribution: 'FOIA.gov (U.S. Department of Justice).',
+    attribution: 'Source: FOIA.gov (U.S. Department of Justice). Data are public domain; credit DOJ/FOIA.gov.',
+    termsUrl: 'https://www.foia.gov/about.html',
     notes: 'FOIA request data.'
   },
   {
@@ -833,7 +862,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'Federal Register',
     short: 'Regulatory updates',
     url: 'https://www.federalregister.gov',
-    attribution: 'Federal Register (Office of the Federal Register, NARA).',
+    attribution: 'Source: Federal Register (Office of the Federal Register, NARA). Public domain; credit Federal Register/NARA.',
+    termsUrl: 'https://www.federalregister.gov/reader-aids/using-federalregister-gov',
     notes: 'Regulations, rules, and notices.'
   },
   {
@@ -841,7 +871,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'Congress.gov',
     short: 'Legislative data',
     url: 'https://www.congress.gov',
-    attribution: 'Congress.gov (Library of Congress).',
+    attribution: 'Source: Congress.gov (Library of Congress). Data are public domain; credit Congress.gov.',
+    termsUrl: 'https://www.congress.gov/help/legislative-resources',
     notes: 'Bills, nominations, hearings, treaties, and record.'
   },
   {
@@ -849,7 +880,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'FDA MedWatch',
     short: 'Health alerts',
     url: 'https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program',
-    attribution: 'U.S. Food & Drug Administration (FDA).',
+    attribution: 'Source: U.S. Food and Drug Administration (FDA). Data are public domain; credit FDA.',
+    termsUrl: 'https://www.fda.gov/about-fda/website-policies',
     notes: 'MedWatch safety alerts and recalls.'
   },
   {
@@ -857,7 +889,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'USDA NASS',
     short: 'Ag reports',
     url: 'https://www.nass.usda.gov',
-    attribution: 'USDA National Agricultural Statistics Service.',
+    attribution: 'USDA-NASS data are in the public domain; USDA-NASS requests appropriate acknowledgment.',
+    termsUrl: 'https://www.nass.usda.gov/Data_and_Statistics/Citation_Request/index.php',
     notes: 'Agricultural reports and price summaries.'
   },
   {
@@ -866,6 +899,7 @@ const DATA_ATTRIBUTIONS = [
     short: 'Market data',
     url: 'https://stooq.com',
     attribution: 'Stooq market data.',
+    termsUrl: 'https://stooq.com/terms.html',
     notes: 'Equities and index snapshots.'
   },
   {
@@ -873,7 +907,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'Google News',
     short: 'News headlines',
     url: 'https://news.google.com',
-    attribution: 'Google News.',
+    attribution: 'Google News. © Google.',
+    termsUrl: 'https://policies.google.com/terms',
     notes: 'News aggregation results.'
   },
   {
@@ -881,7 +916,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'BBC News',
     short: 'RSS source',
     url: 'https://www.bbc.com/news',
-    attribution: 'BBC News content.',
+    attribution: '© BBC News.',
+    termsUrl: 'https://www.bbc.co.uk/usingthebbc/terms/',
     notes: 'Headlines via RSS.'
   },
   {
@@ -889,7 +925,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'The Guardian',
     short: 'RSS source',
     url: 'https://www.theguardian.com/world',
-    attribution: 'The Guardian content.',
+    attribution: '© The Guardian.',
+    termsUrl: 'https://www.theguardian.com/help/terms-of-service',
     notes: 'Headlines via RSS.'
   },
   {
@@ -897,7 +934,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'PBS NewsHour',
     short: 'RSS source',
     url: 'https://www.pbs.org/newshour',
-    attribution: 'PBS NewsHour content.',
+    attribution: '© PBS NewsHour.',
+    termsUrl: 'https://www.pbs.org/about/policies/',
     notes: 'Headlines via RSS.'
   },
   {
@@ -905,7 +943,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'Deutsche Welle (DW)',
     short: 'RSS source',
     url: 'https://www.dw.com',
-    attribution: 'Deutsche Welle content.',
+    attribution: '© Deutsche Welle (DW).',
+    termsUrl: 'https://www.dw.com/en/legal-information/a-18265275',
     notes: 'Headlines via RSS.'
   },
   {
@@ -914,6 +953,7 @@ const DATA_ATTRIBUTIONS = [
     short: 'Research preprints',
     url: 'https://arxiv.org',
     attribution: 'arXiv.org e-print archive.',
+    termsUrl: 'https://arxiv.org/help/license',
     notes: 'Research preprints and metadata.'
   },
   {
@@ -921,7 +961,8 @@ const DATA_ATTRIBUTIONS = [
     name: 'mempool.space',
     short: 'Bitcoin mempool',
     url: 'https://mempool.space',
-    attribution: 'mempool.space (Blockstream).',
+    attribution: 'Source: mempool.space (Blockstream). Please credit mempool.space.',
+    termsUrl: 'https://mempool.space/docs/api',
     notes: 'Bitcoin mempool and fee data.'
   }
 ];
