@@ -7523,8 +7523,10 @@ function getNominationKey(congress, nominationId) {
 }
 
 function formatNominationTitleSafe(item) {
-  if (typeof formatNominationTitle === 'function') {
-    return formatNominationTitle(item);
+  const globalTitle =
+    typeof globalThis !== 'undefined' ? globalThis.formatNominationTitle : undefined;
+  if (typeof globalTitle === 'function') {
+    return globalTitle(item);
   }
   const desc = item?.description || '';
   if (!desc) return '';
