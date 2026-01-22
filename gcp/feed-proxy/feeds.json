@@ -412,7 +412,7 @@
       "keyParam": "api_key",
       "lockKeyParam": true,
       "lockKeyHeader": true,
-      "url": "https://api.eia.gov/v2/seriesid/PET.RBRTE.D",
+      "url": "https://api.eia.gov/v2/seriesid/PET.RBRTE.W",
       "ttlMinutes": 180,
       "tags": [
         "us",
@@ -432,7 +432,7 @@
       "keyParam": "api_key",
       "lockKeyParam": true,
       "lockKeyHeader": true,
-      "url": "https://api.eia.gov/v2/seriesid/NG.RNGWHHD.D",
+      "url": "https://api.eia.gov/v2/seriesid/NG.RNGWHHD.W",
       "ttlMinutes": 180,
       "tags": [
         "us",
