@@ -23,8 +23,8 @@ const cache = new Map();
 const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
 const GPSJAM_ID = 'gpsjam';
 const GPSJAM_CACHE_KEY = 'gpsjam:data';
-const EIA_RETRY_ATTEMPTS = 3;
-const EIA_RETRY_DELAY_MS = 400;
+const EIA_RETRY_ATTEMPTS = 5;
+const EIA_RETRY_DELAY_MS = 1000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -351,27 +351,33 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   let response;
+  let responseOk = false;
   let contentType = 'text/plain';
   let body = '';
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
         response = await fetchWithFallbacks(applied.url, headers, proxyList);
-        if (response.ok) break;
+        responseOk = response.ok;
+        if (responseOk) break;
         if (attempt < EIA_RETRY_ATTEMPTS - 1) {
           await sleep(EIA_RETRY_DELAY_MS);
         }
       }
     } else {
       response = await fetchWithFallbacks(applied.url, headers, proxyList);
+      responseOk = response.ok;
     }
     contentType = response.headers.get('content-type') || 'text/plain';
     body = await response.text();
+    if (isEiaSeries && responseOk && typeof body === 'string' && body.includes('Something unexpected happened')) {
+      responseOk = false;
+    }
   } catch (error) {
     if (!isEiaSeries) throw error;
   }
 
-  if (isEiaSeries && (!response || !response.ok)) {
+  if (isEiaSeries && (!response || !responseOk)) {
     const hasUsableStale = staleCache
       && staleCache.httpStatus
       && staleCache.httpStatus >= 200
@@ -426,7 +432,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
     body,
     httpStatus: response.status
   };
-  cache.set(cacheKey, payload);
+  if (!isEiaSeries || responseOk) {
+    cache.set(cacheKey, payload);
+  }
   return payload;
 }
 
