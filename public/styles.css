@@ -4094,9 +4094,9 @@ a.list-title:hover {
   min-height: 24px;
   padding: 6px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
-  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: #f8fbff;
   text-align: left;
   font-size: 12.5px;
   font-weight: 600;
@@ -4104,9 +4104,18 @@ a.list-title:hover {
   cursor: pointer;
 }
 
+.about-source:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 [data-theme="light"] .about-source {
-  border-color: rgba(15, 23, 42, 0.08);
-  background: rgba(15, 23, 42, 0.03);
+  border-color: rgba(15, 23, 42, 0.14);
+  background: transparent;
+  color: #0f172a;
+}
+
+[data-theme="light"] .about-source:hover {
+  background: rgba(15, 23, 42, 0.06);
 }
 
 .about-source .about-source-meta {
