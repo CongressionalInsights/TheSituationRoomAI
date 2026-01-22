@@ -118,6 +118,21 @@ function buildEiaLegacyUrl(feed, apiKey) {
   }
 }
 
+function normalizeEiaSeriesUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    if (!parsed.pathname.includes('/v2/seriesid/')) return rawUrl;
+    if (!parsed.searchParams.has('data[0]')) parsed.searchParams.set('data[0]', 'value');
+    if (!parsed.searchParams.has('sort[0][column]')) parsed.searchParams.set('sort[0][column]', 'period');
+    if (!parsed.searchParams.has('sort[0][direction]')) parsed.searchParams.set('sort[0][direction]', 'desc');
+    if (!parsed.searchParams.has('length')) parsed.searchParams.set('length', '200');
+    if (!parsed.searchParams.has('offset')) parsed.searchParams.set('offset', '0');
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 function buildUrl(template, params = {}) {
   let url = template;
   Object.entries(params).forEach(([key, value]) => {
@@ -303,6 +318,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
 
   const finalQuery = feed.supportsQuery ? (query || feed.defaultQuery || '') : undefined;
   let url = feed.supportsQuery ? buildUrl(feed.url, { query: finalQuery }) : buildUrl(feed.url, {});
+  const isEiaSeries = feed.id === 'energy-eia'
+    || feed.id === 'energy-eia-brent'
+    || feed.id === 'energy-eia-ng';
+  if (isEiaSeries) {
+    url = normalizeEiaSeriesUrl(url);
+  }
   if (feed.id === 'acled-events' && ACLED_PROXY) {
     url = buildAcledProxyUrl(feed);
   }
@@ -322,9 +343,6 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   };
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
-  const isEiaSeries = feed.id === 'energy-eia'
-    || feed.id === 'energy-eia-brent'
-    || feed.id === 'energy-eia-ng';
   let response;
   let contentType = 'text/plain';
   let body = '';
