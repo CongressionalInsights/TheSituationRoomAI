@@ -357,11 +357,15 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   if (isEiaSeries && (!response || !response.ok)) {
     const legacyUrl = buildEiaLegacyUrl(feed, effectiveKey);
     if (legacyUrl) {
-      const legacyResponse = await fetchWithTimeout(legacyUrl, { headers }, FETCH_TIMEOUT_MS * 2);
-      if (legacyResponse.ok) {
-        response = legacyResponse;
-        contentType = legacyResponse.headers.get('content-type') || 'text/plain';
-        body = await legacyResponse.text();
+      try {
+        const legacyResponse = await fetchWithTimeout(legacyUrl, { headers }, FETCH_TIMEOUT_MS * 2);
+        if (legacyResponse.ok) {
+          response = legacyResponse;
+          contentType = legacyResponse.headers.get('content-type') || 'text/plain';
+          body = await legacyResponse.text();
+        }
+      } catch {
+        // fallthrough to error
       }
     }
   }
