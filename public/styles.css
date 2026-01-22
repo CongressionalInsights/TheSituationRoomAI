@@ -4124,6 +4124,17 @@ a.list-title:hover {
   background: rgba(15, 23, 42, 0.06);
 }
 
+.modal-overlay.about .about-source {
+  border-color: rgba(236, 244, 255, 0.45);
+  background: rgba(36, 52, 82, 0.88);
+  color: #ffffff;
+}
+
+.modal-overlay.about .about-source:hover {
+  background: rgba(48, 68, 104, 0.95);
+  border-color: rgba(236, 244, 255, 0.65);
+}
+
 .about-source .about-source-meta {
   display: none;
 }
