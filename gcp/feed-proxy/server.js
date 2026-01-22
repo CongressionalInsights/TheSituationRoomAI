@@ -23,6 +23,12 @@ const cache = new Map();
 const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
 const GPSJAM_ID = 'gpsjam';
 const GPSJAM_CACHE_KEY = 'gpsjam:data';
+const EIA_RETRY_ATTEMPTS = 3;
+const EIA_RETRY_DELAY_MS = 400;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function setCors(res, origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : '';
@@ -289,6 +295,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   const cacheKey = `${feed.id}:${query || ''}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const cached = cache.get(cacheKey);
+  const staleCache = cached;
   if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
     return cached;
   }
@@ -347,7 +354,17 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   let contentType = 'text/plain';
   let body = '';
   try {
-    response = await fetchWithFallbacks(applied.url, headers, proxyList);
+    if (isEiaSeries) {
+      for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
+        response = await fetchWithFallbacks(applied.url, headers, proxyList);
+        if (response.ok) break;
+        if (attempt < EIA_RETRY_ATTEMPTS - 1) {
+          await sleep(EIA_RETRY_DELAY_MS);
+        }
+      }
+    } else {
+      response = await fetchWithFallbacks(applied.url, headers, proxyList);
+    }
     contentType = response.headers.get('content-type') || 'text/plain';
     body = await response.text();
   } catch (error) {
@@ -355,6 +372,13 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   }
 
   if (isEiaSeries && (!response || !response.ok)) {
+    const hasUsableStale = staleCache
+      && staleCache.httpStatus
+      && staleCache.httpStatus >= 200
+      && staleCache.httpStatus < 300;
+    if (hasUsableStale) {
+      return { ...staleCache, stale: true, fetchedAt: Date.now() };
+    }
     const legacyUrl = buildEiaLegacyUrl(feed, effectiveKey);
     if (legacyUrl) {
       try {
