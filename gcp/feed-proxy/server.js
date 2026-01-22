@@ -185,6 +185,22 @@ function decodeMaybeGzip(buffer) {
   }
 }
 
+function stripApiKeys(value) {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    value.forEach((entry) => stripApiKeys(entry));
+    return value;
+  }
+  Object.keys(value).forEach((key) => {
+    if (key.toLowerCase() === 'api_key') {
+      delete value[key];
+      return;
+    }
+    stripApiKeys(value[key]);
+  });
+  return value;
+}
+
 function parseGpsJamManifest(text) {
   const lines = String(text || '').trim().split(/\r?\n/);
   let latest = null;
@@ -370,6 +386,15 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
     }
     contentType = response.headers.get('content-type') || 'text/plain';
     body = await response.text();
+    if (isEiaSeries && typeof body === 'string' && body.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(body);
+        stripApiKeys(parsed);
+        body = JSON.stringify(parsed);
+      } catch {
+        // ignore JSON parsing failures
+      }
+    }
     if (isEiaSeries && responseOk && typeof body === 'string' && body.includes('Something unexpected happened')) {
       responseOk = false;
     }
