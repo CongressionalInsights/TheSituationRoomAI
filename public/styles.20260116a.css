@@ -4268,6 +4268,27 @@ a.list-title:hover {
   gap: 12px;
 }
 
+.modal-overlay.about .modal.attribution-modal .detail-summary,
+.modal-overlay.about .modal.attribution-modal .detail-row {
+  background: transparent;
+  border: 1px solid rgba(248, 251, 255, 0.14);
+  box-shadow: none;
+  color: #f8fbff;
+}
+
+.modal-overlay.about .modal.attribution-modal .detail-label {
+  color: rgba(248, 251, 255, 0.68);
+}
+
+.modal-overlay.about .modal.attribution-modal .detail-value,
+.modal-overlay.about .modal.attribution-modal .detail-value a {
+  color: #f8fbff;
+}
+
+.modal-overlay.about .modal.attribution-modal .detail-value a:hover {
+  color: #cfe8ff;
+}
+
 .detail-summary {
   grid-column: 1 / -1;
   background: var(--panel);
