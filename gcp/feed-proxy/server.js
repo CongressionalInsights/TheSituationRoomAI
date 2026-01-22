@@ -373,7 +373,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
-        response = await fetchWithFallbacks(applied.url, headers, proxyList);
+        response = await fetchWithTimeout(applied.url, { headers }, FETCH_TIMEOUT_MS * 2);
         responseOk = response.ok;
         if (responseOk) break;
         if (attempt < EIA_RETRY_ATTEMPTS - 1) {
