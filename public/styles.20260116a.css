@@ -4328,6 +4328,27 @@ a.list-title:hover {
   color: var(--text);
 }
 
+.modal-overlay.about .modal.attribution-modal .detail-summary,
+.modal-overlay.about .modal.attribution-modal .detail-row {
+  background: transparent !important;
+  border-color: rgba(248, 251, 255, 0.14) !important;
+  box-shadow: none !important;
+  color: #f8fbff !important;
+}
+
+.modal-overlay.about .modal.attribution-modal .detail-label {
+  color: rgba(248, 251, 255, 0.68) !important;
+}
+
+.modal-overlay.about .modal.attribution-modal .detail-value,
+.modal-overlay.about .modal.attribution-modal .detail-value a {
+  color: #f8fbff !important;
+}
+
+.modal-overlay.about .modal.attribution-modal .detail-value a:hover {
+  color: #cfe8ff !important;
+}
+
 .detail-actions {
   grid-column: 1 / -1;
   display: flex;

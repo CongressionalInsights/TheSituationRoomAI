@@ -4158,23 +4158,23 @@ a.list-title:hover {
 
 .modal-overlay.about .modal.attribution-modal .detail-summary,
 .modal-overlay.about .modal.attribution-modal .detail-row {
-  background: transparent;
-  border: 1px solid rgba(248, 251, 255, 0.14);
-  box-shadow: none;
-  color: #f8fbff;
+  background: transparent !important;
+  border: 1px solid rgba(248, 251, 255, 0.14) !important;
+  box-shadow: none !important;
+  color: #f8fbff !important;
 }
 
 .modal-overlay.about .modal.attribution-modal .detail-label {
-  color: rgba(248, 251, 255, 0.68);
+  color: rgba(248, 251, 255, 0.68) !important;
 }
 
 .modal-overlay.about .modal.attribution-modal .detail-value,
 .modal-overlay.about .modal.attribution-modal .detail-value a {
-  color: #f8fbff;
+  color: #f8fbff !important;
 }
 
 .modal-overlay.about .modal.attribution-modal .detail-value a:hover {
-  color: #cfe8ff;
+  color: #cfe8ff !important;
 }
 
 .modal-overlay.about .modal-card-title,
