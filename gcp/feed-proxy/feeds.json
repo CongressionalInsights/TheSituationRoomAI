@@ -3,7 +3,7 @@
     "name": "The Situation Room",
     "defaultRefreshMinutes": 60,
     "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-    "fetchTimeoutMs": 12000
+    "fetchTimeoutMs": 20000
   },
   "feeds": [
     {
