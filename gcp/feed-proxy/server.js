@@ -125,7 +125,7 @@ function normalizeEiaSeriesUrl(rawUrl) {
     if (!parsed.searchParams.has('data[0]')) parsed.searchParams.set('data[0]', 'value');
     if (!parsed.searchParams.has('sort[0][column]')) parsed.searchParams.set('sort[0][column]', 'period');
     if (!parsed.searchParams.has('sort[0][direction]')) parsed.searchParams.set('sort[0][direction]', 'desc');
-    if (!parsed.searchParams.has('length')) parsed.searchParams.set('length', '200');
+    if (!parsed.searchParams.has('length')) parsed.searchParams.set('length', '30');
     if (!parsed.searchParams.has('offset')) parsed.searchParams.set('offset', '0');
     return parsed.toString();
   } catch {
