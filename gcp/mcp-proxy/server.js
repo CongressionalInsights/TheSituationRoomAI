@@ -55,8 +55,10 @@ function sendJson(res, status, payload, origin) {
 function getRequestOrigin(req) {
   const host = req.headers.host;
   if (!host) return '';
-  const proto = req.headers['x-forwarded-proto'] || 'http';
-  return `${proto}://${host}`;
+  const protoHeader = req.headers['x-forwarded-proto'];
+  const proto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
+  if (proto) return `${proto}://${host}`;
+  return `https://${host}`;
 }
 
 function readBody(req) {
