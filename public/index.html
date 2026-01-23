@@ -1329,6 +1329,29 @@
           </div>
         </div>
       </div>
+      <div class="settings-section mcp-section">
+        <div class="settings-label">MCP Access (Agents)</div>
+        <div class="mcp-card">
+          <div class="mcp-row">
+            <div class="mcp-key">Access</div>
+            <div class="mcp-value">Public, read-only. No key required.</div>
+          </div>
+          <div class="mcp-row">
+            <div class="mcp-key">Endpoint</div>
+            <div class="mcp-value">
+              https://situation-room-mcp-382918878290.us-central1.run.app/mcp
+              <div class="mcp-sub">Manifest: https://situation-room-mcp-382918878290.us-central1.run.app/.well-known/mcp.json</div>
+            </div>
+          </div>
+          <div class="mcp-row">
+            <div class="mcp-key">Tools</div>
+            <div class="mcp-value">
+              <code>catalog.sources</code>, <code>raw.fetch</code>, <code>raw.history</code>, <code>signals.list</code>, <code>signals.get</code>
+            </div>
+          </div>
+          <div class="settings-note">Agents can request raw data + normalized signals, with full historical ranges where sources allow.</div>
+        </div>
+      </div>
       <div class="settings-section">
         <div class="settings-section-head">
           <div class="settings-label">Custom Feeds</div>

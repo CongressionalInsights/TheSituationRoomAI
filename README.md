@@ -119,6 +119,24 @@ Notes:
 - The proxy accepts a user key via `x-openai-key` (so users can override). If no key is supplied, it will only work if you attach a server key.
 - If billing quota blocks project creation, either increase quota or provide a different billing account.
 
+## MCP proxy (Cloud Run, public read-only)
+The MCP proxy exposes raw feed data plus normalized signals for agents (no auth required).
+
+- Endpoint: `https://situation-room-mcp-382918878290.us-central1.run.app/mcp`
+- Manifest: `https://situation-room-mcp-382918878290.us-central1.run.app/.well-known/mcp.json`
+- Tools: `catalog.sources`, `raw.fetch`, `raw.history`, `signals.list`, `signals.get`
+- Supports full historical ranges where the upstream API allows it (the MCP server forwards query params).
+
+### GitHub Actions (recommended)
+- Workflow: `.github/workflows/deploy-mcp-proxy.yml`
+- Required repo secrets:
+  - `GCP_SA_KEY`
+  - `DATA_GOV`
+  - `EIA`
+  - `NASA_FIRMS`
+  - `OPEN_AQ`
+  - `EARTHDATA_NASA`
+
 ## OpenSky proxy (Cloud Run on GCP)
 OpenSky now requires OAuth2 client credentials. The live dashboard uses a Cloud Run proxy to keep credentials server-side and raise rate limits.
 This repo is wired to use:

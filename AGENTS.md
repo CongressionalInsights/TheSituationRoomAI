@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - `public/` contains the client UI (`index.html`, `styles.css`, `app.js`, `services/api.js`, `config.js`) plus static assets and Leaflet styles. The Energy Map uses `public/geo/us-states.geojson`.
 - `data/feeds.json` is the canonical feed registry and default settings (refresh interval, user agent, key groups).
-- `gcp/` contains Cloud Run proxies (feed, openai, opensky, acled). `worker/` mirrors a Cloudflare Worker fallback.
+- `gcp/` contains Cloud Run proxies (feed, openai, opensky, acled, mcp). `worker/` mirrors a Cloudflare Worker fallback.
 - `server.mjs` serves the UI locally and proxies feed requests for local development.
 - `analysis/` stores snapshot exports and geo cache output (`analysis/denario/`, `analysis/geo/`).
 - `logos/` holds branding assets (favicon, logo, OG image).
@@ -33,9 +33,11 @@
 - Server‑managed keys (DATA_GOV, EIA, NASA_FIRMS, OPEN_AQ, etc.) live in GCP Secret Manager and are injected by GitHub Actions when deploying Cloud Run.
 - Client‑side Settings only hold user BYO keys (OpenAI) and local preferences; do not add server keys to the UI.
 - Do not hard‑code secrets in `data/feeds.json`; use `requiresKey`, `keyGroup`, and server proxy routing.
+- The MCP proxy (`gcp/mcp-proxy`) is public read‑only; keep it stateless and avoid persisting upstream data.
 
 ## Architecture & Data Flow
 - Browser → `public/services/api.js` → `window.SR_CONFIG.apiBase` (Cloud Run feed proxy) for key‑protected feeds.
+- Agents → MCP endpoint (`/mcp`) for raw + normalized feed access; use `catalog.sources` to enumerate supported feeds.
 - Static cache lives in `data/` and is used as a fallback when proxies are unavailable.
 - Map overlays and legend state are driven by settings defaults in `public/app.js`.
 - AI briefings and chat context are assembled in `buildChatContext()` inside `public/app.js` (and mirrored in the versioned bundle). If you add a new feed category or panel, include it in the context so AI analysis and search stay aligned.
