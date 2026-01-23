@@ -278,6 +278,22 @@ function parseGenericJsonFeed(data, feed) {
           ? data.data
           : Array.isArray(data?.results)
             ? data.results
+            : Array.isArray(data?.bills)
+              ? data.bills
+              : Array.isArray(data?.amendments)
+                ? data.amendments
+                : Array.isArray(data?.committeeReports)
+                  ? data.committeeReports
+                  : Array.isArray(data?.committeeReports ?? data?.reports)
+                    ? (data.committeeReports ?? data.reports)
+                    : Array.isArray(data?.hearings)
+                      ? data.hearings
+                      : Array.isArray(data?.nominations)
+                        ? data.nominations
+                        : Array.isArray(data?.treaties)
+                          ? data.treaties
+                          : Array.isArray(data?.congressionalRecord)
+                            ? data.congressionalRecord
             : [];
 
   return list.slice(0, 50).map((entry) => {
