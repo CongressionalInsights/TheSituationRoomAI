@@ -322,6 +322,108 @@ function normalizeSignals(text, feed) {
   return [];
 }
 
+function translateQueryForFeed(feed, query) {
+  if (!feed || !query) return query;
+  if (feed.id === 'gdelt-doc') return query;
+  if (feed.id.startsWith('google-news')) {
+    return query.includes('when:') ? query : `${query} when:1d`;
+  }
+  return query;
+}
+
+function includesAny(text, list) {
+  return list.some((term) => text.includes(term));
+}
+
+function classifyQuery(query = '') {
+  const lowered = query.toLowerCase();
+  const categories = new Set();
+  const tags = new Set();
+
+  if (includesAny(lowered, ['congress', 'senate', 'house', 'bill', 'amendment', 'nomination', 'hearing', 'treaty', 'federal register', 'executive order', 'regulation'])) {
+    categories.add('gov');
+    tags.add('congress');
+  }
+  if (includesAny(lowered, ['conflict', 'war', 'battle', 'protest', 'riot', 'violence', 'explosion', 'attack'])) {
+    categories.add('security');
+    tags.add('conflict');
+  }
+  if (includesAny(lowered, ['earthquake', 'quake', 'wildfire', 'fire', 'hurricane', 'tornado', 'flood', 'storm', 'volcano'])) {
+    categories.add('disaster');
+    categories.add('weather');
+  }
+  if (includesAny(lowered, ['cyber', 'vulnerability', 'vuln', 'cve', 'exploit', 'ransomware'])) {
+    categories.add('cyber');
+  }
+  if (includesAny(lowered, ['air quality', 'pm2.5', 'pollution', 'smoke', 'health advisory'])) {
+    categories.add('health');
+  }
+  if (includesAny(lowered, ['oil', 'gas', 'energy', 'eia', 'brent', 'wti', 'henry hub'])) {
+    categories.add('energy');
+  }
+  if (includesAny(lowered, ['crypto', 'bitcoin', 'ethereum', 'token', 'blockchain'])) {
+    categories.add('crypto');
+  }
+  if (includesAny(lowered, ['research', 'paper', 'preprint', 'arxiv'])) {
+    categories.add('research');
+  }
+  if (includesAny(lowered, ['flight', 'aviation', 'air traffic', 'shipping', 'logistics'])) {
+    categories.add('transport');
+  }
+
+  return { categories, tags };
+}
+
+function scoreFeed(feed, classification, query) {
+  let score = 0;
+  const hasQuery = Boolean(query && query.trim());
+  if (feed.supportsQuery) score += 2;
+  if ((feed.tags || []).includes('search')) score += 3;
+  if (classification.categories.has(feed.category)) score += 4;
+  if (classification.tags.has('congress') && (feed.tags || []).includes('congress')) score += 4;
+  if (classification.tags.has('congress') && feed.id.startsWith('congress-')) score += 5;
+  if (classification.tags.has('conflict') && (feed.tags || []).includes('conflict')) score += 4;
+  if (hasQuery && feed.id === 'gdelt-doc') score += 4;
+  if (hasQuery && feed.id === 'google-news-search') score += 4;
+  return score;
+}
+
+function selectSmartFeeds({ query, categories, sources, maxSources }) {
+  if (Array.isArray(sources) && sources.length) {
+    return sources
+      .map((id) => feeds.find((feed) => feed.id === id))
+      .filter(Boolean);
+  }
+
+  const classification = classifyQuery(query || '');
+  if (Array.isArray(categories) && categories.length) {
+    categories.forEach((cat) => classification.categories.add(cat));
+  }
+
+  const candidates = feeds.filter((feed) => !feed.mapOnly);
+  const scored = candidates
+    .map((feed) => ({ feed, score: scoreFeed(feed, classification, query) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  const defaultFallback = feeds.filter((feed) => ['gdelt-doc', 'google-news-search'].includes(feed.id));
+  const selected = scored.length ? scored.map(({ feed }) => feed) : defaultFallback;
+  const limit = Math.max(1, Number(maxSources) || 8);
+  return selected.slice(0, limit);
+}
+
+function dedupeSignals(items) {
+  const seen = new Set();
+  const output = [];
+  items.forEach((item) => {
+    const key = item.url || `${item.title || ''}|${item.publishedAt || ''}`;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    output.push(item);
+  });
+  return output;
+}
+
 function createItemId(item) {
   const base = `${item.url || ''}|${item.title || ''}|${item.publishedAt || ''}`;
   return createHash('sha1').update(base).digest('hex').slice(0, 12);
@@ -649,6 +751,91 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  'search.smart',
+  {
+    title: 'Smart Search Signals',
+    description: 'Search across relevant sources using the Situation Room smart search logic. Returns normalized signals only.',
+    inputSchema: z.object({
+      query: z.string().optional(),
+      categories: z.array(z.string()).optional(),
+      sources: z.array(z.string()).optional(),
+      start: z.string().optional(),
+      end: z.string().optional(),
+      maxSources: z.number().optional(),
+      perSourceLimit: z.number().optional(),
+      totalLimit: z.number().optional()
+    })
+  },
+  async ({ query, categories, sources, start, end, maxSources, perSourceLimit, totalLimit }) => {
+    const selectedFeeds = selectSmartFeeds({ query, categories, sources, maxSources });
+    const perLimit = Math.max(1, Number(perSourceLimit) || 25);
+
+    const signals = [];
+    const sourcesChecked = [];
+    const warnings = [];
+
+    for (const feed of selectedFeeds) {
+      const translatedQuery = feed.supportsQuery ? translateQueryForFeed(feed, query || feed.defaultQuery || '') : undefined;
+      // eslint-disable-next-line no-await-in-loop
+      const result = await fetchRaw(feed, { query: translatedQuery, start, end });
+      if (result.error) {
+        sourcesChecked.push({
+          sourceId: feed.id,
+          sourceName: feed.name,
+          ok: false,
+          error: result.error,
+          message: result.message || null,
+          httpStatus: result.httpStatus || null,
+          fetchedUrl: result.fetchedUrl || null,
+          proxyUsed: result.proxyUsed || null,
+          fallbackUsed: Boolean(result.fallbackUsed)
+        });
+        continue;
+      }
+
+      const items = normalizeSignals(result.body, feed).map((item) => ({
+        ...item,
+        id: createItemId(item),
+        sourceId: feed.id,
+        sourceName: feed.name,
+        tags: feed.tags || []
+      }));
+
+      if (result.fallbackUsed) {
+        warnings.push(`Fetched ${feed.name} via proxy (${result.proxyUsed || 'unknown'}).`);
+      }
+
+      sourcesChecked.push({
+        sourceId: feed.id,
+        sourceName: feed.name,
+        ok: true,
+        count: items.length,
+        fetchedUrl: result.fetchedUrl || null,
+        proxyUsed: result.proxyUsed || null,
+        fallbackUsed: Boolean(result.fallbackUsed)
+      });
+
+      signals.push(...items.slice(0, perLimit));
+    }
+
+    const deduped = dedupeSignals(signals);
+    const total = Number.isFinite(totalLimit) ? Math.max(1, Number(totalLimit)) : null;
+    const finalSignals = total ? deduped.slice(0, total) : deduped;
+
+    return {
+      content: [{ type: 'text', text: `Signals: ${finalSignals.length}` }],
+      structuredContent: {
+        query: query || null,
+        range: start && end ? { start, end } : null,
+        signals: finalSignals,
+        sourcesChecked,
+        warnings: warnings.length ? warnings : null
+      }
+    };
+  }
+);
+
 const httpServer = http.createServer(async (req, res) => {
   const origin = req.headers.origin || '';
   if (req.method === 'OPTIONS') {
@@ -670,7 +857,7 @@ const httpServer = http.createServer(async (req, res) => {
       name: 'Situation Room MCP',
       description: 'Public read-only MCP interface for Situation Room data sources.',
       endpoint: `${originUrl}/mcp`,
-      tools: ['catalog.sources', 'raw.fetch', 'raw.history', 'signals.list', 'signals.get']
+      tools: ['catalog.sources', 'raw.fetch', 'raw.history', 'signals.list', 'signals.get', 'search.smart']
     }, origin);
   }
 

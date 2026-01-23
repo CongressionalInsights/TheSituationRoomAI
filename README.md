@@ -124,7 +124,7 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
 
 - Endpoint: `https://situation-room-mcp-382918878290.us-central1.run.app/mcp`
 - Manifest: `https://situation-room-mcp-382918878290.us-central1.run.app/.well-known/mcp.json`
-- Tools: `catalog.sources`, `raw.fetch`, `raw.history`, `signals.list`, `signals.get`
+- Tools: `catalog.sources`, `raw.fetch`, `raw.history`, `signals.list`, `signals.get`, `search.smart`
 - Supports full historical ranges where the upstream API allows it (the MCP server forwards query params).
 
 ### GitHub Actions (recommended)
