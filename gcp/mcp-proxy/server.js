@@ -52,6 +52,13 @@ function sendJson(res, status, payload, origin) {
   res.end(JSON.stringify(payload));
 }
 
+function getRequestOrigin(req) {
+  const host = req.headers.host;
+  if (!host) return '';
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  return `${proto}://${host}`;
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -601,10 +608,11 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/.well-known/mcp.json') {
+    const originUrl = getRequestOrigin(req) || url.origin;
     return sendJson(res, 200, {
       name: 'Situation Room MCP',
       description: 'Public read-only MCP interface for Situation Room data sources.',
-      endpoint: `${url.origin}/mcp`,
+      endpoint: `${originUrl}/mcp`,
       tools: ['catalog.sources', 'raw.fetch', 'raw.history', 'signals.list', 'signals.get']
     }, origin);
   }
