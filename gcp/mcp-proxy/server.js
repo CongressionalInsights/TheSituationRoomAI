@@ -454,7 +454,14 @@ async function fetchRaw(feed, options) {
   const url = buildFeedUrl(feed, { ...options, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
   const primaryProxy = feed.proxy || options.proxy || null;
-  const attempts = [primaryProxy, ...FALLBACK_PROXIES].filter(Boolean);
+  const attemptList = [null, primaryProxy, ...FALLBACK_PROXIES];
+  const seen = new Set();
+  const attempts = attemptList.filter((proxy) => {
+    const key = proxy || 'direct';
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   let lastError = null;
   let response = null;
@@ -463,7 +470,7 @@ async function fetchRaw(feed, options) {
   let fetchedUrl = null;
 
   for (const proxy of attempts) {
-    const proxiedUrl = applyProxy(keyedUrl, proxy);
+    const proxiedUrl = proxy ? applyProxy(keyedUrl, proxy) : keyedUrl;
     fetchedUrl = proxiedUrl;
     try {
       response = await fetchWithTimeout(proxiedUrl, {
