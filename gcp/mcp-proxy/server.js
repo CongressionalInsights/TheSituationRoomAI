@@ -17,6 +17,10 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const FALLBACK_PROXIES = (process.env.FALLBACK_PROXIES || 'allorigins,jina')
+  .split(',')
+  .map((proxy) => proxy.trim())
+  .filter(Boolean);
 
 const ACLED_PROXY = process.env.ACLED_PROXY || '';
 const DEFAULT_LOOKBACK_DAYS = Number(process.env.DEFAULT_LOOKBACK_DAYS || 30);
@@ -331,34 +335,59 @@ async function fetchRaw(feed, options) {
   const key = options.key || resolveServerKey(feed);
   const url = buildFeedUrl(feed, { ...options, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
-  const proxiedUrl = applyProxy(keyedUrl, feed.proxy || options.proxy);
+  const primaryProxy = feed.proxy || options.proxy || null;
+  const attempts = [primaryProxy, ...FALLBACK_PROXIES].filter(Boolean);
 
-  try {
-    const response = await fetchWithTimeout(proxiedUrl, {
-      headers: {
-        ...headers,
-        'Accept': 'application/json, text/plain, */*',
-        'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0'
+  let lastError = null;
+  let response = null;
+  let body = null;
+  let usedProxy = null;
+  let fetchedUrl = null;
+
+  for (const proxy of attempts) {
+    const proxiedUrl = applyProxy(keyedUrl, proxy);
+    fetchedUrl = proxiedUrl;
+    try {
+      response = await fetchWithTimeout(proxiedUrl, {
+        headers: {
+          ...headers,
+          'Accept': 'application/json, text/plain, */*',
+          'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0'
+        }
+      }, feed.timeoutMs || FETCH_TIMEOUT_MS);
+      body = await response.text();
+      if (response.ok) {
+        usedProxy = proxy || null;
+        break;
       }
-    }, feed.timeoutMs || FETCH_TIMEOUT_MS);
-
-    const body = await response.text();
-    if (!response.ok) {
-      return {
+      lastError = {
         error: 'fetch_failed',
         httpStatus: response.status,
         message: `HTTP ${response.status}`,
         body
       };
+    } catch (error) {
+      lastError = { error: 'fetch_failed', message: error.message };
     }
-    return {
-      body,
-      httpStatus: response.status,
-      contentType: response.headers.get('content-type') || null
-    };
-  } catch (error) {
-    return { error: 'fetch_failed', message: error.message };
   }
+
+  if (!response || !response.ok) {
+    return {
+      ...lastError,
+      fetchedUrl: stripSecretsFromUrl(fetchedUrl),
+      proxyUsed: usedProxy,
+      fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy)
+    };
+  }
+
+  return {
+    body,
+    httpStatus: response.status,
+    contentType: response.headers.get('content-type') || null,
+    fetchedUrl: stripSecretsFromUrl(fetchedUrl),
+    proxyUsed: usedProxy,
+    fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy)
+  };
 }
 
 const server = new McpServer({
@@ -444,6 +473,9 @@ server.registerTool(
         sourceId,
         contentType: result.contentType,
         url: stripSecretsFromUrl(feed.url),
+        fetchedUrl: result.fetchedUrl || null,
+        proxyUsed: result.proxyUsed || null,
+        fallbackUsed: Boolean(result.fallbackUsed),
         body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
         data: parsed
       }
@@ -498,6 +530,9 @@ server.registerTool(
         range: { start, end },
         contentType: result.contentType,
         url: stripSecretsFromUrl(feed.url),
+        fetchedUrl: result.fetchedUrl || null,
+        proxyUsed: result.proxyUsed || null,
+        fallbackUsed: Boolean(result.fallbackUsed),
         body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
         data: parsed
       }
@@ -544,9 +579,19 @@ server.registerTool(
     }));
     const sliced = Number.isFinite(limit) ? items.slice(0, Math.max(1, limit)) : items;
 
+    const warning = result.fallbackUsed
+      ? `Fetched via proxy (${result.proxyUsed || 'unknown'}).`
+      : null;
     return {
       content: [{ type: 'text', text: `Signals: ${sliced.length}` }],
-      structuredContent: { sourceId, items: sliced }
+      structuredContent: {
+        sourceId,
+        items: sliced,
+        fetchedUrl: result.fetchedUrl || null,
+        proxyUsed: result.proxyUsed || null,
+        fallbackUsed: Boolean(result.fallbackUsed),
+        warning
+      }
     };
   }
 );
@@ -587,9 +632,19 @@ server.registerTool(
     }));
     const match = items.find((item) => item.id === id) || null;
 
+    const warning = result.fallbackUsed
+      ? `Fetched via proxy (${result.proxyUsed || 'unknown'}).`
+      : null;
     return {
       content: [{ type: 'text', text: match ? `Signal ${id}` : `Signal ${id} not found` }],
-      structuredContent: { sourceId, item: match }
+      structuredContent: {
+        sourceId,
+        item: match,
+        fetchedUrl: result.fetchedUrl || null,
+        proxyUsed: result.proxyUsed || null,
+        fallbackUsed: Boolean(result.fallbackUsed),
+        warning
+      }
     };
   }
 );
