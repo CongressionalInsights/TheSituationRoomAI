@@ -885,6 +885,21 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/mcp') {
+    if (req.method === 'GET') {
+      return sendJson(res, 200, {
+        ok: true,
+        message: 'MCP endpoint accepts POST JSON-RPC requests only.',
+        example: {
+          method: 'tools/list',
+          request: {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/list',
+            params: {}
+          }
+        }
+      }, origin);
+    }
     if (req.method !== 'POST') {
       return sendJson(res, 405, { error: 'method_not_allowed' }, origin);
     }
