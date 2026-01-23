@@ -20,7 +20,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
 
 const ACLED_PROXY = process.env.ACLED_PROXY || '';
 const DEFAULT_LOOKBACK_DAYS = Number(process.env.DEFAULT_LOOKBACK_DAYS || 30);
-const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 
 const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const feeds = Array.isArray(feedsConfig.feeds) ? feedsConfig.feeds : [];
