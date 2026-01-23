@@ -424,7 +424,7 @@ function selectSmartFeeds({ query, categories, sources, maxSources }) {
 
   const defaultFallback = feeds.filter((feed) => ['gdelt-doc', 'google-news-search'].includes(feed.id));
   const selected = scored.length ? scored.map(({ feed }) => feed) : defaultFallback;
-  const limit = Math.max(1, Number(maxSources) || 8);
+  const limit = Math.max(1, Number(maxSources) || 12);
   return selected.slice(0, limit);
 }
 
