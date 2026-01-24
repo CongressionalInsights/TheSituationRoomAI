@@ -43,7 +43,10 @@
 - AI briefings and chat context are assembled in `buildChatContext()` inside `public/app.js` (and mirrored in the versioned bundle). If you add a new feed category or panel, include it in the context so AI analysis and search stay aligned.
 
 ## Safe Change Checklist
-- Add feeds in `data/feeds.json`, then update panel list defaults in `public/app.js`.
+- Add feeds in `data/feeds.json`, then update `public/data/feeds.json` and the Cloud Run copies in `gcp/feed-proxy/feeds.json` and `gcp/mcp-proxy/feeds.json` so UI, search/briefings, and MCP stay aligned.
+- Update panel list defaults and any map layer wiring in `public/app.js` (and the versioned bundle when needed).
+- Ensure AI context/search coverage includes the new feed category in `buildChatContext()` so briefings and search stay in sync.
+- Add or update attribution in the About modal’s “Where the data comes from” list, with required source wording and links.
 - Keep panel IDs and list keys stable; they drive layout persistence and settings.
 - When adding map layers, also update legend groups and default toggles to avoid hidden layers.
 - If you change search behavior or add categories, update `state.lastSearch*` tracking and the AI context to reflect the new filters.

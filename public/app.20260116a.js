@@ -536,6 +536,15 @@ const DATA_ATTRIBUTIONS = [
     notes: 'ArcGIS-hosted feature layers referenced by the map overlays.'
   },
   {
+    id: 's2-underground',
+    name: 'S2 Underground',
+    short: 'Kinetic events',
+    url: 'https://nexus-s2underground.hub.arcgis.com/',
+    attribution: 'Source: S2 Underground (Common Intelligence Picture). Please credit S2 Underground.',
+    termsUrl: 'https://nexus-s2underground.hub.arcgis.com/',
+    notes: 'Kinetic Activity Tracker layers sourced from the S2 Underground public ArcGIS Hub.'
+  },
+  {
     id: 'nasa-gibs',
     name: 'NASA EOSDIS GIBS',
     short: 'Global imagery',
