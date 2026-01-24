@@ -3543,13 +3543,17 @@ function parseArcGisGeoJson(data, feed) {
     return null;
   };
   const inferTitle = (props) => pickFirst(props, [
-    'title', 'name', 'incident', 'event', 'type', 'category', 'hazard', 'attacktype', 'attack_type', 'summary', 'description'
+    'title', 'name', 'incident', 'event', 'type', 'category', 'hazard',
+    'AttackType', 'attacktype', 'attack_type',
+    'summary', 'description'
   ]) || feed.name;
   const inferSummary = (props) => pickFirst(props, [
-    'summary', 'description', 'details', 'notes', 'comments', 'status', 'headline'
+    'summary', 'description', 'details',
+    'Notes', 'notes', 'comments', 'status', 'headline'
   ]) || '';
   const inferAlertType = (props) => pickFirst(props, [
-    'alert_type', 'event', 'type', 'category', 'hazard', 'incident_type', 'attacktype', 'attack_type'
+    'alert_type', 'event', 'type', 'category', 'hazard', 'incident_type',
+    'AttackType', 'attacktype', 'attack_type'
   ]);
   const inferSeverity = (props) => pickFirst(props, [
     'severity', 'sig', 'significance', 'priority', 'status'
