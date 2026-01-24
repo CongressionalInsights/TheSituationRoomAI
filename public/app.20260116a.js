@@ -10171,7 +10171,13 @@ function showMapDetail(cluster, x, y) {
     const summaryText = (item.translatedSummary || item.summary || '').trim();
     const summary = document.createElement('div');
     summary.className = 'map-detail-summary';
-    summary.textContent = summaryText || 'Tap to open full details.';
+    if (summaryText) {
+      summary.textContent = summaryText;
+    } else if (item.url) {
+      summary.textContent = 'Tap to open full details.';
+    } else {
+      summary.textContent = 'No additional details available.';
+    }
     row.appendChild(title);
     row.appendChild(badges);
     row.appendChild(meta);
