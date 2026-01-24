@@ -607,7 +607,7 @@
       "name": "Kinetic Events (OCONUS) (ArcGIS)",
       "category": "security",
       "format": "arcgis",
-      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/KineticActivitiesTrackerOCONUS/FeatureServer/21/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/KineticActivitiesTrackerOCONUS/FeatureServer/21/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&orderByFields=Date%20desc&resultRecordCount=2000&f=geojson",
       "ttlMinutes": 60,
       "tags": [
         "global",
@@ -621,7 +621,7 @@
       "name": "Kinetic Events (Domestic) (ArcGIS)",
       "category": "security",
       "format": "arcgis",
-      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Domestic_Terrorism_Tracker/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Domestic_Terrorism_Tracker/FeatureServer/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&orderByFields=Date%20desc&resultRecordCount=2000&f=geojson",
       "ttlMinutes": 60,
       "tags": [
         "us",
@@ -678,7 +678,7 @@
       "name": "Kinetic Events (Europe) (ArcGIS)",
       "category": "security",
       "format": "arcgis",
-      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Kinetic_Activity_Tracker_Europe/FeatureServer/22/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Kinetic_Activity_Tracker_Europe/FeatureServer/22/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&orderByFields=Date%20desc&resultRecordCount=2000&f=geojson",
       "ttlMinutes": 60,
       "tags": [
         "global",
@@ -693,7 +693,7 @@
       "name": "Kinetic Events (Venezuelan Crisis) (ArcGIS)",
       "category": "security",
       "format": "arcgis",
-      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Venezuelan_Crisis_Kinetic_Events/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&resultRecordCount=200&f=geojson",
+      "url": "https://services.arcgis.com/OeCRCKr7XFYQNdyJ/arcgis/rest/services/Venezuelan_Crisis_Kinetic_Events/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&orderByFields=Date%20desc&resultRecordCount=2000&f=geojson",
       "ttlMinutes": 60,
       "tags": [
         "global",
