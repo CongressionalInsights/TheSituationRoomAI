@@ -9685,7 +9685,6 @@ function getSignalType(item) {
   if (item.feedId?.startsWith('arcgis-outage-')) return 'power';
   if (item.feedId === 'arcgis-outage-area') return 'power';
   if (item.feedId === 'arcgis-submarine-cables' || item.feedId === 'arcgis-submarine-landing') return 'infrastructure';
-  if (item.feedId === 'arcgis-military-installations') return 'security';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId === 'transport-opensky') return 'air';
   if (item.category === 'travel') return 'travel';

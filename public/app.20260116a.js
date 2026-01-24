@@ -9543,6 +9543,7 @@ function initMap() {
 function getLayerForItem(item) {
   if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
   if (item.feedId === 'gpsjam') return 'gpsjam';
+  if (item.feedId === 'arcgis-military-installations') return 'military';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId?.startsWith('arcgis-outage-')) return 'outage';
   if (item.category === 'travel') return 'travel';
@@ -9564,6 +9565,7 @@ function getLayerColor(layer) {
   if (layer === 'transport') return 'rgba(94,232,160,0.9)';
   if (layer === 'gpsjam') return 'rgba(244,104,102,0.92)';
   if (layer === 'security') return 'rgba(255,144,99,0.92)';
+  if (layer === 'military') return 'rgba(214,174,118,0.88)';
   if (layer === 'infrastructure') return 'rgba(132,190,255,0.9)';
   if (layer === 'outage') return 'rgba(255,210,90,0.92)';
   if (layer === 'health') return 'rgba(109,209,255,0.9)';
@@ -9589,7 +9591,7 @@ function getSignalType(item) {
   if (item.feedId?.startsWith('arcgis-outage-')) return 'power';
   if (item.feedId === 'arcgis-outage-area') return 'power';
   if (item.feedId === 'arcgis-submarine-cables' || item.feedId === 'arcgis-submarine-landing') return 'infrastructure';
-  if (item.feedId === 'arcgis-military-installations') return 'security';
+  if (item.feedId === 'arcgis-military-installations') return 'military';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId === 'transport-opensky') return 'air';
   if (item.category === 'travel') return 'travel';
@@ -9624,6 +9626,7 @@ const MAP_ICON_LIBRARY = {
   power: 'bolt',
   travel: 'plane',
   air: 'plane',
+  military: 'barracks',
   battle: 'crosshair',
   explosion: 'alert-octagon',
   violence: 'shield',
@@ -9650,6 +9653,7 @@ const MAP_ICON_SVGS = {
   'alert-triangle': '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4" /><path d="M12 17h.01" />',
   bolt: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><circle cx="12" cy="12" r="4" />',
   plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />',
+  barracks: '<path d="M4 22h16" /><path d="M6 22V9l6-3 6 3v13" /><path d="M10 22v-6h4v6" /><path d="M12 2v4" /><path d="M12 2h4l-4 2" />',
   'heart-pulse': '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" />',
   'cloud-lightning': '<path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" /><path d="m13 12-3 5h4l-3 5" />',
   'alert-octagon': '<polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" />',
