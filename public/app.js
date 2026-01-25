@@ -9838,6 +9838,9 @@ function clusterMapPoints(points, radius = 24) {
     for (const cluster of clusters) {
       const dx = cluster.x - point.x;
       const dy = cluster.y - point.y;
+      if (cluster.layer !== point.layer) {
+        continue;
+      }
       if (Math.sqrt(dx * dx + dy * dy) < radius) {
         target = cluster;
         break;
@@ -9847,7 +9850,8 @@ function clusterMapPoints(points, radius = 24) {
       clusters.push({
         x: point.x,
         y: point.y,
-        points: [point]
+        points: [point],
+        layer: point.layer
       });
     } else {
       target.points.push(point);
