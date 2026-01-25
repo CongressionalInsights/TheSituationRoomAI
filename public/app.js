@@ -5530,6 +5530,11 @@ function renderFinanceSpotlight() {
 function extractLocationCandidates(item) {
   const text = `${item.title || ''} ${item.summary || ''}`.replace(/https?:\/\/\S+/g, '');
   const candidates = new Set();
+  const rawLocation = (item.location || item.geoLabel || '').trim();
+  if (rawLocation) {
+    const primary = rawLocation.split(';')[0].split(',').slice(0, 2).join(',').trim();
+    if (primary) candidates.add(primary);
+  }
 
   const travelMatch = (item.title || '').match(/Travel Advisory\s*[-–]\s*([A-Za-z\s.'-]+)/i);
   if (travelMatch) {
