@@ -9831,6 +9831,12 @@ function drawGpsJamLayer(ctx, items, map) {
   ctx.restore();
 }
 
+function getClusterRadius(layer) {
+  if (layer === 'security' || layer === 'securityLagged') return 16;
+  if (layer === 'weather') return 16;
+  return 24;
+}
+
 function clusterMapPoints(points, radius = 24) {
   const clusters = [];
   points.forEach((point) => {
@@ -9841,7 +9847,8 @@ function clusterMapPoints(points, radius = 24) {
       if (cluster.layer !== point.layer) {
         continue;
       }
-      if (Math.sqrt(dx * dx + dy * dy) < radius) {
+      const layerRadius = getClusterRadius(cluster.layer) || radius;
+      if (Math.sqrt(dx * dx + dy * dy) < layerRadius) {
         target = cluster;
         break;
       }
