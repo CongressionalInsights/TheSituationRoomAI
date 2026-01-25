@@ -7574,11 +7574,12 @@ function dedupeConflictItems(items) {
 
 function getConflictType(item) {
   if (!item) return 'other';
-  const type = (item.eventType || item.alertType || item.subEventType || '').toLowerCase();
+  const type = (item.eventType || item.alertType || item.subEventType || item.title || '').toLowerCase();
   if (type.includes('battle')) return 'battle';
-  if (type.includes('explosion') || type.includes('remote violence')) return 'explosion';
-  if (type.includes('violence against civilians')) return 'violence';
-  if (type.includes('protest')) return 'protest';
+  if (type.includes('explosion') || type.includes('remote violence') || type.includes('ied') || type.includes('bomb') || type.includes('incendiary') || type.includes('arson')) return 'explosion';
+  if (type.includes('violence against civilians') || type.includes('violence') || type.includes('assault') || type.includes('shoot') || type.includes('active shooter') || type.includes('killing') || type.includes('murder') || type.includes('attack') || type.includes('ambush') || type.includes('stabbing') || type.includes('ramming') || type.includes('vandalism')) return 'violence';
+  if (type.includes('riot')) return 'riot';
+  if (type.includes('protest') || type.includes('demonstration')) return 'protest';
   if (type.includes('riot')) return 'riot';
   return 'other';
 }
