@@ -5490,7 +5490,7 @@ function extractLocationCandidates(item) {
   return [...candidates].filter(Boolean);
 }
 
-async function geocodeItems(items, maxItems = 12) {
+async function geocodeItems(items, maxItems = 60) {
   const eligible = items.filter((item) => item && !item.geo && item.category !== 'crypto' && item.category !== 'finance');
   const seen = new Set();
   let updated = false;
