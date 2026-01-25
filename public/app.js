@@ -11493,4 +11493,15 @@ async function init() {
   startAutoRefresh();
 }
 
+const __SR_DEBUG_FLAG__ = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).has('debug');
+if (__SR_DEBUG_FLAG__) {
+  window.__SR_DEBUG__ = {
+    state,
+    getMapItems,
+    getLocalItems,
+    applyScope
+  };
+}
+
 init();
