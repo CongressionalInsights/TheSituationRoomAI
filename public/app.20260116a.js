@@ -9603,8 +9603,8 @@ function getSignalType(item) {
   if (item.feedId === 'arcgis-wildfire-incidents' || item.feedId === 'arcgis-wildfire-perimeters') return 'fire';
   if (item.feedId?.startsWith('arcgis-noaa-')) return 'warning';
   if (item.feedId === 'arcgis-power-plants') return 'power';
-  if (item.feedId?.startsWith('arcgis-outage-')) return 'power';
-  if (item.feedId === 'arcgis-outage-area') return 'power';
+  if (item.feedId?.startsWith('arcgis-outage-')) return 'water';
+  if (item.feedId === 'arcgis-outage-area') return 'water';
   if (item.feedId === 'arcgis-submarine-cables' || item.feedId === 'arcgis-submarine-landing') return 'infrastructure';
   if (item.feedId === 'arcgis-military-installations') return 'military';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
@@ -9639,6 +9639,7 @@ const MAP_ICON_LIBRARY = {
   warning: 'alert-triangle',
   gpsjam: 'radar',
   power: 'bolt',
+  water: 'droplet',
   travel: 'plane',
   air: 'plane',
   military: 'barracks',
