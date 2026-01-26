@@ -3565,7 +3565,10 @@ function parseArcGisGeoJson(data, feed) {
     'location', 'loc_desc', 'area_desc', 'place', 'city', 'county', 'state', 'country', 'region'
   ]);
 
-  return features.slice(0, 250).map((feature) => {
+  const rawLimit = Number(feed?.maxItems);
+  const limit = Number.isFinite(rawLimit) ? rawLimit : 250;
+  const sliced = limit > 0 ? features.slice(0, limit) : features;
+  return sliced.map((feature) => {
     const props = feature?.properties || feature?.attributes || {};
     const title = inferTitle(props);
     const summary = inferSummary(props);
@@ -9590,6 +9593,18 @@ function getLayerColor(layer) {
 
 function getSignalType(item) {
   if (!item) return 'news';
+  const weatherText = `${item.alertType || ''} ${item.title || ''}`.toLowerCase();
+  const classifyWeather = () => {
+    if (!weatherText.trim()) return null;
+    if (weatherText.includes('tornado')) return 'tornado';
+    if (weatherText.includes('flash flood') || weatherText.includes('flood')) return 'flood';
+    if (weatherText.includes('hurricane') || weatherText.includes('tropical storm') || weatherText.includes('storm surge')) return 'hurricane';
+    if (weatherText.includes('blizzard') || weatherText.includes('winter') || weatherText.includes('snow') || weatherText.includes('ice') || weatherText.includes('freeze')) return 'winter';
+    if (weatherText.includes('excessive heat') || weatherText.includes('heat')) return 'heat';
+    if (weatherText.includes('severe thunderstorm') || weatherText.includes('thunderstorm')) return 'severe';
+    if (weatherText.includes('wind')) return 'wind';
+    return null;
+  };
   if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
   if (item.feedId === 'gpsjam') return 'gpsjam';
   if (item.feedId === 'usgs-quakes-hour' || item.feedId === 'usgs-quakes-day') return 'quake';
@@ -9601,7 +9616,11 @@ function getSignalType(item) {
   if (item.feedId === 'arcgis-tipline-reports') return 'warning';
   if (item.feedId === 'arcgis-hms-fire') return 'fire';
   if (item.feedId === 'arcgis-wildfire-incidents' || item.feedId === 'arcgis-wildfire-perimeters') return 'fire';
-  if (item.feedId?.startsWith('arcgis-noaa-')) return 'warning';
+  if (item.feedId === 'arcgis-noaa-severe') return 'severe';
+  if (item.feedId === 'arcgis-noaa-tornado') return 'tornado';
+  if (item.feedId === 'arcgis-noaa-flood') return 'flood';
+  if (item.feedId === 'nws-alerts') return classifyWeather() || 'weather';
+  if (item.feedId === 'nhc-atlantic') return 'hurricane';
   if (item.feedId === 'arcgis-power-plants') return 'power';
   if (item.feedId?.startsWith('arcgis-outage-')) return 'water';
   if (item.feedId === 'arcgis-outage-area') return 'water';
@@ -9611,7 +9630,7 @@ function getSignalType(item) {
   if (item.feedId === 'transport-opensky') return 'air';
   if (item.category === 'travel') return 'travel';
   if (item.category === 'spill') return 'spill';
-  if (item.category === 'weather') return 'weather';
+  if (item.category === 'weather') return classifyWeather() || 'weather';
   if (item.category === 'disaster') return 'disaster';
   if (item.category === 'space') return 'space';
   if (item.category === 'health') return 'health';
@@ -9639,6 +9658,13 @@ const MAP_ICON_LIBRARY = {
   warning: 'alert-triangle',
   gpsjam: 'radar',
   power: 'bolt',
+  severe: 'cloud-lightning',
+  tornado: 'tornado',
+  flood: 'droplet',
+  hurricane: 'activity',
+  winter: 'alert-octagon',
+  heat: 'heat',
+  wind: 'radar',
   water: 'droplet',
   travel: 'plane',
   air: 'plane',
@@ -9661,6 +9687,8 @@ const MAP_ICON_LIBRARY = {
 
 const MAP_ICON_SVGS = {
   activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2" />',
+  tornado: '<path d="M3 4h18M5 8h14M7 12h10M9 16h6M11 20h2" />',
+  heat: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />',
   flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" x2="4" y1="22" y2="15" />',
   crosshair: '<circle cx="12" cy="12" r="10" /><line x1="22" x2="18" y1="12" y2="12" /><line x1="6" x2="2" y1="12" y2="12" /><line x1="12" x2="12" y1="6" y2="2" /><line x1="12" x2="12" y1="22" y2="18" />',
   radar: '<path d="M19.07 4.93A10 10 0 0 0 6.99 3.34" /><path d="M4 6h.01" /><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35" /><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67" /><path d="M12 18h.01" /><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67" /><circle cx="12" cy="12" r="2" /><path d="m13.41 10.59 5.66-5.66" />',

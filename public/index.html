@@ -144,6 +144,16 @@
       <path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" />
       <path d="m13 12-3 5h4l-3 5" />
     </symbol>
+    <symbol id="icon-activity" viewBox="0 0 24 24">
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </symbol>
+    <symbol id="icon-tornado" viewBox="0 0 24 24">
+      <path d="M3 4h18M5 8h14M7 12h10M9 16h6M11 20h2" />
+    </symbol>
+    <symbol id="icon-heat" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </symbol>
     <symbol id="icon-disaster" viewBox="0 0 24 24">
       <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" />
       <line x1="12" x2="12" y1="8" y2="12" />
@@ -516,6 +526,37 @@
                 <span class="legend-swatch tone-weather"><svg class="icon" aria-hidden="true"><use href="#icon-weather"></use></svg></span>
                 Weather
               </label>
+              <div class="legend-subgroup">
+                <div class="legend-subgroup-title">Weather alerts</div>
+                <div class="legend-item legend-subitem">
+                  <span class="legend-swatch tone-weather"><svg class="icon" aria-hidden="true"><use href="#icon-weather"></use></svg></span>
+                  Severe Storms
+                </div>
+                <div class="legend-item legend-subitem">
+                  <span class="legend-swatch tone-weather"><svg class="icon" aria-hidden="true"><use href="#icon-tornado"></use></svg></span>
+                  Tornado
+                </div>
+                <div class="legend-item legend-subitem">
+                  <span class="legend-swatch tone-weather"><svg class="icon" aria-hidden="true"><use href="#icon-spill"></use></svg></span>
+                  Flood
+                </div>
+                <div class="legend-item legend-subitem">
+                  <span class="legend-swatch tone-weather"><svg class="icon" aria-hidden="true"><use href="#icon-activity"></use></svg></span>
+                  Hurricane / Tropical
+                </div>
+                <div class="legend-item legend-subitem">
+                  <span class="legend-swatch tone-weather"><svg class="icon" aria-hidden="true"><use href="#icon-disaster"></use></svg></span>
+                  Winter / Ice
+                </div>
+                <div class="legend-item legend-subitem">
+                  <span class="legend-swatch tone-weather"><svg class="icon" aria-hidden="true"><use href="#icon-heat"></use></svg></span>
+                  Heat
+                </div>
+                <div class="legend-item legend-subitem">
+                  <span class="legend-swatch tone-weather"><svg class="icon" aria-hidden="true"><use href="#icon-drone"></use></svg></span>
+                  High Wind
+                </div>
+              </div>
               <label class="legend-item">
                 <input id="legendDisaster" name="legendDisaster" type="checkbox" data-layer="disaster" checked />
                 <span class="legend-swatch tone-disaster"><svg class="icon" aria-hidden="true"><use href="#icon-disaster"></use></svg></span>
