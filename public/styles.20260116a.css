@@ -1051,6 +1051,11 @@ a:focus-visible {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  background: var(--surface-3);
+  padding-top: 6px;
+  z-index: 1;
 }
 
 .search-results-title {
@@ -1180,6 +1185,9 @@ a:focus-visible {
   min-height: 220px;
   position: relative;
   overflow: hidden;
+  contain: layout paint;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 260px;
   animation: rise 0.6s ease both;
 }
 
@@ -1210,6 +1218,8 @@ a:focus-visible {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .panel::after {
@@ -1551,6 +1561,8 @@ a:focus-visible {
   font-size: 11px;
   color: var(--text-soft);
   letter-spacing: 0.2px;
+  line-height: 1.45;
+  max-width: 70ch;
 }
 
 .panel-tabs {
@@ -4680,5 +4692,11 @@ a.list-title:hover {
 
   .analysis-story-label {
     font-size: 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
   }
 }
