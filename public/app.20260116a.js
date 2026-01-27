@@ -429,7 +429,10 @@ const defaultPanelSizes = {
   transport: { cols: 6 }
 };
 
-let settingsContentReady = false;
+let settingsPanelsReady = false;
+let settingsKeysReady = false;
+let settingsCustomFeedsReady = false;
+let settingsCategoriesReady = false;
 let editingCustomFeedId = null;
 
 const stopwords = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have']);
@@ -1925,13 +1928,40 @@ function updateSearchHint() {
   elements.searchHint.textContent = getSearchHintBase();
 }
 
-function ensureSettingsContent() {
-  if (settingsContentReady) return;
-  settingsContentReady = true;
+function ensurePanelToggles() {
+  if (settingsPanelsReady) return;
+  settingsPanelsReady = true;
   buildPanelToggles();
-  populateCustomFeedCategories();
+}
+
+function ensureCustomFeedsUI() {
+  if (settingsCustomFeedsReady) return;
+  if (!settingsCategoriesReady) {
+    populateCustomFeedCategories();
+    settingsCategoriesReady = true;
+  }
+  settingsCustomFeedsReady = true;
   buildCustomFeedList();
+}
+
+function ensureKeyManager() {
+  if (settingsKeysReady) return;
+  settingsKeysReady = true;
   buildKeyManager();
+}
+
+function scheduleSettingsPrebuild() {
+  if (settingsPanelsReady && settingsKeysReady && settingsCustomFeedsReady) return;
+  const run = () => {
+    ensurePanelToggles();
+    ensureCustomFeedsUI();
+    ensureKeyManager();
+  };
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(run, { timeout: 2500 });
+  } else {
+    setTimeout(run, 1500);
+  }
 }
 
 function toggleSettings(open) {
@@ -1942,7 +1972,7 @@ function toggleSettings(open) {
   elements.settingsPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
   elements.settingsPanel.inert = !open;
   if (open) {
-    requestAnimationFrame(() => ensureSettingsContent());
+    requestAnimationFrame(() => ensurePanelToggles());
   }
 }
 
@@ -10878,6 +10908,9 @@ function initEvents() {
     elements.keyToggle.addEventListener('click', () => {
       state.settings.showKeys = !state.settings.showKeys;
       saveSettings();
+      if (state.settings.showKeys) {
+        setTimeout(() => ensureKeyManager(), 0);
+      }
       updateSettingsUI();
     });
   }
@@ -11272,6 +11305,7 @@ function initEvents() {
     elements.customFeedToggle.addEventListener('click', () => {
       const isHidden = elements.customFeedForm?.classList.contains('hidden');
       if (isHidden) {
+        ensureCustomFeedsUI();
         resetCustomFeedForm();
       }
       toggleCustomFeedForm(isHidden);
@@ -11308,6 +11342,7 @@ function initEvents() {
   if (elements.customFeedImportToggle) {
     elements.customFeedImportToggle.addEventListener('click', () => {
       const isHidden = elements.customFeedJsonPanel?.classList.contains('hidden');
+      ensureCustomFeedsUI();
       toggleCustomFeedJsonPanel(isHidden);
     });
   }
@@ -11486,8 +11521,11 @@ async function init() {
   applyAcledProxyOverride();
 
   buildFeedOptions();
-  if (settingsContentReady) {
+  scheduleSettingsPrebuild();
+  if (settingsCustomFeedsReady) {
     buildCustomFeedList();
+  }
+  if (settingsKeysReady) {
     buildKeyManager();
   }
   updateChatStatus();
