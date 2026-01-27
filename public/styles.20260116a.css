@@ -3508,6 +3508,14 @@ a.list-title:hover {
   contain-intrinsic-size: 0 180px;
 }
 
+.mcp-section {
+  background: var(--panel);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
 .mcp-card {
   border: 1px solid var(--border);
   border-radius: 12px;
