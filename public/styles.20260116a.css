@@ -3474,6 +3474,22 @@ a.list-title:hover {
   display: flex;
 }
 
+.settings-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 10, 16, 0.45);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 4;
+}
+
+.settings-scrim.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .settings-section {
   display: flex;
   flex-direction: column;
@@ -3481,14 +3497,10 @@ a.list-title:hover {
   font-size: 13px;
 }
 
-.mcp-section .settings-label {
-  margin-bottom: 8px;
-}
-
 .mcp-card {
-  border: 1px solid rgba(214, 226, 242, 0.18);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(12, 18, 28, 0.65);
+  background: var(--surface-2);
   padding: 12px 14px;
   display: grid;
   gap: 10px;
@@ -3519,9 +3531,9 @@ a.list-title:hover {
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 6px;
-  background: rgba(27, 36, 52, 0.9);
-  border: 1px solid rgba(214, 226, 242, 0.18);
-  color: #eaf2ff;
+  background: rgba(24, 32, 44, 0.8);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
   white-space: nowrap;
 }
 
@@ -3533,6 +3545,19 @@ a.list-title:hover {
 
 .mcp-card .settings-note {
   margin-top: 2px;
+}
+
+.mcp-section.collapsed .mcp-card {
+  display: none;
+}
+
+[data-theme="light"] .mcp-value code {
+  background: rgba(226, 235, 246, 0.8);
+  color: #1a2a3a;
+}
+
+[data-theme="light"] .mcp-sub {
+  color: rgba(39, 56, 72, 0.7);
 }
 
 @media (max-width: 720px) {

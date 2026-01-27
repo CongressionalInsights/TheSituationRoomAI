@@ -52,6 +52,7 @@ const state = {
     showStatus: true,
     showTravelTicker: true,
     showKeys: true,
+    showMcp: true,
     liveSearch: true,
     tickerWatchlist: [],
     useClientOpenAI: false,
@@ -223,7 +224,7 @@ const elements = {
   ageToggle: document.getElementById('ageToggle'),
   settingsPanel: document.getElementById('settingsPanel'),
   settingsToggle: document.getElementById('settingsToggle'),
-  settingsClose: document.getElementById('settingsClose'),
+  settingsScrim: document.getElementById('settingsScrim'),
   panelToggles: document.getElementById('panelToggles'),
   resetLayout: document.getElementById('resetLayout'),
   aiTranslateToggle: document.getElementById('aiTranslateToggle'),
@@ -260,6 +261,8 @@ const elements = {
   keySection: document.getElementById('keySection'),
   keyCompactBody: document.getElementById('keyCompactBody'),
   keyToggle: document.getElementById('keyToggle'),
+  mcpSection: document.getElementById('mcpSection'),
+  mcpToggle: document.getElementById('mcpToggle'),
   newsList: document.getElementById('newsList'),
   securityList: document.getElementById('securityList'),
   cryptoList: document.getElementById('cryptoList'),
@@ -404,14 +407,14 @@ const defaultPanelSizes = {
   'finance-spotlight': { cols: 12 },
   imagery: { cols: 12 },
   command: { cols: 12 },
-  signals: { cols: 5 },
+  signals: { cols: 6 },
   news: { cols: 6 },
-  finance: { cols: 3 },
-  crypto: { cols: 3 },
+  finance: { cols: 4 },
+  crypto: { cols: 4 },
   prediction: { cols: 4 },
   hazards: { cols: 4 },
   security: { cols: 4 },
-  local: { cols: 8 },
+  local: { cols: 6 },
   community: { cols: 6 },
   policy: { cols: 4 },
   congress: { cols: 4 },
@@ -420,9 +423,9 @@ const defaultPanelSizes = {
   research: { cols: 4 },
   space: { cols: 4 },
   'energy-map': { cols: 6 },
-  energy: { cols: 4 },
+  energy: { cols: 6 },
   health: { cols: 4 },
-  transport: { cols: 4 }
+  transport: { cols: 6 }
 };
 
 let editingCustomFeedId = null;
@@ -1318,6 +1321,9 @@ function loadSettings() {
       if (typeof state.settings.showKeys !== 'boolean') {
         state.settings.showKeys = true;
       }
+      if (typeof state.settings.showMcp !== 'boolean') {
+        state.settings.showMcp = true;
+      }
       if (typeof state.settings.liveSearch !== 'boolean') {
         state.settings.liveSearch = true;
       }
@@ -1346,6 +1352,7 @@ function loadSettings() {
       state.settings.showStatus = true;
       state.settings.showTravelTicker = true;
       state.settings.showKeys = true;
+      state.settings.showMcp = true;
       state.settings.liveSearch = true;
       state.settings.superMonitor = isStaticMode();
       state.settings.tickerWatchlist = [];
@@ -1872,6 +1879,12 @@ function updateSettingsUI() {
   if (elements.keyToggle) {
     elements.keyToggle.textContent = state.settings.showKeys ? 'Hide' : 'Show';
   }
+  if (elements.mcpSection) {
+    elements.mcpSection.classList.toggle('collapsed', !state.settings.showMcp);
+  }
+  if (elements.mcpToggle) {
+    elements.mcpToggle.textContent = state.settings.showMcp ? 'Hide' : 'Show';
+  }
   if (elements.travelTickerBtn) {
     elements.travelTickerBtn.classList.toggle('active', state.settings.showTravelTicker);
     elements.travelTickerBtn.textContent = state.settings.showTravelTicker ? 'Travel Ticker' : 'Travel Ticker Off';
@@ -1912,6 +1925,11 @@ function updateSearchHint() {
 
 function toggleSettings(open) {
   elements.settingsPanel.classList.toggle('open', open);
+  if (elements.settingsScrim) {
+    elements.settingsScrim.classList.toggle('open', open);
+  }
+  elements.settingsPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.settingsPanel.inert = !open;
 }
 
 function toggleAbout(open) {
@@ -10741,10 +10759,13 @@ function initEvents() {
     elements.refreshNow.addEventListener('click', () => refreshAll(true));
   }
   if (elements.settingsToggle) {
-    elements.settingsToggle.addEventListener('click', () => toggleSettings(true));
+    elements.settingsToggle.addEventListener('click', () => {
+      const isOpen = elements.settingsPanel?.classList.contains('open');
+      toggleSettings(!isOpen);
+    });
   }
-  if (elements.settingsClose) {
-    elements.settingsClose.addEventListener('click', () => toggleSettings(false));
+  if (elements.settingsScrim) {
+    elements.settingsScrim.addEventListener('click', () => toggleSettings(false));
   }
   if (elements.sidebarSettings) {
     elements.sidebarSettings.addEventListener('click', () => {
@@ -10841,6 +10862,13 @@ function initEvents() {
   if (elements.keyToggle) {
     elements.keyToggle.addEventListener('click', () => {
       state.settings.showKeys = !state.settings.showKeys;
+      saveSettings();
+      updateSettingsUI();
+    });
+  }
+  if (elements.mcpToggle) {
+    elements.mcpToggle.addEventListener('click', () => {
+      state.settings.showMcp = !state.settings.showMcp;
       saveSettings();
       updateSettingsUI();
     });
@@ -11388,6 +11416,7 @@ function initEvents() {
       toggleAbout(false);
       toggleAttribution(false);
       toggleListModal(false);
+      toggleSettings(false);
       setNavOpen(false);
     }
   });

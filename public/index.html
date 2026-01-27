@@ -1273,13 +1273,13 @@
       </div>
     </div>
 
+    <div class="settings-scrim" id="settingsScrim"></div>
     <aside class="settings" id="settingsPanel">
       <div class="settings-header">
         <div>
           <div class="panel-title"><span class="panel-icon tone-policy"><svg class="icon" aria-hidden="true"><use href="#icon-settings"></use></svg></span>Settings</div>
           <div class="panel-sub">Refresh, theme, location</div>
         </div>
-        <button class="btn ghost" id="settingsClose">Close</button>
       </div>
       <div class="status-compact settings-status" id="statusCompact">
         <div class="status-compact-head">
@@ -1373,8 +1373,11 @@
           </div>
         </div>
       </div>
-      <div class="settings-section mcp-section">
-        <div class="settings-label">MCP Access (Agents)</div>
+      <div class="settings-section mcp-section" id="mcpSection">
+        <div class="settings-section-head">
+          <div class="settings-label">MCP Access (Agents)</div>
+          <button class="chip" id="mcpToggle">Hide</button>
+        </div>
         <div class="mcp-card">
           <div class="mcp-row">
             <div class="mcp-key">Access</div>
