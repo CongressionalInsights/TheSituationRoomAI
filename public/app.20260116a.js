@@ -429,6 +429,7 @@ const defaultPanelSizes = {
   transport: { cols: 6 }
 };
 
+let settingsContentReady = false;
 let editingCustomFeedId = null;
 
 const stopwords = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have']);
@@ -1924,6 +1925,15 @@ function updateSearchHint() {
   elements.searchHint.textContent = getSearchHintBase();
 }
 
+function ensureSettingsContent() {
+  if (settingsContentReady) return;
+  settingsContentReady = true;
+  buildPanelToggles();
+  populateCustomFeedCategories();
+  buildCustomFeedList();
+  buildKeyManager();
+}
+
 function toggleSettings(open) {
   elements.settingsPanel.classList.toggle('open', open);
   if (elements.settingsScrim) {
@@ -1931,6 +1941,9 @@ function toggleSettings(open) {
   }
   elements.settingsPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
   elements.settingsPanel.inert = !open;
+  if (open) {
+    requestAnimationFrame(() => ensureSettingsContent());
+  }
 }
 
 function toggleAbout(open) {
@@ -11445,7 +11458,6 @@ async function init() {
   applyPanelOrder();
   applyPanelVisibility();
   applyPanelSizes();
-  buildPanelToggles();
   renderAboutSources();
   updateCategoryFilters();
   initPanelDrag();
@@ -11474,11 +11486,11 @@ async function init() {
   applyAcledProxyOverride();
 
   buildFeedOptions();
-  populateCustomFeedCategories();
-  buildCustomFeedList();
-  buildKeyManager();
+  if (settingsContentReady) {
+    buildCustomFeedList();
+    buildKeyManager();
+  }
   updateChatStatus();
-  attachKeyButtons();
   initMap();
   updateMapDateUI();
   initEvents();
