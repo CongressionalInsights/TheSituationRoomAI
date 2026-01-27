@@ -403,6 +403,7 @@ const elements = {
 
 const defaultPanelSizes = {
   map: { cols: 12 },
+  briefing: { cols: 12 },
   ticker: { cols: 6 },
   'finance-spotlight': { cols: 6 },
   imagery: { cols: 6 },
