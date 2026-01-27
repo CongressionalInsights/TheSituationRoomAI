@@ -1040,7 +1040,7 @@ a:focus-visible {
 }
 
 .search-results.open {
-  max-height: 320px;
+  max-height: 520px;
   opacity: 1;
   padding: 12px 14px;
 }
@@ -1066,8 +1066,10 @@ a:focus-visible {
 }
 
 .search-results-list {
-  max-height: 220px;
-  overflow: auto;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding-right: 6px;
 }
 

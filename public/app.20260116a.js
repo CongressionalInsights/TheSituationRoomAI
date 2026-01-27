@@ -7008,6 +7008,50 @@ function getTopThemes(max = 5) {
     .map(([token]) => token);
 }
 
+const STORYLINE_LOCAL_WINDOW_HOURS = 6;
+const STORYLINE_MARKET_DELTA_MIN = 0.5;
+
+function getItemTimestamp(item) {
+  if (!item) return Date.now();
+  return item.publishedAt || item.updatedAt || item.timestamp || Date.now();
+}
+
+function isRecentItem(item, hours) {
+  const ts = getItemTimestamp(item);
+  return Date.now() - ts <= hours * 60 * 60 * 1000;
+}
+
+function isStaticLocalFeed(item) {
+  return item?.feedId === 'arcgis-military-installations';
+}
+
+function isDynamicLocalSignal(item) {
+  if (!item || isStaticLocalFeed(item)) return false;
+  if (!isRecentItem(item, STORYLINE_LOCAL_WINDOW_HOURS)) return false;
+  const category = item.category || '';
+  if (item.eventType || item.alertType) return true;
+  if (['weather', 'disaster', 'security', 'health', 'transport', 'spill', 'space'].includes(category)) return true;
+  return Boolean(item.summary || item.title);
+}
+
+function parseChangeFromSummary(item) {
+  if (!item?.summary) return null;
+  const match = item.summary.match(/24h\s+(-?\d+(?:\.\d+)?)%/i);
+  if (!match) return null;
+  return Number(match[1]);
+}
+
+function getMarketChange(item) {
+  if (!item) return null;
+  const change = item.delta ?? item.deltaPct ?? item.change ?? item.change24h ?? parseChangeFromSummary(item);
+  return Number.isFinite(change) ? change : null;
+}
+
+function isChangeBasedMarketSignal(item) {
+  const change = getMarketChange(item);
+  return Number.isFinite(change) && Math.abs(change) >= STORYLINE_MARKET_DELTA_MIN;
+}
+
 function buildStorylineItems() {
   const items = [];
   const focusCluster = getPriorityCluster();
@@ -7019,7 +7063,7 @@ function buildStorylineItems() {
     items.push({ label: 'Focus', value: meta ? `${title} • ${meta}` : title });
   }
 
-  const localItem = getLatestItem(getLocalItems());
+  const localItem = getLatestItem(getLocalItems().filter(isDynamicLocalSignal));
   if (localItem) {
     const title = truncateText(localItem.title || '', 120);
     const location = localItem.geoLabel || localItem.location || localItem.area || '';
@@ -7027,11 +7071,12 @@ function buildStorylineItems() {
     const meta = [location, updated].filter(Boolean).join(' • ');
     items.push({ label: 'Local', value: meta ? `${title} • ${meta}` : title });
   } else if (state.settings.scope !== 'global') {
-    items.push({ label: 'Local', value: `No signals within ${state.settings.radiusKm} km.` });
+    items.push({ label: 'Local', value: `No recent signals within ${state.settings.radiusKm} km.` });
   }
 
   const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
-    .filter((item) => item.category === 'crypto' || item.category === 'finance');
+    .filter((item) => item.category === 'crypto' || item.category === 'finance')
+    .filter(isChangeBasedMarketSignal);
   const marketItem = getLatestItem(marketSignals);
   if (marketItem) {
     const title = truncateText(marketItem.title || '', 120);
