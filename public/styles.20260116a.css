@@ -3476,7 +3476,10 @@ a.list-title:hover {
 
 .settings-scrim {
   position: fixed;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-width) + 28px);
+  right: 0;
   background: rgba(6, 10, 16, 0.45);
   backdrop-filter: blur(2px);
   opacity: 0;
@@ -3488,6 +3491,12 @@ a.list-title:hover {
 .settings-scrim.open {
   opacity: 1;
   pointer-events: auto;
+}
+
+@media (max-width: 1024px) {
+  .settings-scrim {
+    left: 0;
+  }
 }
 
 .settings-section {
