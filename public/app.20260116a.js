@@ -404,10 +404,10 @@ const elements = {
 const defaultPanelSizes = {
   map: { cols: 12 },
   briefing: { cols: 12 },
-  ticker: { cols: 6 },
+  ticker: { cols: 12 },
   'finance-spotlight': { cols: 6 },
-  imagery: { cols: 6 },
-  command: { cols: 6 },
+  imagery: { cols: 12 },
+  command: { cols: 12 },
   signals: { cols: 6 },
   news: { cols: 6 },
   finance: { cols: 6 },

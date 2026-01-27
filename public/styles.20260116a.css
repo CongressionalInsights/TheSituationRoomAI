@@ -3504,6 +3504,8 @@ a.list-title:hover {
   flex-direction: column;
   gap: 8px;
   font-size: 13px;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 180px;
 }
 
 .mcp-card {
