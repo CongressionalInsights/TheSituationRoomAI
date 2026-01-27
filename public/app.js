@@ -10863,7 +10863,8 @@ function initEvents() {
   }
   if (elements.sidebarSettings) {
     elements.sidebarSettings.addEventListener('click', () => {
-      toggleSettings(true);
+      const isOpen = elements.settingsPanel?.classList.contains('open');
+      toggleSettings(!isOpen);
       setNavOpen(false);
     });
   }
