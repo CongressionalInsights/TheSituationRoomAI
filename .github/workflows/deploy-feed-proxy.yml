@@ -35,6 +35,7 @@ jobs:
           NASA_FIRMS: ${{ secrets.NASA_FIRMS }}
           OPEN_AQ: ${{ secrets.OPEN_AQ }}
           EARTHDATA_NASA: ${{ secrets.EARTHDATA_NASA }}
+          SAMGOV_API_KEY: ${{ secrets.SAMGOV_API_KEY }}
         run: |
           if ! gcloud secrets describe data-gov-key --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create data-gov-key --replication-policy=automatic
@@ -51,11 +52,15 @@ jobs:
           if ! gcloud secrets describe earthdata-nasa-key --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create earthdata-nasa-key --replication-policy=automatic
           fi
+          if ! gcloud secrets describe samgov-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create samgov-key --replication-policy=automatic
+          fi
           if [ -n "$DATA_GOV" ]; then echo -n "$DATA_GOV" | gcloud secrets versions add data-gov-key --data-file=-; fi
           if [ -n "$EIA" ]; then echo -n "$EIA" | gcloud secrets versions add eia-key --data-file=-; fi
           if [ -n "$NASA_FIRMS" ]; then echo -n "$NASA_FIRMS" | gcloud secrets versions add nasa-firms-key --data-file=-; fi
           if [ -n "$OPEN_AQ" ]; then echo -n "$OPEN_AQ" | gcloud secrets versions add openaq-key --data-file=-; fi
           if [ -n "$EARTHDATA_NASA" ]; then echo -n "$EARTHDATA_NASA" | gcloud secrets versions add earthdata-nasa-key --data-file=-; fi
+          if [ -n "$SAMGOV_API_KEY" ]; then echo -n "$SAMGOV_API_KEY" | gcloud secrets versions add samgov-key --data-file=-; fi
       - name: Deploy feed proxy service
         run: |
           cat > /tmp/sr-feed-env.yaml <<EOF
@@ -66,7 +71,7 @@ jobs:
             --region "$REGION" \
             --source gcp/feed-proxy \
             --allow-unauthenticated \
-            --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest \
+            --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest \
             --env-vars-file /tmp/sr-feed-env.yaml
       - name: Health check feed proxy
         run: |

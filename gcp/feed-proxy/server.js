@@ -680,6 +680,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
   const range = resolveMoneyFlowRange(start, end);
   const dataGovKey = process.env.DATA_GOV || '';
   const fecKey = dataGovKey || 'DEMO_KEY';
+  const samGovKey = process.env.SAMGOV_API_KEY || dataGovKey;
 
   const results = {
     query,
@@ -767,11 +768,11 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
   })();
 
   const samTask = (async () => {
-    if (!dataGovKey) {
+    if (!samGovKey) {
       return { error: 'missing_key' };
     }
     const url = new URL('https://api.sam.gov/entity-information/v4/entities');
-    url.searchParams.set('api_key', dataGovKey);
+    url.searchParams.set('api_key', samGovKey);
     url.searchParams.set('q', query);
     url.searchParams.set('page', '1');
     url.searchParams.set('size', String(perSourceLimit));
