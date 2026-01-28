@@ -1560,6 +1560,73 @@ a:focus-visible {
   gap: 10px;
 }
 
+.money-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.money-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.money-query {
+  flex: 1 1 260px;
+  min-width: 200px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.money-range {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.money-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.money-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.money-summary .summary-card {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.money-summary .summary-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.money-summary .summary-value {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

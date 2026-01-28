@@ -253,6 +253,7 @@
             <button class="nav-link" data-panel-target="ticker"><svg class="icon" aria-hidden="true"><use href="#icon-ticker"></use></svg>Market Ticker</button>
             <button class="nav-link" data-panel-target="finance-spotlight"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg>Finance Spotlight</button>
             <button class="nav-link" data-panel-target="finance"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg>Finance & Policy</button>
+            <button class="nav-link" data-panel-target="money-flows"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg>Money Flows</button>
             <button class="nav-link" data-panel-target="crypto"><svg class="icon" aria-hidden="true"><use href="#icon-crypto"></use></svg>Crypto / Web3</button>
             <button class="nav-link" data-panel-target="prediction"><svg class="icon" aria-hidden="true"><use href="#icon-ticker"></use></svg>Prediction Markets</button>
             <button class="nav-link" data-panel-target="energy"><svg class="icon" aria-hidden="true"><use href="#icon-energy"></use></svg>Energy</button>
@@ -1063,6 +1064,32 @@
         </div>
       </section>
 
+      <section class="panel feed-panel money-panel" data-panel="money-flows" data-category="finance">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-finance"><svg class="icon" aria-hidden="true"><use href="#icon-finance"></use></svg></span>Money Flows</div>
+            <div class="panel-sub">LDA + USAspending + FEC + SAM</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="money-controls">
+            <div class="money-inputs">
+              <input class="money-query" id="moneyFlowsQuery" type="text" placeholder="Search an entity, committee, recipient, or program..." />
+              <select class="money-range" id="moneyFlowsRange">
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+                <option value="180" selected>180 days</option>
+                <option value="365">12 months</option>
+              </select>
+              <button class="btn primary" id="moneyFlowsRun" type="button">Run</button>
+            </div>
+            <div class="money-meta" id="moneyFlowsMeta">No query yet.</div>
+          </div>
+          <div class="money-summary" id="moneyFlowsSummary"></div>
+          <div class="list" id="moneyFlowsList"></div>
+        </div>
+      </section>
+
       <section class="panel feed-panel crypto-panel" data-panel="crypto" data-category="crypto">
         <div class="panel-header">
           <div>
@@ -1622,6 +1649,6 @@
   <script src="https://unpkg.com/deck.gl-leaflet@latest/dist/deck.gl-leaflet.umd.min.js"></script>
   <script src="config.js"></script>
   <script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js" defer></script>
-  <script type="module" src="app.20260116a.js?v=20260128a"></script>
+  <script type="module" src="app.20260116a.js?v=20260128b"></script>
 </body>
 </html>

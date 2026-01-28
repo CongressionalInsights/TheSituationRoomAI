@@ -143,6 +143,378 @@ function buildUrl(template, params = {}) {
   return url;
 }
 
+const MONEY_FLOW_DEFAULT_DAYS = 180;
+const MONEY_FLOW_MAX_LIMIT = 120;
+
+function parseDateParam(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function formatIsoDay(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function resolveMoneyFlowRange(start, end, fallbackDays = MONEY_FLOW_DEFAULT_DAYS) {
+  const endDate = parseDateParam(end) || new Date();
+  const startDate = parseDateParam(start)
+    || new Date(endDate.getTime() - fallbackDays * 24 * 60 * 60 * 1000);
+  if (startDate > endDate) {
+    return resolveMoneyFlowRange(end, start, fallbackDays);
+  }
+  const years = new Set([endDate.getFullYear(), startDate.getFullYear()]);
+  return {
+    startDate,
+    endDate,
+    startIso: formatIsoDay(startDate),
+    endIso: formatIsoDay(endDate),
+    years: [...years]
+  };
+}
+
+function normalizeEntityName(value) {
+  if (!value) return '';
+  return String(value)
+    .toUpperCase()
+    .replace(/&/g, ' AND ')
+    .replace(/[^A-Z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toNumber(value) {
+  if (value === null || value === undefined) return null;
+  const cleaned = String(value).replace(/[^0-9.-]/g, '');
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function matchesQuery(query, ...fields) {
+  if (!query) return true;
+  const needle = query.toLowerCase();
+  return fields.some((field) => String(field || '').toLowerCase().includes(needle));
+}
+
+function scoreMoneyItem(item) {
+  let score = 0;
+  const amount = Number.isFinite(item.amount) ? item.amount : 0;
+  if (amount > 0) {
+    score += Math.min(50, Math.log10(amount + 1) * 15);
+  }
+  const publishedAt = item.publishedAt ? new Date(item.publishedAt) : null;
+  if (publishedAt && !Number.isNaN(publishedAt.getTime())) {
+    const ageDays = (Date.now() - publishedAt.getTime()) / (1000 * 60 * 60 * 24);
+    if (ageDays <= 30) score += 20;
+    else if (ageDays <= 90) score += 12;
+    else if (ageDays <= 180) score += 6;
+  }
+  const sourceBoost = {
+    'LDA': 18,
+    'USAspending': 20,
+    'OpenFEC': 20,
+    'SAM.gov': 10
+  };
+  score += sourceBoost[item.source] || 8;
+  if (item.type && /registration|filing/i.test(item.type)) score += 4;
+  if (item.type && /contribution|donation/i.test(item.type)) score += 6;
+  return Math.round(Math.min(100, score));
+}
+
+function summarizeMoneyEntities(items) {
+  const totals = new Map();
+  items.forEach((item) => {
+    const name = normalizeEntityName(item.entity || item.recipient || item.committee || item.contributor || '');
+    if (!name) return;
+    const current = totals.get(name) || { name, amount: 0, count: 0, sample: item.entity || item.recipient || item.committee || item.contributor };
+    current.count += 1;
+    if (Number.isFinite(item.amount)) current.amount += item.amount;
+    totals.set(name, current);
+  });
+  return [...totals.values()]
+    .sort((a, b) => (b.amount || 0) - (a.amount || 0))
+    .slice(0, 8);
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const response = await fetchWithTimeout(url, options, timeoutMs);
+  const text = await response.text();
+  let data = null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = null;
+  }
+  return { response, data, text };
+}
+
+async function fetchMoneyFlows({ query, start, end, limit }) {
+  if (!query) {
+    return { error: 'missing_query', message: 'Query parameter q is required.' };
+  }
+  const safeLimit = Math.min(MONEY_FLOW_MAX_LIMIT, Math.max(20, Number(limit) || 60));
+  const perSourceLimit = Math.max(10, Math.floor(safeLimit / 4));
+  const range = resolveMoneyFlowRange(start, end);
+  const dataGovKey = process.env.DATA_GOV || '';
+  const fecKey = dataGovKey || 'DEMO_KEY';
+
+  const results = {
+    query,
+    range: { start: range.startIso, end: range.endIso },
+    generatedAt: new Date().toISOString(),
+    sources: {},
+    items: [],
+    entities: [],
+    summary: null
+  };
+
+  const ldaTasks = range.years.map(async (year) => {
+    const url = `https://lda.senate.gov/api/v1/filings/?filing_year=${encodeURIComponent(year)}`;
+    const { response, data } = await fetchJsonWithTimeout(url, {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    const items = (data.results || []).filter((item) => matchesQuery(query,
+      item.client?.name,
+      item.registrant?.name,
+      item.lobbying_activities?.map((act) => act.description).join(' ')
+    ));
+    return { items };
+  });
+
+  const ldaContribTasks = range.years.map(async (year) => {
+    const url = `https://lda.senate.gov/api/v1/contributions/?filing_year=${encodeURIComponent(year)}`;
+    const { response, data } = await fetchJsonWithTimeout(url, {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    const items = (data.results || []).filter((item) => matchesQuery(query,
+      item.registrant?.name,
+      item.lobbyist?.last_name,
+      item.contribution_items?.map((entry) => `${entry.contributor_name} ${entry.payee_name}`).join(' ')
+    ));
+    return { items };
+  });
+
+  const usaTask = (async () => {
+    const url = 'https://api.usaspending.gov/api/v2/search/spending_by_transaction/';
+    const awardCodes = ['A', 'B', 'C', 'D', 'IDV_A', 'IDV_B', 'IDV_B_A', 'IDV_B_B', 'IDV_B_C', 'IDV_C', 'IDV_D', 'IDV_E', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11'];
+    const payload = {
+      filters: {
+        keywords: [query],
+        time_period: [{ start_date: range.startIso, end_date: range.endIso }],
+        award_type_codes: awardCodes
+      },
+      fields: ['Recipient Name', 'Award ID', 'Action Date', 'Transaction Amount', 'Awarding Agency', 'Transaction Description'],
+      limit: perSourceLimit,
+      page: 1,
+      sort: 'Action Date',
+      order: 'desc'
+    };
+    const { response, data } = await fetchJsonWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': appConfig.userAgent },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    return { items: data.results || [] };
+  })();
+
+  const fecTask = (async () => {
+    const url = new URL('https://api.open.fec.gov/v1/schedules/schedule_a/');
+    url.searchParams.set('api_key', fecKey);
+    url.searchParams.set('per_page', String(perSourceLimit));
+    url.searchParams.set('sort', '-contribution_receipt_amount');
+    url.searchParams.set('contributor_name', query);
+    url.searchParams.set('min_date', range.startIso);
+    url.searchParams.set('max_date', range.endIso);
+    const { response, data } = await fetchJsonWithTimeout(url.toString(), {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    return { items: data.results || [] };
+  })();
+
+  const samTask = (async () => {
+    if (!dataGovKey) return { error: 'missing_key' };
+    const url = new URL('https://api.sam.gov/entity-information/v4/entities');
+    url.searchParams.set('api_key', dataGovKey);
+    url.searchParams.set('q', query);
+    url.searchParams.set('page', '1');
+    url.searchParams.set('per_page', String(perSourceLimit));
+    const { response, data } = await fetchJsonWithTimeout(url.toString(), {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    const items = data?.entityData || data?.entities || data?.data || data?.results || [];
+    return { items };
+  })();
+
+  const [lda, ldaContrib, usa, fec, sam] = await Promise.allSettled([
+    Promise.all(ldaTasks),
+    Promise.all(ldaContribTasks),
+    usaTask,
+    fecTask,
+    samTask
+  ]);
+
+  const ldaItems = [];
+  if (lda.status === 'fulfilled') {
+    lda.value.forEach((entry) => {
+      if (entry.error || !entry.items) return;
+      ldaItems.push(...entry.items);
+    });
+  }
+  const ldaContribItems = [];
+  if (ldaContrib.status === 'fulfilled') {
+    ldaContrib.value.forEach((entry) => {
+      if (entry.error || !entry.items) return;
+      ldaContribItems.push(...entry.items);
+    });
+  }
+
+  const normalizedLda = ldaItems.slice(0, perSourceLimit).map((item) => ({
+    source: 'LDA',
+    sourceId: 'lda-filings',
+    type: item.filing_type_display || 'Filing',
+    title: `${item.client?.name || 'Unknown client'} — ${item.filing_type_display || 'Filing'}`,
+    summary: [item.registrant?.name, item.filing_period_display].filter(Boolean).join(' • '),
+    amount: toNumber(item.income) || toNumber(item.expenses),
+    entity: item.client?.name,
+    recipient: item.registrant?.name,
+    publishedAt: item.dt_posted,
+    externalUrl: item.filing_document_url,
+    detailFields: [
+      { label: 'Client', value: item.client?.name },
+      { label: 'Registrant', value: item.registrant?.name },
+      { label: 'Filing Period', value: item.filing_period_display },
+      { label: 'Income', value: item.income },
+      { label: 'Expenses', value: item.expenses }
+    ].filter((field) => field.value)
+  }));
+
+  const normalizedLdaContrib = ldaContribItems
+    .filter((item) => Array.isArray(item.contribution_items) && item.contribution_items.length)
+    .flatMap((item) => item.contribution_items.map((entry) => ({
+      source: 'LDA',
+      sourceId: 'lda-contributions',
+      type: entry.contribution_type_display || 'Contribution',
+      title: `${entry.contributor_name || item.registrant?.name || 'Contributor'} → ${entry.payee_name || 'Recipient'}`,
+      summary: [entry.honoree_name, item.filing_period_display].filter(Boolean).join(' • '),
+      amount: toNumber(entry.amount),
+      entity: entry.contributor_name || item.registrant?.name,
+      recipient: entry.payee_name,
+      publishedAt: entry.date || item.dt_posted,
+      externalUrl: item.filing_document_url,
+      detailFields: [
+        { label: 'Contributor', value: entry.contributor_name },
+        { label: 'Recipient', value: entry.payee_name },
+        { label: 'Honoree', value: entry.honoree_name },
+        { label: 'Amount', value: entry.amount },
+        { label: 'Date', value: entry.date }
+      ].filter((field) => field.value)
+    }))).slice(0, perSourceLimit);
+
+  const usaItems = usa.status === 'fulfilled' && !usa.value.error ? (usa.value.items || []) : [];
+  const normalizedUsa = usaItems.map((entry) => ({
+    source: 'USAspending',
+    sourceId: 'usaspending-transactions',
+    type: 'Federal Award',
+    title: entry['Recipient Name'] ? `${entry['Recipient Name']} — ${entry['Awarding Agency'] || 'Award'}` : (entry['Award ID'] || 'Federal Award'),
+    summary: entry['Transaction Description'] || '',
+    amount: toNumber(entry['Transaction Amount']),
+    entity: entry['Recipient Name'],
+    recipient: entry['Recipient Name'],
+    publishedAt: entry['Action Date'],
+    externalUrl: entry['Award ID'] ? `https://www.usaspending.gov/award/${encodeURIComponent(entry['Award ID'])}` : null,
+    detailFields: [
+      { label: 'Recipient', value: entry['Recipient Name'] },
+      { label: 'Award ID', value: entry['Award ID'] },
+      { label: 'Agency', value: entry['Awarding Agency'] },
+      { label: 'Amount', value: entry['Transaction Amount'] },
+      { label: 'Date', value: entry['Action Date'] }
+    ].filter((field) => field.value)
+  }));
+
+  const fecItems = fec.status === 'fulfilled' && !fec.value.error ? (fec.value.items || []) : [];
+  const normalizedFec = fecItems.map((entry) => ({
+    source: 'OpenFEC',
+    sourceId: 'fec-schedule-a',
+    type: entry.receipt_type_desc || 'Contribution',
+    title: `${entry.contributor_name || 'Contributor'} → ${entry.committee_name || entry.candidate_name || 'Committee'}`,
+    summary: [entry.candidate_name, entry.report_year].filter(Boolean).join(' • '),
+    amount: toNumber(entry.contribution_receipt_amount),
+    entity: entry.contributor_name,
+    recipient: entry.committee_name || entry.candidate_name,
+    committee: entry.committee_name,
+    publishedAt: entry.contribution_receipt_date,
+    externalUrl: entry.pdf_url,
+    detailFields: [
+      { label: 'Contributor', value: entry.contributor_name },
+      { label: 'Committee', value: entry.committee_name },
+      { label: 'Candidate', value: entry.candidate_name },
+      { label: 'Amount', value: entry.contribution_receipt_amount },
+      { label: 'Date', value: entry.contribution_receipt_date }
+    ].filter((field) => field.value)
+  }));
+
+  const samItems = sam.status === 'fulfilled' && !sam.value.error ? (sam.value.items || []) : [];
+  const normalizedSam = samItems.map((entry) => ({
+    source: 'SAM.gov',
+    sourceId: 'sam-entities',
+    type: 'Entity',
+    title: entry?.legalBusinessName || entry?.entityName || entry?.name || 'SAM.gov Entity',
+    summary: [entry?.uei, entry?.cageCode, entry?.entityStatus].filter(Boolean).join(' • '),
+    amount: null,
+    entity: entry?.legalBusinessName || entry?.entityName || entry?.name,
+    publishedAt: entry?.registrationDate || entry?.lastUpdateDate,
+    externalUrl: entry?.entityRegistrationURL || null,
+    detailFields: [
+      { label: 'UEI', value: entry?.uei },
+      { label: 'CAGE', value: entry?.cageCode },
+      { label: 'Status', value: entry?.entityStatus },
+      { label: 'Registration Date', value: entry?.registrationDate }
+    ].filter((field) => field.value)
+  }));
+
+  const merged = [...normalizedLda, ...normalizedLdaContrib, ...normalizedUsa, ...normalizedFec, ...normalizedSam]
+    .map((item) => ({ ...item, score: scoreMoneyItem(item) }))
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .slice(0, safeLimit);
+
+  const totalAmount = merged.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+  const entities = summarizeMoneyEntities(merged);
+  results.items = merged;
+  results.entities = entities;
+  results.summary = {
+    totalAmount,
+    totalItems: merged.length,
+    topEntity: entities[0] || null
+  };
+
+  results.sources = {
+    lda: { count: normalizedLda.length + normalizedLdaContrib.length, error: lda.status !== 'fulfilled' ? 'fetch_failed' : null },
+    usaspending: { count: normalizedUsa.length, error: usa.status !== 'fulfilled' ? 'fetch_failed' : usa.value?.error || null },
+    fec: { count: normalizedFec.length, error: fec.status !== 'fulfilled' ? 'fetch_failed' : fec.value?.error || null },
+    sam: { count: normalizedSam.length, error: sam.status !== 'fulfilled' ? 'fetch_failed' : sam.value?.error || null }
+  };
+
+  return results;
+}
+
 function loadGeoCache() {
   if (existsSync(GEO_CACHE_PATH)) {
     try {
@@ -568,6 +940,22 @@ const server = http.createServer(async (req, res) => {
       const extra = error?.cause?.code || error?.code;
       const message = [error?.message, extra].filter(Boolean).join(' ');
       return sendJson(res, 502, { error: 'fetch_failed', message: message || 'fetch failed' });
+    }
+  }
+
+  if (url.pathname === '/api/money-flows') {
+    const query = url.searchParams.get('q') || '';
+    const start = url.searchParams.get('start') || '';
+    const end = url.searchParams.get('end') || '';
+    const limit = url.searchParams.get('limit') || '';
+    try {
+      const result = await fetchMoneyFlows({ query, start, end, limit });
+      if (result.error) {
+        return sendJson(res, 400, result);
+      }
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
     }
   }
 

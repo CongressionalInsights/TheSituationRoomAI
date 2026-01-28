@@ -3,6 +3,8 @@ import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSk
 const LAYOUT_VERSION = 4;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
 const CLIENT_FETCH_TIMEOUT_MS = 12000;
+const MONEY_FLOW_DEFAULT_DAYS = 180;
+const MONEY_FLOW_MAX_LIMIT = 120;
 
 const state = {
   feeds: [],
@@ -31,6 +33,13 @@ const state = {
   staticAnalysis: null,
   customTickers: [],
   energyMarket: {},
+  moneyFlowsData: null,
+  moneyFlowsItems: [],
+  moneyFlowsFetchedAt: 0,
+  moneyFlowsLoading: false,
+  moneyFlowsError: null,
+  moneyFlowsQuery: '',
+  moneyFlowsRangeDays: MONEY_FLOW_DEFAULT_DAYS,
   listLimits: {},
   congressAmendmentCache: new Map(),
   congressBillAmendments: new Map(),
@@ -248,6 +257,12 @@ const elements = {
   feedScope: document.getElementById('feedScope'),
   searchInput: document.getElementById('searchInput'),
   searchBtn: document.getElementById('searchBtn'),
+  moneyFlowsQuery: document.getElementById('moneyFlowsQuery'),
+  moneyFlowsRange: document.getElementById('moneyFlowsRange'),
+  moneyFlowsRun: document.getElementById('moneyFlowsRun'),
+  moneyFlowsSummary: document.getElementById('moneyFlowsSummary'),
+  moneyFlowsList: document.getElementById('moneyFlowsList'),
+  moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
   searchHint: document.getElementById('searchHint'),
   liveSearchToggle: document.getElementById('liveSearchToggle'),
   scopeToggle: document.getElementById('scopeToggle'),
@@ -411,6 +426,7 @@ const defaultPanelSizes = {
   signals: { cols: 6 },
   news: { cols: 6 },
   finance: { cols: 6 },
+  'money-flows': { cols: 6 },
   crypto: { cols: 6 },
   prediction: { cols: 6 },
   hazards: { cols: 6 },
@@ -480,6 +496,7 @@ const listDefaults = {
   securityList: 20,
   financeMarketsList: 20,
   financePolicyList: 20,
+  moneyFlowsList: 20,
   cryptoList: 20,
   predictionList: 20,
   disasterList: 20,
@@ -500,6 +517,7 @@ const listModalConfigs = [
   { id: 'securityList', title: 'Conflict & Security', getItems: () => getCategoryItems('security').items },
   { id: 'financeMarketsList', title: 'Finance: Markets', getItems: () => getCombinedItems(['finance', 'energy']) },
   { id: 'financePolicyList', title: 'Finance: Regulatory', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
+  { id: 'moneyFlowsList', title: 'Money Flows', getItems: () => state.moneyFlowsItems || [] },
   { id: 'cryptoList', title: 'Crypto / Web3', getItems: () => getCategoryItems('crypto').items },
   { id: 'predictionList', title: 'Prediction Markets', getItems: () => getPredictionItems() },
   { id: 'disasterList', title: 'Hazards & Weather', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
@@ -668,6 +686,42 @@ const DATA_ATTRIBUTIONS = [
     attribution: 'Source: U.S. Department of the Treasury, Fiscal Service. Data are public domain; credit Treasury Fiscal Service.',
     termsUrl: 'https://fiscaldata.treasury.gov/developer/api-documentation/',
     notes: 'Debt to the Penny and fiscal releases.'
+  },
+  {
+    id: 'usaspending',
+    name: 'USAspending.gov',
+    short: 'Federal spending',
+    url: 'https://www.usaspending.gov',
+    attribution: 'Source: USAspending.gov (U.S. Department of the Treasury).',
+    termsUrl: 'https://www.usaspending.gov/about',
+    notes: 'Award and transaction data from USAspending.gov.'
+  },
+  {
+    id: 'lda',
+    name: 'U.S. Senate LDA',
+    short: 'Lobbying disclosure',
+    url: 'https://lda.senate.gov',
+    attribution: 'Source: U.S. Senate Office of Public Records (Lobbying Disclosure Act).',
+    termsUrl: 'https://lda.senate.gov/about/',
+    notes: 'LDA filings and contribution reports.'
+  },
+  {
+    id: 'fec',
+    name: 'FEC (OpenFEC)',
+    short: 'Campaign contributions',
+    url: 'https://api.open.fec.gov',
+    attribution: 'Source: Federal Election Commission (OpenFEC API).',
+    termsUrl: 'https://api.open.fec.gov/developers/#/about/terms',
+    notes: 'Campaign finance data from the FEC.'
+  },
+  {
+    id: 'sam',
+    name: 'SAM.gov',
+    short: 'Entity registrations',
+    url: 'https://sam.gov',
+    attribution: 'Source: SAM.gov (U.S. General Services Administration).',
+    termsUrl: 'https://sam.gov/content/home',
+    notes: 'Entity registration data from SAM.gov.'
   },
   {
     id: 'cisa-kev',
@@ -5522,6 +5576,131 @@ function renderFinanceSpotlight() {
   renderFinanceCards(elements.financeSpotlight, kpis, 'spotlight');
 }
 
+function resolveMoneyFlowRange(days = MONEY_FLOW_DEFAULT_DAYS) {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - Number(days || MONEY_FLOW_DEFAULT_DAYS));
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10)
+  };
+}
+
+function formatMoney(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '--';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0
+  }).format(amount);
+}
+
+function renderMoneyFlows() {
+  if (!elements.moneyFlowsList) return;
+  if (elements.moneyFlowsMeta) {
+    if (!state.moneyFlowsQuery) {
+      elements.moneyFlowsMeta.textContent = 'No query yet.';
+    } else if (state.moneyFlowsLoading) {
+      elements.moneyFlowsMeta.textContent = 'Fetching money flows...';
+    } else if (state.moneyFlowsError) {
+      elements.moneyFlowsMeta.textContent = `Error: ${state.moneyFlowsError}`;
+    } else {
+      const count = state.moneyFlowsItems?.length || 0;
+      const sources = state.moneyFlowsData?.sources
+        ? Object.entries(state.moneyFlowsData.sources)
+          .map(([key, info]) => `${key}: ${info.count || 0}${info.error ? ' (err)' : ''}`)
+          .join(' • ')
+        : '';
+      elements.moneyFlowsMeta.textContent = count
+        ? `Showing ${count} items${sources ? ` · ${sources}` : ''}`
+        : 'No matching flows yet.';
+    }
+  }
+
+  if (elements.moneyFlowsSummary) {
+    const summary = state.moneyFlowsData?.summary;
+    if (!summary) {
+      elements.moneyFlowsSummary.innerHTML = '';
+    } else {
+      const topEntity = summary.topEntity ? summary.topEntity.entity : '—';
+      const totalAmount = summary.totalAmount ? formatMoney(summary.totalAmount) : '--';
+      elements.moneyFlowsSummary.innerHTML = `
+        <div class="summary-card">
+          <div class="summary-label">Total items</div>
+          <div class="summary-value">${summary.totalItems || 0}</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">Total amount</div>
+          <div class="summary-value">${totalAmount}</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">Top entity</div>
+          <div class="summary-value">${topEntity}</div>
+        </div>
+      `;
+    }
+  }
+
+  if (state.moneyFlowsLoading) {
+    elements.moneyFlowsList.innerHTML = '<div class="list-item">Loading money flows...</div>';
+    return;
+  }
+  if (state.moneyFlowsError) {
+    elements.moneyFlowsList.innerHTML = '<div class="list-item">Unable to load money flows.</div>';
+    return;
+  }
+  renderList(elements.moneyFlowsList, state.moneyFlowsItems || []);
+}
+
+async function fetchMoneyFlows() {
+  const query = elements.moneyFlowsQuery?.value?.trim();
+  if (!query) {
+    state.moneyFlowsError = 'Enter a query to search.';
+    state.moneyFlowsLoading = false;
+    state.moneyFlowsItems = [];
+    renderMoneyFlows();
+    return;
+  }
+
+  const rangeDays = Number(elements.moneyFlowsRange?.value) || MONEY_FLOW_DEFAULT_DAYS;
+  state.moneyFlowsRangeDays = rangeDays;
+  state.moneyFlowsQuery = query;
+
+  const { start, end } = resolveMoneyFlowRange(rangeDays);
+  const params = new URLSearchParams({
+    q: query,
+    start,
+    end,
+    limit: String(MONEY_FLOW_MAX_LIMIT)
+  });
+
+  state.moneyFlowsLoading = true;
+  state.moneyFlowsError = null;
+  renderMoneyFlows();
+
+  try {
+    const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`);
+    if (error) {
+      throw new Error(data?.message || error);
+    }
+    state.moneyFlowsData = data;
+    state.moneyFlowsItems = (data?.items || []).map((item) => ({
+      ...item,
+      url: item.url || item.externalUrl || null
+    }));
+    state.moneyFlowsFetchedAt = data?.fetchedAt || Date.now();
+  } catch (err) {
+    state.moneyFlowsError = err?.message || 'Fetch failed.';
+    state.moneyFlowsData = null;
+    state.moneyFlowsItems = [];
+  } finally {
+    state.moneyFlowsLoading = false;
+    renderMoneyFlows();
+    updatePanelTimestamps();
+  }
+}
+
 function extractLocationCandidates(item) {
   const text = `${item.title || ''} ${item.summary || ''}`.replace(/https?:\/\/\S+/g, '');
   const candidates = new Set();
@@ -6039,6 +6218,8 @@ function getPanelTimestamp(panelId) {
     }
     case 'finance':
       return latestFromCategories(['finance', 'energy', 'gov', 'cyber', 'agriculture']);
+    case 'money-flows':
+      return state.moneyFlowsFetchedAt || null;
     case 'crypto':
       return latestFromCategories(['crypto']);
     case 'prediction':
@@ -8225,6 +8406,7 @@ function renderAllPanels() {
   renderLocal();
   renderTravelTicker();
   renderFinanceSpotlight();
+  renderMoneyFlows();
   updatePanelTimestamps();
 }
 
@@ -10914,6 +11096,27 @@ function initEvents() {
   elements.searchInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') handleSearch();
   });
+  if (elements.moneyFlowsRun) {
+    elements.moneyFlowsRun.addEventListener('click', () => fetchMoneyFlows());
+  }
+  if (elements.moneyFlowsQuery) {
+    elements.moneyFlowsQuery.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        fetchMoneyFlows();
+      }
+    });
+  }
+  if (elements.moneyFlowsRange) {
+    elements.moneyFlowsRange.addEventListener('change', () => {
+      state.moneyFlowsRangeDays = Number(elements.moneyFlowsRange.value) || MONEY_FLOW_DEFAULT_DAYS;
+      if (state.moneyFlowsQuery) {
+        fetchMoneyFlows();
+      } else {
+        renderMoneyFlows();
+      }
+    });
+  }
   if (elements.liveSearchToggle) {
     elements.liveSearchToggle.addEventListener('click', () => {
       state.settings.liveSearch = !state.settings.liveSearch;

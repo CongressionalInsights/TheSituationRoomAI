@@ -25,6 +25,8 @@ const GPSJAM_ID = 'gpsjam';
 const GPSJAM_CACHE_KEY = 'gpsjam:data';
 const EIA_RETRY_ATTEMPTS = 5;
 const EIA_RETRY_DELAY_MS = 1000;
+const MONEY_FLOW_MAX_LIMIT = 200;
+const MONEY_FLOW_DEFAULT_DAYS = 180;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -72,6 +74,103 @@ function formatIsoDate(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toISOString().slice(0, 10);
+}
+
+function parseDateParam(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function resolveMoneyFlowRange(start, end, fallbackDays = MONEY_FLOW_DEFAULT_DAYS) {
+  const endDate = parseDateParam(end) || new Date();
+  const startDate = parseDateParam(start) || new Date(endDate);
+  if (!parseDateParam(start)) {
+    startDate.setDate(endDate.getDate() - fallbackDays);
+  }
+  const startIso = formatIsoDate(startDate);
+  const endIso = formatIsoDate(endDate);
+  const years = [];
+  for (let year = startDate.getFullYear(); year <= endDate.getFullYear(); year += 1) {
+    years.push(year);
+  }
+  return { startDate, endDate, startIso, endIso, years };
+}
+
+function normalizeEntityName(value) {
+  if (!value) return '';
+  return String(value)
+    .toUpperCase()
+    .replace(/&/g, ' AND ')
+    .replace(/[^A-Z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toNumber(value) {
+  if (value === null || value === undefined) return null;
+  const cleaned = String(value).replace(/[^0-9.-]/g, '');
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function matchesQuery(query, ...fields) {
+  if (!query) return true;
+  const needle = query.toLowerCase();
+  return fields.some((field) => String(field || '').toLowerCase().includes(needle));
+}
+
+function scoreMoneyItem(item) {
+  let score = 0;
+  const amount = Number.isFinite(item.amount) ? item.amount : 0;
+  if (amount > 0) {
+    score += Math.min(50, Math.log10(amount + 1) * 15);
+  }
+  const publishedAt = item.publishedAt ? new Date(item.publishedAt) : null;
+  if (publishedAt && !Number.isNaN(publishedAt.getTime())) {
+    const ageDays = (Date.now() - publishedAt.getTime()) / (1000 * 60 * 60 * 24);
+    if (ageDays <= 30) score += 20;
+    else if (ageDays <= 90) score += 12;
+    else if (ageDays <= 180) score += 6;
+  }
+  const sourceBoost = {
+    LDA: 18,
+    USAspending: 20,
+    OpenFEC: 20,
+    'SAM.gov': 10
+  };
+  score += sourceBoost[item.source] || 8;
+  if (item.type && /registration|filing/i.test(item.type)) score += 4;
+  if (item.type && /contribution|donation/i.test(item.type)) score += 6;
+  return Math.round(Math.min(100, score));
+}
+
+function summarizeMoneyEntities(items) {
+  const totals = new Map();
+  items.forEach((item) => {
+    const name = normalizeEntityName(item.entity || item.recipient || item.committee || item.contributor || '');
+    if (!name) return;
+    const current = totals.get(name) || { name, amount: 0, count: 0, sample: item.entity || item.recipient || item.committee || item.contributor };
+    current.count += 1;
+    if (Number.isFinite(item.amount)) current.amount += item.amount;
+    totals.set(name, current);
+  });
+  return [...totals.values()]
+    .sort((a, b) => (b.amount || 0) - (a.amount || 0))
+    .slice(0, 8);
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const response = await fetchWithTimeout(url, options, timeoutMs);
+  const text = await response.text();
+  let data = null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = null;
+  }
+  return { response, data, text };
 }
 
 function getAcledWindow() {
@@ -571,6 +670,252 @@ async function geocodeQuery(query) {
   };
 }
 
+async function fetchMoneyFlows({ query, start, end, limit }) {
+  if (!query) {
+    return { error: 'missing_query', message: 'Query parameter q is required.' };
+  }
+  const safeLimit = Math.min(MONEY_FLOW_MAX_LIMIT, Math.max(20, Number(limit) || 60));
+  const perSourceLimit = Math.max(10, Math.floor(safeLimit / 4));
+  const range = resolveMoneyFlowRange(start, end);
+  const dataGovKey = process.env.DATA_GOV || '';
+  const fecKey = dataGovKey || 'DEMO_KEY';
+
+  const results = {
+    query,
+    range: { start: range.startIso, end: range.endIso },
+    generatedAt: new Date().toISOString(),
+    sources: {},
+    items: [],
+    entities: [],
+    summary: null
+  };
+
+  const ldaTasks = range.years.map(async (year) => {
+    const url = `https://lda.senate.gov/api/v1/filings/?filing_year=${encodeURIComponent(year)}`;
+    const { response, data } = await fetchJsonWithTimeout(url, {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    const items = (data.results || []).filter((item) => matchesQuery(query,
+      item.client?.name,
+      item.registrant?.name,
+      item.lobbying_activities?.map((act) => act.description).join(' ')
+    ));
+    return { items };
+  });
+
+  const ldaContribTasks = range.years.map(async (year) => {
+    const url = `https://lda.senate.gov/api/v1/contributions/?filing_year=${encodeURIComponent(year)}`;
+    const { response, data } = await fetchJsonWithTimeout(url, {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    const items = (data.results || []).filter((item) => matchesQuery(query,
+      item.registrant?.name,
+      item.lobbyist?.last_name,
+      item.contribution_items?.map((entry) => `${entry.contributor_name} ${entry.payee_name}`).join(' ')
+    ));
+    return { items };
+  });
+
+  const usaTask = (async () => {
+    const url = 'https://api.usaspending.gov/api/v2/search/spending_by_transaction/';
+    const awardCodes = ['A', 'B', 'C', 'D', 'IDV_A', 'IDV_B', 'IDV_B_A', 'IDV_B_B', 'IDV_B_C', 'IDV_C', 'IDV_D', 'IDV_E', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11'];
+    const payload = {
+      filters: {
+        keywords: [query],
+        time_period: [{ start_date: range.startIso, end_date: range.endIso }],
+        award_type_codes: awardCodes
+      },
+      fields: ['Recipient Name', 'Award ID', 'Action Date', 'Transaction Amount', 'Awarding Agency', 'Transaction Description'],
+      limit: perSourceLimit,
+      page: 1,
+      sort: 'Action Date',
+      order: 'desc'
+    };
+    const { response, data } = await fetchJsonWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': appConfig.userAgent },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    return { items: data.results || [] };
+  })();
+
+  const fecTask = (async () => {
+    const url = new URL('https://api.open.fec.gov/v1/schedules/schedule_a/');
+    url.searchParams.set('api_key', fecKey);
+    url.searchParams.set('per_page', String(perSourceLimit));
+    url.searchParams.set('sort', '-contribution_receipt_amount');
+    url.searchParams.set('contributor_name', query);
+    url.searchParams.set('min_date', range.startIso);
+    url.searchParams.set('max_date', range.endIso);
+    const { response, data } = await fetchJsonWithTimeout(url.toString(), {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    return { items: data.results || [] };
+  })();
+
+  const samTask = (async () => {
+    if (!dataGovKey) {
+      return { error: 'missing_key' };
+    }
+    const url = new URL('https://api.sam.gov/entity-information/v4/entities');
+    url.searchParams.set('api_key', dataGovKey);
+    url.searchParams.set('q', query);
+    url.searchParams.set('page', '1');
+    url.searchParams.set('size', String(perSourceLimit));
+    const { response, data } = await fetchJsonWithTimeout(url.toString(), {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    });
+    if (!response.ok || !data) {
+      return { error: `HTTP ${response.status}` };
+    }
+    return { items: data?.entityData || [] };
+  })();
+
+  const ldaResults = await Promise.all(ldaTasks);
+  const ldaContribResults = await Promise.all(ldaContribTasks);
+  const usaResult = await usaTask;
+  const fecResult = await fecTask;
+  const samResult = await samTask;
+
+  const ldaErrors = ldaResults.find((entry) => entry.error);
+  const ldaContribErrors = ldaContribResults.find((entry) => entry.error);
+
+  results.sources.lda = {
+    count: ldaResults.reduce((acc, entry) => acc + (entry.items?.length || 0), 0),
+    error: ldaErrors?.error || null
+  };
+  results.sources.ldaContributions = {
+    count: ldaContribResults.reduce((acc, entry) => acc + (entry.items?.length || 0), 0),
+    error: ldaContribErrors?.error || null
+  };
+  results.sources.usaspending = {
+    count: usaResult.items?.length || 0,
+    error: usaResult.error || null
+  };
+  results.sources.fec = {
+    count: fecResult.items?.length || 0,
+    error: fecResult.error || null
+  };
+  results.sources.sam = {
+    count: samResult.items?.length || 0,
+    error: samResult.error || null
+  };
+
+  const items = [];
+
+  ldaResults.flatMap((entry) => entry.items || []).forEach((item) => {
+    const amount = toNumber(item.income) || 0;
+    items.push({
+      source: 'LDA',
+      sourceId: item.filing_uuid || item.id,
+      type: 'Lobbying Filing',
+      title: item.client?.name || 'Lobbying Filing',
+      summary: `Registrant: ${item.registrant?.name || 'Unknown'} · Filed ${item.filing_year || ''}`,
+      amount,
+      entity: item.client?.name,
+      recipient: item.registrant?.name,
+      publishedAt: item.filing_deadline || item.dt_posted || item.filing_date || new Date().toISOString(),
+      externalUrl: item.url || 'https://lda.senate.gov'
+    });
+  });
+
+  ldaContribResults.flatMap((entry) => entry.items || []).forEach((item) => {
+    const contribution = item.contribution_items?.[0];
+    const amount = toNumber(contribution?.amount) || 0;
+    items.push({
+      source: 'LDA',
+      sourceId: item.contribution_id || item.id,
+      type: 'Lobbying Contribution',
+      title: contribution?.payee_name || item.registrant?.name || 'Lobbying Contribution',
+      summary: `Contributor: ${contribution?.contributor_name || 'Unknown'} · Filed ${item.filing_year || ''}`,
+      amount,
+      entity: contribution?.contributor_name,
+      recipient: contribution?.payee_name,
+      publishedAt: contribution?.date || item.filing_deadline || item.filing_date || new Date().toISOString(),
+      externalUrl: item.url || 'https://lda.senate.gov'
+    });
+  });
+
+  (usaResult.items || []).forEach((item) => {
+    const amount = toNumber(item['Transaction Amount']);
+    items.push({
+      source: 'USAspending',
+      sourceId: item['Award ID'],
+      type: 'Federal Award',
+      title: item['Recipient Name'] || item['Award ID'] || 'Federal Award',
+      summary: `${item['Awarding Agency'] || 'Agency'} · ${item['Transaction Description'] || 'Award'}`,
+      amount,
+      entity: item['Recipient Name'],
+      recipient: item['Awarding Agency'],
+      publishedAt: item['Action Date'] || new Date().toISOString(),
+      externalUrl: 'https://www.usaspending.gov'
+    });
+  });
+
+  (fecResult.items || []).forEach((item) => {
+    const amount = toNumber(item.contribution_receipt_amount);
+    items.push({
+      source: 'OpenFEC',
+      sourceId: item.sub_id || item.contribution_receipt_id,
+      type: 'Campaign Contribution',
+      title: item.committee?.name || item.committee_name || 'Campaign Contribution',
+      summary: `${item.contributor_name || 'Contributor'} · ${item.contributor_employer || 'Employer unknown'}`,
+      amount,
+      entity: item.contributor_name,
+      committee: item.committee?.name || item.committee_name,
+      recipient: item.committee?.name || item.committee_name,
+      publishedAt: item.contribution_receipt_date || new Date().toISOString(),
+      externalUrl: 'https://www.fec.gov/data/'
+    });
+  });
+
+  (samResult.items || []).forEach((item) => {
+    const amount = toNumber(item.totalActiveContracts);
+    const entityName = item.entityRegistration?.legalBusinessName || item.entityRegistration?.dbaName || item.entityRegistration?.entityEFTIndicator;
+    items.push({
+      source: 'SAM.gov',
+      sourceId: item.entityRegistration?.ueiSAM || item.entityRegistration?.uei || item.entityRegistration?.cageCode,
+      type: 'SAM Entity',
+      title: entityName || 'SAM Entity',
+      summary: `${item.entityRegistration?.entityStatus || 'Entity'} · ${item.entityRegistration?.stateOrProvinceCode || ''}`,
+      amount,
+      entity: entityName,
+      publishedAt: item.entityRegistration?.lastUpdateDate || new Date().toISOString(),
+      externalUrl: 'https://sam.gov'
+    });
+  });
+
+  results.items = items
+    .map((item) => ({
+      ...item,
+      score: scoreMoneyItem(item)
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, safeLimit);
+
+  results.entities = summarizeMoneyEntities(results.items);
+  const totalAmount = results.items.reduce((acc, item) => acc + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+  results.summary = {
+    totalItems: results.items.length,
+    totalAmount,
+    topEntity: results.entities[0] || null
+  };
+
+  return results;
+}
+
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin || '';
   if (req.method === 'OPTIONS') {
@@ -589,6 +934,25 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/feeds') {
     const sanitized = feedsConfig.feeds.map((feed) => ({ ...feed, url: feed.url }));
     return sendJson(res, 200, { app: feedsConfig.app, feeds: sanitized }, origin);
+  }
+
+  if (url.pathname === '/api/money-flows') {
+    const query = url.searchParams.get('q');
+    const start = url.searchParams.get('start');
+    const end = url.searchParams.get('end');
+    const limit = url.searchParams.get('limit');
+    if (!query) {
+      return sendJson(res, 400, { error: 'missing_query' }, origin);
+    }
+    try {
+      const payload = await fetchMoneyFlows({ query, start, end, limit });
+      if (payload?.error) {
+        return sendJson(res, 502, payload, origin);
+      }
+      return sendJson(res, 200, payload, origin);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message }, origin);
+    }
   }
 
   if (url.pathname === '/api/gpsjam') {
