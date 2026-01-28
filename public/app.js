@@ -5701,7 +5701,7 @@ async function fetchMoneyFlows() {
   renderMoneyFlows();
 
   try {
-    const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`);
+    const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`, {}, 30000);
     if (error) {
       throw new Error(data?.message || error);
     }
