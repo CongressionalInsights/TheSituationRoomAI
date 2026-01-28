@@ -28,6 +28,7 @@
       "format": "rss",
       "proxy": "allorigins",
       "url": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+      "timeoutMs": 30000,
       "ttlMinutes": 60,
       "tags": [
         "us",
