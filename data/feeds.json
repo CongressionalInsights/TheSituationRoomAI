@@ -374,6 +374,7 @@
       "category": "health",
       "format": "rss",
       "url": "https://api.allorigins.win/raw?url=https%3A%2F%2Fwww.fda.gov%2Fabout-fda%2Fcontact-fda%2Fstay-informed%2Frss-feeds%2Fmedwatch%2Frss.xml",
+      "timeoutMs": 30000,
       "ttlMinutes": 180,
       "tags": [
         "us",

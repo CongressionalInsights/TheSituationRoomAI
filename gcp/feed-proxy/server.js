@@ -397,10 +397,10 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = []) {
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS) {
   let primaryResponse = null;
   try {
-    primaryResponse = await fetchWithTimeout(url, { headers }, FETCH_TIMEOUT_MS);
+    primaryResponse = await fetchWithTimeout(url, { headers }, timeoutMs);
     if (primaryResponse.ok) return primaryResponse;
   } catch {
     primaryResponse = null;
@@ -417,7 +417,7 @@ async function fetchWithFallbacks(url, headers, proxies = []) {
   let lastResponse = primaryResponse;
   for (const fallbackUrl of fallbackUrls) {
     try {
-      const response = await fetchWithTimeout(fallbackUrl, { headers }, FETCH_TIMEOUT_MS);
+      const response = await fetchWithTimeout(fallbackUrl, { headers }, timeoutMs);
       if (response.ok) return response;
       lastResponse = lastResponse || response;
     } catch {
@@ -446,6 +446,7 @@ function buildAcledProxyUrl(feed) {
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader } = {}) {
   const cacheKey = `${feed.id}:${query || ''}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
+  const timeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
   const cached = cache.get(cacheKey);
   const staleCache = cached;
   if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
@@ -509,7 +510,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
-        response = await fetchWithTimeout(applied.url, { headers }, FETCH_TIMEOUT_MS * 2);
+        response = await fetchWithTimeout(applied.url, { headers }, Math.max(timeoutMs, FETCH_TIMEOUT_MS) * 2);
         responseOk = response.ok;
         if (responseOk) break;
         if (attempt < EIA_RETRY_ATTEMPTS - 1) {
@@ -517,7 +518,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
         }
       }
     } else {
-      response = await fetchWithFallbacks(applied.url, headers, proxyList);
+      response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs);
       responseOk = response.ok;
     }
     contentType = response.headers.get('content-type') || 'text/plain';
@@ -549,7 +550,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
     const legacyUrl = buildEiaLegacyUrl(feed, effectiveKey);
     if (legacyUrl) {
       try {
-        const legacyResponse = await fetchWithTimeout(legacyUrl, { headers }, FETCH_TIMEOUT_MS * 2);
+        const legacyResponse = await fetchWithTimeout(legacyUrl, { headers }, Math.max(timeoutMs, FETCH_TIMEOUT_MS) * 2);
         if (legacyResponse.ok) {
           response = legacyResponse;
           contentType = legacyResponse.headers.get('content-type') || 'text/plain';
