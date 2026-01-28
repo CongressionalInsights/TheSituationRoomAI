@@ -2,6 +2,11 @@
 
 A clean, high‑signal situational awareness dashboard with a unified news layer, geo‑tagged incidents, finance & crypto pulses, and an analysis panel.
 
+## Release notes (Jan 2026)
+- Added **Money Flows** panel aggregating USAspending, LDA, OpenFEC, and SAM.gov results.
+- New MCP tool: `money.flows` (JSON‑RPC via `/mcp`, use `tools/call` and `Accept: application/json, text/event-stream`).
+- SAM.gov now supports a dedicated secret (`SAMGOV_API_KEY`) for authenticated access.
+
 ## Run locally
 ```bash
 cd "~codex/projects/TheSituationRoom"
