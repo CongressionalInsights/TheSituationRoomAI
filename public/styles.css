@@ -3438,11 +3438,11 @@ a.list-title:hover {
   bottom: 0;
   left: calc(var(--sidebar-width) + 28px);
   right: 0;
-  background: rgba(6, 10, 16, 0.45);
-  backdrop-filter: blur(2px);
+  background: transparent;
+  backdrop-filter: none;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: none;
   z-index: 4;
 }
 
