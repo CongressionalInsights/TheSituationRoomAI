@@ -27,6 +27,7 @@ const DEFAULT_LOOKBACK_DAYS = Number(process.env.DEFAULT_LOOKBACK_DAYS || 30);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const MONEY_FLOW_DEFAULT_DAYS = 180;
 const MONEY_FLOW_MAX_LIMIT = 120;
+const MONEY_FLOW_TIMEOUT_MS = 25000;
 
 const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const feeds = Array.isArray(feedsConfig.feeds) ? feedsConfig.feeds : [];
@@ -638,7 +639,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     const url = `https://lda.senate.gov/api/v1/filings/?filing_year=${encodeURIComponent(year)}`;
     const { response, data } = await fetchJsonWithTimeout(url, {
       headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
@@ -654,7 +655,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     const url = `https://lda.senate.gov/api/v1/contributions/?filing_year=${encodeURIComponent(year)}`;
     const { response, data } = await fetchJsonWithTimeout(url, {
       headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
@@ -685,7 +686,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0' },
       body: JSON.stringify(payload)
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
@@ -702,7 +703,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     url.searchParams.set('max_date', range.endIso);
     const { response, data } = await fetchJsonWithTimeout(url.toString(), {
       headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
@@ -720,7 +721,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     url.searchParams.set('size', String(perSourceLimit));
     const { response, data } = await fetchJsonWithTimeout(url.toString(), {
       headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }

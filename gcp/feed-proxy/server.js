@@ -27,6 +27,7 @@ const EIA_RETRY_ATTEMPTS = 5;
 const EIA_RETRY_DELAY_MS = 1000;
 const MONEY_FLOW_MAX_LIMIT = 200;
 const MONEY_FLOW_DEFAULT_DAYS = 180;
+const MONEY_FLOW_TIMEOUT_MS = 25000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -694,7 +695,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     const url = `https://lda.senate.gov/api/v1/filings/?filing_year=${encodeURIComponent(year)}`;
     const { response, data } = await fetchJsonWithTimeout(url, {
       headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
@@ -710,7 +711,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     const url = `https://lda.senate.gov/api/v1/contributions/?filing_year=${encodeURIComponent(year)}`;
     const { response, data } = await fetchJsonWithTimeout(url, {
       headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
@@ -741,7 +742,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': appConfig.userAgent },
       body: JSON.stringify(payload)
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
@@ -758,7 +759,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     url.searchParams.set('max_date', range.endIso);
     const { response, data } = await fetchJsonWithTimeout(url.toString(), {
       headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
@@ -776,7 +777,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     url.searchParams.set('size', String(perSourceLimit));
     const { response, data } = await fetchJsonWithTimeout(url.toString(), {
       headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
-    });
+    }, MONEY_FLOW_TIMEOUT_MS);
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
