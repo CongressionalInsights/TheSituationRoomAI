@@ -147,6 +147,42 @@ function scoreMoneyItem(item) {
   return Math.round(Math.min(100, score));
 }
 
+function buildUsaspendingUrl(awardId) {
+  if (!awardId) return 'https://www.usaspending.gov';
+  return `https://www.usaspending.gov/award/${encodeURIComponent(awardId)}`;
+}
+
+function buildFecUrl(item, query) {
+  const base = 'https://www.fec.gov/data/receipts/individual-contributions/';
+  const params = new URLSearchParams();
+  if (item?.sub_id) params.set('sub_id', String(item.sub_id));
+  if (item?.committee?.committee_id || item?.committee_id) {
+    params.set('committee_id', item.committee?.committee_id || item.committee_id);
+  }
+  if (item?.contributor_name) params.set('contributor_name', item.contributor_name);
+  if (item?.contribution_receipt_date) {
+    params.set('two_year_transaction_period', String(new Date(item.contribution_receipt_date).getFullYear()));
+  }
+  if (!params.toString() && query) params.set('contributor_name', query);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+function buildLdaFilingUrl(filingId) {
+  if (!filingId) return 'https://lda.senate.gov';
+  return `https://lda.senate.gov/filings/public/filing/${encodeURIComponent(filingId)}`;
+}
+
+function buildSamUrl(uei, entityName) {
+  if (uei) return `https://sam.gov/entity/${encodeURIComponent(uei)}`;
+  const params = new URLSearchParams();
+  params.set('index', 'entity');
+  params.set('page', '1');
+  params.set('sort', '-relevance');
+  if (entityName) params.set('keyword', entityName);
+  return `https://sam.gov/search/?${params.toString()}`;
+}
+
 function summarizeMoneyEntities(items) {
   const totals = new Map();
   items.forEach((item) => {
@@ -819,83 +855,143 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
 
   ldaResults.flatMap((entry) => entry.items || []).forEach((item) => {
     const amount = toNumber(item.income) || 0;
+    const filingId = item.filing_uuid || item.id;
+    const registrant = item.registrant?.name || 'Unknown';
+    const client = item.client?.name || 'Lobbying Filing';
+    const canonicalUrl = buildLdaFilingUrl(filingId);
     items.push({
       source: 'LDA',
-      sourceId: item.filing_uuid || item.id,
+      sourceId: filingId,
       type: 'Lobbying Filing',
-      title: item.client?.name || 'Lobbying Filing',
-      summary: `Registrant: ${item.registrant?.name || 'Unknown'} · Filed ${item.filing_year || ''}`,
+      title: client,
+      summary: `Registrant: ${registrant} · Filed ${item.filing_year || ''}`,
       amount,
-      entity: item.client?.name,
-      recipient: item.registrant?.name,
+      entity: client,
+      recipient: registrant,
       publishedAt: item.filing_deadline || item.dt_posted || item.filing_date || new Date().toISOString(),
-      externalUrl: item.url || 'https://lda.senate.gov'
+      externalUrl: canonicalUrl,
+      canonicalUrl,
+      detailFields: [
+        { label: 'Client', value: client },
+        { label: 'Registrant', value: registrant },
+        { label: 'Filing year', value: item.filing_year || '—' },
+        { label: 'Income', value: amount ? `$${amount.toLocaleString('en-US')}` : '—' }
+      ],
+      detailLinkLabel: 'Open LDA filing'
     });
   });
 
   ldaContribResults.flatMap((entry) => entry.items || []).forEach((item) => {
     const contribution = item.contribution_items?.[0];
     const amount = toNumber(contribution?.amount) || 0;
+    const filingId = item.filing_uuid || item.filing_id || item.id;
+    const contributor = contribution?.contributor_name || 'Unknown';
+    const payee = contribution?.payee_name || item.registrant?.name || 'Lobbying Contribution';
+    const canonicalUrl = buildLdaFilingUrl(filingId);
     items.push({
       source: 'LDA',
-      sourceId: item.contribution_id || item.id,
+      sourceId: item.contribution_id || filingId,
       type: 'Lobbying Contribution',
-      title: contribution?.payee_name || item.registrant?.name || 'Lobbying Contribution',
-      summary: `Contributor: ${contribution?.contributor_name || 'Unknown'} · Filed ${item.filing_year || ''}`,
+      title: payee,
+      summary: `Contributor: ${contributor} · Filed ${item.filing_year || ''}`,
       amount,
-      entity: contribution?.contributor_name,
-      recipient: contribution?.payee_name,
+      entity: contributor,
+      recipient: payee,
       publishedAt: contribution?.date || item.filing_deadline || item.filing_date || new Date().toISOString(),
-      externalUrl: item.url || 'https://lda.senate.gov'
+      externalUrl: canonicalUrl,
+      canonicalUrl,
+      detailFields: [
+        { label: 'Contributor', value: contributor },
+        { label: 'Payee', value: payee },
+        { label: 'Filing year', value: item.filing_year || '—' },
+        { label: 'Amount', value: amount ? `$${amount.toLocaleString('en-US')}` : '—' }
+      ],
+      detailLinkLabel: 'Open LDA filing'
     });
   });
 
   (usaResult.items || []).forEach((item) => {
     const amount = toNumber(item['Transaction Amount']);
+    const awardId = item['Award ID'];
+    const recipient = item['Recipient Name'] || awardId || 'Federal Award';
+    const agency = item['Awarding Agency'] || 'Agency';
+    const canonicalUrl = buildUsaspendingUrl(awardId);
     items.push({
       source: 'USAspending',
-      sourceId: item['Award ID'],
+      sourceId: awardId,
       type: 'Federal Award',
-      title: item['Recipient Name'] || item['Award ID'] || 'Federal Award',
-      summary: `${item['Awarding Agency'] || 'Agency'} · ${item['Transaction Description'] || 'Award'}`,
+      title: recipient,
+      summary: `${agency} · ${item['Transaction Description'] || 'Award'}`,
       amount,
-      entity: item['Recipient Name'],
-      recipient: item['Awarding Agency'],
+      entity: recipient,
+      recipient: agency,
       publishedAt: item['Action Date'] || new Date().toISOString(),
-      externalUrl: 'https://www.usaspending.gov'
+      externalUrl: canonicalUrl,
+      canonicalUrl,
+      detailFields: [
+        { label: 'Award ID', value: awardId || '—' },
+        { label: 'Recipient', value: recipient || '—' },
+        { label: 'Agency', value: agency || '—' },
+        { label: 'Action date', value: item['Action Date'] || '—' },
+        { label: 'Amount', value: amount ? `$${amount.toLocaleString('en-US')}` : '—' }
+      ],
+      detailLinkLabel: 'Open USAspending record'
     });
   });
 
   (fecResult.items || []).forEach((item) => {
     const amount = toNumber(item.contribution_receipt_amount);
+    const committee = item.committee?.name || item.committee_name || 'Campaign Committee';
+    const contributor = item.contributor_name || 'Contributor';
+    const canonicalUrl = buildFecUrl(item, query);
     items.push({
       source: 'OpenFEC',
       sourceId: item.sub_id || item.contribution_receipt_id,
       type: 'Campaign Contribution',
-      title: item.committee?.name || item.committee_name || 'Campaign Contribution',
-      summary: `${item.contributor_name || 'Contributor'} · ${item.contributor_employer || 'Employer unknown'}`,
+      title: committee,
+      summary: `${contributor} · ${item.contributor_employer || item.contributor_occupation || 'Employer unknown'}`,
       amount,
-      entity: item.contributor_name,
-      committee: item.committee?.name || item.committee_name,
-      recipient: item.committee?.name || item.committee_name,
+      entity: contributor,
+      committee,
+      recipient: committee,
       publishedAt: item.contribution_receipt_date || new Date().toISOString(),
-      externalUrl: 'https://www.fec.gov/data/'
+      externalUrl: canonicalUrl,
+      canonicalUrl,
+      detailFields: [
+        { label: 'Contributor', value: contributor },
+        { label: 'Committee', value: committee },
+        { label: 'Amount', value: amount ? `$${amount.toLocaleString('en-US')}` : '—' },
+        { label: 'Date', value: item.contribution_receipt_date || '—' },
+        { label: 'Employer', value: item.contributor_employer || '—' }
+      ],
+      detailLinkLabel: 'Open FEC record'
     });
   });
 
   (samResult.items || []).forEach((item) => {
     const amount = toNumber(item.totalActiveContracts);
     const entityName = item.entityRegistration?.legalBusinessName || item.entityRegistration?.dbaName || item.entityRegistration?.entityEFTIndicator;
+    const uei = item.entityRegistration?.ueiSAM || item.entityRegistration?.uei || item.entityRegistration?.ueiSAM || '';
+    const canonicalUrl = buildSamUrl(uei, entityName);
     items.push({
       source: 'SAM.gov',
-      sourceId: item.entityRegistration?.ueiSAM || item.entityRegistration?.uei || item.entityRegistration?.cageCode,
+      sourceId: uei || item.entityRegistration?.cageCode,
       type: 'SAM Entity',
       title: entityName || 'SAM Entity',
       summary: `${item.entityRegistration?.entityStatus || 'Entity'} · ${item.entityRegistration?.stateOrProvinceCode || ''}`,
       amount,
       entity: entityName,
       publishedAt: item.entityRegistration?.lastUpdateDate || new Date().toISOString(),
-      externalUrl: 'https://sam.gov'
+      externalUrl: canonicalUrl,
+      canonicalUrl,
+      detailFields: [
+        { label: 'UEI', value: uei || '—' },
+        { label: 'Status', value: item.entityRegistration?.entityStatus || '—' },
+        { label: 'State', value: item.entityRegistration?.stateOrProvinceCode || '—' },
+        { label: 'Last update', value: item.entityRegistration?.lastUpdateDate || '—' },
+        { label: 'CAGE', value: item.entityRegistration?.cageCode || '—' }
+      ],
+      detailLinkLabel: 'Open SAM record'
     });
   });
 

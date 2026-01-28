@@ -2284,7 +2284,7 @@ function openDetailModal(item) {
       link.href = detailUrl;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.textContent = 'Open on Congress.gov';
+      link.textContent = item.detailLinkLabel || (item.source ? `Open on ${item.source}` : 'Open record');
       actions.appendChild(link);
       elements.detailBody.appendChild(actions);
     }
