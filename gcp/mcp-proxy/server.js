@@ -28,6 +28,8 @@ const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const MONEY_FLOW_DEFAULT_DAYS = 180;
 const MONEY_FLOW_MAX_LIMIT = 120;
 const MONEY_FLOW_TIMEOUT_MS = 45000;
+const SAM_RETRY_ATTEMPTS = 3;
+const SAM_RETRY_BASE_DELAY_MS = 900;
 
 const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const feeds = Array.isArray(feedsConfig.feeds) ? feedsConfig.feeds : [];
@@ -57,6 +59,37 @@ function sendJson(res, status, payload, origin) {
     'Cache-Control': 'no-store'
   });
   res.end(JSON.stringify(payload));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchSamEntities({ query, perSourceLimit, samGovKey }) {
+  if (!samGovKey) {
+    return { error: 'missing_key' };
+  }
+  const url = new URL('https://api.sam.gov/entity-information/v4/entities');
+  url.searchParams.set('api_key', samGovKey);
+  url.searchParams.set('q', query);
+  url.searchParams.set('page', '1');
+  url.searchParams.set('size', String(perSourceLimit));
+
+  for (let attempt = 1; attempt <= SAM_RETRY_ATTEMPTS; attempt += 1) {
+    const { response, data } = await fetchJsonWithTimeout(url.toString(), {
+      headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
+    }, MONEY_FLOW_TIMEOUT_MS);
+    if (response.ok && data) {
+      return { items: data?.entityData || [] };
+    }
+    if (response.status === 429 && attempt < SAM_RETRY_ATTEMPTS) {
+      const delay = SAM_RETRY_BASE_DELAY_MS * attempt;
+      await sleep(delay);
+      continue;
+    }
+    return { error: `HTTP ${response.status}` };
+  }
+  return { error: 'rate_limited' };
 }
 
 function getRequestOrigin(req) {
@@ -816,23 +849,11 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     return { items: data.results || [] };
   })();
 
-  const samTask = (async () => {
-    if (!samGovKey) {
-      return { error: 'missing_key' };
-    }
-    const url = new URL('https://api.sam.gov/entity-information/v4/entities');
-    url.searchParams.set('api_key', samGovKey);
-    url.searchParams.set('q', query);
-    url.searchParams.set('page', '1');
-    url.searchParams.set('size', String(perSourceLimit));
-    const { response, data } = await fetchJsonWithTimeout(url.toString(), {
-      headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
-    }, MONEY_FLOW_TIMEOUT_MS);
-    if (!response.ok || !data) {
-      return { error: `HTTP ${response.status}` };
-    }
-    return { items: data?.entityData || [] };
-  })();
+  const samTask = fetchSamEntities({
+    query,
+    perSourceLimit,
+    samGovKey
+  });
 
   const [ldaSettled, ldaContribSettled, usaSettled, fecSettled, samSettled] = await Promise.allSettled([
     Promise.all(ldaTasks),

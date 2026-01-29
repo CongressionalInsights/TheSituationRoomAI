@@ -28,9 +28,38 @@ const EIA_RETRY_DELAY_MS = 1000;
 const MONEY_FLOW_MAX_LIMIT = 200;
 const MONEY_FLOW_DEFAULT_DAYS = 180;
 const MONEY_FLOW_TIMEOUT_MS = 45000;
+const SAM_RETRY_ATTEMPTS = 3;
+const SAM_RETRY_BASE_DELAY_MS = 900;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchSamEntities({ query, perSourceLimit, samGovKey }) {
+  if (!samGovKey) {
+    return { error: 'missing_key' };
+  }
+  const url = new URL('https://api.sam.gov/entity-information/v4/entities');
+  url.searchParams.set('api_key', samGovKey);
+  url.searchParams.set('q', query);
+  url.searchParams.set('page', '1');
+  url.searchParams.set('size', String(perSourceLimit));
+
+  for (let attempt = 1; attempt <= SAM_RETRY_ATTEMPTS; attempt += 1) {
+    const { response, data } = await fetchJsonWithTimeout(url.toString(), {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    }, MONEY_FLOW_TIMEOUT_MS);
+    if (response.ok && data) {
+      return { items: data?.entityData || [] };
+    }
+    if (response.status === 429 && attempt < SAM_RETRY_ATTEMPTS) {
+      const delay = SAM_RETRY_BASE_DELAY_MS * attempt;
+      await sleep(delay);
+      continue;
+    }
+    return { error: `HTTP ${response.status}` };
+  }
+  return { error: 'rate_limited' };
 }
 
 function setCors(res, origin) {
@@ -873,23 +902,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     return { items: data.results || [] };
   })();
 
-  const samTask = (async () => {
-    if (!samGovKey) {
-      return { error: 'missing_key' };
-    }
-    const url = new URL('https://api.sam.gov/entity-information/v4/entities');
-    url.searchParams.set('api_key', samGovKey);
-    url.searchParams.set('q', query);
-    url.searchParams.set('page', '1');
-    url.searchParams.set('size', String(perSourceLimit));
-    const { response, data } = await fetchJsonWithTimeout(url.toString(), {
-      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
-    }, MONEY_FLOW_TIMEOUT_MS);
-    if (!response.ok || !data) {
-      return { error: `HTTP ${response.status}` };
-    }
-    return { items: data?.entityData || [] };
-  })();
+  const samTask = fetchSamEntities({ query, perSourceLimit, samGovKey });
 
   const [ldaSettled, ldaContribSettled, usaSettled, fecSettled, samSettled] = await Promise.allSettled([
     Promise.all(ldaTasks),
