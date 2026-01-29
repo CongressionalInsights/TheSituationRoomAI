@@ -69,6 +69,18 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function parseRetryAfter(header) {
+  if (!header) return null;
+  const numeric = Number(header);
+  if (Number.isFinite(numeric)) {
+    return { retryAfterSeconds: Math.max(0, Math.round(numeric)), retryAt: null };
+  }
+  const parsed = new Date(header);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const seconds = Math.max(0, Math.round((parsed.getTime() - Date.now()) / 1000));
+  return { retryAfterSeconds: seconds, retryAt: parsed.toISOString() };
+}
+
 async function fetchSamEntities({ query, perSourceLimit, samGovKey }) {
   if (!samGovKey) {
     return { error: 'missing_key' };
@@ -93,16 +105,21 @@ async function fetchSamEntities({ query, perSourceLimit, samGovKey }) {
       samCache.set(cacheKey, { fetchedAt: Date.now(), ttlMs: SAM_CACHE_TTL_MS, payload });
       return payload;
     }
+    const retryMeta = response.status === 429 ? parseRetryAfter(response.headers.get('retry-after')) : null;
     if (response.status === 429 && attempt < SAM_RETRY_ATTEMPTS) {
       const delay = SAM_RETRY_BASE_DELAY_MS * attempt;
       await sleep(delay);
       continue;
     }
-    const payload = { error: `HTTP ${response.status}` };
+    const payload = {
+      error: `HTTP ${response.status}`,
+      retryAfterSeconds: retryMeta?.retryAfterSeconds || null,
+      retryAt: retryMeta?.retryAt || null
+    };
     samCache.set(cacheKey, { fetchedAt: Date.now(), ttlMs: SAM_CACHE_ERROR_TTL_MS, payload });
     return payload;
   }
-  const payload = { error: 'rate_limited' };
+  const payload = { error: 'rate_limited', retryAfterSeconds: null, retryAt: null };
   samCache.set(cacheKey, { fetchedAt: Date.now(), ttlMs: SAM_CACHE_ERROR_TTL_MS, payload });
   return payload;
 }
@@ -915,7 +932,9 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
   };
   results.sources.sam = {
     count: samResult.items?.length || 0,
-    error: samResult.error || null
+    error: samResult.error || null,
+    retryAfterSeconds: samResult.retryAfterSeconds || null,
+    retryAt: samResult.retryAt || null
   };
 
   const items = [];
