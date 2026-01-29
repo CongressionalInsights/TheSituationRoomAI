@@ -7342,7 +7342,7 @@ function buildStorylineItems() {
     items.push({ label: 'Focus', value: meta ? `${title} • ${meta}` : title });
   }
 
-  const localItem = getLatestItem(getLocalItems());
+  const localItem = getLatestItem(getLocalAnalysisItems());
   if (localItem) {
     const title = truncateText(localItem.title || '', 120);
     const location = localItem.geoLabel || localItem.location || localItem.area || '';
@@ -7429,7 +7429,7 @@ function buildChatContext() {
     signals: {
       totalItems: state.scopedItems.length,
       newsClusters: state.clusters.length,
-      localEvents: getLocalItems().length,
+      localEvents: getLocalAnalysisItems().length,
       congressItems: congressItems.length
     },
     congressSignals: congressSample,
@@ -7451,7 +7451,7 @@ function buildChatContext() {
       updatedAt: cluster.updatedAt,
       url: cluster.primary.url
     })),
-    localSignals: getLocalItems().slice(0, 6).map((item) => ({
+    localSignals: getLocalAnalysisItems().slice(0, 6).map((item) => ({
       title: item.title,
       source: item.source,
       publishedAt: item.publishedAt,
@@ -7560,7 +7560,7 @@ function generateAnalysis(emitChat = false, options = {}) {
   }
   const totalItems = state.scopedItems.length;
   const newsClusters = state.clusters.length;
-  const localCount = getLocalItems().length;
+  const localCount = getLocalAnalysisItems().length;
   const marketCount = applyLanguageFilter(applyFreshnessFilter(state.items))
     .filter((item) => item.category === 'crypto' || item.category === 'finance').length;
   const congressItems = getCongressItems();
@@ -7575,7 +7575,7 @@ function generateAnalysis(emitChat = false, options = {}) {
   }
 
   const focusCluster = getPriorityCluster();
-  const localItem = getLatestItem(getLocalItems());
+  const localItem = getLatestItem(getLocalAnalysisItems());
   const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
     .filter((item) => item.category === 'crypto' || item.category === 'finance');
   const marketItem = getLatestItem(marketSignals);
@@ -7780,6 +7780,21 @@ function getLocalItems() {
   const { lat, lon } = state.location;
   const radius = state.settings.radiusKm;
   return sourceItems.filter((item) => item.geo && haversineKm(lat, lon, item.geo.lat, item.geo.lon) <= radius);
+}
+
+function isLocalAnalysisExcluded(item) {
+  if (!item) return false;
+  const alertType = (item.alertType || '').toLowerCase();
+  const feedId = (item.feedId || '').toLowerCase();
+  const tags = Array.isArray(item.tags) ? item.tags.map((tag) => String(tag).toLowerCase()) : [];
+  if (feedId === 'transport-opensky') return true;
+  if (alertType === 'flight') return true;
+  if (tags.includes('flight') || tags.includes('aviation')) return true;
+  return false;
+}
+
+function getLocalAnalysisItems() {
+  return getLocalItems().filter((item) => !isLocalAnalysisExcluded(item));
 }
 
 function haversineKm(lat1, lon1, lat2, lon2) {
