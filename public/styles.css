@@ -1599,6 +1599,21 @@ a:focus-visible {
   color: var(--muted);
 }
 
+.money-rate {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #7a1f1f;
+  background: rgba(255, 77, 79, 0.12);
+  border: 1px solid rgba(255, 77, 79, 0.35);
+  display: none;
+}
+
+.money-rate.active {
+  display: block;
+}
+
 .money-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

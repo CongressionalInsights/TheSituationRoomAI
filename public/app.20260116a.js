@@ -6,6 +6,170 @@ const CLIENT_FETCH_TIMEOUT_MS = 12000;
 const MONEY_FLOW_DEFAULT_DAYS = 180;
 const MONEY_FLOW_MAX_LIMIT = 120;
 
+const DEFAULT_MAP_RASTER_OVERLAYS = {
+  hillshade: false,
+  sar: false,
+  aerosol: false,
+  lidar: false,
+  lidarPoints: false,
+  thermal: false,
+  fire: false
+};
+
+const DEFAULT_MAP_OVERLAY_OPACITY = {
+  hillshade: 0.45,
+  sar: 0.55,
+  aerosol: 0.45,
+  lidar: 0.25,
+  lidarPoints: 0.65,
+  thermal: 0.45,
+  fire: 0.45
+};
+
+const DEFAULT_LIDAR_POINT_LIMITS = {
+  useCustom: false,
+  pointCap: 150000,
+  radiusKm: 5,
+  maxTilesDesktop: 16,
+  maxTilesMobile: 8
+};
+
+const DEFAULT_MAP_CONFLICT_TYPES = {
+  battle: true,
+  explosion: true,
+  violence: true,
+  protest: true,
+  riot: true,
+  other: true
+};
+
+const DEFAULT_MAP_LAYERS = {
+  weather: true,
+  disaster: true,
+  space: true,
+  news: true,
+  spill: true,
+  health: true,
+  travel: true,
+  transport: true,
+  security: true,
+  securityLagged: true,
+  military: true,
+  gpsjam: true,
+  infrastructure: true,
+  outage: true,
+  local: true
+};
+
+const DEFAULT_SETTINGS = {
+  refreshMinutes: 60,
+  theme: 'system',
+  maxAgeDays: 30,
+  languageMode: 'en',
+  radiusKm: 150,
+  scope: 'global',
+  country: 'US',
+  countryAuto: true,
+  aiTranslate: true,
+  superMonitor: false,
+  showStatus: true,
+  showTravelTicker: true,
+  showKeys: true,
+  showMcp: true,
+  liveSearch: true,
+  tickerWatchlist: [],
+  useClientOpenAI: false,
+  mapBasemap: 'osm',
+  mapRasterOverlays: DEFAULT_MAP_RASTER_OVERLAYS,
+  mapImageryDate: '',
+  mapSarDate: '',
+  lastImageryDate: '',
+  lastSarDate: '',
+  mapOverlayOpacity: DEFAULT_MAP_OVERLAY_OPACITY,
+  lidarPointLimits: DEFAULT_LIDAR_POINT_LIMITS,
+  lidarEnabled: false,
+  mapConflictTypes: DEFAULT_MAP_CONFLICT_TYPES,
+  mapLayers: DEFAULT_MAP_LAYERS,
+  mapFlightDensity: 'medium'
+};
+
+function cloneDefaultSettings() {
+  return {
+    ...DEFAULT_SETTINGS,
+    tickerWatchlist: [...DEFAULT_SETTINGS.tickerWatchlist],
+    mapRasterOverlays: { ...DEFAULT_SETTINGS.mapRasterOverlays },
+    mapOverlayOpacity: { ...DEFAULT_SETTINGS.mapOverlayOpacity },
+    lidarPointLimits: { ...DEFAULT_SETTINGS.lidarPointLimits },
+    mapConflictTypes: { ...DEFAULT_SETTINGS.mapConflictTypes },
+    mapLayers: { ...DEFAULT_SETTINGS.mapLayers }
+  };
+}
+
+function normalizeSettings(parsed = {}) {
+  const defaults = cloneDefaultSettings();
+  const merged = { ...defaults, ...parsed };
+
+  merged.mapLayers = { ...defaults.mapLayers, ...(parsed.mapLayers || {}) };
+  merged.mapRasterOverlays = { ...defaults.mapRasterOverlays, ...(parsed.mapRasterOverlays || {}) };
+  merged.mapOverlayOpacity = { ...defaults.mapOverlayOpacity, ...(parsed.mapOverlayOpacity || {}) };
+  merged.lidarPointLimits = normalizeLidarPointLimits({
+    ...defaults.lidarPointLimits,
+    ...(parsed.lidarPointLimits || {})
+  });
+
+  if (!merged.mapBasemap) {
+    merged.mapBasemap = defaults.mapBasemap;
+  }
+  if (merged.mapBasemap === 'gibs') {
+    merged.mapBasemap = 'gibs-viirs';
+  }
+  if (!merged.mapImageryDate) {
+    merged.mapImageryDate = '';
+  }
+  if (!merged.mapSarDate) {
+    merged.mapSarDate = '';
+  }
+  if (!merged.lastImageryDate) {
+    merged.lastImageryDate = '';
+  }
+  if (!merged.lastSarDate) {
+    merged.lastSarDate = '';
+  }
+  if (!merged.mapFlightDensity) {
+    merged.mapFlightDensity = defaults.mapFlightDensity;
+  }
+  if (!merged.mapConflictTypes || typeof merged.mapConflictTypes !== 'object') {
+    merged.mapConflictTypes = { ...defaults.mapConflictTypes };
+  }
+  if (typeof merged.lidarEnabled !== 'boolean') {
+    merged.lidarEnabled = defaults.lidarEnabled;
+  }
+
+  merged.aiTranslate = typeof merged.aiTranslate === 'boolean' ? merged.aiTranslate : defaults.aiTranslate;
+  merged.showStatus = typeof merged.showStatus === 'boolean' ? merged.showStatus : defaults.showStatus;
+  merged.showTravelTicker = typeof merged.showTravelTicker === 'boolean'
+    ? merged.showTravelTicker
+    : defaults.showTravelTicker;
+  merged.showKeys = typeof merged.showKeys === 'boolean' ? merged.showKeys : defaults.showKeys;
+  merged.showMcp = typeof merged.showMcp === 'boolean' ? merged.showMcp : defaults.showMcp;
+  merged.liveSearch = typeof merged.liveSearch === 'boolean' ? merged.liveSearch : defaults.liveSearch;
+  const hasSuperMonitor = Object.prototype.hasOwnProperty.call(parsed, 'superMonitor')
+    && typeof parsed.superMonitor === 'boolean';
+  merged.superMonitor = hasSuperMonitor ? parsed.superMonitor : isStaticMode();
+
+  if (!Array.isArray(merged.tickerWatchlist)) {
+    merged.tickerWatchlist = [];
+  }
+  if (!merged.country) {
+    merged.country = defaults.country;
+  }
+  if (typeof merged.countryAuto !== 'boolean') {
+    merged.countryAuto = defaults.countryAuto;
+  }
+
+  return merged;
+}
+
 const state = {
   feeds: [],
   baseFeeds: [],
@@ -30,96 +194,17 @@ const state = {
   lastSearchCategories: [],
   translationCache: {},
   translationInFlight: new Set(),
-  staticAnalysis: null,
-  customTickers: [],
-  energyMarket: {},
-  moneyFlowsData: null,
-  moneyFlowsItems: [],
-  moneyFlowsFetchedAt: 0,
-  moneyFlowsLoading: false,
-  moneyFlowsError: null,
-  moneyFlowsQuery: '',
-  moneyFlowsRangeDays: MONEY_FLOW_DEFAULT_DAYS,
-  listLimits: {},
   congressAmendmentCache: new Map(),
   congressBillAmendments: new Map(),
   congressAmendmentsLoading: false,
   congressHearingCache: new Map(),
+  staticAnalysis: null,
+  customTickers: [],
+  energyMarket: {},
+  listLimits: {},
   countries: [],
   countryIndex: {},
-  settings: {
-    refreshMinutes: 60,
-    theme: 'system',
-    maxAgeDays: 30,
-    languageMode: 'en',
-    radiusKm: 150,
-    scope: 'global',
-    country: 'US',
-    countryAuto: true,
-    aiTranslate: true,
-    superMonitor: false,
-    showStatus: true,
-    showTravelTicker: true,
-    showKeys: true,
-    showMcp: true,
-    liveSearch: true,
-    tickerWatchlist: [],
-    useClientOpenAI: false,
-    mapBasemap: 'osm',
-    mapRasterOverlays: {
-      hillshade: false,
-      sar: false
-      ,
-      aerosol: false,
-      lidar: false,
-      lidarPoints: false,
-      thermal: false,
-      fire: false
-    },
-    mapImageryDate: '',
-    mapSarDate: '',
-    mapOverlayOpacity: {
-      hillshade: 0.45,
-      sar: 0.55,
-      aerosol: 0.45,
-      lidar: 0.25,
-      lidarPoints: 0.65,
-      thermal: 0.45,
-      fire: 0.45
-    },
-    lidarPointLimits: {
-      useCustom: false,
-      pointCap: 150000,
-      radiusKm: 5,
-      maxTilesDesktop: 16,
-      maxTilesMobile: 8
-    },
-    lidarEnabled: false,
-    mapConflictTypes: {
-      battle: true,
-      explosion: true,
-      violence: true,
-      protest: true,
-      riot: true,
-      other: true
-    },
-    mapLayers: {
-      weather: true,
-      disaster: true,
-      space: true,
-      news: true,
-      spill: true,
-      health: true,
-      travel: true,
-      transport: true,
-      security: true,
-      gpsjam: true,
-      infrastructure: true,
-      outage: true,
-      local: true
-    },
-    mapFlightDensity: 'medium'
-  },
+  settings: cloneDefaultSettings(),
   location: {
     lat: 35.5951,
     lon: -82.5515,
@@ -157,6 +242,13 @@ const state = {
   energyMapData: null,
   energyMapError: null,
   energyMapFetchedAt: 0,
+  moneyFlowsData: null,
+  moneyFlowsItems: [],
+  moneyFlowsFetchedAt: 0,
+  moneyFlowsLoading: false,
+  moneyFlowsError: null,
+  moneyFlowsQuery: '',
+  moneyFlowsRangeDays: MONEY_FLOW_DEFAULT_DAYS,
   lastBuildAt: null,
   refreshTimer: null,
   lastFetch: null,
@@ -257,20 +349,6 @@ const elements = {
   feedScope: document.getElementById('feedScope'),
   searchInput: document.getElementById('searchInput'),
   searchBtn: document.getElementById('searchBtn'),
-  moneyFlowsQuery: document.getElementById('moneyFlowsQuery'),
-  moneyFlowsRange: document.getElementById('moneyFlowsRange'),
-  moneyFlowsRun: document.getElementById('moneyFlowsRun'),
-  moneyFlowsSummary: document.getElementById('moneyFlowsSummary'),
-  moneyFlowsList: document.getElementById('moneyFlowsList'),
-  moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
-  moneyInMeta: document.getElementById('moneyInMeta'),
-  moneyInBody: document.getElementById('moneyInBody'),
-  moneyOutMeta: document.getElementById('moneyOutMeta'),
-  moneyOutBody: document.getElementById('moneyOutBody'),
-  moneyLobbyMeta: document.getElementById('moneyLobbyMeta'),
-  moneyLobbyBody: document.getElementById('moneyLobbyBody'),
-  moneyRegistryMeta: document.getElementById('moneyRegistryMeta'),
-  moneyRegistryBody: document.getElementById('moneyRegistryBody'),
   searchHint: document.getElementById('searchHint'),
   liveSearchToggle: document.getElementById('liveSearchToggle'),
   scopeToggle: document.getElementById('scopeToggle'),
@@ -393,8 +471,22 @@ const elements = {
   chatSend: document.getElementById('chatSend'),
   financeMarketsList: document.getElementById('financeMarketsList'),
   financePolicyList: document.getElementById('financePolicyList'),
-  financeTabs: document.getElementById('financeTabs')
-  ,
+  financeTabs: document.getElementById('financeTabs'),
+  moneyFlowsQuery: document.getElementById('moneyFlowsQuery'),
+  moneyFlowsRange: document.getElementById('moneyFlowsRange'),
+  moneyFlowsRun: document.getElementById('moneyFlowsRun'),
+  moneyFlowsSummary: document.getElementById('moneyFlowsSummary'),
+  moneyFlowsList: document.getElementById('moneyFlowsList'),
+  moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
+  moneyFlowsRateNotice: document.getElementById('moneyFlowsRateNotice'),
+  moneyInMeta: document.getElementById('moneyInMeta'),
+  moneyInBody: document.getElementById('moneyInBody'),
+  moneyOutMeta: document.getElementById('moneyOutMeta'),
+  moneyOutBody: document.getElementById('moneyOutBody'),
+  moneyLobbyMeta: document.getElementById('moneyLobbyMeta'),
+  moneyLobbyBody: document.getElementById('moneyLobbyBody'),
+  moneyRegistryMeta: document.getElementById('moneyRegistryMeta'),
+  moneyRegistryBody: document.getElementById('moneyRegistryBody'),
   customFeedToggle: document.getElementById('customFeedToggle'),
   customFeedExport: document.getElementById('customFeedExport'),
   customFeedImportToggle: document.getElementById('customFeedImportToggle'),
@@ -424,123 +516,114 @@ const elements = {
   customFeedStatus: document.getElementById('customFeedStatus')
 };
 
-const defaultPanelSizes = {
-  map: { cols: 12 },
-  briefing: { cols: 12 },
-  ticker: { cols: 12 },
-  'finance-spotlight': { cols: 6 },
-  imagery: { cols: 12 },
-  command: { cols: 12 },
-  signals: { cols: 6 },
-  news: { cols: 6 },
-  finance: { cols: 6 },
-  'money-flows': { cols: 12 },
-  crypto: { cols: 6 },
-  prediction: { cols: 6 },
-  hazards: { cols: 6 },
-  security: { cols: 6 },
-  local: { cols: 6 },
-  community: { cols: 6 },
-  policy: { cols: 6 },
-  congress: { cols: 6 },
-  cyber: { cols: 6 },
-  agriculture: { cols: 6 },
-  research: { cols: 6 },
-  space: { cols: 6 },
-  'energy-map': { cols: 6 },
-  energy: { cols: 6 },
-  health: { cols: 6 },
-  transport: { cols: 6 }
-};
+const DEFAULT_PANEL_SIZE_CONFIG = [
+  { id: 'map', cols: 12 },
+  { id: 'ticker', cols: 12 },
+  { id: 'finance-spotlight', cols: 12 },
+  { id: 'imagery', cols: 12 },
+  { id: 'command', cols: 12 },
+  { id: 'signals', cols: 6 },
+  { id: 'news', cols: 6 },
+  { id: 'finance', cols: 4 },
+  { id: 'money-flows', cols: 12 },
+  { id: 'crypto', cols: 4 },
+  { id: 'prediction', cols: 4 },
+  { id: 'hazards', cols: 4 },
+  { id: 'security', cols: 4 },
+  { id: 'local', cols: 6 },
+  { id: 'community', cols: 6 },
+  { id: 'policy', cols: 4 },
+  { id: 'congress', cols: 4 },
+  { id: 'cyber', cols: 4 },
+  { id: 'agriculture', cols: 4 },
+  { id: 'research', cols: 4 },
+  { id: 'space', cols: 4 },
+  { id: 'energy-map', cols: 6 },
+  { id: 'energy', cols: 6 },
+  { id: 'health', cols: 4 },
+  { id: 'transport', cols: 6 }
+];
+const DEFAULT_PANEL_SIZES = Object.fromEntries(
+  DEFAULT_PANEL_SIZE_CONFIG.map((entry) => [entry.id, { cols: entry.cols }])
+);
 
-let settingsPanelsReady = false;
-let settingsKeysReady = false;
-let settingsCustomFeedsReady = false;
-let settingsCategoriesReady = false;
 let editingCustomFeedId = null;
 
-const stopwords = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have']);
-const allowedSummaryTags = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'span', 'a', 'font']);
-const docsMap = {
-  openai: 'https://platform.openai.com/api-keys'
-};
-const keyGroupLabels = {
-  'api.data.gov': 'Data.gov (FOIA + GovInfo)',
-  'eia': 'EIA (Energy)'
-};
-const panelKeyFilters = {
-  hazards: ['weather', 'disaster', 'space'],
-  finance: ['finance', 'gov', 'cyber', 'agriculture'],
-  map: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'],
-  geo: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'],
-  local: ['news', 'gov', 'disaster', 'weather'],
-  assistant: ['assistant']
-};
-const categoryLabels = {
-  news: 'News',
-  finance: 'Finance',
-  gov: 'Government',
-  crypto: 'Crypto / Web3',
-  prediction: 'Prediction Markets',
-  spill: 'Oil Spills',
-  disaster: 'Disasters',
-  weather: 'Weather',
-  space: 'Space',
-  cyber: 'Cyber',
-  agriculture: 'Agriculture',
-  research: 'Research',
-  energy: 'Energy',
-  health: 'Health',
-  travel: 'Travel',
-  transport: 'Transport',
-  security: 'Conflict & Security',
-  infrastructure: 'Infrastructure',
-  local: 'Local'
-};
-const categoryOrder = ['news', 'finance', 'gov', 'crypto', 'prediction', 'spill', 'disaster', 'weather', 'space', 'cyber', 'agriculture', 'research', 'energy', 'health', 'travel', 'transport', 'security', 'infrastructure', 'local'];
-const globalFallbackCategories = new Set(['crypto', 'research', 'space', 'travel', 'health', 'security']);
-const listDefaults = {
-  newsList: 30,
-  securityList: 20,
-  financeMarketsList: 20,
-  financePolicyList: 20,
-  moneyFlowsList: 20,
-  cryptoList: 20,
-  predictionList: 20,
-  disasterList: 20,
-  localList: 20,
-  policyList: 20,
-  congressList: 30,
-  cyberList: 20,
-  agricultureList: 20,
-  researchList: 20,
-  spaceList: 20,
-  energyList: 20,
-  healthList: 20,
-  transportList: 20
-};
-const listPageSize = 8;
-const listModalConfigs = [
-  { id: 'newsList', title: 'News Layer', withCoverage: true, getItems: () => buildNewsItems(state.clusters) },
-  { id: 'securityList', title: 'Conflict & Security', getItems: () => getCategoryItems('security').items },
-  { id: 'financeMarketsList', title: 'Finance: Markets', getItems: () => getCombinedItems(['finance', 'energy']) },
-  { id: 'financePolicyList', title: 'Finance: Regulatory', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
-  { id: 'moneyFlowsList', title: 'Money Flows', getItems: () => state.moneyFlowsItems || [] },
-  { id: 'cryptoList', title: 'Crypto / Web3', getItems: () => getCategoryItems('crypto').items },
-  { id: 'predictionList', title: 'Prediction Markets', getItems: () => getPredictionItems() },
-  { id: 'disasterList', title: 'Hazards & Weather', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
-  { id: 'localList', title: 'Local Lens', getItems: () => getLocalItemsForPanel() },
-  { id: 'policyList', title: 'Policy & Government', getItems: () => getCategoryItems('gov').items },
-  { id: 'congressList', title: 'Congressional Insights', getItems: () => getCongressItems() },
-  { id: 'cyberList', title: 'Cyber Pulse', getItems: () => getCategoryItems('cyber').items },
-  { id: 'agricultureList', title: 'Agriculture', getItems: () => getCategoryItems('agriculture').items },
-  { id: 'researchList', title: 'Research Watch', getItems: () => getCategoryItems('research').items },
-  { id: 'spaceList', title: 'Space Weather', getItems: () => getCategoryItems('space').items },
-  { id: 'energyList', title: 'Energy', getItems: () => getEnergyNewsItems() },
-  { id: 'healthList', title: 'Health', getItems: () => getCategoryItems('health').items },
-  { id: 'transportList', title: 'Transport & Logistics', getItems: () => getCategoryItems('transport').items }
+const STOPWORD_LIST = ['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have'];
+const STOPWORDS = new Set(STOPWORD_LIST);
+const SUMMARY_TAGS_ALLOWED = ['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'span', 'a', 'font'];
+const ALLOWED_SUMMARY_TAGS = new Set(SUMMARY_TAGS_ALLOWED);
+const DOCS_CONFIG = [
+  { id: 'openai', url: 'https://platform.openai.com/api-keys' }
 ];
-const listModalConfigMap = Object.fromEntries(listModalConfigs.map((config) => [config.id, config]));
+const DOCS_MAP = Object.fromEntries(DOCS_CONFIG.map((entry) => [entry.id, entry.url]));
+const KEY_GROUP_CONFIG = [
+  { id: 'api.data.gov', label: 'Data.gov (FOIA + GovInfo)' },
+  { id: 'eia', label: 'EIA (Energy)' }
+];
+const KEY_GROUP_LABELS = Object.fromEntries(KEY_GROUP_CONFIG.map((group) => [group.id, group.label]));
+const PANEL_KEY_FILTER_CONFIG = [
+  { id: 'hazards', filters: ['weather', 'disaster', 'space'] },
+  { id: 'finance', filters: ['finance', 'gov', 'cyber', 'agriculture'] },
+  { id: 'map', filters: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'] },
+  { id: 'geo', filters: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'] },
+  { id: 'local', filters: ['news', 'gov', 'disaster', 'weather'] },
+  { id: 'assistant', filters: ['assistant'] }
+];
+const PANEL_KEY_FILTERS = Object.fromEntries(
+  PANEL_KEY_FILTER_CONFIG.map((entry) => [entry.id, entry.filters])
+);
+const CATEGORY_CONFIG = [
+  { id: 'news', label: 'News' },
+  { id: 'finance', label: 'Finance' },
+  { id: 'gov', label: 'Government' },
+  { id: 'crypto', label: 'Crypto / Web3' },
+  { id: 'prediction', label: 'Prediction Markets' },
+  { id: 'spill', label: 'Oil Spills' },
+  { id: 'disaster', label: 'Disasters' },
+  { id: 'weather', label: 'Weather' },
+  { id: 'space', label: 'Space' },
+  { id: 'cyber', label: 'Cyber' },
+  { id: 'agriculture', label: 'Agriculture' },
+  { id: 'research', label: 'Research' },
+  { id: 'energy', label: 'Energy' },
+  { id: 'health', label: 'Health' },
+  { id: 'travel', label: 'Travel' },
+  { id: 'transport', label: 'Transport' },
+  { id: 'security', label: 'Conflict & Security' },
+  { id: 'infrastructure', label: 'Infrastructure' },
+  { id: 'local', label: 'Local' }
+];
+const CATEGORY_LABELS = Object.fromEntries(CATEGORY_CONFIG.map((entry) => [entry.id, entry.label]));
+const CATEGORY_ORDER = CATEGORY_CONFIG.map((entry) => entry.id);
+const GLOBAL_FALLBACK_CATEGORIES = new Set(['crypto', 'research', 'space', 'travel', 'health', 'security']);
+const LIST_PAGE_SIZE = 8;
+const LIST_CONFIG = [
+  { id: 'newsList', title: 'News Layer', withCoverage: true, defaultLimit: 30, getItems: () => buildNewsItems(state.clusters) },
+  { id: 'securityList', title: 'Conflict & Security', defaultLimit: 20, getItems: () => getCategoryItems('security').items },
+  { id: 'financeMarketsList', title: 'Finance: Markets', defaultLimit: 20, getItems: () => getCombinedItems(['finance', 'energy']) },
+  { id: 'financePolicyList', title: 'Finance: Regulatory', defaultLimit: 20, getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
+  { id: 'moneyFlowsList', title: 'Money Flows', defaultLimit: 20, getItems: () => state.moneyFlowsItems || [] },
+  { id: 'cryptoList', title: 'Crypto / Web3', defaultLimit: 20, getItems: () => getCategoryItems('crypto').items },
+  { id: 'predictionList', title: 'Prediction Markets', defaultLimit: 20, getItems: () => getPredictionItems() },
+  { id: 'disasterList', title: 'Hazards & Weather', defaultLimit: 20, getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
+  { id: 'localList', title: 'Local Lens', defaultLimit: 20, getItems: () => getLocalItemsForPanel() },
+  { id: 'policyList', title: 'Policy & Government', defaultLimit: 20, getItems: () => getCategoryItems('gov').items },
+  { id: 'congressList', title: 'Congressional Insights', defaultLimit: 30, getItems: () => getCongressItems() },
+  { id: 'cyberList', title: 'Cyber Pulse', defaultLimit: 20, getItems: () => getCategoryItems('cyber').items },
+  { id: 'agricultureList', title: 'Agriculture', defaultLimit: 20, getItems: () => getCategoryItems('agriculture').items },
+  { id: 'researchList', title: 'Research Watch', defaultLimit: 20, getItems: () => getCategoryItems('research').items },
+  { id: 'spaceList', title: 'Space Weather', defaultLimit: 20, getItems: () => getCategoryItems('space').items },
+  { id: 'energyList', title: 'Energy', defaultLimit: 20, getItems: () => getEnergyNewsItems() },
+  { id: 'healthList', title: 'Health', defaultLimit: 20, getItems: () => getCategoryItems('health').items },
+  { id: 'transportList', title: 'Transport & Logistics', defaultLimit: 20, getItems: () => getCategoryItems('transport').items }
+];
+const LIST_DEFAULTS = Object.fromEntries(
+  LIST_CONFIG.filter((config) => typeof config.defaultLimit === 'number')
+    .map((config) => [config.id, config.defaultLimit])
+);
+const LIST_MODAL_CONFIGS = LIST_CONFIG.map(({ defaultLimit, ...config }) => config);
+const LIST_MODAL_CONFIG_MAP = Object.fromEntries(LIST_MODAL_CONFIGS.map((config) => [config.id, config]));
 const DATA_ATTRIBUTIONS = [
   {
     id: 'openstreetmap',
@@ -1313,18 +1396,20 @@ function applyOpenSkyProxyOverride() {
 
 function applyAcledProxyOverride() {
   const proxy = getAcledProxy();
-  const feed = state.feeds.find((entry) => entry.id === 'acled-events');
-  if (!feed) return;
-  if (proxy) {
+  const feeds = state.feeds.filter((entry) => entry.id === 'acled-events' || entry.acledMode);
+  if (!feeds.length) return;
+  feeds.forEach((feed) => {
+    if (!proxy) return;
     const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
-    feed.url = `${base}/events`;
+    const endpoint = feed.acledMode === 'aggregated' ? 'aggregated' : 'events';
+    feed.url = `${base}/${endpoint}`;
     feed.proxy = null;
     feed.requiresKey = false;
     feed.keySource = null;
     feed.keyParam = null;
     feed.keyHeader = null;
     feed.requiresConfig = false;
-  }
+  });
 }
 
 function loadSettings() {
@@ -1332,74 +1417,7 @@ function loadSettings() {
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      const defaultLayers = { ...state.settings.mapLayers };
-      const defaultOverlays = { ...state.settings.mapRasterOverlays };
-      const defaultOpacity = { ...state.settings.mapOverlayOpacity };
-      const defaultLidarLimits = { ...state.settings.lidarPointLimits };
-      Object.assign(state.settings, parsed);
-      state.settings.mapLayers = { ...defaultLayers, ...(parsed.mapLayers || {}) };
-      state.settings.mapRasterOverlays = { ...defaultOverlays, ...(parsed.mapRasterOverlays || {}) };
-      state.settings.mapOverlayOpacity = { ...defaultOpacity, ...(parsed.mapOverlayOpacity || {}) };
-      state.settings.lidarPointLimits = { ...defaultLidarLimits, ...(parsed.lidarPointLimits || {}) };
-      state.settings.lidarPointLimits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
-      if (!state.settings.mapBasemap) {
-        state.settings.mapBasemap = 'osm';
-      }
-      if (state.settings.mapBasemap === 'gibs') {
-        state.settings.mapBasemap = 'gibs-viirs';
-      }
-      if (!state.settings.mapImageryDate) {
-        state.settings.mapImageryDate = '';
-      }
-      if (!state.settings.mapSarDate) {
-        state.settings.mapSarDate = '';
-      }
-      if (!state.settings.lastImageryDate) {
-        state.settings.lastImageryDate = '';
-      }
-      if (!state.settings.lastSarDate) {
-        state.settings.lastSarDate = '';
-      }
-      if (!state.settings.mapFlightDensity) {
-        state.settings.mapFlightDensity = 'medium';
-      }
-      if (!state.settings.mapConflictTypes || typeof state.settings.mapConflictTypes !== 'object') {
-        state.settings.mapConflictTypes = {
-          battle: true,
-          explosion: true,
-          violence: true,
-          protest: true,
-          riot: true,
-          other: true
-        };
-      }
-      if (typeof state.settings.lidarEnabled !== 'boolean') {
-        state.settings.lidarEnabled = false;
-      }
-      if (typeof state.settings.aiTranslate !== 'boolean') {
-        state.settings.aiTranslate = true;
-      }
-      if (typeof state.settings.showStatus !== 'boolean') {
-        state.settings.showStatus = true;
-      }
-      if (typeof state.settings.showTravelTicker !== 'boolean') {
-        state.settings.showTravelTicker = true;
-      }
-      if (typeof state.settings.showKeys !== 'boolean') {
-        state.settings.showKeys = true;
-      }
-      if (typeof state.settings.showMcp !== 'boolean') {
-        state.settings.showMcp = true;
-      }
-      if (typeof state.settings.liveSearch !== 'boolean') {
-        state.settings.liveSearch = true;
-      }
-      if (typeof state.settings.superMonitor !== 'boolean') {
-        state.settings.superMonitor = isStaticMode();
-      }
-      if (!Array.isArray(state.settings.tickerWatchlist)) {
-        state.settings.tickerWatchlist = [];
-      }
+      state.settings = normalizeSettings(parsed);
       try {
         const telemetry = localStorage.getItem(LIDAR_POINT_TELEMETRY_KEY);
         if (telemetry) {
@@ -1408,40 +1426,8 @@ function loadSettings() {
       } catch (err) {
         console.warn('LiDAR telemetry read failed', err);
       }
-      if (!state.settings.country) {
-        state.settings.country = 'US';
-      }
-      if (typeof state.settings.countryAuto !== 'boolean') {
-        state.settings.countryAuto = true;
-      }
     } catch (err) {
-      state.settings.aiTranslate = true;
-      state.settings.showStatus = true;
-      state.settings.showTravelTicker = true;
-      state.settings.showKeys = true;
-      state.settings.showMcp = true;
-      state.settings.liveSearch = true;
-      state.settings.superMonitor = isStaticMode();
-      state.settings.tickerWatchlist = [];
-      state.settings.mapBasemap = 'osm';
-      state.settings.mapRasterOverlays = { ...state.settings.mapRasterOverlays };
-      state.settings.mapImageryDate = '';
-      state.settings.mapSarDate = '';
-      state.settings.lastImageryDate = '';
-      state.settings.lastSarDate = '';
-      state.settings.mapOverlayOpacity = { ...state.settings.mapOverlayOpacity };
-      state.settings.country = 'US';
-      state.settings.countryAuto = true;
-      state.settings.mapFlightDensity = 'medium';
-      state.settings.lidarEnabled = false;
-      state.settings.mapConflictTypes = {
-        battle: true,
-        explosion: true,
-        violence: true,
-        protest: true,
-        riot: true,
-        other: true
-      };
+      state.settings = normalizeSettings();
     }
   }
 }
@@ -1688,7 +1674,7 @@ function applyPanelOrder() {
 
 function applyPanelSizes() {
   getPanelRegistry().forEach((panel) => {
-    const size = state.panels.sizes[panel.id] || defaultPanelSizes[panel.id];
+    const size = state.panels.sizes[panel.id] || DEFAULT_PANEL_SIZES[panel.id];
     if (!size) {
       panel.element.style.gridColumnEnd = '';
       panel.element.style.height = '';
@@ -1990,42 +1976,6 @@ function updateSearchHint() {
   elements.searchHint.textContent = getSearchHintBase();
 }
 
-function ensurePanelToggles() {
-  if (settingsPanelsReady) return;
-  settingsPanelsReady = true;
-  buildPanelToggles();
-}
-
-function ensureCustomFeedsUI() {
-  if (settingsCustomFeedsReady) return;
-  if (!settingsCategoriesReady) {
-    populateCustomFeedCategories();
-    settingsCategoriesReady = true;
-  }
-  settingsCustomFeedsReady = true;
-  buildCustomFeedList();
-}
-
-function ensureKeyManager() {
-  if (settingsKeysReady) return;
-  settingsKeysReady = true;
-  buildKeyManager();
-}
-
-function scheduleSettingsPrebuild() {
-  if (settingsPanelsReady && settingsKeysReady && settingsCustomFeedsReady) return;
-  const run = () => {
-    ensurePanelToggles();
-    ensureCustomFeedsUI();
-    ensureKeyManager();
-  };
-  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-    window.requestIdleCallback(run, { timeout: 2500 });
-  } else {
-    setTimeout(run, 1500);
-  }
-}
-
 function toggleSettings(open) {
   elements.settingsPanel.classList.toggle('open', open);
   if (elements.settingsScrim) {
@@ -2033,9 +1983,6 @@ function toggleSettings(open) {
   }
   elements.settingsPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
   elements.settingsPanel.inert = !open;
-  if (open) {
-    requestAnimationFrame(() => ensurePanelToggles());
-  }
 }
 
 function toggleAbout(open) {
@@ -2339,8 +2286,8 @@ function buildFeedOptions() {
 
   const categories = Array.from(new Set(state.feeds.map((feed) => feed.category).filter(Boolean)));
   const sortedCategories = [
-    ...categoryOrder.filter((cat) => categories.includes(cat)),
-    ...categories.filter((cat) => !categoryOrder.includes(cat))
+    ...CATEGORY_ORDER.filter((cat) => categories.includes(cat)),
+    ...categories.filter((cat) => !CATEGORY_ORDER.includes(cat))
   ];
 
   if (elements.categoryFilters) {
@@ -2350,7 +2297,7 @@ function buildFeedOptions() {
       chip.className = 'chip chip-toggle';
       chip.type = 'button';
       chip.dataset.category = category;
-      chip.textContent = categoryLabels[category] || category;
+      chip.textContent = CATEGORY_LABELS[category] || category;
       chip.addEventListener('click', () => {
         const selected = state.searchCategories.includes(category);
         if (selected) {
@@ -2369,14 +2316,14 @@ function buildFeedOptions() {
   sortedCategories.forEach((category) => {
     const option = document.createElement('option');
     option.value = `cat:${category}`;
-    option.textContent = `All ${categoryLabels[category] || category}`;
+    option.textContent = `All ${CATEGORY_LABELS[category] || category}`;
     categoryGroup.appendChild(option);
   });
   elements.feedScope.appendChild(categoryGroup);
 
   sortedCategories.forEach((category) => {
     const group = document.createElement('optgroup');
-    group.label = `${categoryLabels[category] || category} Feeds`;
+    group.label = `${CATEGORY_LABELS[category] || category} Feeds`;
     state.feeds
       .filter((feed) => feed.category === category)
       .forEach((feed) => {
@@ -2405,10 +2352,10 @@ function updateCategoryFilters() {
 function populateCustomFeedCategories() {
   if (!elements.customFeedCategory) return;
   elements.customFeedCategory.innerHTML = '';
-  categoryOrder.forEach((category) => {
+  CATEGORY_ORDER.forEach((category) => {
     const option = document.createElement('option');
     option.value = category;
-    option.textContent = categoryLabels[category] || category;
+    option.textContent = CATEGORY_LABELS[category] || category;
     elements.customFeedCategory.appendChild(option);
   });
 }
@@ -2753,10 +2700,10 @@ function updateLidarMetaUI() {
   const project = state.lidarPointProject || '—';
   const eptUrl = state.lidarPointEptUrl;
   const eptState = state.lidarPointEptAvailable ? 'available' : (eptUrl ? 'unavailable' : '—');
-  const telemetry = state.lidarPointTelemetry?.slice(-1)[0];
+  const lastTelemetry = state.lidarPointTelemetry?.[state.lidarPointTelemetry.length - 1];
   const overlayStatus = state.overlayStatus?.lidarPoints?.message || '';
-  const telemetryLabel = telemetry?.status
-    ? `${telemetry.status}${telemetry.loadMs ? ` • ${telemetry.loadMs}ms` : ''}${telemetry.points ? ` • ${telemetry.points} pts` : ''}`
+  const telemetryLabel = lastTelemetry?.status
+    ? `${lastTelemetry.status}${lastTelemetry.loadMs ? ` • ${lastTelemetry.loadMs}ms` : ''}`
     : (overlayStatus || '—');
   const limits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
   const perfLabel = limits.useCustom
@@ -2774,9 +2721,7 @@ function updateLidarMetaUI() {
       elements.lidarPointEpt.setAttribute('aria-disabled', 'true');
     }
   }
-  if (elements.lidarPointTelemetry) {
-    elements.lidarPointTelemetry.textContent = telemetryLabel;
-  }
+  if (elements.lidarPointTelemetry) elements.lidarPointTelemetry.textContent = telemetryLabel;
   if (elements.lidarPointPerfNote) elements.lidarPointPerfNote.textContent = perfLabel;
   if (elements.lidarPointCustomize) elements.lidarPointCustomize.checked = limits.useCustom;
   if (elements.lidarPointCap) elements.lidarPointCap.value = String(limits.pointCap);
@@ -2839,8 +2784,8 @@ function updateImageryPanelUI() {
     const label = document.querySelector(`[data-overlay-opacity-value="${overlay}"]`);
     if (label) label.textContent = `${value}%`;
   });
-  updateLidarMetaUI();
   updateOverlayStatusUI();
+  updateLidarMetaUI();
 }
 
 function isServerManagedKey(feed) {
@@ -2851,14 +2796,14 @@ function getKeyFeeds() {
   const keyFeeds = state.feeds
     .filter((feed) => !isServerManagedKey(feed))
     .filter((feed) => feed.requiresKey || feed.keyParam || feed.keyHeader || (feed.tags || []).includes('key'))
-    .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || docsMap[feed.id] }));
+    .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || DOCS_MAP[feed.id] }));
   if (!keyFeeds.find((feed) => feed.id === 'openai')) {
     keyFeeds.unshift({
       id: 'openai',
       name: 'OpenAI Assistant',
       category: 'assistant',
       requiresKey: true,
-      docsUrl: docsMap.openai
+      docsUrl: DOCS_MAP.openai
     });
   }
   return keyFeeds;
@@ -2881,7 +2826,7 @@ function buildKeyManager(filterCategory) {
   state.keyFilter = filterCategory || state.keyFilter;
   const keyFeeds = getKeyFeeds();
   const filter = state.keyFilter;
-  const filterList = filter ? (panelKeyFilters[filter] || [filter]) : null;
+  const filterList = filter ? (PANEL_KEY_FILTERS[filter] || [filter]) : null;
   let displayFeeds = filterList ? keyFeeds.filter((feed) => filterList.includes(feed.category)) : keyFeeds;
   if (filter && !displayFeeds.length) {
     displayFeeds = keyFeeds;
@@ -2945,7 +2890,7 @@ function buildKeyManager(filterCategory) {
       head.className = 'key-row-head';
       const name = document.createElement('div');
       name.className = 'list-title';
-      name.textContent = keyGroupLabels[groupId] || groupId;
+      name.textContent = KEY_GROUP_LABELS[groupId] || groupId;
       const meta = document.createElement('div');
       meta.className = 'key-group-meta';
       const groupFeeds = displayFeeds.filter((feed) => feed.keyGroup === groupId);
@@ -3075,7 +3020,7 @@ function buildKeyManager(filterCategory) {
     keyInput.autocomplete = 'new-password';
     keyLabel.setAttribute('for', keyInput.id);
     const keyConfig = getKeyConfig(feed);
-    const groupLabel = feed.keyGroup ? (keyGroupLabels[feed.keyGroup] || feed.keyGroup) : null;
+    const groupLabel = feed.keyGroup ? (KEY_GROUP_LABELS[feed.keyGroup] || feed.keyGroup) : null;
     keyInput.placeholder = feed.keyGroup ? 'Set in Shared Keys' : 'Paste key';
     keyInput.value = keyConfig.key || '';
     keyInput.disabled = Boolean(feed.keyGroup);
@@ -3382,7 +3327,7 @@ function normalizeTitle(title = '') {
     .replace(/https?:\/\/\S+/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter((token) => token && !stopwords.has(token))
+    .filter((token) => token && !STOPWORDS.has(token))
     .join(' ')
     .trim();
 }
@@ -3674,13 +3619,17 @@ function parseArcGisGeoJson(data, feed) {
     return null;
   };
   const inferTitle = (props) => pickFirst(props, [
-    'title', 'name', 'incident', 'event', 'type', 'category', 'hazard', 'AttackType', 'attacktype', 'attack_type', 'summary', 'description'
+    'title', 'name', 'incident', 'event', 'type', 'category', 'hazard',
+    'AttackType', 'attacktype', 'attack_type',
+    'summary', 'description'
   ]) || feed.name;
   const inferSummary = (props) => pickFirst(props, [
-    'summary', 'description', 'details', 'Notes', 'notes', 'comments', 'status', 'headline'
+    'summary', 'description', 'details',
+    'Notes', 'notes', 'comments', 'status', 'headline'
   ]) || '';
   const inferAlertType = (props) => pickFirst(props, [
-    'alert_type', 'event', 'type', 'category', 'hazard', 'incident_type', 'AttackType', 'attacktype', 'attack_type'
+    'alert_type', 'event', 'type', 'category', 'hazard', 'incident_type',
+    'AttackType', 'attacktype', 'attack_type'
   ]);
   const inferSeverity = (props) => pickFirst(props, [
     'severity', 'sig', 'significance', 'priority', 'status'
@@ -3735,28 +3684,101 @@ function parseAcledEvents(data, feed) {
     : Array.isArray(data?.response?.data)
       ? data.response.data
       : [];
-  return list.map((event) => {
-    const lat = Number(event.latitude);
-    const lon = Number(event.longitude);
-    const fatalities = Number(event.fatalities);
-    const eventDate = event.event_date || '';
-    const publishedAt = eventDate ? Date.parse(eventDate) : Date.now();
-    const eventType = event.event_type || 'Conflict Event';
-    const subEvent = event.sub_event_type || '';
-    const location = event.location || event.admin2 || event.admin1 || event.country || '';
-    const title = `${eventType}${location ? ` — ${location}` : ''}`;
+  if (!list.length) return [];
+  const sample = list[0] || {};
+  const isEventLevel = Boolean(sample.event_id_cnty || sample.event_date || sample.latitude || sample.longitude);
+  if (isEventLevel) {
+    return list.map((event) => {
+      const lat = Number(event.latitude);
+      const lon = Number(event.longitude);
+      const fatalities = Number(event.fatalities);
+      const eventDate = event.event_date || '';
+      const publishedAt = eventDate ? Date.parse(eventDate) : Date.now();
+      const eventType = event.event_type || 'Conflict Event';
+      const subEvent = event.sub_event_type || '';
+      const location = event.location || event.admin2 || event.admin1 || event.country || '';
+      const title = `${eventType}${location ? ` — ${location}` : ''}`;
+      const summaryParts = [];
+      if (subEvent) summaryParts.push(subEvent);
+      if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${fatalities}`);
+      const actors = [event.actor1, event.actor2].filter(Boolean).join(' vs ');
+      if (actors) summaryParts.push(`Actors: ${actors}`);
+      const summary = summaryParts.join(' • ');
+      const conflictKey = (() => {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
+        const roundedLat = Math.round(lat * 5) / 5;
+        const roundedLon = Math.round(lon * 5) / 5;
+        const typeKey = normalizeTitle(eventType || '').slice(0, 24);
+        return `${eventDate || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+      })();
+      return {
+        title,
+        url: '',
+        summary,
+        summaryHtml: summary,
+        publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+        source: event.source || feed.name,
+        category: feed.category,
+        geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null,
+        alertType: eventType,
+        eventType,
+        subEventType: subEvent,
+        hazardType: event.disorder_type || '',
+        severity: Number.isNaN(fatalities) ? '' : `Fatalities ${fatalities}`,
+        location,
+        geoLabel: location,
+        conflictKey,
+        tags: ['conflict', 'security']
+      };
+    });
+  }
+
+  const pickFirst = (obj, keys) => {
+    for (const key of keys) {
+      const value = obj?.[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return value;
+      }
+    }
+    return null;
+  };
+  const pickNumber = (obj, keys) => {
+    const raw = pickFirst(obj, keys);
+    const num = raw === null ? NaN : Number(raw);
+    return Number.isFinite(num) ? num : NaN;
+  };
+  const dateField = pickFirst(sample, ['week', 'week_start', 'week_end', 'event_date', 'date']);
+  const lagWindowMs = 1000 * 60 * 60 * 24 * 30;
+  return list.map((row) => {
+    const lat = pickNumber(row, ['latitude', 'lat', 'centroid_latitude', 'admin1_latitude', 'location_latitude']);
+    const lon = pickNumber(row, ['longitude', 'lon', 'centroid_longitude', 'admin1_longitude', 'location_longitude']);
+    const eventType = pickFirst(row, ['event_type', 'event', 'type']) || pickFirst(row, ['sub_event_type', 'subevent_type']) || 'Conflict';
+    const disorder = pickFirst(row, ['disorder_type', 'disorder']) || '';
+    const subEvent = pickFirst(row, ['sub_event_type', 'subevent_type']) || '';
+    const week = pickFirst(row, ['week', 'week_start', 'week_end', 'event_date', 'date']) || '';
+    const publishedAt = week ? Date.parse(week) : Date.now();
+    const isLagged = Number.isFinite(publishedAt) ? (Date.now() - publishedAt > lagWindowMs) : false;
+    const location = pickFirst(row, ['admin1', 'admin_1', 'region', 'location', 'country']) || '';
+    const country = pickFirst(row, ['country']) || '';
+    const admin1 = pickFirst(row, ['admin1', 'admin_1']) || '';
+    const eventCount = pickNumber(row, ['event_count', 'events', 'event_cnt', 'event_number']);
+    const fatalities = pickNumber(row, ['fatalities', 'fatality', 'fatalities_count']);
+    const exposure = pickNumber(row, ['population_exposure', 'pop_exposure', 'exposure', 'population']);
+    const titleBase = disorder || eventType || 'Conflict';
+    const title = `${titleBase}${admin1 || country ? ` — ${admin1 || country}` : ''}`;
     const summaryParts = [];
-    if (subEvent) summaryParts.push(subEvent);
-    if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${fatalities}`);
-    const actors = [event.actor1, event.actor2].filter(Boolean).join(' vs ');
-    if (actors) summaryParts.push(`Actors: ${actors}`);
+    if (subEvent && subEvent !== eventType) summaryParts.push(subEvent);
+    if (!Number.isNaN(eventCount)) summaryParts.push(`Events: ${formatNumber(eventCount)}`);
+    if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${formatNumber(fatalities)}`);
+    if (!Number.isNaN(exposure)) summaryParts.push(`Exposure: ${formatNumber(exposure)}`);
+    if (week) summaryParts.push(`Week: ${week}`);
     const summary = summaryParts.join(' • ');
     const conflictKey = (() => {
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
       const roundedLat = Math.round(lat * 5) / 5;
       const roundedLon = Math.round(lon * 5) / 5;
-      const typeKey = normalizeTitle(eventType || '').slice(0, 24);
-      return `${eventDate || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+      const typeKey = normalizeTitle(titleBase || '').slice(0, 24);
+      return `${week || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
     })();
     return {
       title,
@@ -3764,20 +3786,20 @@ function parseAcledEvents(data, feed) {
       summary,
       summaryHtml: summary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
-      source: event.source || feed.name,
-      category: feed.category,
+      source: feed.name,
+      category: isLagged ? 'security-lagged' : feed.category,
       geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null,
-      alertType: eventType,
-      eventType,
+      alertType: titleBase,
+      eventType: titleBase,
       subEventType: subEvent,
-      hazardType: event.disorder_type || '',
-      severity: Number.isNaN(fatalities) ? '' : `Fatalities ${fatalities}`,
-      location,
-      geoLabel: location,
+      hazardType: disorder,
+      severity: !Number.isNaN(fatalities) ? `Fatalities ${formatNumber(fatalities)}` : '',
+      location: location || admin1 || country,
+      geoLabel: location || admin1 || country,
       conflictKey,
-      tags: ['conflict', 'security']
+      tags: ['conflict', 'security', 'aggregated'].concat(isLagged ? ['lagged'] : [])
     };
-  });
+  }).filter((item) => item.geo);
 }
 
 function parseWarspottingLosses(data, feed) {
@@ -4980,7 +5002,7 @@ function normalizeSummary(rawDesc, rawHtml) {
 function getListLimit(id) {
   if (!id) return 6;
   if (!(id in state.listLimits)) {
-    state.listLimits[id] = listDefaults[id] ?? 6;
+    state.listLimits[id] = LIST_DEFAULTS[id] ?? 6;
   }
   return state.listLimits[id];
 }
@@ -4989,7 +5011,7 @@ function bumpListLimit(id, total) {
   if (!id) return false;
   const current = getListLimit(id);
   if (current >= total) return false;
-  state.listLimits[id] = Math.min(total, current + listPageSize);
+  state.listLimits[id] = Math.min(total, current + LIST_PAGE_SIZE);
   return true;
 }
 
@@ -5011,7 +5033,7 @@ function sanitizeHtml(input) {
       return;
     }
     const tag = node.tagName.toLowerCase();
-    if (!allowedSummaryTags.has(tag)) {
+    if (!ALLOWED_SUMMARY_TAGS.has(tag)) {
       const text = doc.createTextNode(node.textContent || '');
       node.replaceWith(text);
       return;
@@ -5615,6 +5637,22 @@ function formatMoneyCompact(value) {
   return formatMoney(amount);
 }
 
+function renderMoneyRateNotice() {
+  if (!elements.moneyFlowsRateNotice) return;
+  const sam = state.moneyFlowsData?.sources?.sam;
+  if (!sam || !sam.error || !sam.retryAt) {
+    elements.moneyFlowsRateNotice.textContent = '';
+    elements.moneyFlowsRateNotice.classList.remove('active');
+    return;
+  }
+  const retryAt = new Date(sam.retryAt);
+  const retryLabel = Number.isNaN(retryAt.getTime())
+    ? 'later'
+    : `${retryAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${retryAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+  elements.moneyFlowsRateNotice.textContent = `SAM rate limit reached — try again ${retryLabel}.`;
+  elements.moneyFlowsRateNotice.classList.add('active');
+}
+
 function renderMoneyFlows() {
   if (!elements.moneyFlowsList) return;
   if (elements.moneyFlowsMeta) {
@@ -5674,6 +5712,8 @@ function renderMoneyFlows() {
       `;
     }
   }
+
+  renderMoneyRateNotice();
 
   const summary = state.moneyFlowsData?.summary;
   const buckets = summary?.buckets || {};
@@ -6096,6 +6136,11 @@ function buildAcledUrl(feed) {
     params.set('start', startDate);
     params.set('end', endDate);
     params.set('limit', limit);
+    if (feed.acledMode === 'aggregated') {
+      params.set('region', feed.acledRegion || 'global');
+      if (country) params.set('country', country);
+      return `${base}/aggregated?${params.toString()}`;
+    }
     if (country) params.set('country', country);
     return `${base}/events?${params.toString()}`;
   }
@@ -6141,7 +6186,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = CLIENT_FETCH_TIME
 
 async function fetchCustomFeedDirect(feed, query) {
   const keyConfig = getKeyConfig(feed);
-  let url = feed.id === 'acled-events'
+  let url = feed.acledMode
     ? buildAcledUrl(feed)
     : feed.id === 'gdelt-conflict-geo'
       ? buildGdeltConflictUrl(feed, query)
@@ -7286,50 +7331,6 @@ function getTopThemes(max = 5) {
     .map(([token]) => token);
 }
 
-const STORYLINE_LOCAL_WINDOW_HOURS = 6;
-const STORYLINE_MARKET_DELTA_MIN = 0.5;
-
-function getItemTimestamp(item) {
-  if (!item) return Date.now();
-  return item.publishedAt || item.updatedAt || item.timestamp || Date.now();
-}
-
-function isRecentItem(item, hours) {
-  const ts = getItemTimestamp(item);
-  return Date.now() - ts <= hours * 60 * 60 * 1000;
-}
-
-function isStaticLocalFeed(item) {
-  return item?.feedId === 'arcgis-military-installations';
-}
-
-function isDynamicLocalSignal(item) {
-  if (!item || isStaticLocalFeed(item)) return false;
-  if (!isRecentItem(item, STORYLINE_LOCAL_WINDOW_HOURS)) return false;
-  const category = item.category || '';
-  if (item.eventType || item.alertType) return true;
-  if (['weather', 'disaster', 'security', 'health', 'transport', 'spill', 'space'].includes(category)) return true;
-  return Boolean(item.summary || item.title);
-}
-
-function parseChangeFromSummary(item) {
-  if (!item?.summary) return null;
-  const match = item.summary.match(/24h\s+(-?\d+(?:\.\d+)?)%/i);
-  if (!match) return null;
-  return Number(match[1]);
-}
-
-function getMarketChange(item) {
-  if (!item) return null;
-  const change = item.delta ?? item.deltaPct ?? item.change ?? item.change24h ?? parseChangeFromSummary(item);
-  return Number.isFinite(change) ? change : null;
-}
-
-function isChangeBasedMarketSignal(item) {
-  const change = getMarketChange(item);
-  return Number.isFinite(change) && Math.abs(change) >= STORYLINE_MARKET_DELTA_MIN;
-}
-
 function buildStorylineItems() {
   const items = [];
   const focusCluster = getPriorityCluster();
@@ -7341,7 +7342,7 @@ function buildStorylineItems() {
     items.push({ label: 'Focus', value: meta ? `${title} • ${meta}` : title });
   }
 
-  const localItem = getLatestItem(getLocalItems().filter(isDynamicLocalSignal));
+  const localItem = getLatestItem(getLocalItems());
   if (localItem) {
     const title = truncateText(localItem.title || '', 120);
     const location = localItem.geoLabel || localItem.location || localItem.area || '';
@@ -7349,12 +7350,11 @@ function buildStorylineItems() {
     const meta = [location, updated].filter(Boolean).join(' • ');
     items.push({ label: 'Local', value: meta ? `${title} • ${meta}` : title });
   } else if (state.settings.scope !== 'global') {
-    items.push({ label: 'Local', value: `No recent signals within ${state.settings.radiusKm} km.` });
+    items.push({ label: 'Local', value: `No signals within ${state.settings.radiusKm} km.` });
   }
 
   const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
-    .filter((item) => item.category === 'crypto' || item.category === 'finance')
-    .filter(isChangeBasedMarketSignal);
+    .filter((item) => item.category === 'crypto' || item.category === 'finance');
   const marketItem = getLatestItem(marketSignals);
   if (marketItem) {
     const title = truncateText(marketItem.title || '', 120);
@@ -7909,7 +7909,7 @@ function renderLocal() {
 
 function getCategoryItems(category) {
   let items = state.scopedItems.filter((item) => item.category === category);
-  if (!items.length && globalFallbackCategories.has(category)) {
+  if (!items.length && GLOBAL_FALLBACK_CATEGORIES.has(category)) {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
       .filter((item) => item.category === category);
   }
@@ -8508,7 +8508,7 @@ function renderAllPanels() {
 }
 
 function openListModal(listId) {
-  const config = listModalConfigMap[listId];
+  const config = LIST_MODAL_CONFIG_MAP[listId];
   if (!config || !elements.listModalList) return;
   const items = config.getItems() || [];
   if (elements.listModalTitle) {
@@ -8668,6 +8668,26 @@ function initLidarEmbed() {
   elements.lidarOpen?.addEventListener('click', () => openFull());
   elements.lidarClose?.addEventListener('click', () => closeOverlay());
   elements.lidarScrim?.addEventListener('click', () => closeOverlay());
+  elements.lidarPointCenter?.addEventListener('click', () => {
+    if (state.lidarSelectedBounds && state.map?.fitBounds) {
+      state.map.fitBounds(state.lidarSelectedBounds, { padding: [28, 28] });
+    }
+  });
+  elements.lidarPointRefresh?.addEventListener('click', () => {
+    if (state.lidarPointEptUrl) {
+      checkLidarEptAvailability(state.lidarPointEptUrl);
+    }
+  });
+  elements.lidarPointLoad?.addEventListener('click', () => {
+    if (state.lidarPointEptAvailable) {
+      loadLidarPointOverlay();
+    }
+  });
+  elements.lidarPointCustomize?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointCap?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointRadius?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointTilesDesktop?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointTilesMobile?.addEventListener('change', applyLidarPointLimitSettings);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && document.body.classList.contains('lidar-open')) {
       closeOverlay();
@@ -8851,7 +8871,7 @@ function initInfiniteScroll() {
       if (!items || !items.length) return;
       const current = getListLimit(config.id);
       if (current >= items.length) return;
-      const next = Math.min(items.length, current + listPageSize);
+      const next = Math.min(items.length, current + LIST_PAGE_SIZE);
       state.listLimits[config.id] = next;
       renderList(container, items.slice(current, next), { withCoverage: config.withCoverage, append: true });
     });
@@ -9952,6 +9972,7 @@ function getLayerForItem(item) {
   if (item.feedId?.startsWith('arcgis-outage-')) return 'outage';
   if (item.category === 'travel') return 'travel';
   if (item.category === 'transport') return 'transport';
+  if (item.category === 'security-lagged') return 'securityLagged';
   if (item.category === 'security') return 'security';
   if (item.category === 'infrastructure') return 'infrastructure';
   if (item.category === 'weather') return 'weather';
@@ -9969,6 +9990,7 @@ function getLayerColor(layer) {
   if (layer === 'transport') return 'rgba(94,232,160,0.9)';
   if (layer === 'gpsjam') return 'rgba(244,104,102,0.92)';
   if (layer === 'security') return 'rgba(255,144,99,0.92)';
+  if (layer === 'securityLagged') return 'rgba(199,156,137,0.78)';
   if (layer === 'military') return 'rgba(214,174,118,0.88)';
   if (layer === 'infrastructure') return 'rgba(132,190,255,0.9)';
   if (layer === 'outage') return 'rgba(255,210,90,0.92)';
@@ -10000,6 +10022,7 @@ function getSignalType(item) {
   if (item.feedId === 'arcgis-drone-reports') return 'drone';
   if (item.feedId === 'arcgis-logistics-shortages') return 'logistics';
   if (item.feedId === 'arcgis-tipline-reports') return 'warning';
+  if (item.feedId === 'arcgis-military-installations') return 'military';
   if (item.feedId === 'arcgis-hms-fire') return 'fire';
   if (item.feedId === 'arcgis-wildfire-incidents' || item.feedId === 'arcgis-wildfire-perimeters') return 'fire';
   if (item.feedId === 'arcgis-noaa-severe') return 'severe';
@@ -10011,7 +10034,6 @@ function getSignalType(item) {
   if (item.feedId?.startsWith('arcgis-outage-')) return 'water';
   if (item.feedId === 'arcgis-outage-area') return 'water';
   if (item.feedId === 'arcgis-submarine-cables' || item.feedId === 'arcgis-submarine-landing') return 'infrastructure';
-  if (item.feedId === 'arcgis-military-installations') return 'military';
   if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
   if (item.feedId === 'transport-opensky') return 'air';
   if (item.category === 'travel') return 'travel';
@@ -10083,13 +10105,13 @@ const MAP_ICON_SVGS = {
   'alert-triangle': '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4" /><path d="M12 17h.01" />',
   bolt: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><circle cx="12" cy="12" r="4" />',
   plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />',
-  barracks: '<path d="M4 22h16" /><path d="M6 22V9l6-3 6 3v13" /><path d="M10 22v-6h4v6" /><path d="M12 2v4" /><path d="M12 2h4l-4 2" />',
   'heart-pulse': '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" />',
   'cloud-lightning': '<path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" /><path d="m13 12-3 5h4l-3 5" />',
   'alert-octagon': '<polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" />',
   satellite: '<path d="M13 7 9 3 5 7l4 4" /><path d="m17 11 4 4-4 4-4-4" /><path d="m8 12 4 4 6-6-4-4Z" /><path d="m16 8 3-3" /><path d="M9 21a6 6 0 0 0-6-6" />',
   shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />',
   factory: '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M17 18h1" /><path d="M12 18h1" /><path d="M7 18h1" />',
+  barracks: '<path d="M4 22h16" /><path d="M6 22V9l6-3 6 3v13" /><path d="M10 22v-6h4v6" /><path d="M12 2v4" /><path d="M12 2h4l-4 2" />',
   droplet: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />',
   newspaper: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" /><path d="M18 14h-8" /><path d="M15 18h-5" /><path d="M10 6h8v4h-8V6Z" />'
 };
@@ -10271,7 +10293,7 @@ function drawMap() {
     return { x, y, item, layer, type };
   }).filter((point) => state.settings.mapLayers[point.layer])
     .filter((point) => {
-      if (point.layer !== 'security') return true;
+      if (point.layer !== 'security' && point.layer !== 'securityLagged') return true;
       const conflictType = getConflictType(point.item);
       return state.settings.mapConflictTypes?.[conflictType] !== false;
     });
@@ -10571,7 +10593,7 @@ function showMapDetail(cluster, x, y) {
     badges.className = 'map-detail-badges';
     const categoryBadge = document.createElement('span');
     categoryBadge.className = `badge badge-${item.category || 'news'}`;
-    categoryBadge.textContent = categoryLabels[item.category] || item.category || 'Signal';
+    categoryBadge.textContent = CATEGORY_LABELS[item.category] || item.category || 'Signal';
     badges.appendChild(categoryBadge);
     const alertType = resolveAlertType(item);
     if (alertType) {
@@ -10995,7 +11017,7 @@ async function handleSearch() {
       const liveItems = await runLiveSearch(liveFeeds);
       const combined = [...filtered, ...liveItems];
       const freshFiltered = applySearchFilters(combined);
-      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => categoryLabels[cat] || cat).join(', ')}`);
+      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => CATEGORY_LABELS[cat] || cat).join(', ')}`);
       elements.searchHint.textContent = liveFeeds.length
         ? 'Showing cached + live search results.'
         : 'Showing multi-category search results.';
@@ -11033,10 +11055,10 @@ async function handleSearch() {
       const liveItems = await runLiveSearch(liveFeeds);
       const combined = [...filtered, ...liveItems];
       const freshFiltered = applySearchFilters(combined);
-      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${categoryLabels[category] || category}`);
+      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${CATEGORY_LABELS[category] || category}`);
       elements.searchHint.textContent = liveFeeds.length
         ? `Showing cached + live results (${freshFiltered.length}).`
-        : `Showing ${freshFiltered.length} matches in ${categoryLabels[category] || category}.`;
+        : `Showing ${freshFiltered.length} matches in ${CATEGORY_LABELS[category] || category}.`;
       return;
     }
 
@@ -11253,9 +11275,6 @@ function initEvents() {
     elements.keyToggle.addEventListener('click', () => {
       state.settings.showKeys = !state.settings.showKeys;
       saveSettings();
-      if (state.settings.showKeys) {
-        setTimeout(() => ensureKeyManager(), 0);
-      }
       updateSettingsUI();
     });
   }
@@ -11543,41 +11562,6 @@ function initEvents() {
   if (elements.imageryResetPanelBtn) {
     elements.imageryResetPanelBtn.addEventListener('click', resetImagerySettings);
   }
-  if (elements.lidarPointCenter) {
-    elements.lidarPointCenter.addEventListener('click', () => {
-      if (state.lidarSelectedBounds && state.map?.fitBounds) {
-        state.map.fitBounds(state.lidarSelectedBounds, { padding: [28, 28] });
-      }
-    });
-  }
-  if (elements.lidarPointRefresh) {
-    elements.lidarPointRefresh.addEventListener('click', () => {
-      if (!state.lidarPointEptUrl) return;
-      checkLidarEptAvailability(state.lidarPointEptUrl);
-    });
-  }
-  if (elements.lidarPointLoad) {
-    elements.lidarPointLoad.addEventListener('click', () => {
-      if (state.lidarPointEptAvailable) {
-        loadLidarPointOverlay();
-      }
-    });
-  }
-  if (elements.lidarPointCustomize) {
-    elements.lidarPointCustomize.addEventListener('change', applyLidarPointLimitSettings);
-  }
-  if (elements.lidarPointCap) {
-    elements.lidarPointCap.addEventListener('change', applyLidarPointLimitSettings);
-  }
-  if (elements.lidarPointRadius) {
-    elements.lidarPointRadius.addEventListener('change', applyLidarPointLimitSettings);
-  }
-  if (elements.lidarPointTilesDesktop) {
-    elements.lidarPointTilesDesktop.addEventListener('change', applyLidarPointLimitSettings);
-  }
-  if (elements.lidarPointTilesMobile) {
-    elements.lidarPointTilesMobile.addEventListener('change', applyLidarPointLimitSettings);
-  }
 
   document.querySelectorAll('[data-imagery-preset]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -11606,30 +11590,30 @@ function initEvents() {
           setOverlayStatus('sar', 'off', '');
         }
       }
-      if (overlay === 'lidar') {
-        if (next) {
-          loadLidarCoverageLayer();
-        } else {
-          setOverlayStatus('lidar', 'off', '');
-          state.lidarSelectedLayer = null;
-          state.lidarSelectedBounds = null;
-          updateLidarMetaUI();
-        }
-      }
-      if (overlay === 'lidarPoints') {
-        if (next) {
-          if (!state.lidarPointEptUrl) {
-            setOverlayStatus('lidarPoints', 'unavailable', 'select a LiDAR AOI');
-          } else if (state.lidarPointEptAvailable) {
-            loadLidarPointOverlay();
-          } else {
-            setOverlayStatus('lidarPoints', 'unavailable', 'ept unavailable');
-          }
-        } else {
-          setOverlayStatus('lidarPoints', 'off', '');
-        }
+    if (overlay === 'lidar') {
+      if (next) {
+        loadLidarCoverageLayer();
+      } else {
+        setOverlayStatus('lidar', 'off', '');
+        state.lidarSelectedLayer = null;
+        state.lidarSelectedBounds = null;
         updateLidarMetaUI();
       }
+    }
+    if (overlay === 'lidarPoints') {
+      if (next) {
+        if (!state.lidarPointEptUrl) {
+          setOverlayStatus('lidarPoints', 'unavailable', 'select a LiDAR AOI');
+        } else if (state.lidarPointEptAvailable) {
+          loadLidarPointOverlay();
+        } else {
+          setOverlayStatus('lidarPoints', 'unavailable', 'ept unavailable');
+        }
+      } else {
+        setOverlayStatus('lidarPoints', 'off', '');
+      }
+      updateLidarMetaUI();
+    }
       updateImageryPanelUI();
       updateMapLegendUI();
     });
@@ -11650,7 +11634,6 @@ function initEvents() {
     elements.customFeedToggle.addEventListener('click', () => {
       const isHidden = elements.customFeedForm?.classList.contains('hidden');
       if (isHidden) {
-        ensureCustomFeedsUI();
         resetCustomFeedForm();
       }
       toggleCustomFeedForm(isHidden);
@@ -11687,7 +11670,6 @@ function initEvents() {
   if (elements.customFeedImportToggle) {
     elements.customFeedImportToggle.addEventListener('click', () => {
       const isHidden = elements.customFeedJsonPanel?.classList.contains('hidden');
-      ensureCustomFeedsUI();
       toggleCustomFeedJsonPanel(isHidden);
     });
   }
@@ -11838,6 +11820,7 @@ async function init() {
   applyPanelOrder();
   applyPanelVisibility();
   applyPanelSizes();
+  buildPanelToggles();
   renderAboutSources();
   updateCategoryFilters();
   initPanelDrag();
@@ -11866,14 +11849,11 @@ async function init() {
   applyAcledProxyOverride();
 
   buildFeedOptions();
-  scheduleSettingsPrebuild();
-  if (settingsCustomFeedsReady) {
-    buildCustomFeedList();
-  }
-  if (settingsKeysReady) {
-    buildKeyManager();
-  }
+  populateCustomFeedCategories();
+  buildCustomFeedList();
+  buildKeyManager();
   updateChatStatus();
+  attachKeyButtons();
   initMap();
   updateMapDateUI();
   initEvents();

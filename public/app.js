@@ -478,6 +478,7 @@ const elements = {
   moneyFlowsSummary: document.getElementById('moneyFlowsSummary'),
   moneyFlowsList: document.getElementById('moneyFlowsList'),
   moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
+  moneyFlowsRateNotice: document.getElementById('moneyFlowsRateNotice'),
   moneyInMeta: document.getElementById('moneyInMeta'),
   moneyInBody: document.getElementById('moneyInBody'),
   moneyOutMeta: document.getElementById('moneyOutMeta'),
@@ -5636,6 +5637,22 @@ function formatMoneyCompact(value) {
   return formatMoney(amount);
 }
 
+function renderMoneyRateNotice() {
+  if (!elements.moneyFlowsRateNotice) return;
+  const sam = state.moneyFlowsData?.sources?.sam;
+  if (!sam || !sam.error || !sam.retryAt) {
+    elements.moneyFlowsRateNotice.textContent = '';
+    elements.moneyFlowsRateNotice.classList.remove('active');
+    return;
+  }
+  const retryAt = new Date(sam.retryAt);
+  const retryLabel = Number.isNaN(retryAt.getTime())
+    ? 'later'
+    : `${retryAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${retryAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+  elements.moneyFlowsRateNotice.textContent = `SAM rate limit reached — try again ${retryLabel}.`;
+  elements.moneyFlowsRateNotice.classList.add('active');
+}
+
 function renderMoneyFlows() {
   if (!elements.moneyFlowsList) return;
   if (elements.moneyFlowsMeta) {
@@ -5695,6 +5712,8 @@ function renderMoneyFlows() {
       `;
     }
   }
+
+  renderMoneyRateNotice();
 
   const summary = state.moneyFlowsData?.summary;
   const buckets = summary?.buckets || {};
