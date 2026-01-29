@@ -30,6 +30,10 @@ const MONEY_FLOW_MAX_LIMIT = 120;
 const MONEY_FLOW_TIMEOUT_MS = 45000;
 const SAM_RETRY_ATTEMPTS = 3;
 const SAM_RETRY_BASE_DELAY_MS = 900;
+const SAM_CACHE_TTL_MS = 10 * 60 * 1000;
+const SAM_CACHE_ERROR_TTL_MS = 2 * 60 * 1000;
+
+const samCache = new Map();
 
 const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const feeds = Array.isArray(feedsConfig.feeds) ? feedsConfig.feeds : [];
@@ -69,6 +73,11 @@ async function fetchSamEntities({ query, perSourceLimit, samGovKey }) {
   if (!samGovKey) {
     return { error: 'missing_key' };
   }
+  const cacheKey = `sam:${perSourceLimit}:${String(query || '').toLowerCase().trim()}`;
+  const cached = samCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < cached.ttlMs) {
+    return cached.payload;
+  }
   const url = new URL('https://api.sam.gov/entity-information/v4/entities');
   url.searchParams.set('api_key', samGovKey);
   url.searchParams.set('q', query);
@@ -80,16 +89,22 @@ async function fetchSamEntities({ query, perSourceLimit, samGovKey }) {
       headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
     }, MONEY_FLOW_TIMEOUT_MS);
     if (response.ok && data) {
-      return { items: data?.entityData || [] };
+      const payload = { items: data?.entityData || [] };
+      samCache.set(cacheKey, { fetchedAt: Date.now(), ttlMs: SAM_CACHE_TTL_MS, payload });
+      return payload;
     }
     if (response.status === 429 && attempt < SAM_RETRY_ATTEMPTS) {
       const delay = SAM_RETRY_BASE_DELAY_MS * attempt;
       await sleep(delay);
       continue;
     }
-    return { error: `HTTP ${response.status}` };
+    const payload = { error: `HTTP ${response.status}` };
+    samCache.set(cacheKey, { fetchedAt: Date.now(), ttlMs: SAM_CACHE_ERROR_TTL_MS, payload });
+    return payload;
   }
-  return { error: 'rate_limited' };
+  const payload = { error: 'rate_limited' };
+  samCache.set(cacheKey, { fetchedAt: Date.now(), ttlMs: SAM_CACHE_ERROR_TTL_MS, payload });
+  return payload;
 }
 
 function getRequestOrigin(req) {
