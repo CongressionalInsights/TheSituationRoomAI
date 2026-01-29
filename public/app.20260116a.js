@@ -263,6 +263,14 @@ const elements = {
   moneyFlowsSummary: document.getElementById('moneyFlowsSummary'),
   moneyFlowsList: document.getElementById('moneyFlowsList'),
   moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
+  moneyInMeta: document.getElementById('moneyInMeta'),
+  moneyInBody: document.getElementById('moneyInBody'),
+  moneyOutMeta: document.getElementById('moneyOutMeta'),
+  moneyOutBody: document.getElementById('moneyOutBody'),
+  moneyLobbyMeta: document.getElementById('moneyLobbyMeta'),
+  moneyLobbyBody: document.getElementById('moneyLobbyBody'),
+  moneyRegistryMeta: document.getElementById('moneyRegistryMeta'),
+  moneyRegistryBody: document.getElementById('moneyRegistryBody'),
   searchHint: document.getElementById('searchHint'),
   liveSearchToggle: document.getElementById('liveSearchToggle'),
   scopeToggle: document.getElementById('scopeToggle'),
@@ -426,7 +434,7 @@ const defaultPanelSizes = {
   signals: { cols: 6 },
   news: { cols: 6 },
   finance: { cols: 6 },
-  'money-flows': { cols: 6 },
+  'money-flows': { cols: 12 },
   crypto: { cols: 6 },
   prediction: { cols: 6 },
   hazards: { cols: 6 },
@@ -5596,6 +5604,17 @@ function formatMoney(value) {
   }).format(amount);
 }
 
+function formatMoneyCompact(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '--';
+  const abs = Math.abs(amount);
+  if (abs >= 1e12) return `${(amount / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${(amount / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(amount / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(amount / 1e3).toFixed(1)}K`;
+  return formatMoney(amount);
+}
+
 function renderMoneyFlows() {
   if (!elements.moneyFlowsList) return;
   if (elements.moneyFlowsMeta) {
@@ -5623,23 +5642,101 @@ function renderMoneyFlows() {
     if (!summary) {
       elements.moneyFlowsSummary.innerHTML = '';
     } else {
-      const topEntity = summary.topEntity ? summary.topEntity.entity : '—';
-      const totalAmount = summary.totalAmount ? formatMoney(summary.totalAmount) : '--';
+      const buckets = summary.buckets || {};
+      const bucketConfig = [
+        { id: 'contributions', label: 'Contributions In', tone: 'money-tone-in' },
+        { id: 'spending', label: 'Spending Out', tone: 'money-tone-out' },
+        { id: 'lobbying', label: 'Lobbying', tone: 'money-tone-lobby' },
+        { id: 'registry', label: 'SAM Registry', tone: 'money-tone-registry' }
+      ];
+      const amounts = bucketConfig.map((config) => Number(buckets[config.id]?.totalAmount || 0));
+      const maxAmount = Math.max(...amounts, 1);
       elements.moneyFlowsSummary.innerHTML = `
-        <div class="summary-card">
+        <div class="summary-card money-summary-card">
           <div class="summary-label">Total items</div>
           <div class="summary-value">${summary.totalItems || 0}</div>
+          <div class="summary-sub">Across all sources</div>
         </div>
-        <div class="summary-card">
-          <div class="summary-label">Total amount</div>
-          <div class="summary-value">${totalAmount}</div>
-        </div>
-        <div class="summary-card">
-          <div class="summary-label">Top entity</div>
-          <div class="summary-value">${topEntity}</div>
-        </div>
+        ${bucketConfig.map((config) => {
+          const bucket = buckets[config.id] || {};
+          const amount = Number(bucket.totalAmount || 0);
+          const count = bucket.count || 0;
+          const pct = Math.max(4, Math.round((amount / maxAmount) * 100));
+          return `
+            <div class="summary-card money-summary-card ${config.tone}">
+              <div class="summary-label">${config.label}</div>
+              <div class="summary-value">${amount ? formatMoney(amount) : '—'}</div>
+              <div class="summary-sub">${count} items</div>
+              <div class="money-bar"><span style="width:${amount ? pct : 6}%"></span></div>
+            </div>
+          `;
+        }).join('')}
       `;
     }
+  }
+
+  const summary = state.moneyFlowsData?.summary;
+  const buckets = summary?.buckets || {};
+  const top = summary?.top || {};
+  const updateSection = (metaEl, bodyEl, { totalAmount, count, rows }) => {
+    if (!metaEl || !bodyEl) return;
+    const amountLabel = Number(totalAmount) ? formatMoneyCompact(totalAmount) : '—';
+    metaEl.textContent = `${amountLabel} · ${count || 0} items`;
+    bodyEl.innerHTML = rows.map((row) => {
+      const value = row.value || '—';
+      const amount = Number.isFinite(row.amount) && row.amount ? formatMoneyCompact(row.amount) : '—';
+      return `
+        <div class="money-rank">
+          <div>
+            <div class="money-rank-label">${row.label}</div>
+            <div class="money-rank-value">${value}</div>
+          </div>
+          <div class="money-rank-amount">${amount}</div>
+        </div>
+      `;
+    }).join('');
+  };
+
+  if (summary) {
+    updateSection(elements.moneyInMeta, elements.moneyInBody, {
+      totalAmount: buckets.contributions?.totalAmount || 0,
+      count: buckets.contributions?.count || 0,
+      rows: [
+        { label: 'Top donor', value: top.contributions?.donor, amount: top.contributions?.donorAmount },
+        { label: 'Top recipient', value: top.contributions?.recipient, amount: top.contributions?.recipientAmount }
+      ]
+    });
+    updateSection(elements.moneyOutMeta, elements.moneyOutBody, {
+      totalAmount: buckets.spending?.totalAmount || 0,
+      count: buckets.spending?.count || 0,
+      rows: [
+        { label: 'Top recipient', value: top.spending?.recipient, amount: top.spending?.recipientAmount }
+      ]
+    });
+    updateSection(elements.moneyLobbyMeta, elements.moneyLobbyBody, {
+      totalAmount: buckets.lobbying?.totalAmount || 0,
+      count: buckets.lobbying?.count || 0,
+      rows: [
+        { label: 'Top client', value: top.lobbying?.client, amount: top.lobbying?.clientAmount },
+        { label: 'Top registrant', value: top.lobbying?.registrant, amount: top.lobbying?.registrantAmount }
+      ]
+    });
+    updateSection(elements.moneyRegistryMeta, elements.moneyRegistryBody, {
+      totalAmount: buckets.registry?.totalAmount || 0,
+      count: buckets.registry?.count || 0,
+      rows: [
+        { label: 'Top entity', value: top.registry?.entity, amount: top.registry?.entityAmount }
+      ]
+    });
+  } else {
+    if (elements.moneyInMeta) elements.moneyInMeta.textContent = '—';
+    if (elements.moneyOutMeta) elements.moneyOutMeta.textContent = '—';
+    if (elements.moneyLobbyMeta) elements.moneyLobbyMeta.textContent = '—';
+    if (elements.moneyRegistryMeta) elements.moneyRegistryMeta.textContent = '—';
+    if (elements.moneyInBody) elements.moneyInBody.innerHTML = '';
+    if (elements.moneyOutBody) elements.moneyOutBody.innerHTML = '';
+    if (elements.moneyLobbyBody) elements.moneyLobbyBody.innerHTML = '';
+    if (elements.moneyRegistryBody) elements.moneyRegistryBody.innerHTML = '';
   }
 
   if (state.moneyFlowsLoading) {

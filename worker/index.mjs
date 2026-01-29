@@ -130,6 +130,75 @@ function summarizeMoneyEntities(items) {
     .slice(0, 8);
 }
 
+function summarizeBy(items, keyFn, amountFn = (item) => item.amount) {
+  const totals = new Map();
+  items.forEach((item) => {
+    const raw = keyFn(item);
+    const name = normalizeEntityName(raw || '');
+    if (!name) return;
+    const current = totals.get(name) || { name, amount: 0, count: 0, sample: raw };
+    current.count += 1;
+    const amount = amountFn(item);
+    if (Number.isFinite(amount)) current.amount += amount;
+    totals.set(name, current);
+  });
+  return [...totals.values()].sort((a, b) => (b.amount || 0) - (a.amount || 0));
+}
+
+function summarizeMoneyBuckets(items) {
+  const buckets = {
+    contributions: { count: 0, totalAmount: 0 },
+    spending: { count: 0, totalAmount: 0 },
+    lobbying: { count: 0, totalAmount: 0 },
+    registry: { count: 0, totalAmount: 0 }
+  };
+  items.forEach((item) => {
+    const bucket = item.bucket;
+    if (!bucket || !buckets[bucket]) return;
+    buckets[bucket].count += 1;
+    if (Number.isFinite(item.amount)) buckets[bucket].totalAmount += item.amount;
+  });
+  return buckets;
+}
+
+function summarizeMoneyTop(items) {
+  const byBucket = (bucket) => items.filter((item) => item.bucket === bucket);
+  const contributions = byBucket('contributions');
+  const spending = byBucket('spending');
+  const lobbying = byBucket('lobbying');
+  const registry = byBucket('registry');
+
+  const topDonors = summarizeBy(contributions, (item) => item.donor);
+  const topRecipients = summarizeBy(contributions, (item) => item.recipient);
+  const topSpendingRecipients = summarizeBy(spending, (item) => item.recipient);
+  const topLobbyClients = summarizeBy(lobbying, (item) => item.client);
+  const topLobbyRegistrants = summarizeBy(lobbying, (item) => item.registrant);
+  const topRegistry = summarizeBy(registry, (item) => item.registryEntity || item.entity);
+
+  return {
+    contributions: {
+      donor: topDonors[0]?.name || null,
+      donorAmount: topDonors[0]?.amount || 0,
+      recipient: topRecipients[0]?.name || null,
+      recipientAmount: topRecipients[0]?.amount || 0
+    },
+    spending: {
+      recipient: topSpendingRecipients[0]?.name || null,
+      recipientAmount: topSpendingRecipients[0]?.amount || 0
+    },
+    lobbying: {
+      client: topLobbyClients[0]?.name || null,
+      clientAmount: topLobbyClients[0]?.amount || 0,
+      registrant: topLobbyRegistrants[0]?.name || null,
+      registrantAmount: topLobbyRegistrants[0]?.amount || 0
+    },
+    registry: {
+      entity: topRegistry[0]?.name || null,
+      entityAmount: topRegistry[0]?.amount || 0
+    }
+  };
+}
+
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
   const response = await fetchWithTimeout(url, options, timeoutMs);
   const text = await response.text();
@@ -284,8 +353,14 @@ async function fetchMoneyFlows({ query, start, end, limit }, env) {
     title: `${item.client?.name || 'Unknown client'} — ${item.filing_type_display || 'Filing'}`,
     summary: [item.registrant?.name, item.filing_period_display].filter(Boolean).join(' • '),
     amount: toNumber(item.income) || toNumber(item.expenses),
+    bucket: 'lobbying',
+    donor: null,
     entity: item.client?.name,
     recipient: item.registrant?.name,
+    client: item.client?.name,
+    registrant: item.registrant?.name,
+    committee: null,
+    registryEntity: null,
     publishedAt: item.dt_posted,
     externalUrl: item.filing_document_url,
     detailFields: [
@@ -306,8 +381,14 @@ async function fetchMoneyFlows({ query, start, end, limit }, env) {
       title: `${entry.contributor_name || item.registrant?.name || 'Contributor'} → ${entry.payee_name || 'Recipient'}`,
       summary: [entry.honoree_name, item.filing_period_display].filter(Boolean).join(' • '),
       amount: toNumber(entry.amount),
+      bucket: 'contributions',
+      donor: entry.contributor_name || item.registrant?.name,
       entity: entry.contributor_name || item.registrant?.name,
       recipient: entry.payee_name,
+      client: null,
+      registrant: item.registrant?.name,
+      committee: null,
+      registryEntity: null,
       publishedAt: entry.date || item.dt_posted,
       externalUrl: item.filing_document_url,
       detailFields: [
@@ -327,8 +408,14 @@ async function fetchMoneyFlows({ query, start, end, limit }, env) {
     title: entry['Recipient Name'] ? `${entry['Recipient Name']} — ${entry['Awarding Agency'] || 'Award'}` : (entry['Award ID'] || 'Federal Award'),
     summary: entry['Transaction Description'] || '',
     amount: toNumber(entry['Transaction Amount']),
+    bucket: 'spending',
+    donor: entry['Awarding Agency'] || null,
     entity: entry['Recipient Name'],
     recipient: entry['Recipient Name'],
+    client: null,
+    registrant: null,
+    committee: null,
+    registryEntity: null,
     publishedAt: entry['Action Date'],
     externalUrl: entry['Award ID'] ? `https://www.usaspending.gov/award/${encodeURIComponent(entry['Award ID'])}` : null,
     detailFields: [
@@ -348,9 +435,14 @@ async function fetchMoneyFlows({ query, start, end, limit }, env) {
     title: `${entry.contributor_name || 'Contributor'} → ${entry.committee_name || entry.candidate_name || 'Committee'}`,
     summary: [entry.candidate_name, entry.report_year].filter(Boolean).join(' • '),
     amount: toNumber(entry.contribution_receipt_amount),
+    bucket: 'contributions',
+    donor: entry.contributor_name || null,
     entity: entry.contributor_name,
     recipient: entry.committee_name || entry.candidate_name,
     committee: entry.committee_name,
+    client: null,
+    registrant: null,
+    registryEntity: null,
     publishedAt: entry.contribution_receipt_date,
     externalUrl: entry.pdf_url,
     detailFields: [
@@ -370,7 +462,14 @@ async function fetchMoneyFlows({ query, start, end, limit }, env) {
     title: entry?.legalBusinessName || entry?.entityName || entry?.name || 'SAM.gov Entity',
     summary: [entry?.uei, entry?.cageCode, entry?.entityStatus].filter(Boolean).join(' • '),
     amount: null,
+    bucket: 'registry',
+    donor: null,
     entity: entry?.legalBusinessName || entry?.entityName || entry?.name,
+    recipient: null,
+    client: null,
+    registrant: null,
+    committee: null,
+    registryEntity: entry?.legalBusinessName || entry?.entityName || entry?.name,
     publishedAt: entry?.registrationDate || entry?.lastUpdateDate,
     externalUrl: entry?.entityRegistrationURL || null,
     detailFields: [
@@ -386,14 +485,14 @@ async function fetchMoneyFlows({ query, start, end, limit }, env) {
     .sort((a, b) => (b.score || 0) - (a.score || 0))
     .slice(0, safeLimit);
 
-  const totalAmount = merged.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
-  const entities = summarizeMoneyEntities(merged);
   results.items = merged;
-  results.entities = entities;
+  results.entities = summarizeMoneyEntities(merged);
+  const buckets = summarizeMoneyBuckets(merged);
+  const top = summarizeMoneyTop(merged);
   results.summary = {
-    totalAmount,
     totalItems: merged.length,
-    topEntity: entities[0] || null
+    buckets,
+    top
   };
 
   results.sources = {

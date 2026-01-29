@@ -1627,6 +1627,129 @@ a:focus-visible {
   color: var(--text);
 }
 
+.money-summary-card {
+  position: relative;
+  overflow: hidden;
+  --money-tone: var(--accent-2);
+}
+
+.money-summary-card .summary-sub {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.money-summary-card .summary-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.money-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.money-section {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 12px;
+  overflow: hidden;
+  --money-tone: var(--accent-2);
+}
+
+.money-section summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.money-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.money-section[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.money-section-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.money-section-body {
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.money-rank {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.money-rank-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.money-rank-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.money-rank-amount {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.money-bar {
+  margin-top: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.money-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--money-tone);
+}
+
+.money-tone-in {
+  --money-tone: var(--accent);
+}
+
+.money-tone-out {
+  --money-tone: var(--danger);
+}
+
+.money-tone-lobby {
+  --money-tone: var(--accent-2);
+}
+
+.money-tone-registry {
+  --money-tone: var(--accent-3);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

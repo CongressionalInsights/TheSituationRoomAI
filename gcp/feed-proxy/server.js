@@ -198,6 +198,75 @@ function summarizeMoneyEntities(items) {
     .slice(0, 8);
 }
 
+function summarizeBy(items, keyFn, amountFn = (item) => item.amount) {
+  const totals = new Map();
+  items.forEach((item) => {
+    const raw = keyFn(item);
+    const name = normalizeEntityName(raw || '');
+    if (!name) return;
+    const current = totals.get(name) || { name, amount: 0, count: 0, sample: raw };
+    current.count += 1;
+    const amount = amountFn(item);
+    if (Number.isFinite(amount)) current.amount += amount;
+    totals.set(name, current);
+  });
+  return [...totals.values()].sort((a, b) => (b.amount || 0) - (a.amount || 0));
+}
+
+function summarizeMoneyBuckets(items) {
+  const buckets = {
+    contributions: { count: 0, totalAmount: 0 },
+    spending: { count: 0, totalAmount: 0 },
+    lobbying: { count: 0, totalAmount: 0 },
+    registry: { count: 0, totalAmount: 0 }
+  };
+  items.forEach((item) => {
+    const bucket = item.bucket;
+    if (!bucket || !buckets[bucket]) return;
+    buckets[bucket].count += 1;
+    if (Number.isFinite(item.amount)) buckets[bucket].totalAmount += item.amount;
+  });
+  return buckets;
+}
+
+function summarizeMoneyTop(items) {
+  const byBucket = (bucket) => items.filter((item) => item.bucket === bucket);
+  const contributions = byBucket('contributions');
+  const spending = byBucket('spending');
+  const lobbying = byBucket('lobbying');
+  const registry = byBucket('registry');
+
+  const topDonors = summarizeBy(contributions, (item) => item.donor);
+  const topRecipients = summarizeBy(contributions, (item) => item.recipient);
+  const topSpendingRecipients = summarizeBy(spending, (item) => item.recipient);
+  const topLobbyClients = summarizeBy(lobbying, (item) => item.client);
+  const topLobbyRegistrants = summarizeBy(lobbying, (item) => item.registrant);
+  const topRegistry = summarizeBy(registry, (item) => item.registryEntity || item.entity);
+
+  return {
+    contributions: {
+      donor: topDonors[0]?.name || null,
+      donorAmount: topDonors[0]?.amount || 0,
+      recipient: topRecipients[0]?.name || null,
+      recipientAmount: topRecipients[0]?.amount || 0
+    },
+    spending: {
+      recipient: topSpendingRecipients[0]?.name || null,
+      recipientAmount: topSpendingRecipients[0]?.amount || 0
+    },
+    lobbying: {
+      client: topLobbyClients[0]?.name || null,
+      clientAmount: topLobbyClients[0]?.amount || 0,
+      registrant: topLobbyRegistrants[0]?.name || null,
+      registrantAmount: topLobbyRegistrants[0]?.amount || 0
+    },
+    registry: {
+      entity: topRegistry[0]?.name || null,
+      entityAmount: topRegistry[0]?.amount || 0
+    }
+  };
+}
+
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
   const response = await fetchWithTimeout(url, options, timeoutMs);
   const text = await response.text();
@@ -867,8 +936,14 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       title: client,
       summary: `Registrant: ${registrant} · Filed ${item.filing_year || ''}`,
       amount,
+      bucket: 'lobbying',
+      donor: null,
       entity: client,
       recipient: registrant,
+      client,
+      registrant,
+      committee: null,
+      registryEntity: null,
       publishedAt: item.filing_deadline || item.dt_posted || item.filing_date || new Date().toISOString(),
       externalUrl: canonicalUrl,
       canonicalUrl,
@@ -896,8 +971,14 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       title: payee,
       summary: `Contributor: ${contributor} · Filed ${item.filing_year || ''}`,
       amount,
+      bucket: 'contributions',
+      donor: contributor,
       entity: contributor,
       recipient: payee,
+      client: null,
+      registrant: item.registrant?.name || null,
+      committee: null,
+      registryEntity: null,
       publishedAt: contribution?.date || item.filing_deadline || item.filing_date || new Date().toISOString(),
       externalUrl: canonicalUrl,
       canonicalUrl,
@@ -924,8 +1005,14 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       title: recipient,
       summary: `${agency} · ${item['Transaction Description'] || 'Award'}`,
       amount,
+      bucket: 'spending',
+      donor: agency,
       entity: recipient,
-      recipient: agency,
+      recipient,
+      client: null,
+      registrant: null,
+      committee: null,
+      registryEntity: null,
       publishedAt: item['Action Date'] || new Date().toISOString(),
       externalUrl: canonicalUrl,
       canonicalUrl,
@@ -952,9 +1039,14 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       title: committee,
       summary: `${contributor} · ${item.contributor_employer || item.contributor_occupation || 'Employer unknown'}`,
       amount,
+      bucket: 'contributions',
+      donor: contributor,
       entity: contributor,
       committee,
       recipient: committee,
+      client: null,
+      registrant: null,
+      registryEntity: null,
       publishedAt: item.contribution_receipt_date || new Date().toISOString(),
       externalUrl: canonicalUrl,
       canonicalUrl,
@@ -981,7 +1073,14 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       title: entityName || 'SAM Entity',
       summary: `${item.entityRegistration?.entityStatus || 'Entity'} · ${item.entityRegistration?.stateOrProvinceCode || ''}`,
       amount,
+      bucket: 'registry',
+      donor: null,
       entity: entityName,
+      recipient: null,
+      client: null,
+      registrant: null,
+      committee: null,
+      registryEntity: entityName,
       publishedAt: item.entityRegistration?.lastUpdateDate || new Date().toISOString(),
       externalUrl: canonicalUrl,
       canonicalUrl,
@@ -1005,11 +1104,12 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     .slice(0, safeLimit);
 
   results.entities = summarizeMoneyEntities(results.items);
-  const totalAmount = results.items.reduce((acc, item) => acc + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+  const buckets = summarizeMoneyBuckets(results.items);
+  const top = summarizeMoneyTop(results.items);
   results.summary = {
     totalItems: results.items.length,
-    totalAmount,
-    topEntity: results.entities[0] || null
+    buckets,
+    top
   };
 
   return results;
