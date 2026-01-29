@@ -27,7 +27,7 @@ const EIA_RETRY_ATTEMPTS = 5;
 const EIA_RETRY_DELAY_MS = 1000;
 const MONEY_FLOW_MAX_LIMIT = 200;
 const MONEY_FLOW_DEFAULT_DAYS = 180;
-const MONEY_FLOW_TIMEOUT_MS = 25000;
+const MONEY_FLOW_TIMEOUT_MS = 45000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
