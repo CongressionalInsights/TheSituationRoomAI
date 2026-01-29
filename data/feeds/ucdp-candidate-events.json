@@ -1,0 +1,7 @@
+{
+  "id": "ucdp-candidate-events",
+  "fetchedAt": 1769678258904,
+  "contentType": "application/json; charset=utf-8",
+  "body": "{\r\n  \"TotalCount\": 0,\r\n  \"TotalPages\": 1,\r\n  \"PreviousPageUrl\": null,\r\n  \"NextPageUrl\": \"\",\r\n  \"Result\": []\r\n}",
+  "httpStatus": 200
+}
