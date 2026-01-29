@@ -834,22 +834,40 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     return { items: data?.entityData || [] };
   })();
 
-  const ldaResults = await Promise.all(ldaTasks);
-  const ldaContribResults = await Promise.all(ldaContribTasks);
-  const usaResult = await usaTask;
-  const fecResult = await fecTask;
-  const samResult = await samTask;
+  const [ldaSettled, ldaContribSettled, usaSettled, fecSettled, samSettled] = await Promise.allSettled([
+    Promise.all(ldaTasks),
+    Promise.all(ldaContribTasks),
+    usaTask,
+    fecTask,
+    samTask
+  ]);
 
-  const ldaErrors = ldaResults.find((entry) => entry.error);
-  const ldaContribErrors = ldaContribResults.find((entry) => entry.error);
+  const ldaResults = ldaSettled.status === 'fulfilled' ? ldaSettled.value : [];
+  const ldaContribResults = ldaContribSettled.status === 'fulfilled' ? ldaContribSettled.value : [];
+  const usaResult = usaSettled.status === 'fulfilled'
+    ? usaSettled.value
+    : { items: [], error: usaSettled.reason?.message || 'fetch_failed' };
+  const fecResult = fecSettled.status === 'fulfilled'
+    ? fecSettled.value
+    : { items: [], error: fecSettled.reason?.message || 'fetch_failed' };
+  const samResult = samSettled.status === 'fulfilled'
+    ? samSettled.value
+    : { items: [], error: samSettled.reason?.message || 'fetch_failed' };
+
+  const ldaErrors = ldaSettled.status === 'rejected'
+    ? (ldaSettled.reason?.message || 'fetch_failed')
+    : (ldaResults.find((entry) => entry.error)?.error || null);
+  const ldaContribErrors = ldaContribSettled.status === 'rejected'
+    ? (ldaContribSettled.reason?.message || 'fetch_failed')
+    : (ldaContribResults.find((entry) => entry.error)?.error || null);
 
   results.sources.lda = {
     count: ldaResults.reduce((acc, entry) => acc + (entry.items?.length || 0), 0),
-    error: ldaErrors?.error || null
+    error: ldaErrors || null
   };
   results.sources.ldaContributions = {
     count: ldaContribResults.reduce((acc, entry) => acc + (entry.items?.length || 0), 0),
-    error: ldaContribErrors?.error || null
+    error: ldaContribErrors || null
   };
   results.sources.usaspending = {
     count: usaResult.items?.length || 0,
