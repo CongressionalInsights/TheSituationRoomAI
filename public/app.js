@@ -7787,9 +7787,19 @@ function isLocalAnalysisExcluded(item) {
   const alertType = (item.alertType || '').toLowerCase();
   const feedId = (item.feedId || '').toLowerCase();
   const tags = Array.isArray(item.tags) ? item.tags.map((tag) => String(tag).toLowerCase()) : [];
+  const category = (item.category || '').toLowerCase();
+  const staticFeedIds = new Set([
+    'arcgis-military-installations',
+    'arcgis-power-plants',
+    'arcgis-submarine-cables',
+    'arcgis-submarine-landing'
+  ]);
+  if (staticFeedIds.has(feedId)) return true;
   if (feedId === 'transport-opensky') return true;
   if (alertType === 'flight') return true;
   if (tags.includes('flight') || tags.includes('aviation')) return true;
+  if (item.mapOnly && tags.includes('infrastructure') && !tags.includes('outage')) return true;
+  if (item.mapOnly && category === 'infrastructure' && !tags.includes('outage')) return true;
   return false;
 }
 
