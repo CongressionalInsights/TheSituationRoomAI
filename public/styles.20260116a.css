@@ -1785,8 +1785,11 @@ a:focus-visible {
 .panel-focus-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 10px;
 }
 
 .panel-focus-btn .icon {
@@ -4598,6 +4601,7 @@ a.list-title:hover {
 .focus-stage-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .focus-stage-body {
@@ -4606,10 +4610,16 @@ a.list-title:hover {
   grid-template-columns: 1fr;
   gap: 16px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .focus-stage-body.focus-geo {
   grid-template-columns: 1fr;
+}
+
+.focus-stage-body.focus-single {
+  display: flex;
+  flex-direction: column;
 }
 
 .focus-stage-body .panel {
@@ -4617,8 +4627,53 @@ a.list-title:hover {
   box-shadow: none;
 }
 
+.focus-stage-body.focus-single .panel {
+  flex: 1;
+  min-height: 0;
+}
+
 .focus-stage-body .panel .panel-focus-btn {
   display: none;
+}
+
+.focus-stage-body .panel-body,
+.focus-stage-body .list,
+.focus-stage-body .tab-panel,
+.focus-stage-body .feed-panel .list,
+.focus-stage-body .feed-panel .tab-panel,
+.focus-stage-body .map-detail-list,
+.focus-stage-body .map-overlay {
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.focus-stage-body .feed-panel {
+  height: auto;
+}
+
+.focus-stage-body .map-wrap {
+  overflow: visible;
+}
+
+.focus-search {
+  display: inline-flex;
+  align-items: center;
+}
+
+.focus-search input {
+  height: 32px;
+  min-width: 200px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.focus-search input::placeholder {
+  color: var(--muted);
 }
 
 .panel-placeholder {

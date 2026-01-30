@@ -356,6 +356,7 @@ const elements = {
   focusTitle: document.getElementById('focusTitle'),
   focusMeta: document.getElementById('focusMeta'),
   focusBody: document.getElementById('focusBody'),
+  focusSearch: document.getElementById('focusSearch'),
   focusClose: document.getElementById('focusClose'),
   feedScope: document.getElementById('feedScope'),
   searchInput: document.getElementById('searchInput'),
@@ -8631,6 +8632,7 @@ function toggleFocusModal(open) {
   if (!open && elements.focusBody) {
     elements.focusBody.innerHTML = '';
     elements.focusBody.classList.remove('focus-geo');
+    elements.focusBody.classList.remove('focus-single');
   }
 }
 
@@ -8642,6 +8644,29 @@ function getFocusPanels(target) {
   }
   const panel = document.querySelector(`.panel[data-panel="${target}"]`);
   return panel ? [panel] : [];
+}
+
+function applyFocusFilter(query) {
+  if (!elements.focusBody) return;
+  const normalized = String(query || '').trim().toLowerCase();
+  const selectors = [
+    '.list-item',
+    '.summary-card',
+    '.finance-card',
+    '.map-detail-item',
+    '.legend-item',
+    '.legend-subitem'
+  ];
+  const items = elements.focusBody.querySelectorAll(selectors.join(','));
+  if (!items.length) return;
+  items.forEach((item) => {
+    if (!normalized) {
+      item.style.display = '';
+      return;
+    }
+    const text = item.textContent ? item.textContent.toLowerCase() : '';
+    item.style.display = text.includes(normalized) ? '' : 'none';
+  });
 }
 
 function openFocusModal(target) {
@@ -8668,9 +8693,16 @@ function openFocusModal(target) {
   if (target === FOCUS_GEO_TARGET) {
     elements.focusBody.classList.add('focus-geo');
   }
+  elements.focusBody.classList.toggle('focus-single', panels.length === 1 && target !== FOCUS_GEO_TARGET);
 
   focusState.panels = panels.map((panel) => movePanelToFocus(panel));
   toggleFocusModal(true);
+
+  if (elements.focusSearch) {
+    elements.focusSearch.value = '';
+    elements.focusSearch.oninput = () => applyFocusFilter(elements.focusSearch.value);
+  }
+  applyFocusFilter('');
 
   if (target === FOCUS_GEO_TARGET && state.map) {
     setTimeout(() => state.map.invalidateSize(), 120);
@@ -8683,6 +8715,9 @@ function closeFocusModal() {
   restoreFocusedPanels();
   toggleFocusModal(false);
   focusState.active = false;
+  if (elements.focusSearch) {
+    elements.focusSearch.value = '';
+  }
   if (wasGeo && state.map) {
     setTimeout(() => state.map.invalidateSize(), 120);
   }
@@ -8707,7 +8742,7 @@ function initFocusModal() {
     button.type = 'button';
     button.dataset.panelFocus = panelId === 'map' || panelId === 'imagery' ? FOCUS_GEO_TARGET : panelId;
     button.title = 'Focus panel';
-    button.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-expand"></use></svg><span>Focus</span>';
+    button.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-expand"></use></svg><span class="sr-only">Focus</span>';
     button.addEventListener('click', () => openFocusModal(button.dataset.panelFocus));
     actions.appendChild(button);
   });
