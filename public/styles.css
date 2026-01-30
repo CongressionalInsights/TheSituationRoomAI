@@ -4641,8 +4641,7 @@ a.list-title:hover {
 .focus-stage-body .tab-panel,
 .focus-stage-body .feed-panel .list,
 .focus-stage-body .feed-panel .tab-panel,
-.focus-stage-body .map-detail-list,
-.focus-stage-body .map-overlay {
+.focus-stage-body .map-detail-list {
   max-height: none;
   overflow: visible;
   padding-right: 0;
@@ -4653,7 +4652,15 @@ a.list-title:hover {
 }
 
 .focus-stage-body .map-wrap {
-  overflow: visible;
+  overflow: hidden;
+}
+
+.focus-stage-body .map-overlay {
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  padding-right: 6px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .focus-search {
