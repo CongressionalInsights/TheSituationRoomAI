@@ -287,6 +287,12 @@ const state = {
   lidarSelectedBounds: null
 };
 
+const focusState = {
+  active: false,
+  panels: [],
+  target: null
+};
+
 const elements = {
   app: document.querySelector('.app'),
   sidebar: document.getElementById('sidebar'),
@@ -346,6 +352,11 @@ const elements = {
   detailMeta: document.getElementById('detailMeta'),
   detailBody: document.getElementById('detailBody'),
   detailClose: document.getElementById('detailClose'),
+  focusOverlay: document.getElementById('focusOverlay'),
+  focusTitle: document.getElementById('focusTitle'),
+  focusMeta: document.getElementById('focusMeta'),
+  focusBody: document.getElementById('focusBody'),
+  focusClose: document.getElementById('focusClose'),
   feedScope: document.getElementById('feedScope'),
   searchInput: document.getElementById('searchInput'),
   searchBtn: document.getElementById('searchBtn'),
@@ -624,6 +635,8 @@ const LIST_DEFAULTS = Object.fromEntries(
 );
 const LIST_MODAL_CONFIGS = LIST_CONFIG.map(({ defaultLimit, ...config }) => config);
 const LIST_MODAL_CONFIG_MAP = Object.fromEntries(LIST_MODAL_CONFIGS.map((config) => [config.id, config]));
+const FOCUS_PANEL_EXCLUDE = new Set(['ticker', 'signals', 'crypto', 'energy-map']);
+const FOCUS_GEO_TARGET = 'geo';
 const DATA_ATTRIBUTIONS = [
   {
     id: 'openstreetmap',
@@ -8579,6 +8592,138 @@ function initDetailModal() {
   }
 }
 
+function buildPanelPlaceholder(panel) {
+  const placeholder = document.createElement('div');
+  placeholder.className = 'panel-placeholder';
+  const rect = panel.getBoundingClientRect();
+  placeholder.style.height = `${Math.round(rect.height)}px`;
+  const computed = window.getComputedStyle(panel);
+  const gridSpan = panel.style.gridColumnEnd || computed.gridColumnEnd;
+  if (gridSpan && gridSpan !== 'auto') {
+    placeholder.style.gridColumnEnd = gridSpan;
+  }
+  return placeholder;
+}
+
+function movePanelToFocus(panel) {
+  const placeholder = buildPanelPlaceholder(panel);
+  panel.parentNode.insertBefore(placeholder, panel);
+  elements.focusBody.appendChild(panel);
+  return { panel, placeholder };
+}
+
+function restoreFocusedPanels() {
+  focusState.panels.forEach(({ panel, placeholder }) => {
+    if (placeholder.parentNode) {
+      placeholder.parentNode.insertBefore(panel, placeholder);
+      placeholder.remove();
+    }
+  });
+  focusState.panels = [];
+  focusState.target = null;
+}
+
+function toggleFocusModal(open) {
+  if (!elements.focusOverlay) return;
+  elements.focusOverlay.classList.toggle('open', open);
+  elements.focusOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.focusOverlay.inert = !open;
+  if (!open && elements.focusBody) {
+    elements.focusBody.innerHTML = '';
+    elements.focusBody.classList.remove('focus-geo');
+  }
+}
+
+function getFocusPanels(target) {
+  if (target === FOCUS_GEO_TARGET) {
+    const mapPanel = document.querySelector('.panel[data-panel="map"]');
+    const imageryPanel = document.querySelector('.panel[data-panel="imagery"]');
+    return [mapPanel, imageryPanel].filter(Boolean);
+  }
+  const panel = document.querySelector(`.panel[data-panel="${target}"]`);
+  return panel ? [panel] : [];
+}
+
+function openFocusModal(target) {
+  if (!elements.focusBody) return;
+  if (focusState.active) {
+    closeFocusModal();
+  }
+  const panels = getFocusPanels(target);
+  if (!panels.length) return;
+
+  focusState.active = true;
+  focusState.target = target;
+
+  if (elements.focusTitle) {
+    elements.focusTitle.textContent = target === FOCUS_GEO_TARGET ? 'Geo + Imagery' : (panels[0].querySelector('.panel-title')?.textContent || 'Panel');
+  }
+  if (elements.focusMeta) {
+    elements.focusMeta.textContent = target === FOCUS_GEO_TARGET
+      ? 'Live incidents & events + basemaps/overlays'
+      : (panels[0].querySelector('.panel-sub')?.textContent || 'Expanded view');
+  }
+
+  elements.focusBody.innerHTML = '';
+  if (target === FOCUS_GEO_TARGET) {
+    elements.focusBody.classList.add('focus-geo');
+  }
+
+  focusState.panels = panels.map((panel) => movePanelToFocus(panel));
+  toggleFocusModal(true);
+
+  if (target === FOCUS_GEO_TARGET && state.map) {
+    setTimeout(() => state.map.invalidateSize(), 120);
+  }
+}
+
+function closeFocusModal() {
+  if (!focusState.active) return;
+  const wasGeo = focusState.target === FOCUS_GEO_TARGET;
+  restoreFocusedPanels();
+  toggleFocusModal(false);
+  focusState.active = false;
+  if (wasGeo && state.map) {
+    setTimeout(() => state.map.invalidateSize(), 120);
+  }
+}
+
+function initFocusModal() {
+  const panels = [...document.querySelectorAll('.panel[data-panel]')];
+  panels.forEach((panel) => {
+    const panelId = panel.dataset.panel;
+    if (FOCUS_PANEL_EXCLUDE.has(panelId)) return;
+    const header = panel.querySelector('.panel-header');
+    if (!header) return;
+    let actions = header.querySelector('.panel-actions');
+    if (!actions) {
+      actions = document.createElement('div');
+      actions.className = 'panel-actions';
+      header.appendChild(actions);
+    }
+    if (actions.querySelector('.panel-focus-btn')) return;
+    const button = document.createElement('button');
+    button.className = 'btn ghost panel-focus-btn';
+    button.type = 'button';
+    button.dataset.panelFocus = panelId === 'map' || panelId === 'imagery' ? FOCUS_GEO_TARGET : panelId;
+    button.title = 'Focus panel';
+    button.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-expand"></use></svg><span>Focus</span>';
+    button.addEventListener('click', () => openFocusModal(button.dataset.panelFocus));
+    actions.appendChild(button);
+  });
+
+  if (elements.focusClose) {
+    elements.focusClose.addEventListener('click', () => closeFocusModal());
+  }
+  if (elements.focusOverlay) {
+    elements.focusOverlay.addEventListener('click', (event) => {
+      if (event.target === elements.focusOverlay) {
+        closeFocusModal();
+      }
+    });
+  }
+}
+
 function initCommunityEmbed() {
   if (!elements.communityConnect || !elements.communityFrame) return;
   const frame = elements.communityFrame;
@@ -11886,6 +12031,7 @@ async function init() {
   initListAutoSizing();
   initListModal();
   initDetailModal();
+  initFocusModal();
   initCommunityEmbed();
   initWorldClocks();
   initSidebarNav();

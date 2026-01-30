@@ -1782,6 +1782,18 @@ a:focus-visible {
   gap: 8px;
 }
 
+.panel-focus-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+}
+
+.panel-focus-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
 .signal-health-detail {
   font-size: 11px;
   color: var(--muted);
@@ -4553,6 +4565,65 @@ a.list-title:hover {
 
 .modal-overlay.open .modal {
   transform: translateY(0) scale(1);
+}
+
+.focus-stage {
+  width: min(1400px, 96vw);
+  height: min(88vh, 900px);
+  background: var(--panel);
+  border-radius: 18px;
+  border: 1px solid var(--panel-stroke);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  gap: 16px;
+  transform: translateY(8px);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+}
+
+.modal-overlay.open .focus-stage {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.focus-stage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.focus-stage-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.focus-stage-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  overflow: auto;
+}
+
+.focus-stage-body.focus-geo {
+  grid-template-columns: 1fr;
+}
+
+.focus-stage-body .panel {
+  margin: 0;
+  box-shadow: none;
+}
+
+.focus-stage-body .panel .panel-focus-btn {
+  display: none;
+}
+
+.panel-placeholder {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .modal-header {
