@@ -4611,15 +4611,20 @@ a.list-title:hover {
   gap: 16px;
   overflow: auto;
   scrollbar-gutter: stable;
+  min-height: 0;
 }
 
 .focus-stage-body.focus-geo {
   grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .focus-stage-body.focus-single {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .focus-stage-body .panel {
@@ -4661,6 +4666,19 @@ a.list-title:hover {
   padding-right: 6px;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.focus-stage-body.focus-geo .panel,
+.focus-stage-body.focus-single .panel {
+  min-height: 0;
+}
+
+.focus-stage-body.focus-geo .panel-body,
+.focus-stage-body.focus-single .panel-body {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  padding-right: 6px;
 }
 
 .focus-search {
