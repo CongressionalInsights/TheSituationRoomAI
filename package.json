@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build:frontend": "node scripts/build_frontend.mjs",
-    "test": "node --test scripts/test/feeds.spec.mjs",
+    "test": "node scripts/verify_feeds_sync.mjs && node --test scripts/test/feeds.spec.mjs",
+    "test:feeds-sync": "node scripts/verify_feeds_sync.mjs",
     "test:ui": "playwright test"
   },
   "devDependencies": {

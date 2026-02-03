@@ -32,6 +32,8 @@ jobs:
         run: npm ci
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
+      - name: Verify feed registry
+        run: node scripts/verify_feeds_sync.mjs
       - name: Build static cache
         env:
           DATA_GOV: ${{ secrets.DATA_GOV }}
@@ -42,6 +44,8 @@ jobs:
           OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
           OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
         run: node scripts/build_static_cache.mjs
+      - name: Build Denario insights
+        run: node scripts/build_denario.mjs
       - name: Build frontend bundle
         run: node scripts/build_frontend.mjs
       - name: Verify public bundle

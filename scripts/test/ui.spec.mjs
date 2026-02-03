@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('dashboard loads panels and focus modal', async ({ page }) => {
   await page.goto('/');
+  await page.waitForFunction(() => window.__SR_READY__ === true);
   const panels = page.locator('.panel[data-panel]');
   expect(await panels.count()).toBeGreaterThan(5);
 

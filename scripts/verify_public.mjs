@@ -7,7 +7,8 @@ const requiredFiles = [
   "index.html",
   "styles.css",
   "app.js",
-  "app.bundle.js"
+  "app.bundle.js",
+  "assets/manifest.json"
 ];
 
 const errors = [];
@@ -49,6 +50,21 @@ for (const appPath of appPaths) {
       errors.push(`Potential API key leak pattern (${pattern}) in ${path.basename(appPath)}`);
       break;
     }
+  }
+}
+
+const manifestFile = path.join(publicDir, "assets", "manifest.json");
+if (fs.existsSync(manifestFile)) {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    Object.values(manifest).forEach((assetPath) => {
+      const resolved = path.join(publicDir, assetPath);
+      if (!fs.existsSync(resolved)) {
+        errors.push(`Manifest reference missing: ${assetPath}`);
+      }
+    });
+  } catch (error) {
+    errors.push(`Unable to parse assets/manifest.json: ${error.message}`);
   }
 }
 

@@ -22,6 +22,19 @@ function setCors(res, origin) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 }
 
+function logRequest(req, res, start) {
+  const status = res.statusCode || 0;
+  const log = {
+    severity: status >= 500 ? 'ERROR' : 'INFO',
+    message: 'request',
+    method: req.method,
+    path: req.url,
+    status,
+    durationMs: Date.now() - start
+  };
+  console.log(JSON.stringify(log));
+}
+
 function sendJson(res, status, payload, origin) {
   setCors(res, origin);
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -104,6 +117,8 @@ async function proxyOpenSky(req, res, origin) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const start = Date.now();
+  res.on('finish', () => logRequest(req, res, start));
   const origin = req.headers.origin || '';
   if (req.method === 'OPTIONS') {
     setCors(res, origin);

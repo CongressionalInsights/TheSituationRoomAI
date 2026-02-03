@@ -52,5 +52,12 @@ export function createMcpClient(endpoint) {
     return { data: structured, raw: result };
   }
 
-  return { callTool };
+  async function searchRelated({ title, summary, category } = {}) {
+    const parts = [title, summary].filter(Boolean);
+    const query = parts.length ? parts.join(' ') : (category ? `${category} signals` : 'top signals');
+    const result = await callTool('search.smart', { query, limit: 12 });
+    return result;
+  }
+
+  return { callTool, searchRelated };
 }

@@ -56,6 +56,19 @@ function setCors(res, origin) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 }
 
+function logRequest(req, res, start) {
+  const status = res.statusCode || 0;
+  const log = {
+    severity: status >= 500 ? 'ERROR' : 'INFO',
+    message: 'request',
+    method: req.method,
+    path: req.url,
+    status,
+    durationMs: Date.now() - start
+  };
+  console.log(JSON.stringify(log));
+}
+
 function sendJson(res, status, payload, origin) {
   setCors(res, origin);
   res.writeHead(status, {
@@ -1520,6 +1533,8 @@ server.registerTool(
 );
 
 const httpServer = http.createServer(async (req, res) => {
+  const start = Date.now();
+  res.on('finish', () => logRequest(req, res, start));
   const origin = req.headers.origin || '';
   if (req.method === 'OPTIONS') {
     setCors(res, origin);

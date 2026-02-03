@@ -2,6 +2,10 @@ import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSk
 import { createFocusController } from './modules/focus.js';
 import { createMcpClient } from './modules/mcp.js';
 import { isAlertItem } from './modules/alerts.js';
+import { initSearchUI } from './modules/search.js';
+import { initPanelScroll, initListAutoSizing } from './modules/panels.js';
+import { initSettingsUI } from './modules/settings.js';
+import { createFeedManager } from './modules/feeds.js';
 
 const LAYOUT_VERSION = 4;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
@@ -277,6 +281,7 @@ const state = {
     loading: false,
     available: false,
     summary: null,
+    generatedAt: null,
     items: [],
     error: null
   },
@@ -668,6 +673,8 @@ const focusController = createFocusController({
   focusGeoTarget: FOCUS_GEO_TARGET
 });
 const mcpClient = createMcpClient(getMcpProxy());
+let feedManager = null;
+let searchController = null;
 const DATA_ATTRIBUTIONS = [
   {
     id: 'openstreetmap',
@@ -2150,6 +2157,107 @@ function toggleDetailModal(open) {
   }
 }
 
+function buildRelatedSignalsSection(item) {
+  const section = document.createElement('div');
+  section.className = 'detail-section detail-related';
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = 'Related signals';
+  section.appendChild(heading);
+
+  const status = document.createElement('div');
+  status.className = 'detail-related-status';
+  section.appendChild(status);
+
+  const list = document.createElement('div');
+  list.className = 'detail-related-list';
+  section.appendChild(list);
+
+  if (!mcpClient) {
+    status.textContent = 'Related signals unavailable.';
+    status.classList.add('is-error');
+    return section;
+  }
+
+  status.textContent = 'Searching related signals…';
+  const primaryTitle = (item.detailTitle || item.title || '').trim();
+  const primaryUrl = item.externalUrl || item.fallbackUrl || '';
+  const summaryText = item.summaryHtml
+    ? stripHtml(item.summaryHtml)
+    : (item.translatedSummary || item.summary || item.detailSummary || item.description || '');
+  const category = item.category || item.feedCategory || '';
+
+  mcpClient
+    .searchRelated({
+      title: primaryTitle,
+      summary: summaryText,
+      category
+    })
+    .then((result) => {
+      if (!section.isConnected) return;
+      if (result?.error) {
+        status.textContent = result.message || 'Related signals unavailable.';
+        status.classList.add('is-error');
+        return;
+      }
+      const data = result?.data || {};
+      const items = Array.isArray(data.items)
+        ? data.items
+        : (Array.isArray(data.results) ? data.results : (Array.isArray(data.signals) ? data.signals : []));
+      const filtered = items.filter((entry) => {
+        if (!entry) return false;
+        const entryTitle = String(entry.title || entry.name || entry.label || '').trim();
+        if (!entryTitle) return false;
+        if (primaryTitle && entryTitle.toLowerCase() === primaryTitle.toLowerCase()) return false;
+        const entryUrl = entry.url || entry.externalUrl || '';
+        if (primaryUrl && entryUrl && entryUrl === primaryUrl) return false;
+        return true;
+      });
+      if (!filtered.length) {
+        status.textContent = 'No related signals found.';
+        return;
+      }
+      status.textContent = `Showing ${Math.min(filtered.length, 6)} related signals`;
+      filtered.slice(0, 6).forEach((entry) => {
+        const row = document.createElement('div');
+        row.className = 'detail-related-item';
+        const title = document.createElement(entry.url || entry.externalUrl ? 'a' : 'div');
+        title.className = 'detail-related-title';
+        title.textContent = entry.title || entry.name || entry.label || 'Signal';
+        if (entry.url || entry.externalUrl) {
+          title.href = entry.url || entry.externalUrl;
+          title.target = '_blank';
+          title.rel = 'noopener noreferrer';
+        }
+        row.appendChild(title);
+        const meta = document.createElement('div');
+        meta.className = 'detail-related-meta';
+        const metaParts = [];
+        if (entry.source) metaParts.push(entry.source);
+        if (entry.category) metaParts.push(entry.category);
+        const ts = entry.publishedAt || entry.updatedAt || entry.timestamp;
+        if (ts) metaParts.push(toRelativeTime(ts));
+        meta.textContent = metaParts.filter(Boolean).join(' • ');
+        row.appendChild(meta);
+        const summary = entry.summary || entry.detailSummary || entry.description;
+        if (summary) {
+          const summaryEl = document.createElement('div');
+          summaryEl.className = 'detail-related-summary';
+          summaryEl.textContent = truncateText(stripHtml(summary), 140);
+          row.appendChild(summaryEl);
+        }
+        list.appendChild(row);
+      });
+    })
+    .catch((err) => {
+      if (!section.isConnected) return;
+      status.textContent = err?.message || 'Related signals unavailable.';
+      status.classList.add('is-error');
+    });
+
+  return section;
+}
+
 function openDetailModal(item) {
   if (!elements.detailOverlay || !item) return;
   if (elements.detailTitle) {
@@ -2283,6 +2391,7 @@ function openDetailModal(item) {
       section.appendChild(list);
       elements.detailBody.appendChild(section);
     }
+    elements.detailBody.appendChild(buildRelatedSignalsSection(item));
     const detailUrl = item.externalUrl || item.fallbackUrl;
     if (detailUrl) {
       const actions = document.createElement('div');
@@ -6912,6 +7021,7 @@ function enrichItem(item) {
 }
 
 const badgePriorityBase = {
+  critical: 5,
   alertType: 10,
   severity: 20,
   hazardType: 30,
@@ -6973,6 +7083,18 @@ function getBadgePriority(context, key) {
   return 999;
 }
 
+function isCriticalItem(item) {
+  if (!item) return false;
+  const alertText = `${item.alertType || ''} ${item.severity || ''} ${item.title || ''}`.toLowerCase();
+  if (/(emergency|warning|extreme|catastrophic|major|critical)/.test(alertText)) return true;
+  const magnitude = Number(item.magnitude ?? item.mag);
+  if (Number.isFinite(magnitude) && magnitude >= 6) return true;
+  if (item.category === 'cyber' && /(known exploited|kev|ransomware)/.test(alertText)) return true;
+  if (item.category === 'health' && /(outbreak|recall|fatal)/.test(alertText)) return true;
+  if (item.category === 'security' && /(attack|explosion|shooting)/.test(alertText)) return true;
+  return false;
+}
+
 function buildListBadges(item, contextId) {
   const context = resolveBadgeContext(contextId, item);
   const badges = [];
@@ -6993,6 +7115,9 @@ function buildListBadges(item, contextId) {
   }
   if (isAlertItem(item) && !item.alertType) {
     pushBadge('alert', 'Alert', 'chip-badge alert');
+  }
+  if (isCriticalItem(item)) {
+    pushBadge('critical', 'Critical', 'chip-badge critical');
   }
   if (item.alertType) pushBadge('alertType', item.alertType, 'chip-badge alert');
   if (item.severity) pushBadge('severity', item.severity, 'chip-badge severity');
@@ -7039,6 +7164,9 @@ function renderList(container, items, { withCoverage = false, append = false } =
     div.className = 'list-item';
     if (isAlertItem(item)) {
       div.classList.add('is-alert');
+    }
+    if (isCriticalItem(item)) {
+      div.classList.add('is-critical');
     }
 
     const hasDetail = Array.isArray(item.detailFields) && item.detailFields.length;
@@ -8794,7 +8922,10 @@ function renderDenario() {
   elements.denarioPanel.classList.toggle('is-hidden', !state.denario.available);
   if (!state.denario.available) return;
   if (elements.denarioMeta) {
-    elements.denarioMeta.textContent = state.denario.summary || 'Denario insights loaded.';
+    const metaParts = [];
+    if (state.denario.summary) metaParts.push(state.denario.summary);
+    if (state.denario.generatedAt) metaParts.push(`Updated ${toRelativeTime(state.denario.generatedAt)}`);
+    elements.denarioMeta.textContent = metaParts.length ? metaParts.join(' • ') : 'Denario insights loaded.';
   }
   if (!elements.denarioList) return;
   elements.denarioList.innerHTML = '';
@@ -8828,10 +8959,12 @@ async function loadDenarioSummary() {
     const payload = await response.json();
     state.denario.available = true;
     state.denario.summary = payload.summary || payload.overview || null;
+    state.denario.generatedAt = payload.generatedAt || payload.generated_at || null;
     state.denario.items = Array.isArray(payload.items) ? payload.items : [];
   } catch (err) {
     state.denario.available = false;
     state.denario.summary = null;
+    state.denario.generatedAt = null;
     state.denario.items = [];
     state.denario.error = err?.message || 'Denario unavailable';
   } finally {
@@ -9200,81 +9333,6 @@ function initCommandSections() {
       const isOpen = section.classList.toggle('is-open');
       toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     });
-  });
-}
-
-function initInfiniteScroll() {
-  const configs = [
-    { id: 'newsList', withCoverage: true, getItems: () => buildNewsItems(state.clusters) },
-    { id: 'financeMarketsList', getItems: () => getCombinedItems(['finance', 'energy']) },
-    { id: 'financePolicyList', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
-    { id: 'cryptoList', getItems: () => getCategoryItems('crypto').items },
-    { id: 'predictionList', getItems: () => getPredictionItems() },
-    { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
-    { id: 'localList', getItems: () => getLocalItemsForPanel() },
-    { id: 'policyList', getItems: () => getCategoryItems('gov').items },
-    { id: 'congressList', getItems: () => getCongressItems() },
-    { id: 'cyberList', getItems: () => getCategoryItems('cyber').items },
-    { id: 'agricultureList', getItems: () => getCategoryItems('agriculture').items },
-    { id: 'researchList', getItems: () => getCategoryItems('research').items },
-    { id: 'spaceList', getItems: () => getCategoryItems('space').items },
-    { id: 'energyList', getItems: () => getEnergyNewsItems() },
-    { id: 'healthList', getItems: () => getCategoryItems('health').items },
-    { id: 'transportList', getItems: () => getCategoryItems('transport').items }
-  ];
-
-  configs.forEach((config) => {
-    const container = document.getElementById(config.id);
-    if (!container) return;
-    container.addEventListener('scroll', () => {
-      if (container.scrollTop + container.clientHeight < container.scrollHeight - 60) return;
-      const items = config.getItems();
-      if (!items || !items.length) return;
-      const current = getListLimit(config.id);
-      if (current >= items.length) return;
-      const next = Math.min(items.length, current + LIST_PAGE_SIZE);
-      state.listLimits[config.id] = next;
-      renderList(container, items.slice(current, next), { withCoverage: config.withCoverage, append: true });
-    });
-  });
-}
-
-function initListAutoSizing() {
-  if (typeof ResizeObserver === 'undefined') return;
-  const configs = [
-    { id: 'newsList', withCoverage: true, getItems: () => buildNewsItems(state.clusters) },
-    { id: 'financeMarketsList', getItems: () => getCombinedItems(['finance', 'energy']) },
-    { id: 'financePolicyList', getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
-    { id: 'cryptoList', getItems: () => getCategoryItems('crypto').items },
-    { id: 'predictionList', getItems: () => getPredictionItems() },
-    { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
-    { id: 'localList', getItems: () => getLocalItemsForPanel() },
-    { id: 'policyList', getItems: () => getCategoryItems('gov').items },
-    { id: 'congressList', getItems: () => getCongressItems() },
-    { id: 'cyberList', getItems: () => getCategoryItems('cyber').items },
-    { id: 'agricultureList', getItems: () => getCategoryItems('agriculture').items },
-    { id: 'researchList', getItems: () => getCategoryItems('research').items },
-    { id: 'spaceList', getItems: () => getCategoryItems('space').items },
-    { id: 'energyList', getItems: () => getEnergyNewsItems() },
-    { id: 'healthList', getItems: () => getCategoryItems('health').items },
-    { id: 'transportList', getItems: () => getCategoryItems('transport').items }
-  ];
-
-  const configMap = new Map(configs.map((config) => [config.id, config]));
-  const observer = new ResizeObserver((entries) => {
-    entries.forEach((entry) => {
-      const config = configMap.get(entry.target.id);
-      if (!config) return;
-      const items = config.getItems();
-      if (!items || !items.length) return;
-      renderListWithLimit(entry.target, items, { withCoverage: config.withCoverage });
-    });
-  });
-
-  configs.forEach((config) => {
-    const container = document.getElementById(config.id);
-    if (!container) return;
-    observer.observe(container);
   });
 }
 
@@ -10198,6 +10256,14 @@ function initMap() {
     worldCopyJump: true
   }).setView([state.location.lat, state.location.lon], 2);
 
+  if (elements.mapLegend && window.L?.DomEvent) {
+    window.L.DomEvent.disableScrollPropagation(elements.mapLegend);
+    window.L.DomEvent.disableClickPropagation(elements.mapLegend);
+    const stopLegendScroll = (event) => event.stopPropagation();
+    elements.mapLegend.addEventListener('wheel', stopLegendScroll, { passive: true });
+    elements.mapLegend.addEventListener('touchmove', stopLegendScroll, { passive: true });
+  }
+
   const defaultDate = getDefaultImageryDate(state.settings.mapBasemap || 'gibs-viirs');
   const gibsDate = state.settings.mapImageryDate || defaultDate;
   const sarDate = state.settings.mapSarDate || defaultDate;
@@ -11119,346 +11185,23 @@ function hideSearchResults() {
 }
 
 async function refreshAll(force = false) {
-  setRefreshing(true);
-  setHealth('Fetching feeds');
-  updateProxyHealth();
-  const liveOverride = force && isStaticMode();
-  try {
-    if (isStaticMode()) {
-      await loadStaticAnalysis();
-      await loadStaticBuild();
-    }
-    const results = await Promise.all(state.feeds.map(async (feed) => {
-      const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
-      if (liveOverride || shouldFetchLiveInStatic(feed)) {
-        try {
-          const live = await fetchCustomFeedDirect(feed, query);
-          if (!live.error) return live;
-          const fallback = await fetchFeed(feed, query, force);
-          return fallback;
-        } catch {
-          // fall through to static cache
-        }
-      }
-      return fetchFeed(feed, query, force).catch(() => ({
-        feed,
-        items: [],
-        error: 'fetch_failed',
-        httpStatus: 0,
-        fetchedAt: Date.now()
-      }));
-    }));
-
-    results.forEach((result) => {
-      const stale = !result.error && isFeedStale(result.feed, result);
-      state.feedStatus[result.feed.id] = {
-        httpStatus: result.httpStatus,
-        error: result.error,
-        errorMessage: result.errorMessage,
-        fetchedAt: result.fetchedAt,
-        count: result.items.length,
-        stale
-      };
-    });
-
-    const items = results.flatMap((result) => result.items || []);
-    state.items = items.map((item) => enrichItem({
-      ...item,
-      url: canonicalUrl(item.url),
-      isNonEnglish: isNonEnglish(`${item.title || ''} ${item.summary || ''}`),
-      feedId: item.feedId || null
-    }));
-
-    state.scopedItems = applyScope(state.items);
-    state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-    state.lastFetch = Date.now();
-    updateDataFreshBadge();
-    const issueCount = countCriticalIssues(results);
-    setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
-
-    renderAllPanels();
-    renderSignals();
-    renderFeedHealth();
-    drawMap();
-    generateAnalysis(false);
-    maybeAutoRunAnalysis();
-    await refreshCustomTickers();
-    renderTicker();
-    renderFinanceSpotlight();
-
-    geocodeItems(state.items).then((geocodeUpdated) => {
-      if (!geocodeUpdated) return;
-      state.scopedItems = applyScope(state.items);
-      if (state.settings.scope === 'local') {
-        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-        renderAllPanels();
-      } else {
-        renderLocal();
-      }
-      renderSignals();
-      renderFeedHealth();
-      drawMap();
-      renderTicker();
-    }).catch(() => {});
-    if (issueCount) {
-      retryFailedFeeds();
-    }
-    retryStaleFeeds(results);
-  } finally {
-    setRefreshing(false);
-  }
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.refreshAll(force);
 }
 
 async function retryFailedFeeds() {
-  if (state.retryingFeeds) return;
-  const failedFeeds = state.feeds.filter((feed) => state.feedStatus[feed.id]?.error === 'fetch_failed');
-  if (!failedFeeds.length) return;
-  state.retryingFeeds = true;
-
-  const seen = new Set(state.items.map((item) => item.url || item.title));
-  const newItems = [];
-
-  for (const feed of failedFeeds) {
-    const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const result = await fetchFeed(feed, query, true);
-      const stale = !result.error && isFeedStale(result.feed, result);
-      state.feedStatus[result.feed.id] = {
-        httpStatus: result.httpStatus,
-        error: result.error,
-        errorMessage: result.errorMessage,
-        fetchedAt: result.fetchedAt,
-        count: result.items.length,
-        stale
-      };
-      result.items.forEach((item) => {
-        const key = item.url || item.title;
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        newItems.push({
-          ...item,
-          url: canonicalUrl(item.url)
-        });
-      });
-    } catch (err) {
-      // Keep original error status.
-    }
-  }
-
-  if (newItems.length) {
-    state.items = [...state.items, ...newItems];
-    state.scopedItems = applyScope(state.items);
-    state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-    renderAllPanels();
-    renderSignals();
-    drawMap();
-  }
-
-  renderFeedHealth();
-  const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
-    feed,
-    ...state.feedStatus[feed.id]
-  })));
-  setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
-  updatePanelErrors();
-  state.retryingFeeds = false;
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.retryFailedFeeds();
 }
 
 async function retryStaleFeeds(results) {
-  if (state.staleRetrying) return;
-  if (isStaticMode() && !state.settings.superMonitor) return;
-  const now = Date.now();
-  if (now - state.lastStaleRetry < 2 * 60 * 1000) return;
-  const staleFeeds = state.feeds.filter((feed) => {
-    const status = state.feedStatus[feed.id];
-    if (!status || status.error) return false;
-    if (isStaticMode() && feed.keySource === 'server') return false;
-    return isFeedStale(feed, status);
-  });
-  if (!staleFeeds.length) return;
-  state.staleRetrying = true;
-  state.lastStaleRetry = now;
-
-  const seen = new Set(state.items.map((item) => item.url || item.title));
-  const newItems = [];
-
-  for (const feed of staleFeeds) {
-    const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const result = await fetchFeed(feed, query, true);
-      const stale = !result.error && isFeedStale(result.feed, result);
-      state.feedStatus[result.feed.id] = {
-        httpStatus: result.httpStatus,
-        error: result.error,
-        errorMessage: result.errorMessage,
-        fetchedAt: result.fetchedAt,
-        count: result.items.length,
-        stale
-      };
-      result.items.forEach((item) => {
-        const key = item.url || item.title;
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        newItems.push({
-          ...item,
-          url: canonicalUrl(item.url)
-        });
-      });
-    } catch {
-      // keep existing data
-    }
-  }
-
-  if (newItems.length) {
-    state.items = [...state.items, ...newItems];
-    state.scopedItems = applyScope(state.items);
-    state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-    renderAllPanels();
-    renderSignals();
-    drawMap();
-  }
-
-  renderFeedHealth();
-  updatePanelErrors();
-  const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
-    feed,
-    ...state.feedStatus[feed.id]
-  })));
-  setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
-  state.staleRetrying = false;
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.retryStaleFeeds(results);
 }
 
 function startAutoRefresh() {
-  if (state.refreshTimer) clearInterval(state.refreshTimer);
-  state.refreshTimer = setInterval(() => refreshAll(), state.settings.refreshMinutes * 60 * 1000);
-}
-
-async function handleSearch() {
-  const query = elements.searchInput.value.trim();
-  const scope = elements.feedScope.value || 'all';
-  if (!query) {
-    elements.searchHint.textContent = 'Enter a search term to query signals.';
-    showSearchResults([], 'Enter a search term');
-    updateSearchHint();
-    return;
-  }
-
-  state.lastSearchQuery = query;
-  state.lastSearchScope = scope;
-  state.lastSearchCategories = [...state.searchCategories];
-
-  const originalLabel = elements.searchBtn?.textContent;
-  if (elements.searchBtn) {
-    elements.searchBtn.disabled = true;
-    elements.searchBtn.textContent = 'Searching...';
-  }
-  state.searching = true;
-
-  try {
-    const normalizedQuery = query.toLowerCase();
-    const liveSearchFeeds = isStaticMode() && state.settings.liveSearch ? getLiveSearchFeeds() : [];
-    const runLiveSearch = async (feeds) => {
-      if (!feeds.length) return [];
-      const results = await Promise.all(feeds.map(async (feed) => {
-        const translated = await translateQueryAsync(feed, query);
-        return fetchCustomFeedDirect(feed, translated);
-      }));
-      return results.flatMap((result) => result.items || []);
-    };
-    if (state.searchCategories.length) {
-      const selected = state.searchCategories;
-      const filtered = state.scopedItems.filter((item) => selected.includes(item.category)).filter((item) => {
-        const text = `${item.title} ${item.summary || ''}`.toLowerCase();
-        return text.includes(normalizedQuery);
-      });
-      const liveFeeds = liveSearchFeeds.filter((feed) => selected.includes(feed.category));
-      if (liveFeeds.length) {
-        elements.searchHint.textContent = 'Searching live sources...';
-      }
-      const liveItems = await runLiveSearch(liveFeeds);
-      const combined = [...filtered, ...liveItems];
-      const freshFiltered = applySearchFilters(combined);
-      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => CATEGORY_LABELS[cat] || cat).join(', ')}`);
-      elements.searchHint.textContent = liveFeeds.length
-        ? 'Showing cached + live search results.'
-        : 'Showing multi-category search results.';
-      return;
-    }
-
-    if (scope === 'all') {
-      const filtered = state.scopedItems.filter((item) => {
-        const text = `${item.title} ${item.summary || ''}`.toLowerCase();
-        return text.includes(normalizedQuery);
-      });
-      if (liveSearchFeeds.length) {
-        elements.searchHint.textContent = 'Searching live sources...';
-      }
-      const liveItems = await runLiveSearch(liveSearchFeeds);
-      const combined = [...filtered, ...liveItems];
-      const freshFiltered = applySearchFilters(combined);
-      showSearchResults(freshFiltered, `${freshFiltered.length} matches across all feeds`);
-      elements.searchHint.textContent = liveSearchFeeds.length
-        ? `Showing cached + live results (${freshFiltered.length}).`
-        : `Showing ${freshFiltered.length} matches across all feeds.`;
-      return;
-    }
-
-    if (scope.startsWith('cat:')) {
-      const category = scope.replace('cat:', '');
-      const filtered = state.scopedItems.filter((item) => item.category === category).filter((item) => {
-        const text = `${item.title} ${item.summary || ''}`.toLowerCase();
-        return text.includes(normalizedQuery);
-      });
-      const liveFeeds = liveSearchFeeds.filter((feed) => feed.category === category);
-      if (liveFeeds.length) {
-        elements.searchHint.textContent = 'Searching live sources...';
-      }
-      const liveItems = await runLiveSearch(liveFeeds);
-      const combined = [...filtered, ...liveItems];
-      const freshFiltered = applySearchFilters(combined);
-      showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${CATEGORY_LABELS[category] || category}`);
-      elements.searchHint.textContent = liveFeeds.length
-        ? `Showing cached + live results (${freshFiltered.length}).`
-        : `Showing ${freshFiltered.length} matches in ${CATEGORY_LABELS[category] || category}.`;
-      return;
-    }
-
-    const feed = state.feeds.find((f) => f.id === scope);
-    if (!feed) {
-      elements.searchHint.textContent = 'Select a feed or category to search.';
-      showSearchResults([], 'Select a feed or category');
-      return;
-    }
-    elements.searchHint.textContent = state.settings.aiTranslate && hasAssistantAccess()
-      ? 'Translating query...'
-      : 'Preparing query...';
-    const translated = await translateQueryAsync(feed, query);
-    try {
-      if (liveSearchFeeds.find((entry) => entry.id === feed.id)) {
-        const result = await fetchCustomFeedDirect(feed, translated);
-        const items = applySearchFilters(result.items || []);
-        showSearchResults(items, `${items.length} live results from ${feed.name}`);
-        elements.searchHint.textContent = `Live search results from ${feed.name}.`;
-      } else {
-        const result = await fetchFeed(feed, translated, true);
-        const items = applySearchFilters(result.items || []);
-        showSearchResults(items, `${items.length} results from ${feed.name}`);
-        elements.searchHint.textContent = `Search results from ${feed.name}.`;
-      }
-    } catch (error) {
-      elements.searchHint.textContent = `Search failed for ${feed.name}.`;
-      showSearchResults([], `Search failed for ${feed.name}`);
-    }
-  } finally {
-    if (elements.searchBtn) {
-      elements.searchBtn.disabled = false;
-      elements.searchBtn.textContent = originalLabel || 'Search';
-    }
-    state.searching = false;
-    updateSearchHint();
-  }
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.startAutoRefresh();
 }
 
 function requestLocation() {
@@ -11511,22 +11254,6 @@ function initEvents() {
   if (elements.refreshNow) {
     elements.refreshNow.addEventListener('click', () => refreshAll(true));
   }
-  if (elements.settingsToggle) {
-    elements.settingsToggle.addEventListener('click', () => {
-      const isOpen = elements.settingsPanel?.classList.contains('open');
-      toggleSettings(!isOpen);
-    });
-  }
-  if (elements.settingsScrim) {
-    elements.settingsScrim.addEventListener('click', () => toggleSettings(false));
-  }
-  if (elements.sidebarSettings) {
-    elements.sidebarSettings.addEventListener('click', () => {
-      const isOpen = elements.settingsPanel?.classList.contains('open');
-      toggleSettings(!isOpen);
-      setNavOpen(false);
-    });
-  }
   if (elements.sidebarAbout) {
     elements.sidebarAbout.addEventListener('click', () => {
       toggleAbout(true);
@@ -11568,16 +11295,6 @@ function initEvents() {
       }
     });
   }
-  elements.feedScope.addEventListener('change', () => {
-    if (elements.feedScope.value !== 'all' && !elements.feedScope.value.startsWith('cat:')) {
-      state.searchCategories = [];
-      updateCategoryFilters();
-    }
-  });
-  elements.searchBtn.addEventListener('click', handleSearch);
-  elements.searchInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') handleSearch();
-  });
   if (elements.moneyFlowsRun) {
     elements.moneyFlowsRun.addEventListener('click', () => fetchMoneyFlows());
   }
@@ -11611,7 +11328,9 @@ function initEvents() {
       const btn = event.target.closest('button[data-query]');
       if (!btn) return;
       elements.searchInput.value = btn.dataset.query || '';
-      handleSearch();
+      if (searchController?.handleSearch) {
+        searchController.handleSearch();
+      }
     });
   }
   if (elements.financeTabs) {
@@ -11627,36 +11346,6 @@ function initEvents() {
       });
     });
   }
-  if (elements.statusToggle) {
-    elements.statusToggle.addEventListener('click', () => {
-      state.settings.showStatus = !state.settings.showStatus;
-      saveSettings();
-      updateSettingsUI();
-    });
-  }
-  if (elements.keyToggle) {
-    elements.keyToggle.addEventListener('click', () => {
-      state.settings.showKeys = !state.settings.showKeys;
-      saveSettings();
-      updateSettingsUI();
-    });
-  }
-  if (elements.mcpToggle) {
-    elements.mcpToggle.addEventListener('click', () => {
-      state.settings.showMcp = !state.settings.showMcp;
-      saveSettings();
-      updateSettingsUI();
-    });
-  }
-  if (elements.travelTickerBtn) {
-    elements.travelTickerBtn.addEventListener('click', () => {
-      state.settings.showTravelTicker = !state.settings.showTravelTicker;
-      saveSettings();
-      updateSettingsUI();
-      renderTravelTicker();
-    });
-  }
-
   document.querySelectorAll('.ticker-builder-toggle').forEach((btn) => {
     btn.addEventListener('click', () => {
       const target = btn.dataset.target;
@@ -11690,112 +11379,8 @@ function initEvents() {
     removeTickerFromWatchlist(key);
   });
 
-  elements.refreshRange.addEventListener('input', (event) => {
-    state.settings.refreshMinutes = Number(event.target.value);
-    saveSettings();
-    updateSettingsUI();
-    startAutoRefresh();
-  });
-
-  elements.radiusRange.addEventListener('input', (event) => {
-    state.settings.radiusKm = Number(event.target.value);
-    saveSettings();
-    updateSettingsUI();
-    renderLocal();
-    drawMap();
-    maybeAutoRunAnalysis();
-  });
-
-  if (elements.maxAgeRange) {
-    elements.maxAgeRange.addEventListener('input', (event) => {
-      state.settings.maxAgeDays = Number(event.target.value);
-      saveSettings();
-      updateSettingsUI();
-      state.scopedItems = applyScope(state.items);
-      state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-      renderAllPanels();
-      renderSignals();
-      drawMap();
-      maybeAutoRunAnalysis();
-    });
-  }
-
-  if (elements.languageToggle) {
-    elements.languageToggle.addEventListener('click', (event) => {
-      const btn = event.target.closest('button');
-      if (!btn) return;
-      state.settings.languageMode = btn.dataset.language;
-      saveSettings();
-      updateSettingsUI();
-      state.scopedItems = applyScope(state.items);
-      state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-      renderAllPanels();
-      renderSignals();
-      drawMap();
-      maybeAutoRunAnalysis();
-    });
-  }
-
-  elements.themeToggle.addEventListener('click', (event) => {
-    const btn = event.target.closest('button');
-    if (!btn) return;
-    applyTheme(btn.dataset.theme);
-    saveSettings();
-    updateSettingsUI();
-  });
-
-  if (elements.ageToggle) {
-    elements.ageToggle.addEventListener('click', (event) => {
-      const btn = event.target.closest('button');
-      if (!btn) return;
-      const age = Number(btn.dataset.age);
-      if (!Number.isFinite(age)) return;
-      state.settings.maxAgeDays = age;
-      saveSettings();
-      updateSettingsUI();
-      state.scopedItems = applyScope(state.items);
-      state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-      renderAllPanels();
-      renderSignals();
-      drawMap();
-    });
-  }
-
-  elements.scopeToggle.addEventListener('click', (event) => {
-    const btn = event.target.closest('button');
-    if (!btn) return;
-    state.settings.scope = btn.dataset.scope;
-    state.scopedItems = applyScope(state.items);
-    state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-    updateScopeButtons();
-    updateMapViewForScope();
-    renderAllPanels();
-    renderSignals();
-    drawMap();
-    maybeAutoRunAnalysis();
-  });
-
   if (elements.geoLocateBtn) {
     elements.geoLocateBtn.addEventListener('click', requestLocation);
-  }
-
-  if (elements.aiTranslateToggle) {
-    elements.aiTranslateToggle.addEventListener('change', (event) => {
-      state.settings.aiTranslate = event.target.checked;
-      saveSettings();
-      updateSettingsUI();
-      maybeAutoRunAnalysis();
-    });
-  }
-
-  if (elements.superMonitorToggle) {
-    elements.superMonitorToggle.addEventListener('change', (event) => {
-      state.settings.superMonitor = event.target.checked;
-      saveSettings();
-      updateSettingsUI();
-      updateChatStatus();
-      maybeAutoRunAnalysis();
-    });
   }
 
   if (elements.mapLegendBtn && elements.mapLegend) {
@@ -12210,6 +11795,42 @@ async function init() {
   state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
   applyOpenSkyProxyOverride();
   applyAcledProxyOverride();
+  feedManager = createFeedManager({
+    state,
+    elements,
+    helpers: {
+      setRefreshing,
+      setHealth,
+      updateProxyHealth,
+      isStaticMode,
+      loadStaticAnalysis,
+      loadStaticBuild,
+      translateQuery,
+      shouldFetchLiveInStatic,
+      fetchCustomFeedDirect,
+      fetchFeed,
+      isFeedStale,
+      canonicalUrl,
+      isNonEnglish,
+      enrichItem,
+      applyScope,
+      clusterNews,
+      updateDataFreshBadge,
+      countCriticalIssues,
+      renderAllPanels,
+      renderSignals,
+      renderFeedHealth,
+      drawMap,
+      generateAnalysis,
+      maybeAutoRunAnalysis,
+      refreshCustomTickers,
+      renderTicker,
+      renderFinanceSpotlight,
+      geocodeItems,
+      renderLocal,
+      updatePanelErrors
+    }
+  });
 
   buildFeedOptions();
   populateCustomFeedCategories();
@@ -12220,8 +11841,172 @@ async function init() {
   initMap();
   updateMapDateUI();
   initEvents();
-  initInfiniteScroll();
-  initListAutoSizing();
+  searchController = initSearchUI({
+    state,
+    elements,
+    helpers: {
+      showSearchResults,
+      updateSearchHint,
+      isStaticMode,
+      getLiveSearchFeeds,
+      translateQueryAsync,
+      fetchCustomFeedDirect,
+      applySearchFilters,
+      CATEGORY_LABELS,
+      fetchFeed,
+      hasAssistantAccess,
+      updateCategoryFilters
+    }
+  });
+  initSettingsUI({
+    elements,
+    handlers: {
+      onSettingsToggle: () => {
+        const isOpen = elements.settingsPanel?.classList.contains('open');
+        toggleSettings(!isOpen);
+      },
+      onSettingsScrim: () => toggleSettings(false),
+      onSidebarSettings: () => {
+        const isOpen = elements.settingsPanel?.classList.contains('open');
+        toggleSettings(!isOpen);
+        setNavOpen(false);
+      },
+      onStatusToggle: () => {
+        state.settings.showStatus = !state.settings.showStatus;
+        saveSettings();
+        updateSettingsUI();
+      },
+      onKeyToggle: () => {
+        state.settings.showKeys = !state.settings.showKeys;
+        saveSettings();
+        updateSettingsUI();
+      },
+      onMcpToggle: () => {
+        state.settings.showMcp = !state.settings.showMcp;
+        saveSettings();
+        updateSettingsUI();
+      },
+      onTravelTickerToggle: () => {
+        state.settings.showTravelTicker = !state.settings.showTravelTicker;
+        saveSettings();
+        updateSettingsUI();
+        renderTravelTicker();
+      },
+      onRefreshRange: (event) => {
+        state.settings.refreshMinutes = Number(event.target.value);
+        saveSettings();
+        updateSettingsUI();
+        startAutoRefresh();
+      },
+      onRadiusRange: (event) => {
+        state.settings.radiusKm = Number(event.target.value);
+        saveSettings();
+        updateSettingsUI();
+        renderLocal();
+        drawMap();
+        maybeAutoRunAnalysis();
+      },
+      onMaxAgeRange: (event) => {
+        state.settings.maxAgeDays = Number(event.target.value);
+        saveSettings();
+        updateSettingsUI();
+        state.scopedItems = applyScope(state.items);
+        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+        renderAllPanels();
+        renderSignals();
+        drawMap();
+        maybeAutoRunAnalysis();
+      },
+      onLanguageToggle: (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        state.settings.languageMode = btn.dataset.language;
+        saveSettings();
+        updateSettingsUI();
+        state.scopedItems = applyScope(state.items);
+        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+        renderAllPanels();
+        renderSignals();
+        drawMap();
+        maybeAutoRunAnalysis();
+      },
+      onThemeToggle: (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        applyTheme(btn.dataset.theme);
+        saveSettings();
+        updateSettingsUI();
+      },
+      onAgeToggle: (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        const age = Number(btn.dataset.age);
+        if (!Number.isFinite(age)) return;
+        state.settings.maxAgeDays = age;
+        saveSettings();
+        updateSettingsUI();
+        state.scopedItems = applyScope(state.items);
+        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+        renderAllPanels();
+        renderSignals();
+        drawMap();
+      },
+      onScopeToggle: (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        state.settings.scope = btn.dataset.scope;
+        state.scopedItems = applyScope(state.items);
+        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+        updateScopeButtons();
+        updateMapViewForScope();
+        renderAllPanels();
+        renderSignals();
+        drawMap();
+        maybeAutoRunAnalysis();
+      },
+      onAiTranslateToggle: (event) => {
+        state.settings.aiTranslate = event.target.checked;
+        saveSettings();
+        updateSettingsUI();
+        maybeAutoRunAnalysis();
+      },
+      onSuperMonitorToggle: (event) => {
+        state.settings.superMonitor = event.target.checked;
+        saveSettings();
+        updateSettingsUI();
+        updateChatStatus();
+        maybeAutoRunAnalysis();
+      }
+    }
+  });
+  initPanelScroll({
+    state,
+    helpers: {
+      buildNewsItems,
+      getCombinedItems,
+      getCategoryItems,
+      getPredictionItems,
+      getLocalItemsForPanel,
+      getCongressItems,
+      getEnergyNewsItems,
+      renderList,
+      getListLimit,
+      LIST_PAGE_SIZE
+    }
+  });
+  initListAutoSizing({
+    state,
+    helpers: {
+      buildNewsItems,
+      getCombinedItems,
+      getCategoryItems,
+      getPredictionItems,
+      getLocalItemsForPanel,
+      getCongressItems,
+      getEnergyNewsItems,
+      renderListWithLimit
+    }
+  });
   initListModal();
   initDetailModal();
   focusController.initFocusModal();
@@ -12237,6 +12022,9 @@ async function init() {
   const params = new URLSearchParams(window.location.search);
   if (params.has('about') || window.location.hash === '#about') {
     toggleAbout(true);
+  }
+  if (typeof window !== 'undefined') {
+    window.__SR_READY__ = true;
   }
   await loadStaticAnalysis();
   await refreshAll();
