@@ -3482,6 +3482,17 @@ a:focus-visible {
   box-shadow: 0 10px 20px rgba(5, 10, 16, 0.16);
 }
 
+.list-item.is-alert {
+  border-color: rgba(255, 126, 126, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 126, 126, 0.2) inset;
+  background: linear-gradient(180deg, rgba(255, 126, 126, 0.08), var(--surface-2));
+}
+
+.list-item.is-alert:hover {
+  border-color: rgba(255, 126, 126, 0.75);
+  box-shadow: 0 10px 20px rgba(120, 20, 20, 0.18);
+}
+
 .list-title {
   font-weight: 600;
   font-size: 12.5px;
@@ -3553,6 +3564,110 @@ a.list-title:hover {
   -webkit-box-orient: vertical;
   overflow: hidden;
   max-height: 3.2em;
+}
+
+.trends-controls {
+  margin-top: 10px;
+}
+
+.trends-controls input {
+  width: 100%;
+}
+
+.trends-summary {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.trends-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.trends-item {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.trends-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.trends-meta {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.trends-summary-text {
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.trends-empty {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.denario-panel {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.denario-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.denario-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.denario-list {
+  display: grid;
+  gap: 8px;
+}
+
+.denario-item {
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.denario-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.denario-item-summary {
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.denario-empty {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .list-summary p,
@@ -4691,8 +4806,8 @@ a.list-title:hover {
 }
 
 .focus-stage-body .map-overlay {
-  max-height: calc(100% - 12px);
-  height: calc(100% - 12px);
+  max-height: 100%;
+  height: 100%;
   overflow-y: auto;
   padding-right: 6px;
   overscroll-behavior: contain;
@@ -4702,6 +4817,7 @@ a.list-title:hover {
 .focus-stage-body.focus-geo .panel,
 .focus-stage-body.focus-single .panel {
   min-height: 0;
+  height: 100%;
 }
 
 .focus-stage-body.focus-geo .panel-body,
@@ -4710,6 +4826,7 @@ a.list-title:hover {
   overflow: auto;
   scrollbar-gutter: stable;
   padding-right: 6px;
+  flex: 1;
 }
 
 .focus-stage-body.focus-single .list,

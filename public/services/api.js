@@ -42,6 +42,10 @@ export function getOpenAiProxy() {
   return rawConfig.openAiProxy || '';
 }
 
+export function getMcpProxy() {
+  return rawConfig.mcpProxy || '';
+}
+
 export function getOpenSkyProxy() {
   return rawConfig.openSkyProxy || '';
 }

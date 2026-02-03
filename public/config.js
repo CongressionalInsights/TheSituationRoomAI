@@ -19,5 +19,7 @@ window.SR_CONFIG = window.SR_CONFIG || {};
       || 'https://situation-room-opensky-382918878290.us-central1.run.app/api/opensky';
     window.SR_CONFIG.acledProxy = window.SR_CONFIG.acledProxy
       || 'https://situation-room-acled-382918878290.us-central1.run.app/api/acled';
+    window.SR_CONFIG.mcpProxy = window.SR_CONFIG.mcpProxy
+      || 'https://situation-room-mcp-382918878290.us-central1.run.app/mcp';
   }
 })();

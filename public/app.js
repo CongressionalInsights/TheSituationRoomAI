@@ -1,5 +1,7 @@
-import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy, getAcledProxy } from './services/api.js';
+import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy, getAcledProxy, getMcpProxy } from './services/api.js';
 import { createFocusController } from './modules/focus.js';
+import { createMcpClient } from './modules/mcp.js';
+import { isAlertItem } from './modules/alerts.js';
 
 const LAYOUT_VERSION = 4;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
@@ -262,6 +264,22 @@ const state = {
   analysisSignature: null,
   analysisRunning: false,
   searching: false,
+  mcpTrends: {
+    loading: false,
+    query: '',
+    summary: null,
+    signals: [],
+    sources: [],
+    error: null,
+    updatedAt: null
+  },
+  denario: {
+    loading: false,
+    available: false,
+    summary: null,
+    items: [],
+    error: null
+  },
   predictionFallback: {
     items: [],
     loading: false,
@@ -394,6 +412,15 @@ const elements = {
   analysisStory: document.getElementById('analysisStory'),
   analysisBody: document.querySelector('#analysisOutput .analysis-body'),
   analysisRun: document.getElementById('analysisRun'),
+  mcpTrendsPanel: document.getElementById('mcpTrendsPanel'),
+  mcpTrendsQuery: document.getElementById('mcpTrendsQuery'),
+  mcpTrendsRun: document.getElementById('mcpTrendsRun'),
+  mcpTrendsSummary: document.getElementById('mcpTrendsSummary'),
+  mcpTrendsList: document.getElementById('mcpTrendsList'),
+  mcpTrendsMeta: document.getElementById('mcpTrendsMeta'),
+  denarioPanel: document.getElementById('denarioPanel'),
+  denarioMeta: document.getElementById('denarioMeta'),
+  denarioList: document.getElementById('denarioList'),
   summaryGlobalActivity: document.getElementById('summaryGlobalActivity'),
   summaryGlobalActivityMeta: document.getElementById('summaryGlobalActivityMeta'),
   summaryNewsSaturation: document.getElementById('summaryNewsSaturation'),
@@ -535,6 +562,7 @@ const DEFAULT_PANEL_SIZE_CONFIG = [
   { id: 'money-flows', cols: 12 },
   { id: 'crypto', cols: 4 },
   { id: 'prediction', cols: 4 },
+  { id: 'mcp-trends', cols: 12 },
   { id: 'hazards', cols: 4 },
   { id: 'security', cols: 4 },
   { id: 'local', cols: 6 },
@@ -639,6 +667,7 @@ const focusController = createFocusController({
   focusPanelExclude: FOCUS_PANEL_EXCLUDE,
   focusGeoTarget: FOCUS_GEO_TARGET
 });
+const mcpClient = createMcpClient(getMcpProxy());
 const DATA_ATTRIBUTIONS = [
   {
     id: 'openstreetmap',
@@ -765,6 +794,15 @@ const DATA_ATTRIBUTIONS = [
     attribution: 'Source: Centers for Disease Control and Prevention (CDC). Data are public domain; credit CDC.',
     termsUrl: 'https://www.cdc.gov/other/policies.html',
     notes: 'Travel health notices.'
+  },
+  {
+    id: 'state-travel',
+    name: 'U.S. State Department Travel Advisories',
+    short: 'Travel advisories',
+    url: 'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html',
+    attribution: 'Source: U.S. Department of State Travel Advisories.',
+    termsUrl: 'https://travel.state.gov/content/travel/en/legal.html',
+    notes: 'Travel advisory RSS feed.'
   },
   {
     id: 'eia',
@@ -6953,6 +6991,9 @@ function buildListBadges(item, contextId) {
     const trend = getTrendLabel(item);
     if (trend) pushBadge('trend', trend, 'chip-badge trend');
   }
+  if (isAlertItem(item) && !item.alertType) {
+    pushBadge('alert', 'Alert', 'chip-badge alert');
+  }
   if (item.alertType) pushBadge('alertType', item.alertType, 'chip-badge alert');
   if (item.severity) pushBadge('severity', item.severity, 'chip-badge severity');
   if (Number.isFinite(item.delta)) {
@@ -6996,6 +7037,9 @@ function renderList(container, items, { withCoverage = false, append = false } =
     if (state.settings.languageMode === 'en' && item.isNonEnglish) return;
     const div = document.createElement('div');
     div.className = 'list-item';
+    if (isAlertItem(item)) {
+      div.classList.add('is-alert');
+    }
 
     const hasDetail = Array.isArray(item.detailFields) && item.detailFields.length;
     const isDetailItem = hasDetail || item.detailSummary || item.detailTitle;
@@ -8587,6 +8631,175 @@ function renderTravelTicker() {
   }
 }
 
+function renderMcpTrends() {
+  if (!elements.mcpTrendsPanel) return;
+  const { loading, error, summary, signals, sources, updatedAt } = state.mcpTrends;
+  if (elements.mcpTrendsSummary) {
+    if (loading) {
+      elements.mcpTrendsSummary.textContent = 'Fetching MCP signals…';
+    } else if (error) {
+      elements.mcpTrendsSummary.textContent = `MCP error: ${error}`;
+    } else if (summary) {
+      elements.mcpTrendsSummary.textContent = summary;
+    } else if (signals.length) {
+      const sourceCount = sources.length ? `${sources.length} sources` : 'multiple sources';
+      elements.mcpTrendsSummary.textContent = `${signals.length} signals across ${sourceCount}.`;
+    } else {
+      elements.mcpTrendsSummary.textContent = 'Awaiting MCP signals.';
+    }
+  }
+  if (elements.mcpTrendsMeta) {
+    elements.mcpTrendsMeta.textContent = updatedAt ? `Updated ${toRelativeTime(updatedAt)}` : '—';
+  }
+  if (!elements.mcpTrendsList) return;
+  elements.mcpTrendsList.innerHTML = '';
+  if (loading || error) return;
+  if (!signals.length) {
+    elements.mcpTrendsList.innerHTML = '<div class="trends-empty">No MCP signals yet.</div>';
+    return;
+  }
+  signals.slice(0, 12).forEach((item) => {
+    const entry = document.createElement('div');
+    entry.className = 'trends-item';
+    const title = document.createElement(item.url ? 'a' : 'div');
+    title.className = 'trends-title';
+    title.textContent = item.title || item.name || item.label || 'Signal';
+    if (item.url) {
+      title.href = item.url;
+      title.target = '_blank';
+      title.rel = 'noopener noreferrer';
+    }
+    const meta = document.createElement('div');
+    meta.className = 'trends-meta';
+    const metaParts = [];
+    if (item.source) metaParts.push(item.source);
+    if (item.category) metaParts.push(item.category);
+    const ts = item.publishedAt || item.updatedAt || item.timestamp;
+    if (ts) metaParts.push(toRelativeTime(ts));
+    meta.textContent = metaParts.filter(Boolean).join(' • ');
+    entry.appendChild(title);
+    entry.appendChild(meta);
+    const summaryText = item.summary || item.detailSummary || item.description;
+    if (summaryText) {
+      const summaryEl = document.createElement('div');
+      summaryEl.className = 'trends-summary-text';
+      summaryEl.textContent = truncateText(stripHtml(summaryText), 140);
+      entry.appendChild(summaryEl);
+    }
+    elements.mcpTrendsList.appendChild(entry);
+  });
+}
+
+async function fetchMcpTrends(queryOverride = '') {
+  if (!mcpClient) return;
+  const query = String(queryOverride || '').trim();
+  state.mcpTrends.query = query;
+  state.mcpTrends.loading = true;
+  state.mcpTrends.error = null;
+  renderMcpTrends();
+  try {
+    const result = await mcpClient.callTool('search.smart', {
+      query: query || 'top signals',
+      limit: 30
+    });
+    if (result.error) {
+      state.mcpTrends.error = result.message || 'MCP request failed.';
+      state.mcpTrends.signals = [];
+      state.mcpTrends.sources = [];
+      state.mcpTrends.summary = null;
+    } else {
+      const data = result.data || {};
+      const items = Array.isArray(data.items)
+        ? data.items
+        : (Array.isArray(data.results) ? data.results : (Array.isArray(data.signals) ? data.signals : []));
+      const sources = Array.isArray(data.sources)
+        ? data.sources
+        : (Array.isArray(data.providers) ? data.providers : []);
+      state.mcpTrends.signals = items;
+      state.mcpTrends.sources = sources;
+      state.mcpTrends.summary = data.summary || data.overview || null;
+    }
+  } catch (err) {
+    state.mcpTrends.error = err?.message || 'MCP request failed.';
+    state.mcpTrends.signals = [];
+    state.mcpTrends.sources = [];
+    state.mcpTrends.summary = null;
+  } finally {
+    state.mcpTrends.loading = false;
+    state.mcpTrends.updatedAt = Date.now();
+    renderMcpTrends();
+  }
+}
+
+function initMcpTrends() {
+  if (!elements.mcpTrendsPanel) return;
+  if (elements.mcpTrendsRun) {
+    elements.mcpTrendsRun.addEventListener('click', () => {
+      fetchMcpTrends(elements.mcpTrendsQuery?.value || '');
+    });
+  }
+  if (elements.mcpTrendsQuery) {
+    elements.mcpTrendsQuery.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        fetchMcpTrends(elements.mcpTrendsQuery.value || '');
+      }
+    });
+  }
+  renderMcpTrends();
+  fetchMcpTrends('');
+}
+
+function renderDenario() {
+  if (!elements.denarioPanel) return;
+  elements.denarioPanel.classList.toggle('is-hidden', !state.denario.available);
+  if (!state.denario.available) return;
+  if (elements.denarioMeta) {
+    elements.denarioMeta.textContent = state.denario.summary || 'Denario insights loaded.';
+  }
+  if (!elements.denarioList) return;
+  elements.denarioList.innerHTML = '';
+  const items = Array.isArray(state.denario.items) ? state.denario.items : [];
+  if (!items.length) {
+    elements.denarioList.innerHTML = '<div class="denario-empty">No deep analysis available yet.</div>';
+    return;
+  }
+  items.slice(0, 6).forEach((item) => {
+    const entry = document.createElement('div');
+    entry.className = 'denario-item';
+    const title = document.createElement('div');
+    title.className = 'denario-item-title';
+    title.textContent = item.title || item.label || 'Insight';
+    const summary = document.createElement('div');
+    summary.className = 'denario-item-summary';
+    summary.textContent = truncateText(stripHtml(item.summary || item.detail || ''), 180);
+    entry.appendChild(title);
+    entry.appendChild(summary);
+    elements.denarioList.appendChild(entry);
+  });
+}
+
+async function loadDenarioSummary() {
+  if (!elements.denarioPanel) return;
+  state.denario.loading = true;
+  renderDenario();
+  try {
+    const response = await fetch(getAssetUrl('data/denario.json'));
+    if (!response.ok) throw new Error('Denario unavailable');
+    const payload = await response.json();
+    state.denario.available = true;
+    state.denario.summary = payload.summary || payload.overview || null;
+    state.denario.items = Array.isArray(payload.items) ? payload.items : [];
+  } catch (err) {
+    state.denario.available = false;
+    state.denario.summary = null;
+    state.denario.items = [];
+    state.denario.error = err?.message || 'Denario unavailable';
+  } finally {
+    state.denario.loading = false;
+    renderDenario();
+  }
+}
+
 function renderAllPanels() {
   renderNews(state.clusters);
   renderCombined(['finance', 'energy'], elements.financeMarketsList);
@@ -8609,6 +8822,8 @@ function renderAllPanels() {
   renderTravelTicker();
   renderFinanceSpotlight();
   renderMoneyFlows();
+  renderMcpTrends();
+  renderDenario();
   updatePanelTimestamps();
   updatePanelErrors();
 }
@@ -11974,6 +12189,8 @@ async function init() {
   initWorldClocks();
   initSidebarNav();
   initCommandSections();
+  initMcpTrends();
+  loadDenarioSummary();
   ensurePanelUpdateBadges();
   renderWatchlistChips();
   requestLocation();

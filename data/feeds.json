@@ -591,6 +591,21 @@
       ]
     },
     {
+      "id": "state-travel-advisories",
+      "name": "State Dept. Travel Advisories",
+      "category": "travel",
+      "format": "rss",
+      "proxy": "allorigins",
+      "url": "https://travel.state.gov/_res/rss/TAs.xml",
+      "ttlMinutes": 240,
+      "tags": [
+        "global",
+        "travel",
+        "geo",
+        "policy"
+      ]
+    },
+    {
       "id": "arcgis-border-crisis",
       "name": "Border Crisis Incident Tracker (ArcGIS)",
       "category": "security",

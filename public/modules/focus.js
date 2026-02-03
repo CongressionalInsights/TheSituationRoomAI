@@ -75,7 +75,9 @@ export function createFocusController({
       '.map-detail-item',
       '.legend-item',
       '.legend-subitem',
-      '.detail-card'
+      '.detail-card',
+      '.trends-item',
+      '.denario-item'
     ];
     const items = elements.focusBody.querySelectorAll(selectors.join(','));
     if (!items.length) return;

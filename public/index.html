@@ -449,6 +449,30 @@
               <div class="analysis-story" id="analysisStory"></div>
               <div class="analysis-body">Pull data or run analysis to generate a briefing.</div>
             </div>
+            <div class="denario-panel is-hidden" id="denarioPanel">
+              <div class="denario-title">Deep Analysis</div>
+              <div class="denario-meta" id="denarioMeta">Waiting for Denario pipeline.</div>
+              <div class="denario-list" id="denarioList"></div>
+            </div>
+          </section>
+          <section class="panel trends-panel" data-panel="mcp-trends" data-category="analysis" id="mcpTrendsPanel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title"><span class="panel-icon tone-analysis"><svg class="icon" aria-hidden="true"><use href="#icon-activity"></use></svg></span>Trends & Insights</div>
+                <div class="panel-sub">MCP pulse across prioritized sources.</div>
+              </div>
+              <div class="panel-actions">
+                <button class="chip chip-small" id="mcpTrendsRun">Refresh</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="trends-controls">
+                <input type="search" id="mcpTrendsQuery" placeholder="Filter query (optional)" autocomplete="off" />
+              </div>
+              <div class="trends-summary" id="mcpTrendsSummary">Awaiting MCP signals.</div>
+              <div class="trends-list" id="mcpTrendsList"></div>
+              <div class="trends-meta" id="mcpTrendsMeta">—</div>
+            </div>
           </section>
       <section class="panel map-panel" data-panel="map" data-category="geo">
         <div class="panel-header">
