@@ -28,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm ci
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
       - name: Build static cache
