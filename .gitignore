@@ -7,3 +7,7 @@ public/feeds/
 *.log
 *.tmp
 .DS_Store
+
+# test outputs
+/test-results
+/reports
