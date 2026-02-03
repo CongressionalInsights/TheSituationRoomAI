@@ -40,6 +40,8 @@ jobs:
           OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
           OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
         run: node scripts/build_static_cache.mjs
+      - name: Build frontend bundle
+        run: node scripts/build_frontend.mjs
       - name: Verify public bundle
         run: node scripts/verify_public.mjs
       - name: Publish to gh-pages

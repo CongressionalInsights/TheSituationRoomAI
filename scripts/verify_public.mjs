@@ -7,7 +7,7 @@ const requiredFiles = [
   "index.html",
   "styles.css",
   "app.js",
-  "app.20260116a.js",
+  "app.bundle.js"
 ];
 
 const errors = [];
@@ -32,7 +32,7 @@ if (fs.existsSync(indexPath)) {
 
 const appPaths = [
   path.join(publicDir, "app.js"),
-  path.join(publicDir, "app.20260116a.js"),
+  path.join(publicDir, "app.bundle.js")
 ];
 
 const secretPatterns = [

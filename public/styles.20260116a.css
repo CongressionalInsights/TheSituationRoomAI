@@ -1779,22 +1779,32 @@ a:focus-visible {
 
 .panel-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .panel-focus-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 8px;
+  opacity: 0.6;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
 
 .panel-focus-btn .icon {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
+}
+
+.panel-header:hover .panel-focus-btn {
+  opacity: 1;
+  background: var(--surface-2);
+  border-color: var(--border);
 }
 
 .signal-health-detail {
@@ -4635,14 +4645,14 @@ a.list-title:hover {
 
 .focus-stage-body.focus-geo {
   grid-template-columns: 1fr;
-  grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr);
-  overflow: hidden;
+  grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr);
+  overflow: auto;
 }
 
 .focus-stage-body.focus-single {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: auto;
   min-height: 0;
 }
 
@@ -4654,6 +4664,7 @@ a.list-title:hover {
 .focus-stage-body.focus-single .panel {
   flex: 1;
   min-height: 0;
+  height: 100%;
 }
 
 .focus-stage-body .panel .panel-focus-btn {
@@ -4680,7 +4691,8 @@ a.list-title:hover {
 }
 
 .focus-stage-body .map-overlay {
-  max-height: calc(100% - 24px);
+  max-height: calc(100% - 12px);
+  height: calc(100% - 12px);
   overflow-y: auto;
   padding-right: 6px;
   overscroll-behavior: contain;
@@ -4697,6 +4709,16 @@ a.list-title:hover {
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
+  padding-right: 6px;
+}
+
+.focus-stage-body.focus-single .list,
+.focus-stage-body.focus-single .tab-panel,
+.focus-stage-body.focus-single .feed-panel .list,
+.focus-stage-body.focus-single .feed-panel .tab-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding-right: 6px;
 }
 

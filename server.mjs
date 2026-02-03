@@ -1116,8 +1116,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const filePath = safePath(url.pathname);
+  let filePath = safePath(url.pathname);
   if (!filePath) return notFound(res);
+  if (url.pathname === '/app.bundle.js' && !existsSync(filePath)) {
+    const fallback = safePath('/app.js');
+    if (fallback && existsSync(fallback)) {
+      filePath = fallback;
+    }
+  }
 
   readFile(filePath, (err, data) => {
     if (err) return notFound(res);

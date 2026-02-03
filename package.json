@@ -3,11 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:frontend": "node scripts/build_frontend.mjs",
     "test": "node --test scripts/test/feeds.spec.mjs",
     "test:ui": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.1",
+    "esbuild": "^0.25.0",
     "playwright": "^1.49.1"
   }
 }
