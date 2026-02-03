@@ -7307,7 +7307,12 @@ function getLocalItemsForPanel() {
     items = applyLanguageFilter(applyFreshnessFilter(state.items))
       .filter((item) => item.tags?.includes('us') && !item.mapOnly);
   }
-  return items;
+  const scored = items
+    .filter((item) => !isLocalAnalysisExcluded(item))
+    .map((item) => ({ item, score: getLocalPriorityScore(item) }))
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.item);
+  return scored;
 }
 
 function getEnergyNewsItems() {
@@ -7919,16 +7924,51 @@ function isLocalAnalysisExcluded(item) {
     'arcgis-submarine-landing'
   ]);
   if (staticFeedIds.has(feedId)) return true;
+  if (feedId.includes('military') || tags.includes('military') || tags.includes('installations')) return true;
   if (feedId === 'transport-opensky') return true;
   if (alertType === 'flight') return true;
   if (tags.includes('flight') || tags.includes('aviation')) return true;
+  if (tags.includes('airport') || tags.includes('aircraft')) return true;
   if (item.mapOnly && tags.includes('infrastructure') && !tags.includes('outage')) return true;
   if (item.mapOnly && category === 'infrastructure' && !tags.includes('outage')) return true;
+  if (category === 'crypto' || category === 'finance') return true;
   return false;
 }
 
 function getLocalAnalysisItems() {
   return getLocalItems().filter((item) => !isLocalAnalysisExcluded(item));
+}
+
+function getLocalPriorityScore(item) {
+  let score = 0;
+  const category = (item.category || '').toLowerCase();
+  const tags = Array.isArray(item.tags) ? item.tags.map((tag) => String(tag).toLowerCase()) : [];
+
+  if (item.alertType) score += 40;
+  if (item.severity) score += 25;
+  if (item.hazardType) score += 20;
+  if (Number.isFinite(item.impactScore)) score += Math.min(item.impactScore, 80);
+  if (Number.isFinite(item.fatalities)) score += Math.min(item.fatalities * 5, 60);
+  if (Number.isFinite(item.magnitude)) score += Math.min((item.magnitude - 3) * 10, 50);
+
+  const highSignalCategories = new Set(['security', 'disaster', 'weather', 'health', 'infrastructure', 'transport', 'gov', 'travel']);
+  if (highSignalCategories.has(category)) score += 20;
+  if (tags.includes('outage')) score += 20;
+  if (tags.includes('evacuation')) score += 20;
+  if (tags.includes('emergency')) score += 20;
+
+  const stamp = item.publishedAt || item.updatedAt || 0;
+  if (stamp) {
+    const ageHours = Math.max(0, (Date.now() - stamp) / 36e5);
+    score += Math.max(0, 24 - ageHours);
+  }
+
+  const distance = getDistanceKm(item);
+  if (Number.isFinite(distance)) {
+    score += Math.max(0, 25 - Math.min(distance, 25));
+  }
+
+  return score;
 }
 
 function haversineKm(lat1, lon1, lat2, lon2) {

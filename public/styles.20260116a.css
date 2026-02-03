@@ -1018,7 +1018,7 @@ a:focus-visible {
 }
 
 .search-results.open {
-  max-height: 320px;
+  max-height: 420px;
   opacity: 1;
   padding: 12px 14px;
 }
@@ -1044,7 +1044,7 @@ a:focus-visible {
 }
 
 .search-results-list {
-  max-height: 220px;
+  max-height: 320px;
   overflow: auto;
   padding-right: 6px;
 }
