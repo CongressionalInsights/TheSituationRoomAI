@@ -28,6 +28,7 @@
       "format": "rss",
       "proxy": "allorigins",
       "url": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+      "timeoutMs": 30000,
       "ttlMinutes": 60,
       "tags": [
         "us",
@@ -357,7 +358,7 @@
     },
     {
       "id": "usda-nass-reports",
-      "name": "USDA NASS Today\u2019s Reports",
+      "name": "USDA NASS Today’s Reports",
       "category": "agriculture",
       "format": "rss",
       "proxy": "allorigins",
@@ -374,6 +375,7 @@
       "category": "health",
       "format": "rss",
       "url": "https://api.allorigins.win/raw?url=https%3A%2F%2Fwww.fda.gov%2Fabout-fda%2Fcontact-fda%2Fstay-informed%2Frss-feeds%2Fmedwatch%2Frss.xml",
+      "timeoutMs": 30000,
       "ttlMinutes": 180,
       "tags": [
         "us",
@@ -498,9 +500,10 @@
       "name": "ACLED Conflict Events",
       "category": "security",
       "format": "json",
-      "url": "https://acleddata.com/api/acled/read",
+      "url": "",
       "acledMode": "aggregated",
       "acledRegion": "global",
+      "requiresConfig": true,
       "limit": 500,
       "ttlMinutes": 60,
       "tags": [

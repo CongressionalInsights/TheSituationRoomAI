@@ -1874,6 +1874,25 @@ a:focus-visible {
   letter-spacing: 0.3px;
 }
 
+.panel-error {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #d3862a;
+  letter-spacing: 0.3px;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(211, 134, 42, 0.4);
+  background: rgba(211, 134, 42, 0.12);
+  width: fit-content;
+}
+
+.panel-error.active {
+  display: inline-flex;
+}
+
 .map-panel {
   min-height: 520px;
   height: clamp(420px, 62vh, 680px);

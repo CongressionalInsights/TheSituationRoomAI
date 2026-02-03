@@ -720,6 +720,7 @@ async function fetchRaw(feed, options) {
     return { error: 'missing_url', message: 'Feed url missing.' };
   }
 
+  const startedAt = Date.now();
   const key = options.key || resolveServerKey(feed);
   const url = buildFeedUrl(feed, { ...options, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
@@ -767,6 +768,14 @@ async function fetchRaw(feed, options) {
   }
 
   if (!response || !response.ok) {
+    console.log(JSON.stringify({
+      event: 'mcp_raw_fetch',
+      feedId: feed.id,
+      ok: false,
+      httpStatus: response?.status || null,
+      elapsedMs: Date.now() - startedAt,
+      proxyUsed: usedProxy || null
+    }));
     return {
       ...lastError,
       fetchedUrl: stripSecretsFromUrl(fetchedUrl),
@@ -775,6 +784,14 @@ async function fetchRaw(feed, options) {
     };
   }
 
+  console.log(JSON.stringify({
+    event: 'mcp_raw_fetch',
+    feedId: feed.id,
+    ok: true,
+    httpStatus: response.status,
+    elapsedMs: Date.now() - startedAt,
+    proxyUsed: usedProxy || null
+  }));
   return {
     body,
     httpStatus: response.status,

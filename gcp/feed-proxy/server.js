@@ -1269,6 +1269,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/feed') {
+    const startedAt = Date.now();
     let body = {};
     if (req.method === 'POST') {
       try {
@@ -1289,9 +1290,24 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const payload = await fetchFeed(feed, { query, force, key, keyParam, keyHeader });
+      console.log(JSON.stringify({
+        event: 'feed_fetch',
+        feedId: id,
+        ok: !payload.error,
+        httpStatus: payload.httpStatus || null,
+        elapsedMs: Date.now() - startedAt
+      }));
       return sendJson(res, 200, payload, origin);
     } catch (error) {
       const message = error?.message || 'fetch failed';
+      console.log(JSON.stringify({
+        event: 'feed_fetch',
+        feedId: id,
+        ok: false,
+        httpStatus: 502,
+        elapsedMs: Date.now() - startedAt,
+        error: message
+      }));
       return sendJson(res, 502, { error: 'fetch_failed', message }, origin);
     }
   }

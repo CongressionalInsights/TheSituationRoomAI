@@ -1,0 +1,12 @@
+{
+  "name": "situation-room-ai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test scripts/test/feeds.spec.mjs",
+    "test:ui": "playwright test"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.1"
+  }
+}

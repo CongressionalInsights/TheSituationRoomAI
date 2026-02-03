@@ -22,6 +22,8 @@ jobs:
       ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
     steps:
       - uses: actions/checkout@v4
+      - name: Sync feed registry
+        run: node scripts/sync-feeds.mjs
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}

@@ -5849,6 +5849,7 @@ async function fetchMoneyFlows() {
     state.moneyFlowsLoading = false;
     renderMoneyFlows();
     updatePanelTimestamps();
+    updatePanelErrors();
   }
 }
 
@@ -6347,6 +6348,27 @@ function getLatestFeedTimestamp(categories) {
   return Math.max(...stamps);
 }
 
+const PANEL_ERROR_CATEGORY_MAP = {
+  map: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local', 'security', 'infrastructure'],
+  ticker: ['finance', 'crypto', 'energy'],
+  'finance-spotlight': ['finance', 'crypto', 'energy'],
+  news: ['news'],
+  finance: ['finance', 'energy', 'gov', 'cyber', 'agriculture'],
+  crypto: ['crypto'],
+  prediction: ['prediction'],
+  hazards: ['disaster', 'weather', 'space'],
+  local: ['news', 'gov', 'disaster', 'weather'],
+  policy: ['gov'],
+  cyber: ['cyber'],
+  agriculture: ['agriculture'],
+  research: ['research'],
+  space: ['space'],
+  energy: ['energy'],
+  'energy-map': ['energy'],
+  health: ['health'],
+  transport: ['transport']
+};
+
 function getPanelTimestamp(panelId) {
   const latestFromCategories = (categories) => {
     const scoped = state.scopedItems.filter((item) => categories.includes(item.category));
@@ -6407,12 +6429,55 @@ function getPanelTimestamp(panelId) {
   }
 }
 
+function getPanelFeedIds(panelId) {
+  if (panelId === 'map') {
+    return state.feeds
+      .filter((feed) => feed.mapOnly || PANEL_ERROR_CATEGORY_MAP.map.includes(feed.category))
+      .map((feed) => feed.id);
+  }
+  const categories = PANEL_ERROR_CATEGORY_MAP[panelId];
+  if (!categories) return [];
+  return state.feeds.filter((feed) => categories.includes(feed.category)).map((feed) => feed.id);
+}
+
 function updatePanelTimestamps() {
   ensurePanelUpdateBadges();
   document.querySelectorAll('.panel-updated[data-panel-update]').forEach((el) => {
     const panelId = el.dataset.panelUpdate;
     const stamp = getPanelTimestamp(panelId);
     el.textContent = stamp ? `Updated ${toRelativeTime(stamp)}` : 'Updated --';
+  });
+}
+
+function ensurePanelErrorBadges() {
+  document.querySelectorAll('.panel[data-panel]').forEach((panel) => {
+    if (panel.dataset.noUpdate) return;
+    const panelId = panel.dataset.panel;
+    const existing = panel.querySelector(`[data-panel-error="${panelId}"]`);
+    if (existing) return;
+    const header = panel.querySelector('.panel-header > div');
+    if (!header) return;
+    const badge = document.createElement('div');
+    badge.className = 'panel-error';
+    badge.dataset.panelError = panelId;
+    badge.textContent = '';
+    header.appendChild(badge);
+  });
+}
+
+function updatePanelErrors() {
+  ensurePanelErrorBadges();
+  document.querySelectorAll('.panel-error[data-panel-error]').forEach((el) => {
+    const panelId = el.dataset.panelError;
+    let hasError = false;
+    if (panelId === 'money-flows') {
+      hasError = Boolean(state.moneyFlowsError);
+    } else {
+      const feedIds = getPanelFeedIds(panelId);
+      hasError = feedIds.some((id) => state.feedStatus[id]?.error === 'fetch_failed');
+    }
+    el.textContent = hasError ? 'Feed error' : '';
+    el.classList.toggle('active', hasError);
   });
 }
 
@@ -8544,6 +8609,7 @@ function renderAllPanels() {
   renderFinanceSpotlight();
   renderMoneyFlows();
   updatePanelTimestamps();
+  updatePanelErrors();
 }
 
 function openListModal(listId) {
@@ -11105,6 +11171,7 @@ async function retryFailedFeeds() {
     ...state.feedStatus[feed.id]
   })));
   setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
+  updatePanelErrors();
   state.retryingFeeds = false;
 }
 
@@ -11164,6 +11231,7 @@ async function retryStaleFeeds(results) {
   }
 
   renderFeedHealth();
+  updatePanelErrors();
   const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
     feed,
     ...state.feedStatus[feed.id]
