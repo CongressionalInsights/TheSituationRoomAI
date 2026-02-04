@@ -8576,7 +8576,7 @@ async function fetchCongressDetail(apiUrl) {
   const { response, data } = await apiJson(`/api/congress-detail?url=${encodeURIComponent(apiUrl)}`, {}, 12000);
   if (!response?.ok) {
     if (data?.status === 404) {
-      return { __empty: true };
+      return { __empty: true, __status: 404 };
     }
     return null;
   }
@@ -8769,7 +8769,7 @@ function buildCongressPeopleRows(list, limit = 8) {
   }));
 }
 
-function renderCongressDetails(item, container, results) {
+function renderCongressDetails(item, container, results, options = {}) {
   container.innerHTML = '';
   const heading = document.createElement('div');
   heading.className = 'detail-section-title';
@@ -8780,11 +8780,23 @@ function renderCongressDetails(item, container, results) {
     status.className = 'detail-related-status';
     status.textContent = 'No additional Congress.gov details available.';
     container.appendChild(status);
+    if (options.emptyCount) {
+      const note = document.createElement('div');
+      note.className = 'detail-related-status';
+      note.textContent = 'Some Congress.gov endpoints returned no data (404).';
+      container.appendChild(note);
+    }
     return;
   }
   results.forEach((section) => {
     if (section) container.appendChild(section);
   });
+  if (options.emptyCount) {
+    const note = document.createElement('div');
+    note.className = 'detail-related-status';
+    note.textContent = 'Some Congress.gov endpoints returned no data (404).';
+    container.appendChild(note);
+  }
 }
 
 async function hydrateCongressDetails(item, container) {
@@ -8794,6 +8806,7 @@ async function hydrateCongressDetails(item, container) {
     return;
   }
   let hasSummarySection = false;
+  let emptyCount = 0;
   const detailResults = await Promise.allSettled(
     targets.map(async (target) => {
       const detail = await fetchCongressDetailCached(target.url);
@@ -8804,6 +8817,10 @@ async function hydrateCongressDetails(item, container) {
   detailResults.forEach((result) => {
     if (result.status !== 'fulfilled' || !result.value.detail) return;
     const { target, detail } = result.value;
+    if (detail?.__empty) {
+      emptyCount += 1;
+      return;
+    }
     if (target.type === 'summary-detail') {
       const summaryDetail = detail?.summary || detail?.summaries?.[0] || detail;
       const summaryText = summaryDetail?.summaryText
@@ -9218,7 +9235,7 @@ async function hydrateCongressDetails(item, container) {
       sections.push(section);
     }
   }
-  renderCongressDetails(item, container, sections);
+  renderCongressDetails(item, container, sections, { emptyCount });
 }
 
 async function enrichCongressHearings(items) {
