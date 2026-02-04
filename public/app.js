@@ -4572,7 +4572,8 @@ const parseCongressList = (data, feed) => {
     }
     const labelText = label && title && title !== label ? `${label} — ${title}` : (title || label);
     const displayTitle = labelText || 'Untitled';
-    let summary = actionText || item.summary || item.description || item.action || '';
+    const summarySource = actionText || item.summary || item.description || item.action || item.text || '';
+    let summary = summarySource;
     if (!summary) {
       if (derivedType === 'Bill') {
         const chamber = item.originChamber || item.chamber || '';
@@ -4634,7 +4635,7 @@ const parseCongressList = (data, feed) => {
     if (!summary) {
       summary = [item.chamber, item.organization, item.topic, item.purpose].filter(Boolean).join(' • ');
     }
-    const apiUrl = stripApiKey((item.url && String(item.url).includes('api.congress.gov'))
+    let apiUrl = stripApiKey((item.url && String(item.url).includes('api.congress.gov'))
       ? item.url
       : ((item.link && String(item.link).includes('api.congress.gov')) ? item.link : ''));
     let url = item.url || item.link || item.links?.self || item.bill?.url || item.report?.url || '';
@@ -4657,6 +4658,9 @@ const parseCongressList = (data, feed) => {
     } else if (derivedType === 'Summary') {
       const billUrl = buildBillUrl(item.bill || item);
       url = billUrl || url;
+      if (!apiUrl && item.bill?.url) {
+        apiUrl = stripApiKey(item.bill.url);
+      }
     } else if (item.citation && item.citation.startsWith('PN')) {
       url = buildNominationUrl(item) || url;
     } else if (item.topic && (item.congressReceived || item.congressConsidered)) {
@@ -4979,6 +4983,7 @@ const feedParsers = {
   'federal-register-transport': parseFederalRegister,
   'congress-api': parseCongressList,
   'congress-amendments': parseCongressList,
+  'congress-summaries': parseCongressList,
   'congress-reports': parseCongressList,
   'congress-hearings': parseCongressList,
   'congress-nominations': parseCongressList,
