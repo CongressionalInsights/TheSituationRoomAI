@@ -205,6 +205,8 @@ const state = {
   congressBillAmendments: new Map(),
   congressAmendmentsLoading: false,
   congressHearingCache: new Map(),
+  congressDetailCache: new Map(),
+  congressDetailLoading: new Map(),
   staticAnalysis: null,
   customTickers: [],
   energyMarket: {},
@@ -2258,6 +2260,13 @@ function buildRelatedSignalsSection(item) {
   return section;
 }
 
+function isCongressItem(item) {
+  if (!item) return false;
+  if (item.feedId && item.feedId.startsWith('congress-')) return true;
+  if (Array.isArray(item.tags) && item.tags.includes('congress')) return true;
+  return item.source === 'Congress.gov';
+}
+
 function openDetailModal(item) {
   if (!elements.detailOverlay || !item) return;
   if (elements.detailTitle) {
@@ -2390,6 +2399,16 @@ function openDetailModal(item) {
       });
       section.appendChild(list);
       elements.detailBody.appendChild(section);
+    }
+    if (isCongressItem(item)) {
+      const congressSection = document.createElement('div');
+      congressSection.className = 'detail-section detail-congress';
+      const status = document.createElement('div');
+      status.className = 'detail-related-status';
+      status.textContent = 'Loading Congress.gov details…';
+      congressSection.appendChild(status);
+      elements.detailBody.appendChild(congressSection);
+      hydrateCongressDetails(item, congressSection);
     }
     elements.detailBody.appendChild(buildRelatedSignalsSection(item));
     const detailUrl = item.externalUrl || item.fallbackUrl;
@@ -4244,6 +4263,16 @@ const parseCongressList = (data, feed) => {
     };
     return item.citation || formatCodeNumber(reportCode, reportNumber, prettyMap);
   };
+  const voteTitle = (item) => {
+    const voteNumber = item.voteNumber || item.rollCall || item.number;
+    if (!voteNumber) return '';
+    const session = item.session || item.sessionNumber;
+    return session ? `Roll Call ${voteNumber} • Session ${session}` : `Roll Call ${voteNumber}`;
+  };
+  const committeeTitle = (item) => item.name || item.committeeName || item.committee?.name || '';
+  const printTitle = (item) => item.title || item.printTitle || item.name || '';
+  const meetingTitle = (item) => item.meetingTitle || item.title || item.eventTitle || '';
+  const communicationTitle = (item) => item.title || item.description || '';
   const buildSearchUrl = (query) => `https://www.congress.gov/search?q=${encodeURIComponent(query)}`;
   const isSearchUrl = (value) => typeof value === 'string' && value.includes('congress.gov/search?');
   const buildBillUrl = (item) => {
@@ -4280,6 +4309,52 @@ const parseCongressList = (data, feed) => {
     if (!congress || !reportCode || !reportNumber) return item.url || '';
     const slug = reportCode.startsWith('S') ? 'senate-report' : 'house-report';
     return `https://www.congress.gov/congressional-report/${congress}th-congress/${slug}/${reportNumber}`;
+  };
+  const buildHouseVoteUrl = (item) => {
+    const congress = item.congress;
+    const session = item.session || item.sessionNumber;
+    const voteNumber = item.voteNumber || item.rollCall || item.number;
+    if (congress && session && voteNumber) {
+      return `https://www.congress.gov/roll-call-vote/${congress}th-congress/house-session-${session}/${voteNumber}`;
+    }
+    if (voteNumber) {
+      return buildSearchUrl(`house roll call vote ${voteNumber}`);
+    }
+    return item.url || '';
+  };
+  const buildCommitteeUrl = (item) => {
+    const chamber = (item.chamber || item.committeeChamber || '').toLowerCase();
+    const code = item.committeeCode || item.systemCode || item.committee?.systemCode || '';
+    if (chamber && code) {
+      return `https://www.congress.gov/committee/${chamber}/${code}`;
+    }
+    const name = item.name || item.committeeName || '';
+    return name ? buildSearchUrl(`${name} committee`) : '';
+  };
+  const buildCommitteePrintUrl = (item) => {
+    const jacket = item.jacketNumber || item.number;
+    const congress = item.congress ? `${item.congress}th` : '';
+    return buildSearchUrl(`committee print ${congress} ${jacket || ''}`.trim());
+  };
+  const buildCommitteeMeetingUrl = (item) => {
+    const congress = item.congress;
+    const chamber = (item.chamber || item.committeeChamber || '').toLowerCase();
+    const eventId = item.eventId || item.meetingId || item.event;
+    if (congress && chamber && eventId) {
+      return `https://www.congress.gov/event/${congress}th-congress/${chamber}-event/${eventId}`;
+    }
+    return buildSearchUrl(`committee meeting ${eventId || ''}`.trim());
+  };
+  const buildCommunicationUrl = (item) => {
+    const congress = item.congress;
+    const type = item.communicationType || item.type || '';
+    const number = item.communicationNumber || item.number;
+    const chamber = (item.chamber || item.communicationChamber || '').toLowerCase();
+    if (congress && type && number && chamber) {
+      const prefix = chamber === 'senate' ? 'senate' : 'house';
+      return `https://www.congress.gov/${prefix}-communication/${congress}th-congress/${type}/${number}`;
+    }
+    return buildSearchUrl(`congress communication ${number || ''}`.trim());
   };
   const parseNominationId = (item) => {
     const primary = item?.nomination || {};
@@ -4407,6 +4482,17 @@ const parseCongressList = (data, feed) => {
     || pickArray(data?.treaties)
     || pickArray(data?.hearings)
     || pickArray(data?.committeeMeetings)
+    || pickArray(data?.committee)
+    || pickArray(data?.committees)
+    || pickArray(data?.committeePrints)
+    || pickArray(data?.committeePrint)
+    || pickArray(data?.houseVotes)
+    || pickArray(data?.houseVote)
+    || pickArray(data?.houseCommunications)
+    || pickArray(data?.houseCommunication)
+    || pickArray(data?.senateCommunications)
+    || pickArray(data?.senateCommunication)
+    || pickArray(data?.summaries)
     || pickArray(data?.congressionalRecord)
     || pickArray(data?.dailyCongressionalRecord)
     || pickArray(data?.records)
@@ -4418,6 +4504,9 @@ const parseCongressList = (data, feed) => {
       || item.billNumber
       || item.amendmentNumber
       || item.reportNumber
+      || item.voteNumber
+      || item.communicationNumber
+      || item.jacketNumber
       || item.nominationNumber
       || item.treatyNumber
       || item.citation
@@ -4442,9 +4531,15 @@ const parseCongressList = (data, feed) => {
       || (item.type && item.type.includes('AMDT') ? 'Amendment' : '')
       || (item.type && item.type.includes('RPT') ? 'Committee Report' : '')
       || (item.citation && item.citation.startsWith('PN') ? 'Nomination' : '')
+      || (item.voteNumber || item.rollCall ? 'House Vote' : '')
+      || (item.committeeCode || item.systemCode || item.committee?.systemCode ? 'Committee' : '')
+      || (item.printTitle || item.jacketNumber ? 'Committee Print' : '')
+      || (item.meetingType || item.eventId ? 'Committee Meeting' : '')
+      || (item.communicationType ? 'Communication' : '')
       || (item.topic ? 'Treaty' : '')
       || (item.Links ? 'Congressional Record' : '')
       || ((item.jacketNumber || item.chamber) ? 'Hearing' : '')
+      || (item.summaryText || item.summary || item.bill?.title ? 'Summary' : '')
       || 'Bill';
     if (isUntitled(title) || String(title).toLowerCase().includes('untitled')) {
       if (derivedType === 'Hearing') {
@@ -4453,6 +4548,18 @@ const parseCongressList = (data, feed) => {
         title = reportTitle(item) || `Committee Report ${number || ''}`.trim();
       } else if (derivedType === 'Amendment') {
         title = amendTitle(item) || `Amendment ${number || ''}`.trim();
+      } else if (derivedType === 'House Vote') {
+        title = voteTitle(item) || `House Vote ${number || ''}`.trim();
+      } else if (derivedType === 'Committee') {
+        title = committeeTitle(item) || `Committee ${number || ''}`.trim();
+      } else if (derivedType === 'Committee Print') {
+        title = printTitle(item) || `Committee Print ${number || ''}`.trim();
+      } else if (derivedType === 'Committee Meeting') {
+        title = meetingTitle(item) || `Committee Meeting ${number || ''}`.trim();
+      } else if (derivedType === 'Communication') {
+        title = communicationTitle(item) || `Communication ${number || ''}`.trim();
+      } else if (derivedType === 'Summary') {
+        title = billTitle(item.bill || item) || item.bill?.title || item.summaryTitle || `Summary ${number || ''}`.trim();
       } else if (derivedType === 'Nomination') {
         title = formatNominationTitle(item) || item.citation || `Nomination ${number || ''}`.trim();
       } else if (derivedType === 'Treaty') {
@@ -4473,6 +4580,32 @@ const parseCongressList = (data, feed) => {
         summary = [chamber, label, item.latestAction?.actionDate].filter(Boolean).join(' • ');
       } else if (derivedType === 'Amendment') {
         summary = item.purpose ? `Purpose: ${item.purpose}` : (amendTitle(item) || 'Amendment');
+      } else if (derivedType === 'House Vote') {
+        const question = item.question || item.voteQuestion || item.title || '';
+        const result = item.result || item.voteResult || item.voteResultText || '';
+        const when = item.voteDate || item.actionDate || item.date;
+        summary = [question, result, when ? formatShortDate(when) : ''].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Committee') {
+        const chamber = item.chamber || item.committeeChamber || '';
+        const code = item.committeeCode || item.systemCode || item.committee?.systemCode || '';
+        summary = [chamber, code].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Committee Print') {
+        const committee = item.committeeName || item.committee?.name || '';
+        const jacket = item.jacketNumber || item.number || '';
+        summary = [committee, jacket ? `Jacket ${jacket}` : '', item.chamber || ''].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Committee Meeting') {
+        const committee = item.committeeName || item.committee?.name || '';
+        const when = item.date || item.meetingDate || item.startDate;
+        summary = [committee, item.meetingType || '', when ? formatShortDate(when) : ''].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Communication') {
+        const chamber = item.chamber || item.communicationChamber || '';
+        const commType = item.communicationType || item.type || '';
+        const commNumber = item.communicationNumber || item.number || '';
+        summary = [chamber, commType ? commType.toUpperCase() : '', commNumber].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Summary') {
+        const billLabel = billTitle(item.bill || item) || '';
+        const update = item.updateDate || item.updateDateTime || item.latestAction?.actionDate;
+        summary = [billLabel, update ? `Updated ${formatShortDate(update)}` : ''].filter(Boolean).join(' • ');
       } else if (derivedType === 'Committee Report') {
         const reportLabel = item.citation || reportTitle(item);
         const part = item.part ? `Part ${item.part}` : '';
@@ -4511,6 +4644,19 @@ const parseCongressList = (data, feed) => {
       url = buildAmendmentUrl(item) || url;
     } else if (item.type && item.type.includes('RPT')) {
       url = buildReportUrl(item) || url;
+    } else if (derivedType === 'House Vote') {
+      url = buildHouseVoteUrl(item) || url;
+    } else if (derivedType === 'Committee') {
+      url = buildCommitteeUrl(item) || url;
+    } else if (derivedType === 'Committee Print') {
+      url = buildCommitteePrintUrl(item) || url;
+    } else if (derivedType === 'Committee Meeting') {
+      url = buildCommitteeMeetingUrl(item) || url;
+    } else if (derivedType === 'Communication') {
+      url = buildCommunicationUrl(item) || url;
+    } else if (derivedType === 'Summary') {
+      const billUrl = buildBillUrl(item.bill || item);
+      url = billUrl || url;
     } else if (item.citation && item.citation.startsWith('PN')) {
       url = buildNominationUrl(item) || url;
     } else if (item.topic && (item.congressReceived || item.congressConsidered)) {
@@ -4531,6 +4677,16 @@ const parseCongressList = (data, feed) => {
     const billNumberValue = item.billNumber || item.bill?.number || (derivedType === 'Bill' ? item.number : '') || '';
     const amendmentTypeValue = derivedType === 'Amendment' ? (item.type || item.amendmentType || '') : '';
     const amendmentNumberValue = derivedType === 'Amendment' ? (item.number || item.amendmentNumber || '') : '';
+    const voteNumberValue = item.voteNumber || item.rollCall || (derivedType === 'House Vote' ? item.number : '');
+    const voteSessionValue = item.session || item.sessionNumber || '';
+    const committeeCodeValue = item.committeeCode || item.systemCode || item.committee?.systemCode || '';
+    const committeeChamberValue = item.committeeChamber || item.chamber || item.committee?.chamber || '';
+    const reportTypeValue = item.reportType || (derivedType === 'Committee Report' ? item.type : '') || '';
+    const reportNumberValue = item.reportNumber || (derivedType === 'Committee Report' ? item.number : '') || '';
+    const jacketNumberValue = item.jacketNumber || (derivedType === 'Committee Print' ? item.number : '') || '';
+    const communicationTypeValue = item.communicationType || item.type || '';
+    const communicationNumberValue = item.communicationNumber || (derivedType === 'Communication' ? item.number : '') || '';
+    const communicationChamberValue = item.communicationChamber || item.chamber || '';
     const detailFields = [];
     const pushDetail = (label, value) => {
       if (!value) return;
@@ -4543,6 +4699,28 @@ const parseCongressList = (data, feed) => {
     pushDetail('Jacket', item.jacketNumber);
     pushDetail('Citation', item.citation || item.report?.citation);
     pushDetail('Committee', item.committeeName || item.committees?.[0]?.name);
+    if (derivedType === 'House Vote') {
+      pushDetail('Session', voteSessionValue);
+      pushDetail('Vote Number', voteNumberValue);
+      pushDetail('Result', item.result || item.voteResult || '');
+      pushDetail('Question', item.question || item.voteQuestion || '');
+    }
+    if (derivedType === 'Committee') {
+      pushDetail('Committee Code', committeeCodeValue);
+      pushDetail('Chamber', committeeChamberValue || item.chamber);
+    }
+    if (derivedType === 'Committee Print') {
+      pushDetail('Chamber', committeeChamberValue || item.chamber);
+      pushDetail('Jacket', jacketNumberValue);
+    }
+    if (derivedType === 'Committee Meeting') {
+      pushDetail('Meeting Type', item.meetingType || item.type);
+      pushDetail('Event ID', item.eventId || item.meetingId || '');
+    }
+    if (derivedType === 'Communication') {
+      pushDetail('Communication Type', communicationTypeValue);
+      pushDetail('Communication Number', communicationNumberValue);
+    }
     if (derivedType === 'Hearing') {
       pushDetail('Hearing Title', item.hearingTitle || item.meetingTitle || item.title || item.topic || '');
       pushDetail('Meeting Type', item.meetingType || item.type);
@@ -4579,6 +4757,16 @@ const parseCongressList = (data, feed) => {
       billNumber: billNumberValue,
       amendmentType: amendmentTypeValue,
       amendmentNumber: amendmentNumberValue,
+      voteNumber: voteNumberValue,
+      voteSession: voteSessionValue,
+      committeeCode: committeeCodeValue,
+      committeeChamber: committeeChamberValue,
+      reportType: reportTypeValue,
+      reportNumber: reportNumberValue,
+      jacketNumber: jacketNumberValue,
+      communicationType: communicationTypeValue,
+      communicationNumber: communicationNumberValue,
+      communicationChamber: communicationChamberValue,
       nominationId,
       location: item.originChamber
         || item.committeeName
@@ -8363,6 +8551,372 @@ async function fetchCongressDetail(apiUrl) {
   const { response, data } = await apiJson(`/api/congress-detail?url=${encodeURIComponent(apiUrl)}`, {}, 12000);
   if (!response?.ok) return null;
   return data;
+}
+
+function buildCongressApiUrl(path) {
+  return `https://api.congress.gov/v3${path}`;
+}
+
+function toCongressApiType(value) {
+  if (!value) return '';
+  return normalizeCongressBillType(value).toLowerCase();
+}
+
+function extractCongressList(detail, keys) {
+  if (!detail) return [];
+  for (const key of keys) {
+    const value = detail[key];
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.item)) return value.item;
+    if (Array.isArray(value?.results)) return value.results;
+    if (Array.isArray(value?.result)) return value.result;
+  }
+  return [];
+}
+
+async function fetchCongressDetailCached(apiUrl) {
+  if (!apiUrl) return null;
+  if (state.congressDetailCache.has(apiUrl)) {
+    return state.congressDetailCache.get(apiUrl);
+  }
+  if (state.congressDetailLoading.has(apiUrl)) {
+    return state.congressDetailLoading.get(apiUrl);
+  }
+  const pending = fetchCongressDetail(apiUrl)
+    .then((detail) => {
+      state.congressDetailCache.set(apiUrl, detail || null);
+      state.congressDetailLoading.delete(apiUrl);
+      return detail || null;
+    })
+    .catch(() => {
+      state.congressDetailCache.set(apiUrl, null);
+      state.congressDetailLoading.delete(apiUrl);
+      return null;
+    });
+  state.congressDetailLoading.set(apiUrl, pending);
+  return pending;
+}
+
+function getCongressDetailTargets(item) {
+  const targets = [];
+  const congress = item.congress;
+  const billType = toCongressApiType(item.billType);
+  const billNumber = item.billNumber;
+  if (congress && billType && billNumber) {
+    const base = `/bill/${congress}/${billType}/${billNumber}`;
+    targets.push({ type: 'summary', label: 'Summary', url: buildCongressApiUrl(`${base}/summaries?format=json`) });
+    targets.push({ type: 'actions', label: 'Actions', url: buildCongressApiUrl(`${base}/actions?format=json&limit=20`) });
+    targets.push({ type: 'committees', label: 'Committees', url: buildCongressApiUrl(`${base}/committees?format=json&limit=20`) });
+    targets.push({ type: 'cosponsors', label: 'Cosponsors', url: buildCongressApiUrl(`${base}/cosponsors?format=json&limit=20`) });
+    targets.push({ type: 'related', label: 'Related Bills', url: buildCongressApiUrl(`${base}/relatedbills?format=json&limit=20`) });
+    targets.push({ type: 'subjects', label: 'Subjects', url: buildCongressApiUrl(`${base}/subjects?format=json&limit=20`) });
+    targets.push({ type: 'titles', label: 'Titles', url: buildCongressApiUrl(`${base}/titles?format=json&limit=20`) });
+    targets.push({ type: 'text', label: 'Text Versions', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
+    targets.push({ type: 'bill-amendments', label: 'Bill Amendments', url: buildCongressApiUrl(`${base}/amendments?format=json&limit=20`) });
+  }
+  const amendmentType = toCongressApiType(item.amendmentType);
+  const amendmentNumber = item.amendmentNumber;
+  if (congress && amendmentType && amendmentNumber) {
+    const base = `/amendment/${congress}/${amendmentType}/${amendmentNumber}`;
+    targets.push({ type: 'amend-actions', label: 'Amendment Actions', url: buildCongressApiUrl(`${base}/actions?format=json&limit=20`) });
+    targets.push({ type: 'amend-cosponsors', label: 'Amendment Cosponsors', url: buildCongressApiUrl(`${base}/cosponsors?format=json&limit=20`) });
+    targets.push({ type: 'amend-text', label: 'Amendment Text', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
+  }
+  const voteNumber = item.voteNumber;
+  const voteSession = item.voteSession;
+  if (congress && voteSession && voteNumber) {
+    const base = `/house-vote/${congress}/${voteSession}/${voteNumber}`;
+    targets.push({ type: 'vote', label: 'Vote Detail', url: buildCongressApiUrl(`${base}?format=json&limit=20`) });
+    targets.push({ type: 'vote-members', label: 'Member Votes', url: buildCongressApiUrl(`${base}/members?format=json&limit=500`) });
+  }
+  const committeeCode = item.committeeCode;
+  const committeeChamber = (item.committeeChamber || '').toLowerCase();
+  if (committeeCode && committeeChamber) {
+    const base = `/committee/${committeeChamber}/${committeeCode}`;
+    targets.push({ type: 'committee-detail', label: 'Committee Detail', url: buildCongressApiUrl(`${base}?format=json`) });
+    targets.push({ type: 'committee-bills', label: 'Committee Bills', url: buildCongressApiUrl(`${base}/bills?format=json&limit=20`) });
+    targets.push({ type: 'committee-reports', label: 'Committee Reports', url: buildCongressApiUrl(`${base}/reports?format=json&limit=20`) });
+    targets.push({ type: 'committee-nominations', label: 'Committee Nominations', url: buildCongressApiUrl(`${base}/nominations?format=json&limit=20`) });
+    targets.push({ type: 'committee-communications-house', label: 'Committee House Communications', url: buildCongressApiUrl(`${base}/house-communication?format=json&limit=20`) });
+    targets.push({ type: 'committee-communications-senate', label: 'Committee Senate Communications', url: buildCongressApiUrl(`${base}/senate-communication?format=json&limit=20`) });
+  }
+  const reportType = toCongressApiType(item.reportType);
+  const reportNumber = item.reportNumber;
+  if (congress && reportType && reportNumber) {
+    const base = `/committee-report/${congress}/${reportType}/${reportNumber}`;
+    targets.push({ type: 'report-detail', label: 'Committee Report', url: buildCongressApiUrl(`${base}?format=json`) });
+    targets.push({ type: 'report-text', label: 'Report Text', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
+  }
+  const jacketNumber = item.jacketNumber;
+  if (congress && committeeChamber && jacketNumber && item.alertType === 'Committee Print') {
+    const base = `/committee-print/${congress}/${committeeChamber}/${jacketNumber}`;
+    targets.push({ type: 'print-detail', label: 'Committee Print', url: buildCongressApiUrl(`${base}?format=json`) });
+    targets.push({ type: 'print-text', label: 'Print Text', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
+  }
+  if (item.alertType === 'Committee Meeting' && congress && committeeChamber && (item.eventId || item.meetingId || item.event)) {
+    const eventId = item.eventId || item.meetingId || item.event;
+    const base = `/committee-meeting/${congress}/${committeeChamber}/${eventId}`;
+    targets.push({ type: 'meeting-detail', label: 'Meeting Detail', url: buildCongressApiUrl(`${base}?format=json`) });
+  }
+  const communicationType = item.communicationType;
+  const communicationNumber = item.communicationNumber;
+  if (congress && communicationType && communicationNumber) {
+    const chamber = (item.communicationChamber || '').toLowerCase() === 'senate' ? 'senate' : 'house';
+    const base = `/${chamber}-communication/${congress}/${communicationType}/${communicationNumber}`;
+    targets.push({ type: 'communication-detail', label: 'Communication Detail', url: buildCongressApiUrl(`${base}?format=json`) });
+  }
+  return targets;
+}
+
+function buildCongressDetailSection(title, rows) {
+  if (!rows.length) return null;
+  const section = document.createElement('div');
+  section.className = 'detail-subsection';
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = title;
+  section.appendChild(heading);
+  const list = document.createElement('div');
+  list.className = 'detail-list';
+  rows.forEach((row) => {
+    const item = document.createElement('div');
+    item.className = 'detail-item';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'detail-item-title';
+    if (row.url) {
+      const link = document.createElement('a');
+      link.href = row.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = row.title || 'View';
+      titleEl.appendChild(link);
+    } else {
+      titleEl.textContent = row.title || 'View';
+    }
+    item.appendChild(titleEl);
+    if (row.meta) {
+      const meta = document.createElement('div');
+      meta.className = 'detail-item-meta';
+      meta.textContent = row.meta;
+      item.appendChild(meta);
+    }
+    if (row.summary) {
+      const summary = document.createElement('div');
+      summary.className = 'detail-item-summary';
+      summary.textContent = row.summary;
+      item.appendChild(summary);
+    }
+    list.appendChild(item);
+  });
+  section.appendChild(list);
+  return section;
+}
+
+function renderCongressDetails(item, container, results) {
+  container.innerHTML = '';
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = 'Congress.gov Details';
+  container.appendChild(heading);
+  if (!results.length) {
+    const status = document.createElement('div');
+    status.className = 'detail-related-status';
+    status.textContent = 'No additional Congress.gov details available.';
+    container.appendChild(status);
+    return;
+  }
+  results.forEach((section) => {
+    if (section) container.appendChild(section);
+  });
+}
+
+async function hydrateCongressDetails(item, container) {
+  const targets = getCongressDetailTargets(item);
+  if (!targets.length) {
+    renderCongressDetails(item, container, []);
+    return;
+  }
+  const detailResults = await Promise.allSettled(
+    targets.map(async (target) => {
+      const detail = await fetchCongressDetailCached(target.url);
+      return { target, detail };
+    })
+  );
+  const sections = [];
+  detailResults.forEach((result) => {
+    if (result.status !== 'fulfilled' || !result.value.detail) return;
+    const { target, detail } = result.value;
+    if (target.type === 'summary') {
+      const summaries = extractCongressList(detail, ['summaries', 'summary', 'items']);
+      const best = summaries.find((entry) => entry?.summaryText || entry?.summary || entry?.text) || summaries[0];
+      const summaryText = best?.summaryText || best?.summary || best?.text || '';
+      if (summaryText) {
+        const section = document.createElement('div');
+        section.className = 'detail-subsection';
+        const heading = document.createElement('div');
+        heading.className = 'detail-section-title';
+        heading.textContent = 'Summary';
+        section.appendChild(heading);
+        const summaryEl = document.createElement('div');
+        summaryEl.className = 'detail-summary';
+        const p = document.createElement('p');
+        p.textContent = summaryText;
+        summaryEl.appendChild(p);
+        section.appendChild(summaryEl);
+        sections.push(section);
+      }
+      return;
+    }
+    if (target.type === 'actions' || target.type === 'amend-actions') {
+      const actions = extractCongressList(detail, ['actions', 'action']);
+      const rows = actions.slice(0, 8).map((action) => ({
+        title: action.text || action.action || action.actionDesc || 'Action',
+        meta: action.actionDate ? formatShortDate(action.actionDate) : '',
+        summary: action.committee || action.committeeName || ''
+      }));
+      const section = buildCongressDetailSection('Actions', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'committees') {
+      const committees = extractCongressList(detail, ['committees', 'committee']);
+      const rows = committees.slice(0, 8).map((committee) => ({
+        title: committee.name || committee.committeeName || committee.systemCode || 'Committee',
+        meta: [committee.chamber, committee.systemCode].filter(Boolean).join(' • ')
+      }));
+      const section = buildCongressDetailSection('Committees', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'cosponsors' || target.type === 'amend-cosponsors') {
+      const cosponsors = extractCongressList(detail, ['cosponsors', 'cosponsor']);
+      const rows = cosponsors.slice(0, 8).map((cosponsor) => ({
+        title: cosponsor.fullName || cosponsor.name || cosponsor.bioguideId || 'Cosponsor',
+        meta: [cosponsor.party, cosponsor.state].filter(Boolean).join(' • ')
+      }));
+      const section = buildCongressDetailSection('Cosponsors', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'related') {
+      const related = extractCongressList(detail, ['relatedBills', 'relatedBill']);
+      const rows = related.slice(0, 8).map((bill) => ({
+        title: bill.title || bill.number || 'Related Bill',
+        meta: [bill.type, bill.number].filter(Boolean).join(' '),
+        summary: bill.relationshipType || bill.relationship || ''
+      }));
+      const section = buildCongressDetailSection('Related Bills', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'subjects') {
+      const subjects = extractCongressList(detail, ['subjects', 'subject']);
+      const rows = subjects.slice(0, 8).map((subject) => ({
+        title: subject.name || subject.subject || subject.term || 'Subject',
+        meta: subject.policyArea ? `Policy Area: ${subject.policyArea}` : ''
+      }));
+      const section = buildCongressDetailSection('Subjects', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'titles') {
+      const titles = extractCongressList(detail, ['titles', 'title']);
+      const rows = titles.slice(0, 8).map((title) => ({
+        title: title.title || title.text || 'Title',
+        meta: title.titleType || title.type || ''
+      }));
+      const section = buildCongressDetailSection('Titles', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'text' || target.type === 'amend-text' || target.type === 'report-text' || target.type === 'print-text') {
+      const texts = extractCongressList(detail, ['textVersions', 'textVersion', 'text', 'texts']);
+      const rows = texts.slice(0, 8).map((text) => ({
+        title: text.type || text.format || text.description || 'Text Version',
+        meta: text.date ? formatShortDate(text.date) : '',
+        url: text.url || text.link || text.pdfUrl || ''
+      }));
+      const section = buildCongressDetailSection('Text Versions', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'bill-amendments') {
+      if (Array.isArray(item.amendments) && item.amendments.length) return;
+      const amendments = extractCongressList(detail, ['amendments', 'amendment']);
+      const rows = amendments.slice(0, 6).map((amendment) => ({
+        title: amendment.title || amendment.number || 'Amendment',
+        meta: [amendment.type, amendment.number].filter(Boolean).join(' ')
+      }));
+      const section = buildCongressDetailSection('Amendments', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'vote' || target.type === 'vote-members') {
+      const members = extractCongressList(detail, ['members', 'member', 'votes']);
+      const counts = members.reduce((acc, member) => {
+        const vote = (member.voteCast || member.vote || member.position || 'Other').toString();
+        acc[vote] = (acc[vote] || 0) + 1;
+        return acc;
+      }, {});
+      const rows = Object.entries(counts).map(([vote, count]) => ({
+        title: vote,
+        meta: `${count} members`
+      }));
+      const section = buildCongressDetailSection('Vote Breakdown', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'committee-detail') {
+      const committee = detail?.committee || detail;
+      if (!committee) return;
+      const rows = [{
+        title: committee.name || committee.committeeName || 'Committee Detail',
+        meta: [committee.chamber, committee.systemCode].filter(Boolean).join(' • '),
+        summary: committee.jurisdiction || committee.description || ''
+      }];
+      const section = buildCongressDetailSection('Committee Detail', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'committee-bills' || target.type === 'committee-reports' || target.type === 'committee-nominations') {
+      const list = extractCongressList(detail, ['bills', 'bill', 'committeeReports', 'committeeReport', 'nominations', 'nomination']);
+      const rows = list.slice(0, 8).map((entry) => ({
+        title: entry.title || entry.number || entry.citation || 'Item',
+        meta: entry.number || entry.citation || ''
+      }));
+      const titleMap = {
+        'committee-bills': 'Committee Bills',
+        'committee-reports': 'Committee Reports',
+        'committee-nominations': 'Committee Nominations'
+      };
+      const section = buildCongressDetailSection(titleMap[target.type], rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'committee-communications-house' || target.type === 'committee-communications-senate' || target.type === 'communication-detail') {
+      const list = extractCongressList(detail, ['communications', 'communication', 'houseCommunication', 'senateCommunication']);
+      const rows = list.slice(0, 8).map((entry) => ({
+        title: entry.description || entry.title || 'Communication',
+        meta: [entry.communicationType || entry.type, entry.number].filter(Boolean).join(' ')
+      }));
+      const section = buildCongressDetailSection('Communications', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'report-detail' || target.type === 'print-detail' || target.type === 'meeting-detail') {
+      const detailItem = detail?.report || detail?.print || detail?.meeting || detail?.committeePrint || detail?.committeeMeeting || detail;
+      if (!detailItem) return;
+      const rows = [{
+        title: detailItem.title || detailItem.meetingTitle || detailItem.description || target.label,
+        meta: [detailItem.chamber, detailItem.jacketNumber].filter(Boolean).join(' • '),
+        summary: detailItem.summary || detailItem.description || ''
+      }];
+      const section = buildCongressDetailSection(target.label, rows);
+      if (section) sections.push(section);
+    }
+  });
+  renderCongressDetails(item, container, sections);
 }
 
 async function enrichCongressHearings(items) {
