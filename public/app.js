@@ -8574,7 +8574,12 @@ function extractHearingDetail(detail) {
 async function fetchCongressDetail(apiUrl) {
   if (!apiUrl) return null;
   const { response, data } = await apiJson(`/api/congress-detail?url=${encodeURIComponent(apiUrl)}`, {}, 12000);
-  if (!response?.ok) return null;
+  if (!response?.ok) {
+    if (data?.status === 404) {
+      return { __empty: true };
+    }
+    return null;
+  }
   return data;
 }
 
@@ -8610,9 +8615,10 @@ async function fetchCongressDetailCached(apiUrl) {
   }
   const pending = fetchCongressDetail(apiUrl)
     .then((detail) => {
-      state.congressDetailCache.set(apiUrl, detail || null);
+      const resolved = detail?.__empty ? null : detail;
+      state.congressDetailCache.set(apiUrl, resolved || null);
       state.congressDetailLoading.delete(apiUrl);
-      return detail || null;
+      return resolved || null;
     })
     .catch(() => {
       state.congressDetailCache.set(apiUrl, null);

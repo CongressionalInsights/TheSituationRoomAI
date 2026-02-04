@@ -169,6 +169,7 @@ const fetchJson = async (url) => {
 };
 
 const failures = [];
+const ignored = [];
 const summaries = [];
 
 for (const feed of congressFeeds) {
@@ -230,15 +231,30 @@ for (const feed of congressFeeds) {
     for (const target of targets) {
       const result = await fetchJson(`${baseOrigin}/api/congress-detail?url=${encodeURIComponent(target.url)}`);
       if (!result.ok || result.data?.error) {
-        failures.push({
-          feedId: feed.id,
-          itemKey,
-          targetType: target.type,
-          url: target.url,
-          status: result.status,
-          error: result.data?.error || 'fetch_failed',
-          upstreamStatus: result.data?.status || null
-        });
+        const upstreamStatus = result.data?.status || null;
+        const isExpected404 = upstreamStatus === 404
+          && ['communication-detail', 'committee-communications-house', 'committee-communications-senate'].includes(target.type);
+        if (isExpected404) {
+          ignored.push({
+            feedId: feed.id,
+            itemKey,
+            targetType: target.type,
+            url: target.url,
+            status: result.status,
+            error: result.data?.error || 'fetch_failed',
+            upstreamStatus
+          });
+        } else {
+          failures.push({
+            feedId: feed.id,
+            itemKey,
+            targetType: target.type,
+            url: target.url,
+            status: result.status,
+            error: result.data?.error || 'fetch_failed',
+            upstreamStatus
+          });
+        }
       }
     }
   }
@@ -247,7 +263,7 @@ for (const feed of congressFeeds) {
 const outputDir = path.join(root, 'analysis', 'congress');
 fs.mkdirSync(outputDir, { recursive: true });
 const outputPath = path.join(outputDir, 'congress-detail-404.json');
-fs.writeFileSync(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), failures, summaries }, null, 2));
+fs.writeFileSync(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), failures, ignored, summaries }, null, 2));
 
 console.log(`Congress detail validation complete. Failures: ${failures.length}`);
 console.log(`Report written to ${outputPath}`);
