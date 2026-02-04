@@ -127,27 +127,38 @@ const normalizeItem = (raw, feed) => {
   const apiUrl = [raw.url, raw.link, raw.bill?.url].find((value) => (
     typeof value === 'string' && value.includes('api.congress.gov')
   ));
+  const derivedType = feed.congressType || raw.alertType || '';
+  const isBill = derivedType === 'Bill' || derivedType === 'Summary';
+  const isAmendment = derivedType === 'Amendment';
+  const isVote = derivedType === 'House Vote';
+  const isCommittee = derivedType === 'Committee';
+  const isCommitteePrint = derivedType === 'Committee Print';
+  const isCommitteeMeeting = derivedType === 'Committee Meeting';
+  const isReport = derivedType === 'Committee Report';
+  const isCommunication = derivedType === 'Communication';
   return {
     feedId: feed.id,
-    alertType: feed.congressType || raw.alertType || '',
+    alertType: derivedType,
     apiUrl,
     congress: raw.congress || raw.bill?.congress || raw.congressReceived || raw.congressConsidered,
-    billType: raw.billType || raw.bill?.type || raw.type,
-    billNumber: raw.billNumber || raw.bill?.number || raw.number,
-    amendmentType: raw.amendmentType || raw.type,
-    amendmentNumber: raw.amendmentNumber || raw.number,
-    voteSession: raw.session || raw.sessionNumber,
-    voteNumber: raw.voteNumber || raw.rollCall || raw.number,
-    committeeCode: raw.committeeCode || raw.systemCode || raw.committee?.systemCode,
-    committeeChamber: raw.committeeChamber || raw.chamber || raw.committee?.chamber,
-    reportType: raw.reportType || raw.type,
-    reportNumber: raw.reportNumber || raw.number,
-    jacketNumber: raw.jacketNumber || raw.number,
-    communicationType: raw.communicationType || raw.type,
-    communicationNumber: raw.communicationNumber || raw.number,
-    communicationChamber: raw.communicationChamber || raw.chamber,
-    eventId: raw.eventId || raw.meetingId || raw.event,
-    meetingId: raw.meetingId || raw.event
+    billType: isBill ? (raw.billType || raw.bill?.type || raw.type) : '',
+    billNumber: isBill ? (raw.billNumber || raw.bill?.number || raw.number) : '',
+    amendmentType: isAmendment ? (raw.amendmentType || raw.type) : '',
+    amendmentNumber: isAmendment ? (raw.amendmentNumber || raw.number) : '',
+    voteSession: isVote ? (raw.session || raw.sessionNumber) : '',
+    voteNumber: isVote ? (raw.voteNumber || raw.rollCall || raw.number) : '',
+    committeeCode: isCommittee ? (raw.committeeCode || raw.systemCode || raw.committee?.systemCode) : '',
+    committeeChamber: (isCommittee || isCommitteePrint || isCommitteeMeeting)
+      ? (raw.committeeChamber || raw.chamber || raw.committee?.chamber)
+      : '',
+    reportType: isReport ? (raw.reportType || raw.type) : '',
+    reportNumber: isReport ? (raw.reportNumber || raw.number) : '',
+    jacketNumber: isCommitteePrint ? (raw.jacketNumber || raw.number) : '',
+    communicationType: isCommunication ? (raw.communicationType || raw.type) : '',
+    communicationNumber: isCommunication ? (raw.communicationNumber || raw.number) : '',
+    communicationChamber: isCommunication ? (raw.communicationChamber || raw.chamber) : '',
+    eventId: isCommitteeMeeting ? (raw.eventId || raw.meetingId || raw.event) : '',
+    meetingId: isCommitteeMeeting ? (raw.meetingId || raw.event) : ''
   };
 };
 
