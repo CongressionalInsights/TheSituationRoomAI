@@ -8,7 +8,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "adm-zip": "^0.5.12"
+    "adm-zip": "^0.5.16"
   },
   "engines": {
     "node": ">=18"

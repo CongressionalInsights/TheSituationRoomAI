@@ -8600,6 +8600,17 @@ async function fetchCongressDetailCached(apiUrl) {
 
 function getCongressDetailTargets(item) {
   const targets = [];
+  if (item?.feedId === 'congress-summaries' && item.apiUrl) {
+    const rawUrl = String(item.apiUrl || '');
+    const match = rawUrl.match(/https?:\/\/api\.congress\.gov\/v3(.*)/i);
+    if (match && match[1]) {
+      const path = match[1].startsWith('/') ? match[1] : `/${match[1]}`;
+      const withFormat = path.includes('format=json')
+        ? path
+        : `${path}${path.includes('?') ? '&' : '?'}format=json`;
+      targets.push({ type: 'summary-detail', label: 'Summary Detail', url: buildCongressApiUrl(withFormat) });
+    }
+  }
   const congress = item.congress;
   const billType = toCongressApiType(item.billType);
   const billNumber = item.billNumber;
@@ -8623,6 +8634,7 @@ function getCongressDetailTargets(item) {
     targets.push({ type: 'amendment-detail', label: 'Amendment Detail', url: buildCongressApiUrl(`${base}?format=json`) });
     targets.push({ type: 'amend-actions', label: 'Amendment Actions', url: buildCongressApiUrl(`${base}/actions?format=json&limit=20`) });
     targets.push({ type: 'amend-cosponsors', label: 'Amendment Cosponsors', url: buildCongressApiUrl(`${base}/cosponsors?format=json&limit=20`) });
+    targets.push({ type: 'amendment-amendments', label: 'Amendment Amendments', url: buildCongressApiUrl(`${base}/amendments?format=json&limit=20`) });
     targets.push({ type: 'amend-text', label: 'Amendment Text', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
   }
   const voteNumber = item.voteNumber;
@@ -8760,6 +8772,28 @@ async function hydrateCongressDetails(item, container) {
   detailResults.forEach((result) => {
     if (result.status !== 'fulfilled' || !result.value.detail) return;
     const { target, detail } = result.value;
+    if (target.type === 'summary-detail') {
+      const summaryDetail = detail?.summary || detail?.summaries?.[0] || detail;
+      const summaryText = summaryDetail?.summaryText
+        || summaryDetail?.summary
+        || summaryDetail?.text
+        || summaryDetail?.description
+        || '';
+      if (summaryText) {
+        const section = document.createElement('div');
+        section.className = 'detail-subsection';
+        const heading = document.createElement('div');
+        heading.className = 'detail-section-title';
+        heading.textContent = 'Summary Detail';
+        section.appendChild(heading);
+        const text = document.createElement('div');
+        text.className = 'detail-rich-text';
+        text.textContent = truncateText(stripHtml(summaryText), 1400);
+        section.appendChild(text);
+        sections.push(section);
+      }
+      return;
+    }
     if (target.type === 'summary') {
       const summaries = extractCongressList(detail, ['summaries', 'summary', 'items']);
       const best = summaries.find((entry) => entry?.summaryText || entry?.summary || entry?.text) || summaries[0];
@@ -8980,11 +9014,39 @@ async function hydrateCongressDetails(item, container) {
       if (section) sections.push(section);
       return;
     }
+    if (target.type === 'amendment-amendments') {
+      const amendments = extractCongressList(detail, ['amendments', 'amendment']);
+      const rows = amendments.slice(0, 6).map((amendment) => ({
+        title: amendment.title || amendment.number || 'Amendment',
+        meta: [amendment.type, amendment.number].filter(Boolean).join(' '),
+        url: normalizeCongressUrlSafe(amendment.url || amendment.link || '')
+      }));
+      const section = buildCongressDetailSection('Amendments to Amendment', rows);
+      if (section) sections.push(section);
+      return;
+    }
     if (target.type === 'vote' || target.type === 'vote-members') {
       const voteDetail = detail?.houseRollCallVote
         || detail?.houseRollCallVotes?.[0]
         || detail?.houseVote
         || detail;
+      const metadata = [
+        { label: 'Question', value: voteDetail?.voteQuestion || voteDetail?.question },
+        { label: 'Result', value: voteDetail?.voteResult || voteDetail?.result },
+        { label: 'Vote Type', value: voteDetail?.voteType || voteDetail?.voteTypeCode },
+        { label: 'Legislation', value: [voteDetail?.legislationType, voteDetail?.legislationNumber].filter(Boolean).join(' ') },
+        { label: 'Start', value: voteDetail?.startDate ? formatShortDate(voteDetail.startDate) : '' },
+        { label: 'Source', value: voteDetail?.sourceDataURL || voteDetail?.url }
+      ].filter((entry) => entry.value);
+      if (metadata.length) {
+        const metaRows = metadata.map((entry) => ({
+          title: entry.label,
+          meta: entry.label === 'Source' ? '' : entry.value,
+          url: entry.label === 'Source' ? entry.value : ''
+        }));
+        const metaSection = buildCongressDetailSection('Vote Metadata', metaRows);
+        if (metaSection) sections.push(metaSection);
+      }
       const members = extractCongressList(voteDetail, ['members', 'member', 'votes', 'houseRollCallVoteMembers']);
       const counts = members.reduce((acc, member) => {
         const vote = (member.voteCast || member.vote || member.position || 'Other').toString();
