@@ -40,6 +40,10 @@ Then open `http://localhost:5173`.
 node server.mjs
 node scripts/validate_congress_detail.mjs
 ```
+- Or run against a deployed proxy:
+```bash
+node scripts/validate_congress_detail.mjs --base https://situation-room-feed-382918878290.us-central1.run.app
+```
 - Report output: `analysis/congress/congress-detail-404.json` (local only).
 
 ## Map imagery layers

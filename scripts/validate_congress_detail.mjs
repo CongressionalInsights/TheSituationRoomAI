@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const baseOrigin = process.env.SR_BASE || 'http://127.0.0.1:5173';
+const args = process.argv.slice(2);
+const baseArgIndex = args.findIndex((value) => value === '--base');
+const baseArgValue = baseArgIndex >= 0 ? args[baseArgIndex + 1] : null;
+const baseOrigin = baseArgValue
+  || args.find((value) => value.startsWith('--base='))?.split('=')[1]
+  || process.env.SR_BASE
+  || 'http://127.0.0.1:5173';
 const feedsConfig = JSON.parse(fs.readFileSync(path.join(root, 'data', 'feeds.json'), 'utf8'));
 
 const congressFeeds = (feedsConfig.feeds || []).filter((feed) => (
