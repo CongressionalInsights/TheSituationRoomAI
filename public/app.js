@@ -4523,7 +4523,17 @@ const parseCongressList = (data, feed) => {
     const label = codeTitle || recordTitle || number;
     const actionDate = item.latestAction?.actionDate || item.latestAction?.actionDateTime || item.actionDate || item.date;
     const updateDate = item.updateDate || item.updateDateIncludingText || item.updateDateTime || item.updatedDate;
-    const publishedAt = actionDate
+    const summaryHtml = item.text || item.summaryText || '';
+    const summaryPlain = summaryHtml ? stripHtml(summaryHtml) : '';
+    const summaryUpdatedAtRaw = item.lastSummaryUpdateDate
+      || item.updateDate
+      || item.updateDateTime
+      || item.updateDateIncludingText
+      || '';
+    const summaryUpdatedAt = summaryUpdatedAtRaw ? Date.parse(summaryUpdatedAtRaw) : null;
+    const summaryActionDesc = item.actionDesc || '';
+    const summaryVersionCode = item.versionCode || '';
+    let publishedAt = actionDate
       ? Date.parse(actionDate)
       : (item.PublishDate ? Date.parse(item.PublishDate) : (updateDate ? Date.parse(updateDate) : Date.now()));
     const actionText = item.latestAction?.text || item.latestAction?.action || item.latestAction?.actionDesc || '';
@@ -4572,8 +4582,11 @@ const parseCongressList = (data, feed) => {
     }
     const labelText = label && title && title !== label ? `${label} — ${title}` : (title || label);
     const displayTitle = labelText || 'Untitled';
-    const summarySource = actionText || item.summary || item.description || item.action || item.text || '';
+    const summarySource = actionText || item.summary || item.description || item.action || summaryPlain || '';
     let summary = summarySource;
+    if (derivedType === 'Summary' && summaryPlain) {
+      summary = truncateText(summaryPlain, 360);
+    }
     if (!summary) {
       if (derivedType === 'Bill') {
         const chamber = item.originChamber || item.chamber || '';
@@ -4605,7 +4618,7 @@ const parseCongressList = (data, feed) => {
         summary = [chamber, commType ? commType.toUpperCase() : '', commNumber].filter(Boolean).join(' • ');
       } else if (derivedType === 'Summary') {
         const billLabel = billTitle(item.bill || item) || '';
-        const update = item.updateDate || item.updateDateTime || item.latestAction?.actionDate;
+        const update = summaryUpdatedAtRaw || item.updateDate || item.updateDateTime || item.latestAction?.actionDate;
         summary = [billLabel, update ? `Updated ${formatShortDate(update)}` : ''].filter(Boolean).join(' • ');
       } else if (derivedType === 'Committee Report') {
         const reportLabel = item.citation || reportTitle(item);
@@ -4634,6 +4647,9 @@ const parseCongressList = (data, feed) => {
     }
     if (!summary) {
       summary = [item.chamber, item.organization, item.topic, item.purpose].filter(Boolean).join(' • ');
+    }
+    if (derivedType === 'Summary' && summaryUpdatedAt) {
+      publishedAt = summaryUpdatedAt;
     }
     let apiUrl = stripApiKey((item.url && String(item.url).includes('api.congress.gov'))
       ? item.url
@@ -4756,6 +4772,10 @@ const parseCongressList = (data, feed) => {
       alertType: derivedType,
       detailTitle: displayTitle,
       detailFields,
+      summaryHtml,
+      summaryUpdatedAt,
+      summaryVersionCode,
+      summaryActionDesc,
       congress: congressValue,
       billType: billTypeValue,
       billNumber: billNumberValue,
@@ -8767,6 +8787,7 @@ async function hydrateCongressDetails(item, container) {
     renderCongressDetails(item, container, []);
     return;
   }
+  let hasSummarySection = false;
   const detailResults = await Promise.allSettled(
     targets.map(async (target) => {
       const detail = await fetchCongressDetailCached(target.url);
@@ -8785,6 +8806,7 @@ async function hydrateCongressDetails(item, container) {
         || summaryDetail?.description
         || '';
       if (summaryText) {
+        hasSummarySection = true;
         const section = document.createElement('div');
         section.className = 'detail-subsection';
         const heading = document.createElement('div');
@@ -8804,6 +8826,7 @@ async function hydrateCongressDetails(item, container) {
       const best = summaries.find((entry) => entry?.summaryText || entry?.summary || entry?.text) || summaries[0];
       const summaryText = best?.summaryText || best?.summary || best?.text || '';
       if (summaryText) {
+        hasSummarySection = true;
         const section = document.createElement('div');
         section.className = 'detail-subsection';
         const heading = document.createElement('div');
@@ -9173,6 +9196,22 @@ async function hydrateCongressDetails(item, container) {
       if (section) sections.push(section);
     }
   });
+  if (!hasSummarySection) {
+    const fallbackText = item.summaryHtml || item.summaryText || item.summary || '';
+    if (fallbackText) {
+      const section = document.createElement('div');
+      section.className = 'detail-subsection';
+      const heading = document.createElement('div');
+      heading.className = 'detail-section-title';
+      heading.textContent = 'Summary';
+      section.appendChild(heading);
+      const text = document.createElement('div');
+      text.className = 'detail-rich-text';
+      text.textContent = truncateText(stripHtml(fallbackText), 1400);
+      section.appendChild(text);
+      sections.push(section);
+    }
+  }
   renderCongressDetails(item, container, sections);
 }
 
@@ -9235,6 +9274,19 @@ function getCongressItems() {
     items = applyLanguageFilter(applyFreshnessFilter(state.items)).filter(filterCongress);
   }
   items = items.filter((item) => !item.mapOnly);
+  const isSummaryItem = (item) => item.alertType === 'Summary' || item.feedId === 'congress-summaries';
+  const summaryMap = new Map();
+  items.filter(isSummaryItem).forEach((item) => {
+    const key = getCongressBillKeyFromItem(item);
+    if (!key) return;
+    const existing = summaryMap.get(key);
+    const existingTime = existing?.summaryUpdatedAt || existing?.publishedAt || 0;
+    const itemTime = item.summaryUpdatedAt || item.publishedAt || 0;
+    if (!existing || itemTime > existingTime) {
+      summaryMap.set(key, item);
+    }
+  });
+  items = items.filter((item) => !isSummaryItem(item));
   const deduped = dedupeItems(items);
   const amendments = deduped.filter(isCongressAmendment);
   const hearings = deduped.filter((item) => item.alertType === 'Hearing');
@@ -9320,6 +9372,18 @@ function getCongressItems() {
       };
     }
     const billKey = getCongressBillKeyFromItem(item);
+    const summaryInfo = billKey ? summaryMap.get(billKey) : null;
+    if (summaryInfo?.summary) {
+      const summaryText = truncateText(summaryInfo.summary, 360);
+      item = {
+        ...item,
+        summary: summaryText || item.summary,
+        summaryHtml: summaryInfo.summaryHtml || summaryInfo.summaryText || item.summaryHtml,
+        summaryUpdatedAt: summaryInfo.summaryUpdatedAt || item.summaryUpdatedAt,
+        summaryVersionCode: summaryInfo.summaryVersionCode || item.summaryVersionCode,
+        summaryActionDesc: summaryInfo.summaryActionDesc || item.summaryActionDesc
+      };
+    }
     const amendmentList = billKey ? (state.congressBillAmendments.get(billKey) || []) : [];
     const latestAmendment = amendmentList[0]?.publishedAt || 0;
     const sortTime = Math.max(baseSortTime, latestAmendment || 0);

@@ -34,6 +34,7 @@ Status notes:
 - [ ] Hazards & Weather — loads alerts — Local: OK — Live: Pending verification (proxy required)
 - [ ] Local Lens — shows radius-filtered items — Local: OK — Live: Pending verification (proxy required)
 - [ ] Policy & Government — loads disclosures — Local: OK — Live: Pending verification (proxy required)
+- [ ] Congressional Insights — summaries merged into bills + detail panels load — Local: Pending verification — Live: Pending verification (proxy required)
 - [ ] Cyber Pulse — loads KEV — Local: OK — Live: Pending verification (proxy required)
 - [ ] Agriculture — loads USDA feeds — Local: OK — Live: Pending verification (proxy required)
 - [ ] Research Watch — loads arXiv feeds — Local: OK — Live: Pending verification (proxy required)

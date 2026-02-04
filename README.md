@@ -33,6 +33,15 @@ Then open `http://localhost:5173`.
 - Toggle panels in Settings (visibility is saved).
 - Reset layout restores the default order.
 
+## Congress.gov summaries + detail validation
+- Congress.gov summaries are merged into bill items for the Congressional Insights list (summary text is stripped of HTML for readability).
+- Validate Congress detail endpoints locally:
+```bash
+node server.mjs
+node scripts/validate_congress_detail.mjs
+```
+- Report output: `analysis/congress/congress-detail-404.json` (local only).
+
 ## Map imagery layers
 - Open the map **Legend** to switch basemaps (OSM / Esri Satellite / NASA VIIRS True Color).
 - Turn on **Terrain Hillshade** or **SAR (Sentinel‑1)** overlays.
