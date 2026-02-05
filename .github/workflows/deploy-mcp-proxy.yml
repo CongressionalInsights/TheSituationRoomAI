@@ -73,6 +73,7 @@ jobs:
             --region "$REGION" \
             --source gcp/mcp-proxy \
             --allow-unauthenticated \
+            --min-instances 1 \
             --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest \
             --env-vars-file /tmp/sr-mcp-env.yaml
       - name: Health check MCP proxy
