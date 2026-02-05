@@ -1,6 +1,7 @@
 import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy, getAcledProxy, getMcpProxy } from './services/api.js';
 import { createFocusController } from './modules/focus.js';
 import { createMcpClient } from './modules/mcp.js';
+import { initMcpTrendsController } from './modules/mcp_trends.js';
 import { isAlertItem } from './modules/alerts.js';
 import { initSearchUI } from './modules/search.js';
 import { initPanelScroll, initListAutoSizing } from './modules/panels.js';
@@ -223,6 +224,8 @@ const state = {
   chatHistory: [],
   mapPoints: [],
   mapPointsReady: false,
+  mapLastNonEmptyAt: 0,
+  mapLastNonEmptyCount: 0,
   map: null,
   mapBaseLayers: {},
   mapOverlayLayers: {},
@@ -279,7 +282,13 @@ const state = {
     sources: [],
     error: null,
     errorDetail: null,
-    updatedAt: null
+    updatedAt: null,
+    lastSuccessAt: null,
+    lastAttemptAt: null,
+    retryAt: null,
+    retryInMs: 0,
+    lastGood: { signals: [], sources: [], summary: null },
+    inFlight: false
   },
   denario: {
     loading: false,
@@ -416,6 +425,7 @@ const elements = {
   energyMapEmpty: document.getElementById('energyMapEmpty'),
   healthList: document.getElementById('healthList'),
   transportList: document.getElementById('transportList'),
+  criticalAlertsList: document.getElementById('criticalAlertsList'),
   analysisOutput: document.getElementById('analysisOutput'),
   analysisMeta: document.getElementById('analysisMeta'),
   analysisStory: document.getElementById('analysisStory'),
@@ -677,6 +687,7 @@ const focusController = createFocusController({
   focusGeoTarget: FOCUS_GEO_TARGET
 });
 const mcpClient = createMcpClient(getMcpProxy());
+let mcpTrendsController = null;
 let feedManager = null;
 let searchController = null;
 const DATA_ATTRIBUTIONS = [
@@ -2178,8 +2189,7 @@ function buildRelatedSignalsSection(item) {
   section.appendChild(list);
 
   if (!mcpClient) {
-    status.textContent = 'MCP temporarily unavailable.';
-    status.classList.add('is-error');
+    status.textContent = 'Related signals are temporarily unavailable.';
     return section;
   }
 
@@ -2200,8 +2210,7 @@ function buildRelatedSignalsSection(item) {
     .then((result) => {
       if (!section.isConnected) return;
       if (result?.error) {
-        status.textContent = result.message || 'MCP temporarily unavailable.';
-        status.classList.add('is-error');
+        status.textContent = 'Related signals unavailable right now.';
         return;
       }
       const data = result?.data || {};
@@ -2255,8 +2264,7 @@ function buildRelatedSignalsSection(item) {
     })
     .catch((err) => {
       if (!section.isConnected) return;
-      status.textContent = err?.message || 'MCP temporarily unavailable.';
-      status.classList.add('is-error');
+      status.textContent = 'Related signals unavailable right now.';
     });
 
   return section;
@@ -6733,6 +6741,7 @@ const PANEL_ERROR_CATEGORY_MAP = {
   crypto: ['crypto'],
   prediction: ['prediction'],
   hazards: ['disaster', 'weather', 'space'],
+  'critical-alerts': ['news', 'disaster', 'weather', 'space', 'security', 'cyber', 'health', 'gov', 'travel', 'transport'],
   local: ['news', 'gov', 'disaster', 'weather'],
   policy: ['gov'],
   cyber: ['cyber'],
@@ -6780,6 +6789,8 @@ function getPanelTimestamp(panelId) {
       return latestFromCategories(['prediction']);
     case 'hazards':
       return latestFromCategories(['disaster', 'weather', 'space']);
+    case 'critical-alerts':
+      return latestFromCategories(['news', 'disaster', 'weather', 'space', 'security', 'cyber', 'health', 'gov', 'travel', 'transport']);
     case 'local':
       return getLatestTimestamp(getLocalItems()) || state.lastFetch || null;
     case 'policy':
@@ -6845,26 +6856,37 @@ function updatePanelErrors() {
   ensurePanelErrorBadges();
   document.querySelectorAll('.panel-error[data-panel-error]').forEach((el) => {
     const panelId = el.dataset.panelError;
-    let hasError = false;
+    let label = '';
     if (panelId === 'money-flows') {
-      hasError = Boolean(state.moneyFlowsError);
+      label = state.moneyFlowsError ? 'Feed error' : '';
     } else if (panelId === 'map') {
       if (state.refreshing || !state.mapPointsReady) {
-        hasError = false;
+        label = '';
       } else if (state.mapPoints && state.mapPoints.length) {
-        hasError = false;
+        label = '';
       } else {
+        const travelScoped = state.scopedItems.filter((item) => item?.category === 'travel');
+        const travelGlobal = applyLanguageFilter(applyFreshnessFilter(state.items))
+          .filter((item) => item?.category === 'travel');
+        const hasTravelSignals = (travelScoped.length || travelGlobal.length) > 0;
+        const recentNonEmpty = state.mapLastNonEmptyAt
+          && (Date.now() - state.mapLastNonEmptyAt) < 6 * 60 * 60 * 1000;
+        if (hasTravelSignals || recentNonEmpty) {
+          label = '';
+        } else {
         const mapFeeds = state.feeds.filter((feed) => feed.mapOnly || PANEL_ERROR_CATEGORY_MAP.map.includes(feed.category));
         const mapErrors = mapFeeds.filter((feed) => state.feedStatus[feed.id]?.error === 'fetch_failed');
         const mapOnlyErrors = mapErrors.filter((feed) => feed.mapOnly);
-        hasError = mapOnlyErrors.length > 0 || mapErrors.length >= 2;
+          const hasError = mapOnlyErrors.length > 0 || mapErrors.length >= 2;
+          label = hasError ? 'Data delayed' : '';
+        }
       }
     } else {
       const feedIds = getPanelFeedIds(panelId);
-      hasError = feedIds.some((id) => state.feedStatus[id]?.error === 'fetch_failed');
+      label = feedIds.some((id) => state.feedStatus[id]?.error === 'fetch_failed') ? 'Feed error' : '';
     }
-    el.textContent = hasError ? 'Feed error' : '';
-    el.classList.toggle('active', hasError);
+    el.textContent = label;
+    el.classList.toggle('active', Boolean(label));
   });
 }
 
@@ -9478,6 +9500,28 @@ function renderCombined(categories, container) {
   renderListWithLimit(container, items);
 }
 
+function getCriticalAlertsItems() {
+  const scoped = Array.isArray(state.scopedItems) ? state.scopedItems : [];
+  const global = applyLanguageFilter(applyFreshnessFilter(state.items));
+  const pool = scoped.length ? scoped : global;
+  const filtered = pool.filter((item) => {
+    if (!item) return false;
+    // Avoid "market noise" and map-only artifacts in the alerts list.
+    if (item.category === 'crypto' || item.category === 'finance' || item.category === 'energy') return false;
+    if (item.mapOnly) return false;
+    return isCriticalItem(item) || (isAlertItem(item) && Boolean(item.severity || item.alertType || item.hazardType));
+  });
+  const deduped = dedupeItems(filtered);
+  deduped.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  return deduped.slice(0, 60);
+}
+
+function renderCriticalAlerts() {
+  if (!elements.criticalAlertsList) return;
+  const items = getCriticalAlertsItems();
+  renderListWithLimit(elements.criticalAlertsList, items);
+}
+
 function renderEnergyNews() {
   if (!elements.energyList) return;
   const items = getEnergyNewsItems();
@@ -9723,135 +9767,6 @@ function renderTravelTicker() {
   }
 }
 
-function renderMcpTrends() {
-  if (!elements.mcpTrendsPanel) return;
-  const { loading, error, summary, signals, sources, updatedAt, errorDetail } = state.mcpTrends;
-  if (elements.mcpTrendsSummary) {
-    if (loading) {
-      elements.mcpTrendsSummary.textContent = 'Fetching MCP signals…';
-    } else if (error) {
-      const statusNote = errorDetail?.status ? ` (HTTP ${errorDetail.status})` : '';
-      elements.mcpTrendsSummary.textContent = `MCP temporarily unavailable${statusNote}.`;
-    } else if (summary) {
-      elements.mcpTrendsSummary.textContent = summary;
-    } else if (signals.length) {
-      const sourceCount = sources.length ? `${sources.length} sources` : 'multiple sources';
-      elements.mcpTrendsSummary.textContent = `${signals.length} signals across ${sourceCount}.`;
-    } else {
-      elements.mcpTrendsSummary.textContent = 'Awaiting MCP signals.';
-    }
-  }
-  if (elements.mcpTrendsMeta) {
-    elements.mcpTrendsMeta.textContent = updatedAt ? `Updated ${toRelativeTime(updatedAt)}` : '—';
-  }
-  if (!elements.mcpTrendsList) return;
-  elements.mcpTrendsList.innerHTML = '';
-  if (loading || error) return;
-  if (!signals.length) {
-    elements.mcpTrendsList.innerHTML = '<div class="trends-empty">No MCP signals yet.</div>';
-    return;
-  }
-  signals.slice(0, 12).forEach((item) => {
-    const entry = document.createElement('div');
-    entry.className = 'trends-item';
-    const title = document.createElement(item.url ? 'a' : 'div');
-    title.className = 'trends-title';
-    title.textContent = item.title || item.name || item.label || 'Signal';
-    if (item.url) {
-      title.href = item.url;
-      title.target = '_blank';
-      title.rel = 'noopener noreferrer';
-    }
-    const meta = document.createElement('div');
-    meta.className = 'trends-meta';
-    const metaParts = [];
-    if (item.source) metaParts.push(item.source);
-    if (item.category) metaParts.push(item.category);
-    const ts = item.publishedAt || item.updatedAt || item.timestamp;
-    if (ts) metaParts.push(toRelativeTime(ts));
-    meta.textContent = metaParts.filter(Boolean).join(' • ');
-    entry.appendChild(title);
-    entry.appendChild(meta);
-    const summaryText = item.summary || item.detailSummary || item.description;
-    if (summaryText) {
-      const summaryEl = document.createElement('div');
-      summaryEl.className = 'trends-summary-text';
-      summaryEl.textContent = truncateText(stripHtml(summaryText), 140);
-      entry.appendChild(summaryEl);
-    }
-    elements.mcpTrendsList.appendChild(entry);
-  });
-}
-
-async function fetchMcpTrends(queryOverride = '') {
-  if (!mcpClient) return;
-  const query = String(queryOverride || '').trim();
-  state.mcpTrends.query = query;
-  state.mcpTrends.loading = true;
-  state.mcpTrends.error = null;
-  state.mcpTrends.errorDetail = null;
-  renderMcpTrends();
-  try {
-    const result = await mcpClient.callTool('search.smart', {
-      query: query || 'top signals',
-      limit: 30
-    }, 30000);
-    if (result.error) {
-      state.mcpTrends.error = result.message || 'MCP temporarily unavailable.';
-      state.mcpTrends.errorDetail = {
-        status: result.status || null,
-        rawMessage: result.rawMessage || null
-      };
-      state.mcpTrends.signals = [];
-      state.mcpTrends.sources = [];
-      state.mcpTrends.summary = null;
-    } else {
-      const data = result.data || {};
-      const items = Array.isArray(data.items)
-        ? data.items
-        : (Array.isArray(data.results) ? data.results : (Array.isArray(data.signals) ? data.signals : []));
-      const sources = Array.isArray(data.sources)
-        ? data.sources
-        : (Array.isArray(data.providers) ? data.providers : []);
-      state.mcpTrends.signals = items;
-      state.mcpTrends.sources = sources;
-      state.mcpTrends.summary = data.summary || data.overview || null;
-      state.mcpTrends.errorDetail = null;
-    }
-  } catch (err) {
-    state.mcpTrends.error = err?.message || 'MCP temporarily unavailable.';
-    state.mcpTrends.errorDetail = {
-      status: err?.status || null,
-      rawMessage: err?.message || null
-    };
-    state.mcpTrends.signals = [];
-    state.mcpTrends.sources = [];
-    state.mcpTrends.summary = null;
-  } finally {
-    state.mcpTrends.loading = false;
-    state.mcpTrends.updatedAt = Date.now();
-    renderMcpTrends();
-  }
-}
-
-function initMcpTrends() {
-  if (!elements.mcpTrendsPanel) return;
-  if (elements.mcpTrendsRun) {
-    elements.mcpTrendsRun.addEventListener('click', () => {
-      fetchMcpTrends(elements.mcpTrendsQuery?.value || '');
-    });
-  }
-  if (elements.mcpTrendsQuery) {
-    elements.mcpTrendsQuery.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        fetchMcpTrends(elements.mcpTrendsQuery.value || '');
-      }
-    });
-  }
-  renderMcpTrends();
-  fetchMcpTrends('');
-}
-
 function renderDenario() {
   if (!elements.denarioPanel) return;
   elements.denarioPanel.classList.toggle('is-hidden', !state.denario.available);
@@ -9917,6 +9832,7 @@ function renderAllPanels() {
   renderCategory('crypto', elements.cryptoList);
   renderPrediction();
   renderCombined(['disaster', 'weather', 'space'], elements.disasterList);
+  renderCriticalAlerts();
   renderCategory('security', elements.securityList);
   renderCategory('gov', elements.policyList);
   renderCongress();
@@ -9932,7 +9848,9 @@ function renderAllPanels() {
   renderTravelTicker();
   renderFinanceSpotlight();
   renderMoneyFlows();
-  renderMcpTrends();
+  if (mcpTrendsController && typeof mcpTrendsController.render === 'function') {
+    mcpTrendsController.render();
+  }
   renderDenario();
   updatePanelTimestamps();
   updatePanelErrors();
@@ -11704,6 +11622,10 @@ function drawMap() {
 
   state.mapPoints = clusters;
   state.mapPointsReady = true;
+  if (clusters.length) {
+    state.mapLastNonEmptyAt = Date.now();
+    state.mapLastNonEmptyCount = clusters.length;
+  }
   updatePanelErrors();
 
   if (state.location && state.settings.mapLayers.local) {
@@ -12929,6 +12851,7 @@ async function init() {
       getLocalItemsForPanel,
       getCongressItems,
       getEnergyNewsItems,
+      getCriticalAlertsItems,
       renderList,
       getListLimit,
       LIST_PAGE_SIZE
@@ -12944,6 +12867,7 @@ async function init() {
       getLocalItemsForPanel,
       getCongressItems,
       getEnergyNewsItems,
+      getCriticalAlertsItems,
       renderListWithLimit
     }
   });
@@ -12954,7 +12878,16 @@ async function init() {
   initWorldClocks();
   initSidebarNav();
   initCommandSections();
-  initMcpTrends();
+  mcpTrendsController = initMcpTrendsController({
+    state,
+    elements,
+    mcpClient,
+    helpers: {
+      toRelativeTime,
+      truncateText,
+      stripHtml
+    }
+  });
   loadDenarioSummary();
   ensurePanelUpdateBadges();
   renderWatchlistChips();

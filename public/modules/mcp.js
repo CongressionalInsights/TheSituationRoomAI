@@ -2,6 +2,7 @@ const DEFAULT_MCP_ENDPOINT = 'https://situation-room-mcp-382918878290.us-central
 // MCP responds via SSE and may take longer than a typical JSON API to emit the first event.
 const DEFAULT_TIMEOUT_MS = 30000;
 const RETRY_BACKOFF_MS = [400, 900];
+const DEFAULT_HEALTH_TIMEOUT_MS = 2500;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,6 +83,43 @@ function parseMcpResponse(text) {
 
 export function createMcpClient(endpoint) {
   const resolved = endpoint || DEFAULT_MCP_ENDPOINT;
+  const resolvedHealth = (() => {
+    if (!resolved) return '';
+    try {
+      const url = new URL(resolved);
+      url.pathname = url.pathname.replace(/\/mcp\/?$/i, '/health');
+      return url.toString();
+    } catch {
+      return String(resolved).replace(/\/mcp\/?$/i, '/health');
+    }
+  })();
+
+  async function healthCheck(timeoutMs = DEFAULT_HEALTH_TIMEOUT_MS) {
+    if (!resolvedHealth) {
+      return { ok: false, status: null, message: 'MCP health endpoint not configured.' };
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(resolvedHealth, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json, text/plain;q=0.9' },
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!response.ok) {
+        return { ok: false, status: response.status, message: `HTTP ${response.status}` };
+      }
+      // Don't require a specific shape; a 200 is enough for "service is up".
+      return { ok: true, status: response.status, message: 'ok' };
+    } catch (err) {
+      clearTimeout(timer);
+      const message = err?.name === 'AbortError'
+        ? 'Health check timed out.'
+        : (err?.message || 'Health check failed.');
+      return { ok: false, status: null, message };
+    }
+  }
 
   async function callTool(name, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
     if (!resolved) {
@@ -187,5 +225,11 @@ export function createMcpClient(endpoint) {
     return result;
   }
 
-  return { callTool, searchRelated };
+  return {
+    callTool,
+    searchRelated,
+    healthCheck,
+    endpoint: resolved,
+    healthEndpoint: resolvedHealth
+  };
 }

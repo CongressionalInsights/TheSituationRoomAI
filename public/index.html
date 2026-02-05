@@ -282,6 +282,7 @@
             <div class="nav-group-title">Intel & Alerts</div>
             <button class="nav-link" data-panel-target="news"><svg class="icon" aria-hidden="true"><use href="#icon-news"></use></svg>News Layer</button>
             <button class="nav-link" data-panel-target="hazards"><svg class="icon" aria-hidden="true"><use href="#icon-hazard"></use></svg>Hazards & Weather</button>
+            <button class="nav-link" data-panel-target="critical-alerts"><svg class="icon" aria-hidden="true"><use href="#icon-warning"></use></svg>Critical Alerts</button>
             <button class="nav-link" data-panel-target="security"><svg class="icon" aria-hidden="true"><use href="#icon-security"></use></svg>Conflict & Security</button>
             <button class="nav-link" data-panel-target="local"><svg class="icon" aria-hidden="true"><use href="#icon-local"></use></svg>Local Lens</button>
             <button class="nav-link" data-panel-target="policy"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg>Policy & Government</button>
@@ -1220,6 +1221,18 @@
         </div>
         <div class="panel-body">
           <div class="list" id="disasterList"></div>
+        </div>
+      </section>
+
+      <section class="panel feed-panel alerts-panel" data-panel="critical-alerts" data-category="alerts">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-security"><svg class="icon" aria-hidden="true"><use href="#icon-warning"></use></svg></span>Critical Alerts</div>
+            <div class="panel-sub">High-signal events across feeds</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="list" id="criticalAlertsList"></div>
         </div>
       </section>
 

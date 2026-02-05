@@ -8,6 +8,7 @@ export function initPanelScroll({ state, helpers }) {
     getLocalItemsForPanel,
     getCongressItems,
     getEnergyNewsItems,
+    getCriticalAlertsItems,
     renderList,
     getListLimit,
     LIST_PAGE_SIZE
@@ -20,6 +21,7 @@ export function initPanelScroll({ state, helpers }) {
     { id: 'cryptoList', getItems: () => getCategoryItems('crypto').items },
     { id: 'predictionList', getItems: () => getPredictionItems() },
     { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
+    { id: 'criticalAlertsList', getItems: () => getCriticalAlertsItems ? getCriticalAlertsItems() : [] },
     { id: 'localList', getItems: () => getLocalItemsForPanel() },
     { id: 'policyList', getItems: () => getCategoryItems('gov').items },
     { id: 'congressList', getItems: () => getCongressItems() },
@@ -58,6 +60,7 @@ export function initListAutoSizing({ state, helpers }) {
     getLocalItemsForPanel,
     getCongressItems,
     getEnergyNewsItems,
+    getCriticalAlertsItems,
     renderListWithLimit
   } = helpers;
 
@@ -68,6 +71,7 @@ export function initListAutoSizing({ state, helpers }) {
     { id: 'cryptoList', getItems: () => getCategoryItems('crypto').items },
     { id: 'predictionList', getItems: () => getPredictionItems() },
     { id: 'disasterList', getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
+    { id: 'criticalAlertsList', getItems: () => getCriticalAlertsItems ? getCriticalAlertsItems() : [] },
     { id: 'localList', getItems: () => getLocalItemsForPanel() },
     { id: 'policyList', getItems: () => getCategoryItems('gov').items },
     { id: 'congressList', getItems: () => getCongressItems() },
