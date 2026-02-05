@@ -1586,6 +1586,10 @@ const httpServer = http.createServer(async (req, res) => {
       return sendJson(res, 400, { error: 'invalid_json', message: error.message }, origin);
     }
     setCors(res, origin);
+    const accept = String(req.headers.accept || '').toLowerCase();
+    if (!accept || (!accept.includes('application/json') || !accept.includes('text/event-stream'))) {
+      req.headers.accept = 'application/json, text/event-stream';
+    }
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined
     });

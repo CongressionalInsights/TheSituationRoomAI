@@ -6687,6 +6687,13 @@ function toRelativeTime(timestamp) {
   return `${days}d ago`;
 }
 
+function safeRelativeTime(timestamp) {
+  if (!timestamp) return '—';
+  const parsed = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) return '—';
+  return toRelativeTime(parsed);
+}
+
 function ensurePanelUpdateBadges() {
   document.querySelectorAll('.panel[data-panel]').forEach((panel) => {
     if (panel.dataset.noUpdate) return;
@@ -6839,6 +6846,17 @@ function updatePanelErrors() {
     let hasError = false;
     if (panelId === 'money-flows') {
       hasError = Boolean(state.moneyFlowsError);
+    } else if (panelId === 'map') {
+      if (state.refreshing) {
+        hasError = false;
+      } else if (state.mapPoints && state.mapPoints.length) {
+        hasError = false;
+      } else {
+        const mapFeeds = state.feeds.filter((feed) => feed.mapOnly || PANEL_ERROR_CATEGORY_MAP.map.includes(feed.category));
+        const mapErrors = mapFeeds.filter((feed) => state.feedStatus[feed.id]?.error === 'fetch_failed');
+        const mapOnlyErrors = mapErrors.filter((feed) => feed.mapOnly);
+        hasError = mapOnlyErrors.length > 0 || mapErrors.length >= 2;
+      }
     } else {
       const feedIds = getPanelFeedIds(panelId);
       hasError = feedIds.some((id) => state.feedStatus[id]?.error === 'fetch_failed');
@@ -7755,7 +7773,7 @@ function setAnalysisMeta(mode, note, stampOverride) {
   } else {
     const label = labels[mode] || 'Briefing';
     const stamp = stampOverride ?? getAnalysisDataStamp();
-    const timeText = stamp ? `Data ${toRelativeTime(stamp)}` : '';
+    const timeText = stamp ? `Data ${safeRelativeTime(stamp)}` : '';
     const parts = [label, note, timeText].filter(Boolean);
     message = parts.join(' • ');
   }
@@ -9828,7 +9846,7 @@ function renderDenario() {
   if (elements.denarioMeta) {
     const metaParts = [];
     if (state.denario.summary) metaParts.push(state.denario.summary);
-    if (state.denario.generatedAt) metaParts.push(`Updated ${toRelativeTime(state.denario.generatedAt)}`);
+    if (Number.isFinite(state.denario.generatedAt)) metaParts.push(`Updated ${safeRelativeTime(state.denario.generatedAt)}`);
     elements.denarioMeta.textContent = metaParts.length ? metaParts.join(' • ') : 'Denario insights loaded.';
   }
   if (!elements.denarioList) return;
