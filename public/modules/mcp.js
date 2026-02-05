@@ -6,6 +6,14 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getContentType(response) {
+  try {
+    return (response?.headers?.get('content-type') || '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 function parseMcpStream(text) {
   if (!text) return null;
   const lines = text.split('\n').map((line) => line.trim());
@@ -17,6 +25,40 @@ function parseMcpStream(text) {
   } catch {
     return null;
   }
+}
+
+async function readFirstMcpEvent(response, controller) {
+  if (!response?.body) return null;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE events are separated by a blank line.
+      let idx = buffer.indexOf('\n\n');
+      while (idx !== -1) {
+        const eventText = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const parsed = parseMcpStream(eventText);
+        if (parsed) {
+          // Close the stream early so we don't wait for the server to end SSE.
+          try { reader.cancel(); } catch {}
+          try { controller?.abort(); } catch {}
+          return parsed;
+        }
+        idx = buffer.indexOf('\n\n');
+      }
+    }
+  } catch {
+    // fall through
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+  return null;
 }
 
 function parseMcpResponse(text) {
@@ -70,9 +112,9 @@ export function createMcpClient(endpoint) {
           ? { error: 'timeout', message: 'MCP request timed out.' }
           : { error: 'network_error', message: err?.message || 'MCP request failed.' };
       }
-      clearTimeout(timer);
 
       if (!response) {
+        clearTimeout(timer);
         if (attempt < attempts - 1
           && (lastError?.error === 'network_error' || lastError?.error === 'timeout')) {
           await delay(RETRY_BACKOFF_MS[attempt] || 400);
@@ -81,8 +123,16 @@ export function createMcpClient(endpoint) {
         return lastError || { error: 'network_error', message: 'MCP request failed.' };
       }
 
-      const text = await response.text();
-      const parsed = parseMcpResponse(text);
+      let parsed = null;
+      const contentType = getContentType(response);
+      if (contentType.includes('text/event-stream')) {
+        parsed = await readFirstMcpEvent(response, controller);
+      }
+      if (!parsed) {
+        const text = await response.text();
+        parsed = parseMcpResponse(text);
+      }
+      clearTimeout(timer);
       if (!parsed) {
         lastError = { error: 'invalid_response', message: 'Unable to parse MCP response.' };
       } else if (parsed.error) {
