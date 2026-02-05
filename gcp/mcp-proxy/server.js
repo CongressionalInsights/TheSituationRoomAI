@@ -43,31 +43,6 @@ const xmlParser = new XMLParser({
   attributeNamePrefix: ''
 });
 
-// The MCP SDK transport is designed to be long-lived. Reconnecting the server
-// on every request can lead to instability/restarts under Cloud Run.
-let streamableTransport = null;
-let streamableConnectPromise = null;
-
-async function getStreamableTransport(server) {
-  if (streamableTransport && streamableConnectPromise) {
-    await streamableConnectPromise;
-    return streamableTransport;
-  }
-  if (!streamableTransport) {
-    streamableTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  }
-  if (!streamableConnectPromise) {
-    streamableConnectPromise = server.connect(streamableTransport).catch((err) => {
-      // Reset so a subsequent request can retry initialization.
-      streamableTransport = null;
-      streamableConnectPromise = null;
-      throw err;
-    });
-  }
-  await streamableConnectPromise;
-  return streamableTransport;
-}
-
 function setCors(res, origin) {
   if (!origin) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1616,7 +1591,8 @@ const httpServer = http.createServer(async (req, res) => {
       req.headers.accept = 'application/json, text/event-stream';
     }
     try {
-      const transport = await getStreamableTransport(server);
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      await server.connect(transport);
       await transport.handleRequest(req, res, body);
       return;
     } catch (error) {
