@@ -222,6 +222,7 @@ const state = {
   geoCache: {},
   chatHistory: [],
   mapPoints: [],
+  mapPointsReady: false,
   map: null,
   mapBaseLayers: {},
   mapOverlayLayers: {},
@@ -277,6 +278,7 @@ const state = {
     signals: [],
     sources: [],
     error: null,
+    errorDetail: null,
     updatedAt: null
   },
   denario: {
@@ -6847,7 +6849,7 @@ function updatePanelErrors() {
     if (panelId === 'money-flows') {
       hasError = Boolean(state.moneyFlowsError);
     } else if (panelId === 'map') {
-      if (state.refreshing) {
+      if (state.refreshing || !state.mapPointsReady) {
         hasError = false;
       } else if (state.mapPoints && state.mapPoints.length) {
         hasError = false;
@@ -9723,12 +9725,13 @@ function renderTravelTicker() {
 
 function renderMcpTrends() {
   if (!elements.mcpTrendsPanel) return;
-  const { loading, error, summary, signals, sources, updatedAt } = state.mcpTrends;
+  const { loading, error, summary, signals, sources, updatedAt, errorDetail } = state.mcpTrends;
   if (elements.mcpTrendsSummary) {
     if (loading) {
       elements.mcpTrendsSummary.textContent = 'Fetching MCP signals…';
     } else if (error) {
-      elements.mcpTrendsSummary.textContent = 'MCP temporarily unavailable.';
+      const statusNote = errorDetail?.status ? ` (HTTP ${errorDetail.status})` : '';
+      elements.mcpTrendsSummary.textContent = `MCP temporarily unavailable${statusNote}.`;
     } else if (summary) {
       elements.mcpTrendsSummary.textContent = summary;
     } else if (signals.length) {
@@ -9786,6 +9789,7 @@ async function fetchMcpTrends(queryOverride = '') {
   state.mcpTrends.query = query;
   state.mcpTrends.loading = true;
   state.mcpTrends.error = null;
+  state.mcpTrends.errorDetail = null;
   renderMcpTrends();
   try {
     const result = await mcpClient.callTool('search.smart', {
@@ -9794,6 +9798,10 @@ async function fetchMcpTrends(queryOverride = '') {
     });
     if (result.error) {
       state.mcpTrends.error = result.message || 'MCP temporarily unavailable.';
+      state.mcpTrends.errorDetail = {
+        status: result.status || null,
+        rawMessage: result.rawMessage || null
+      };
       state.mcpTrends.signals = [];
       state.mcpTrends.sources = [];
       state.mcpTrends.summary = null;
@@ -9808,9 +9816,14 @@ async function fetchMcpTrends(queryOverride = '') {
       state.mcpTrends.signals = items;
       state.mcpTrends.sources = sources;
       state.mcpTrends.summary = data.summary || data.overview || null;
+      state.mcpTrends.errorDetail = null;
     }
   } catch (err) {
     state.mcpTrends.error = err?.message || 'MCP temporarily unavailable.';
+    state.mcpTrends.errorDetail = {
+      status: err?.status || null,
+      rawMessage: err?.message || null
+    };
     state.mcpTrends.signals = [];
     state.mcpTrends.sources = [];
     state.mcpTrends.summary = null;
@@ -11604,6 +11617,7 @@ function drawMap() {
   ctx.strokeStyle = 'rgba(255,255,255,0.05)';
   ctx.lineWidth = 1;
   state.mapPoints = [];
+  state.mapPointsReady = false;
 
   if (!state.map) {
     for (let x = 0; x <= width; x += width / 6) {
@@ -11689,6 +11703,8 @@ function drawMap() {
   });
 
   state.mapPoints = clusters;
+  state.mapPointsReady = true;
+  updatePanelErrors();
 
   if (state.location && state.settings.mapLayers.local) {
     let x;

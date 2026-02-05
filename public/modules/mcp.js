@@ -86,11 +86,21 @@ export function createMcpClient(endpoint) {
       if (!parsed) {
         lastError = { error: 'invalid_response', message: 'Unable to parse MCP response.' };
       } else if (parsed.error) {
-        lastError = { error: parsed.error.message || 'mcp_error', message: parsed.error.message || 'MCP error.' };
+        lastError = {
+          error: parsed.error.message || 'mcp_error',
+          message: parsed.error.message || 'MCP error.',
+          status: response?.status || null,
+          rawMessage: parsed.error.message || null
+        };
       } else {
         const result = parsed.result || parsed;
         if (!response.ok) {
-          lastError = { error: `HTTP ${response.status}`, message: result?.error?.message || 'MCP request failed.' };
+          lastError = {
+            error: `HTTP ${response.status}`,
+            message: result?.error?.message || 'MCP request failed.',
+            status: response.status,
+            rawMessage: result?.error?.message || null
+          };
         } else {
           const structured = result.structuredContent ?? null;
           return { data: structured, raw: result };
