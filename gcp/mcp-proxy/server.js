@@ -1617,7 +1617,8 @@ const httpServer = http.createServer(async (req, res) => {
     }
     try {
       const transport = await getStreamableTransport(server);
-      return transport.handleRequest(req, res, body);
+      await transport.handleRequest(req, res, body);
+      return;
     } catch (error) {
       return sendJson(res, 500, { error: 'mcp_transport_failed', message: error.message }, origin);
     }
