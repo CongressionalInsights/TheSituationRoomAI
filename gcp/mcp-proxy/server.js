@@ -43,22 +43,10 @@ const xmlParser = new XMLParser({
   attributeNamePrefix: ''
 });
 
-// MCP server transport is long-lived. Connecting per-request will fail after the first
-// request (server.connect can only be called once) and can cause browser-visible outages.
-const streamableTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+// MCP transport is initialized after the McpServer is fully configured.
+let streamableTransport = null;
 let streamableReady = false;
-const streamableConnectPromise = server.connect(streamableTransport)
-  .then(() => {
-    streamableReady = true;
-  })
-  .catch((error) => {
-    // Keep the process alive so we can return a useful error instead of flapping (503).
-    console.error(JSON.stringify({
-      severity: 'ERROR',
-      message: 'mcp_connect_failed',
-      error: error?.message || String(error)
-    }));
-  });
+let streamableConnectPromise = Promise.resolve();
 
 function setCors(res, origin) {
   if (!origin) {
@@ -1548,6 +1536,22 @@ server.registerTool(
     };
   }
 );
+
+// MCP server transport is long-lived. Connecting per-request will fail after the first
+// request (server.connect can only be called once) and can cause browser-visible outages.
+streamableTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+streamableConnectPromise = server.connect(streamableTransport)
+  .then(() => {
+    streamableReady = true;
+  })
+  .catch((error) => {
+    // Keep the process alive so we can return a useful error instead of flapping (503).
+    console.error(JSON.stringify({
+      severity: 'ERROR',
+      message: 'mcp_connect_failed',
+      error: error?.message || String(error)
+    }));
+  });
 
 const httpServer = http.createServer(async (req, res) => {
   const start = Date.now();
