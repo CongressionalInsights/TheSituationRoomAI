@@ -2176,7 +2176,7 @@ function buildRelatedSignalsSection(item) {
   section.appendChild(list);
 
   if (!mcpClient) {
-    status.textContent = 'Related signals unavailable (MCP offline).';
+    status.textContent = 'Related signals unavailable.';
     status.classList.add('is-error');
     return section;
   }
@@ -2198,7 +2198,7 @@ function buildRelatedSignalsSection(item) {
     .then((result) => {
       if (!section.isConnected) return;
       if (result?.error) {
-        status.textContent = result.message || 'Related signals unavailable (MCP offline).';
+        status.textContent = result.message || 'Related signals unavailable.';
         status.classList.add('is-error');
         return;
       }
@@ -2253,7 +2253,7 @@ function buildRelatedSignalsSection(item) {
     })
     .catch((err) => {
       if (!section.isConnected) return;
-      status.textContent = err?.message || 'Related signals unavailable (MCP offline).';
+      status.textContent = err?.message || 'Related signals unavailable.';
       status.classList.add('is-error');
     });
 
@@ -9710,7 +9710,7 @@ function renderMcpTrends() {
     if (loading) {
       elements.mcpTrendsSummary.textContent = 'Fetching MCP signals…';
     } else if (error) {
-      elements.mcpTrendsSummary.textContent = `MCP unavailable: ${error}`;
+      elements.mcpTrendsSummary.textContent = 'MCP temporarily unavailable.';
     } else if (summary) {
       elements.mcpTrendsSummary.textContent = summary;
     } else if (signals.length) {
