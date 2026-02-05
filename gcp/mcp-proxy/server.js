@@ -44,9 +44,8 @@ const xmlParser = new XMLParser({
 });
 
 // MCP transport is initialized after the McpServer is fully configured.
-let streamableTransport = null;
-let streamableReady = false;
-let streamableConnectPromise = Promise.resolve();
+// Note: we build a fresh MCP server per request (Congress.gov APIs can be brittle and
+// the MCP SDK expects a separate Protocol instance per connection).
 
 function setCors(res, origin) {
   if (!origin) {
@@ -1166,10 +1165,11 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
   return results;
 }
 
-const server = new McpServer({
-  name: 'Situation Room MCP',
-  version: '0.1.0'
-});
+function buildMcpServer() {
+  const server = new McpServer({
+    name: 'Situation Room MCP',
+    version: '0.1.0'
+  });
 
 server.registerTool(
   'catalog.sources',
@@ -1537,21 +1537,8 @@ server.registerTool(
   }
 );
 
-// MCP server transport is long-lived. Connecting per-request will fail after the first
-// request (server.connect can only be called once) and can cause browser-visible outages.
-streamableTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-streamableConnectPromise = server.connect(streamableTransport)
-  .then(() => {
-    streamableReady = true;
-  })
-  .catch((error) => {
-    // Keep the process alive so we can return a useful error instead of flapping (503).
-    console.error(JSON.stringify({
-      severity: 'ERROR',
-      message: 'mcp_connect_failed',
-      error: error?.message || String(error)
-    }));
-  });
+  return server;
+}
 
 const httpServer = http.createServer(async (req, res) => {
   const start = Date.now();
@@ -1612,11 +1599,16 @@ const httpServer = http.createServer(async (req, res) => {
       req.headers.accept = 'application/json, text/event-stream';
     }
     try {
-      await streamableConnectPromise;
-      if (!streamableReady) {
-        return sendJson(res, 503, { error: 'mcp_unavailable', message: 'MCP transport not ready.' }, origin);
+      const mcpServer = buildMcpServer();
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      await mcpServer.connect(transport);
+      await transport.handleRequest(req, res, body);
+      if (typeof transport.close === 'function') {
+        await transport.close();
       }
-      await streamableTransport.handleRequest(req, res, body);
+      if (typeof mcpServer.close === 'function') {
+        await mcpServer.close();
+      }
       return;
     } catch (error) {
       return sendJson(res, 500, { error: 'mcp_transport_failed', message: error.message }, origin);
