@@ -1,5 +1,6 @@
 const DEFAULT_MCP_ENDPOINT = 'https://situation-room-mcp-382918878290.us-central1.run.app/mcp';
-const DEFAULT_TIMEOUT_MS = 12000;
+// MCP responds via SSE and may take longer than a typical JSON API to emit the first event.
+const DEFAULT_TIMEOUT_MS = 30000;
 const RETRY_BACKOFF_MS = [400, 900];
 
 function delay(ms) {

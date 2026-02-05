@@ -9795,7 +9795,7 @@ async function fetchMcpTrends(queryOverride = '') {
     const result = await mcpClient.callTool('search.smart', {
       query: query || 'top signals',
       limit: 30
-    });
+    }, 30000);
     if (result.error) {
       state.mcpTrends.error = result.message || 'MCP temporarily unavailable.';
       state.mcpTrends.errorDetail = {
