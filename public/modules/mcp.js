@@ -38,19 +38,26 @@ async function readFirstMcpEvent(response, controller) {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
-      // SSE events are separated by a blank line.
-      let idx = buffer.indexOf('\n\n');
+      // SSE events are separated by a blank line. Some servers use CRLF.
+      const nextDelimiter = () => {
+        const lf = buffer.indexOf('\n\n');
+        const crlf = buffer.indexOf('\r\n\r\n');
+        if (lf === -1) return { idx: crlf, len: crlf === -1 ? 0 : 4 };
+        if (crlf === -1) return { idx: lf, len: 2 };
+        return crlf < lf ? { idx: crlf, len: 4 } : { idx: lf, len: 2 };
+      };
+
+      let { idx, len } = nextDelimiter();
       while (idx !== -1) {
         const eventText = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
+        buffer = buffer.slice(idx + len);
         const parsed = parseMcpStream(eventText);
         if (parsed) {
           // Close the stream early so we don't wait for the server to end SSE.
           try { reader.cancel(); } catch {}
-          try { controller?.abort(); } catch {}
           return parsed;
         }
-        idx = buffer.indexOf('\n\n');
+        ({ idx, len } = nextDelimiter());
       }
     }
   } catch {
