@@ -43,6 +43,23 @@ const xmlParser = new XMLParser({
   attributeNamePrefix: ''
 });
 
+// MCP server transport is long-lived. Connecting per-request will fail after the first
+// request (server.connect can only be called once) and can cause browser-visible outages.
+const streamableTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+let streamableReady = false;
+const streamableConnectPromise = server.connect(streamableTransport)
+  .then(() => {
+    streamableReady = true;
+  })
+  .catch((error) => {
+    // Keep the process alive so we can return a useful error instead of flapping (503).
+    console.error(JSON.stringify({
+      severity: 'ERROR',
+      message: 'mcp_connect_failed',
+      error: error?.message || String(error)
+    }));
+  });
+
 function setCors(res, origin) {
   if (!origin) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1591,9 +1608,11 @@ const httpServer = http.createServer(async (req, res) => {
       req.headers.accept = 'application/json, text/event-stream';
     }
     try {
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      await server.connect(transport);
-      await transport.handleRequest(req, res, body);
+      await streamableConnectPromise;
+      if (!streamableReady) {
+        return sendJson(res, 503, { error: 'mcp_unavailable', message: 'MCP transport not ready.' }, origin);
+      }
+      await streamableTransport.handleRequest(req, res, body);
       return;
     } catch (error) {
       return sendJson(res, 500, { error: 'mcp_transport_failed', message: error.message }, origin);
