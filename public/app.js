@@ -2176,7 +2176,7 @@ function buildRelatedSignalsSection(item) {
   section.appendChild(list);
 
   if (!mcpClient) {
-    status.textContent = 'Related signals unavailable.';
+    status.textContent = 'MCP temporarily unavailable.';
     status.classList.add('is-error');
     return section;
   }
@@ -2198,7 +2198,7 @@ function buildRelatedSignalsSection(item) {
     .then((result) => {
       if (!section.isConnected) return;
       if (result?.error) {
-        status.textContent = result.message || 'Related signals unavailable.';
+        status.textContent = result.message || 'MCP temporarily unavailable.';
         status.classList.add('is-error');
         return;
       }
@@ -2253,7 +2253,7 @@ function buildRelatedSignalsSection(item) {
     })
     .catch((err) => {
       if (!section.isConnected) return;
-      status.textContent = err?.message || 'Related signals unavailable.';
+      status.textContent = err?.message || 'MCP temporarily unavailable.';
       status.classList.add('is-error');
     });
 
@@ -9863,7 +9863,9 @@ async function loadDenarioSummary() {
     const payload = await response.json();
     state.denario.available = true;
     state.denario.summary = payload.summary || payload.overview || null;
-    state.denario.generatedAt = payload.generatedAt || payload.generated_at || null;
+    const rawStamp = payload.generatedAt || payload.generated_at || payload.timestamp || '';
+    const parsedStamp = Date.parse(rawStamp);
+    state.denario.generatedAt = Number.isFinite(parsedStamp) ? parsedStamp : null;
     state.denario.items = Array.isArray(payload.items) ? payload.items : [];
   } catch (err) {
     state.denario.available = false;

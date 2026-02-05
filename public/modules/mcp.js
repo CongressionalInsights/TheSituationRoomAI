@@ -74,7 +74,7 @@ export function createMcpClient(endpoint) {
     }
     const result = parsed.result || parsed;
     if (!response.ok) {
-      return { error: `HTTP ${response.status}`, message: 'MCP request failed.' };
+      return { error: `HTTP ${response.status}`, message: result?.error?.message || 'MCP request failed.' };
     }
     const structured = result.structuredContent ?? null;
     return { data: structured, raw: result };
