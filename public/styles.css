@@ -4925,6 +4925,19 @@ a.list-title:hover {
   padding-right: 6px;
 }
 
+.focus-stage-body.focus-single .denario-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.focus-stage-body.focus-single .denario-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 6px;
+}
+
 .focus-search {
   display: inline-flex;
   align-items: center;

@@ -2176,7 +2176,7 @@ function buildRelatedSignalsSection(item) {
   section.appendChild(list);
 
   if (!mcpClient) {
-    status.textContent = 'Related signals unavailable.';
+    status.textContent = 'Related signals unavailable (MCP offline).';
     status.classList.add('is-error');
     return section;
   }
@@ -2198,7 +2198,7 @@ function buildRelatedSignalsSection(item) {
     .then((result) => {
       if (!section.isConnected) return;
       if (result?.error) {
-        status.textContent = result.message || 'Related signals unavailable.';
+        status.textContent = result.message || 'Related signals unavailable (MCP offline).';
         status.classList.add('is-error');
         return;
       }
@@ -2253,7 +2253,7 @@ function buildRelatedSignalsSection(item) {
     })
     .catch((err) => {
       if (!section.isConnected) return;
-      status.textContent = err?.message || 'Related signals unavailable.';
+      status.textContent = err?.message || 'Related signals unavailable (MCP offline).';
       status.classList.add('is-error');
     });
 
@@ -6672,7 +6672,13 @@ async function translateQueryAsync(feed, query) {
 }
 
 function toRelativeTime(timestamp) {
-  const delta = Date.now() - timestamp;
+  let parsed = timestamp;
+  if (typeof timestamp === 'string') {
+    parsed = Date.parse(timestamp);
+  }
+  const ts = Number(parsed);
+  if (!Number.isFinite(ts)) return '—';
+  const delta = Date.now() - ts;
   const minutes = Math.max(1, Math.round(delta / 60000));
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
@@ -9704,7 +9710,7 @@ function renderMcpTrends() {
     if (loading) {
       elements.mcpTrendsSummary.textContent = 'Fetching MCP signals…';
     } else if (error) {
-      elements.mcpTrendsSummary.textContent = `MCP error: ${error}`;
+      elements.mcpTrendsSummary.textContent = `MCP unavailable: ${error}`;
     } else if (summary) {
       elements.mcpTrendsSummary.textContent = summary;
     } else if (signals.length) {
@@ -9769,7 +9775,7 @@ async function fetchMcpTrends(queryOverride = '') {
       limit: 30
     });
     if (result.error) {
-      state.mcpTrends.error = result.message || 'MCP request failed.';
+      state.mcpTrends.error = result.message || 'MCP temporarily unavailable.';
       state.mcpTrends.signals = [];
       state.mcpTrends.sources = [];
       state.mcpTrends.summary = null;
@@ -9786,7 +9792,7 @@ async function fetchMcpTrends(queryOverride = '') {
       state.mcpTrends.summary = data.summary || data.overview || null;
     }
   } catch (err) {
-    state.mcpTrends.error = err?.message || 'MCP request failed.';
+    state.mcpTrends.error = err?.message || 'MCP temporarily unavailable.';
     state.mcpTrends.signals = [];
     state.mcpTrends.sources = [];
     state.mcpTrends.summary = null;
