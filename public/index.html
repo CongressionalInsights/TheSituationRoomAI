@@ -442,27 +442,37 @@
           </div>
         </section>
 
-        <section class="summary" aria-label="Summary">
+        <section class="summary" aria-label="Signal Deck" id="signalDeckAnchor">
+          <div class="summary-header">
+            <div>
+              <div class="summary-title">Signal Deck</div>
+              <div class="summary-sub">Coverage, momentum, anomalies</div>
+            </div>
+            <div class="summary-actions">
+              <span class="chip chip-status" id="signalHealthChip">Feed Health: --</span>
+              <div class="signal-health-detail" id="signalHealthDetail"></div>
+            </div>
+          </div>
           <div class="summary-grid">
             <article class="summary-card tone-geo">
               <div class="summary-label">Global Activity</div>
-              <div class="summary-value" id="summaryGlobalActivity">--</div>
-              <div class="summary-meta" id="summaryGlobalActivityMeta">Awaiting feeds</div>
+              <div class="summary-value" id="globalActivity">--</div>
+              <div class="summary-meta" id="globalActivityMeta">Awaiting feeds</div>
             </article>
             <article class="summary-card tone-news">
               <div class="summary-label">News Saturation</div>
-              <div class="summary-value" id="summaryNewsSaturation">--</div>
-              <div class="summary-meta" id="summaryNewsSaturationMeta">Awaiting clusters</div>
+              <div class="summary-value" id="newsSaturation">--</div>
+              <div class="summary-meta" id="newsSaturationMeta">Awaiting clusters</div>
             </article>
             <article class="summary-card tone-local">
               <div class="summary-label">Local Events</div>
-              <div class="summary-value" id="summaryLocalEvents">--</div>
-              <div class="summary-meta" id="summaryLocalEventsMeta">Awaiting location</div>
+              <div class="summary-value" id="localEvents">--</div>
+              <div class="summary-meta" id="localEventsMeta">Awaiting location</div>
             </article>
             <article class="summary-card tone-finance">
               <div class="summary-label">Market Pulse</div>
-              <div class="summary-value" id="summaryMarketPulse">--</div>
-              <div class="summary-meta" id="summaryMarketPulseMeta">Awaiting feeds</div>
+              <div class="summary-value" id="marketPulse">--</div>
+              <div class="summary-meta" id="marketPulseMeta">Awaiting feeds</div>
             </article>
           </div>
         </section>
@@ -1060,41 +1070,6 @@
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel signals-panel" data-panel="signals" data-category="analysis">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title"><span class="panel-icon tone-analysis"><svg class="icon" aria-hidden="true"><use href="#icon-signal"></use></svg></span>Signal Deck</div>
-            <div class="panel-sub">Coverage, momentum, anomalies</div>
-          </div>
-          <div class="panel-actions">
-            <span class="chip chip-status" id="signalHealthChip">Feed Health: --</span>
-            <div class="signal-health-detail" id="signalHealthDetail"></div>
-          </div>
-        </div>
-        <div class="signal-grid">
-          <div class="signal-card">
-            <div class="signal-label">Global Activity</div>
-            <div class="signal-value" id="globalActivity">--</div>
-            <div class="signal-meta" id="globalActivityMeta">Awaiting feeds</div>
-          </div>
-          <div class="signal-card">
-            <div class="signal-label">News Saturation</div>
-            <div class="signal-value" id="newsSaturation">--</div>
-            <div class="signal-meta" id="newsSaturationMeta">Awaiting feeds</div>
-          </div>
-          <div class="signal-card">
-            <div class="signal-label">Local Events</div>
-            <div class="signal-value" id="localEvents">--</div>
-            <div class="signal-meta" id="localEventsMeta">Awaiting location</div>
-          </div>
-          <div class="signal-card">
-            <div class="signal-label">Market Pulse</div>
-            <div class="signal-value" id="marketPulse">--</div>
-            <div class="signal-meta" id="marketPulseMeta">Awaiting feeds</div>
           </div>
         </div>
       </section>
