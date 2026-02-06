@@ -446,6 +446,7 @@ const elements = {
   denarioPanel: document.getElementById('denarioPanel'),
   denarioMeta: document.getElementById('denarioMeta'),
   denarioList: document.getElementById('denarioList'),
+  signalDeckAnchor: document.getElementById('signalDeckAnchor'),
   summaryGlobalActivity: document.getElementById('summaryGlobalActivity'),
   summaryGlobalActivityMeta: document.getElementById('summaryGlobalActivityMeta'),
   summaryNewsSaturation: document.getElementById('summaryNewsSaturation'),
@@ -576,12 +577,12 @@ const elements = {
 };
 
 const DEFAULT_PANEL_SIZE_CONFIG = [
+  { id: 'briefing', cols: 12 },
   { id: 'map', cols: 12 },
   { id: 'ticker', cols: 12 },
   { id: 'finance-spotlight', cols: 12 },
   { id: 'imagery', cols: 12 },
   { id: 'command', cols: 12 },
-  { id: 'signals', cols: 6 },
   { id: 'news', cols: 6 },
   { id: 'finance', cols: 4 },
   { id: 'money-flows', cols: 12 },
@@ -684,7 +685,7 @@ const LIST_DEFAULTS = Object.fromEntries(
 );
 const LIST_MODAL_CONFIGS = LIST_CONFIG.map(({ defaultLimit, ...config }) => config);
 const LIST_MODAL_CONFIG_MAP = Object.fromEntries(LIST_MODAL_CONFIGS.map((config) => [config.id, config]));
-const FOCUS_PANEL_EXCLUDE = new Set(['ticker', 'signals', 'crypto', 'energy-map']);
+const FOCUS_PANEL_EXCLUDE = new Set(['ticker', 'crypto', 'energy-map']);
 const FOCUS_GEO_TARGET = 'geo';
 const focusController = createFocusController({
   elements,
@@ -1715,6 +1716,11 @@ function loadPanelState() {
       state.panels.order = Array.isArray(parsed.order) ? parsed.order : [];
       state.panels.visibility = parsed.visibility && typeof parsed.visibility === 'object' ? parsed.visibility : {};
       state.panels.sizes = parsed.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {};
+
+      // Layout migration: Signal Deck is now the top summary section (not a grid panel).
+      state.panels.order = state.panels.order.filter((id) => id !== 'signals');
+      if (state.panels.visibility && 'signals' in state.panels.visibility) delete state.panels.visibility.signals;
+      if (state.panels.sizes && 'signals' in state.panels.sizes) delete state.panels.sizes.signals;
     } else {
       state.panels.order = [];
       state.panels.visibility = {};
@@ -7698,10 +7704,12 @@ function renderSignals() {
     return diff > 0 ? `• +${diff}` : `• ${diff}`;
   };
 
-  elements.globalActivity.textContent = totalItems ? totalItems : '--';
-  elements.globalActivityMeta.textContent = totalItems
-    ? `Signals ingested: ${totalItems} ${formatDelta(totalItems, previous?.totalItems)}`.trim()
-    : (state.refreshing ? 'Fetching feeds…' : 'Awaiting signals');
+  if (elements.globalActivity) elements.globalActivity.textContent = totalItems ? totalItems : '--';
+  if (elements.globalActivityMeta) {
+    elements.globalActivityMeta.textContent = totalItems
+      ? `Signals ingested: ${totalItems} ${formatDelta(totalItems, previous?.totalItems)}`.trim()
+      : (state.refreshing ? 'Fetching feeds…' : 'Awaiting signals');
+  }
 
   if (elements.summaryGlobalActivity) {
     elements.summaryGlobalActivity.textContent = totalItems ? totalItems : '--';
@@ -7710,10 +7718,12 @@ function renderSignals() {
       : (state.refreshing ? 'Fetching feeds…' : 'Awaiting signals');
   }
 
-  elements.newsSaturation.textContent = newsClusters ? newsClusters : '--';
-  elements.newsSaturationMeta.textContent = newsClusters
-    ? `Clusters across sources ${formatDelta(newsClusters, previous?.newsClusters)}`.trim()
-    : (state.refreshing ? 'Fetching clusters…' : 'No clusters yet');
+  if (elements.newsSaturation) elements.newsSaturation.textContent = newsClusters ? newsClusters : '--';
+  if (elements.newsSaturationMeta) {
+    elements.newsSaturationMeta.textContent = newsClusters
+      ? `Clusters across sources ${formatDelta(newsClusters, previous?.newsClusters)}`.trim()
+      : (state.refreshing ? 'Fetching clusters…' : 'No clusters yet');
+  }
 
   if (elements.summaryNewsSaturation) {
     elements.summaryNewsSaturation.textContent = newsClusters ? newsClusters : '--';
@@ -7722,12 +7732,14 @@ function renderSignals() {
       : (state.refreshing ? 'Fetching clusters…' : 'No clusters yet');
   }
 
-  elements.localEvents.textContent = localItems.length ? localItems.length : '--';
-  elements.localEventsMeta.textContent = localItems.length
-    ? (state.location.source === 'geo'
-      ? `Within local radius ${formatDelta(localItems.length, previous?.localItems)}`
-      : `Fallback region ${formatDelta(localItems.length, previous?.localItems)}`)
-    : (state.refreshing ? 'Locating…' : 'No local signals yet');
+  if (elements.localEvents) elements.localEvents.textContent = localItems.length ? localItems.length : '--';
+  if (elements.localEventsMeta) {
+    elements.localEventsMeta.textContent = localItems.length
+      ? (state.location.source === 'geo'
+        ? `Within local radius ${formatDelta(localItems.length, previous?.localItems)}`
+        : `Fallback region ${formatDelta(localItems.length, previous?.localItems)}`)
+      : (state.refreshing ? 'Locating…' : 'No local signals yet');
+  }
 
   if (elements.summaryLocalEvents) {
     elements.summaryLocalEvents.textContent = localItems.length ? localItems.length : '--';
@@ -7739,10 +7751,12 @@ function renderSignals() {
   }
 
   const marketCount = marketSignals.length;
-  elements.marketPulse.textContent = marketCount ? marketCount : '--';
-  elements.marketPulseMeta.textContent = marketCount
-    ? `Markets + macro feeds ${formatDelta(marketCount, previous?.marketCount)}`.trim()
-    : (state.refreshing ? 'Fetching feeds…' : 'No market signals yet');
+  if (elements.marketPulse) elements.marketPulse.textContent = marketCount ? marketCount : '--';
+  if (elements.marketPulseMeta) {
+    elements.marketPulseMeta.textContent = marketCount
+      ? `Markets + macro feeds ${formatDelta(marketCount, previous?.marketCount)}`.trim()
+      : (state.refreshing ? 'Fetching feeds…' : 'No market signals yet');
+  }
 
   if (elements.summaryMarketPulse) {
     elements.summaryMarketPulse.textContent = marketCount ? marketCount : '--';
@@ -10786,6 +10800,9 @@ function initSidebarNav() {
   const navLinks = [...document.querySelectorAll('.nav-link[data-panel-target]')];
   if (!navLinks.length) return;
   const panels = [...document.querySelectorAll('.panel[data-panel]')].filter((panel) => panel.dataset.panel !== 'lidar');
+  const specialTargets = {
+    signals: elements.signalDeckAnchor
+  };
 
   const setActive = (target) => {
     navLinks.forEach((link) => {
@@ -10799,6 +10816,8 @@ function initSidebarNav() {
       const panel = panels.find((entry) => entry.dataset.panel === target);
       if (panel) {
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (specialTargets[target]) {
+        specialTargets[target].scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       setActive(target);
       setNavOpen(false);
@@ -10811,7 +10830,12 @@ function initSidebarNav() {
     ticking = true;
     requestAnimationFrame(() => {
       const offset = 140;
-      let active = panels[0]?.dataset.panel;
+      const firstPanel = panels[0];
+      const firstRect = firstPanel ? firstPanel.getBoundingClientRect() : null;
+      let active = firstPanel?.dataset.panel;
+      if (firstRect && firstRect.top - offset > 0) {
+        active = 'signals';
+      }
       panels.forEach((panel) => {
         const rect = panel.getBoundingClientRect();
         if (rect.top - offset <= 0) {

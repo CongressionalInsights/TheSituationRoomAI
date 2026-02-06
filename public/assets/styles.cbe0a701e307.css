@@ -132,10 +132,6 @@
   box-sizing: border-box;
 }
 
-.is-hidden {
-  display: none !important;
-}
-
 body {
   margin: 0;
   font-family: var(--font-body);
@@ -1223,20 +1219,9 @@ a:focus-visible {
   height: clamp(320px, 42vh, 520px);
 }
 
-.briefing-scroll {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.briefing-panel .analysis-output {
   flex: 1;
   min-height: 0;
-  overflow: auto;
-  padding-right: 6px;
-}
-
-.briefing-panel .analysis-body {
-  max-height: none;
-  overflow: visible;
-  padding-right: 0;
 }
 
 .feed-panel .list,
