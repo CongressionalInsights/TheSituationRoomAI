@@ -208,6 +208,12 @@ const state = {
   congressHearingCache: new Map(),
   congressDetailCache: new Map(),
   congressDetailLoading: new Map(),
+  govinfoDetailCache: new Map(),
+  govinfoDetailLoading: new Map(),
+  federalRegisterDetailCache: new Map(),
+  federalRegisterDetailLoading: new Map(),
+  regulationsCommentDetailCache: new Map(),
+  regulationsCommentDetailLoading: new Map(),
   staticAnalysis: null,
   customTickers: [],
   energyMarket: {},
@@ -1014,6 +1020,15 @@ const DATA_ATTRIBUTIONS = [
     attribution: 'Source: Federal Register (Office of the Federal Register, NARA). Public domain; credit Federal Register/NARA.',
     termsUrl: 'https://www.federalregister.gov/reader-aids/using-federalregister-gov',
     notes: 'Regulations, rules, and notices.'
+  },
+  {
+    id: 'regulations-gov',
+    name: 'Regulations.gov',
+    short: 'Public comments',
+    url: 'https://www.regulations.gov',
+    attribution: 'Source: Regulations.gov (U.S. eRulemaking Program). Public comments and docket metadata; credit Regulations.gov.',
+    termsUrl: 'https://www.regulations.gov/about',
+    notes: 'Public comments and docket activity for proposed rules.'
   },
   {
     id: 'congress-gov',
@@ -2277,6 +2292,23 @@ function isCongressItem(item) {
   return item.source === 'Congress.gov';
 }
 
+function isGovinfoItem(item) {
+  if (!item) return false;
+  if (item.feedId && item.feedId.startsWith('govinfo-')) return true;
+  if (Array.isArray(item.tags) && item.tags.includes('govinfo')) return true;
+  const url = item.externalUrl || item.url || '';
+  if (typeof url === 'string' && url.includes('govinfo.gov/app/details/')) return true;
+  return item.source === 'GovInfo';
+}
+
+function isFederalRegisterItem(item) {
+  if (!item) return false;
+  if (item.feedId === 'federal-register' || item.feedId === 'federal-register-transport') return true;
+  const url = item.externalUrl || item.url || '';
+  if (typeof url === 'string' && url.includes('federalregister.gov/documents/')) return true;
+  return item.source === 'Federal Register';
+}
+
 function openDetailModal(item) {
   if (!elements.detailOverlay || !item) return;
   if (elements.detailTitle) {
@@ -2419,6 +2451,26 @@ function openDetailModal(item) {
       congressSection.appendChild(status);
       elements.detailBody.appendChild(congressSection);
       hydrateCongressDetails(item, congressSection);
+    }
+    if (isFederalRegisterItem(item)) {
+      const frSection = document.createElement('div');
+      frSection.className = 'detail-section detail-federal-register';
+      const status = document.createElement('div');
+      status.className = 'detail-related-status';
+      status.textContent = 'Loading public comment details…';
+      frSection.appendChild(status);
+      elements.detailBody.appendChild(frSection);
+      hydrateFederalRegisterDetails(item, frSection);
+    }
+    if (isGovinfoItem(item)) {
+      const govinfoSection = document.createElement('div');
+      govinfoSection.className = 'detail-section detail-govinfo';
+      const status = document.createElement('div');
+      status.className = 'detail-related-status';
+      status.textContent = 'Loading GovInfo details…';
+      govinfoSection.appendChild(status);
+      elements.detailBody.appendChild(govinfoSection);
+      hydrateGovinfoDetails(item, govinfoSection);
     }
     elements.detailBody.appendChild(buildRelatedSignalsSection(item));
     const detailUrl = item.externalUrl || item.fallbackUrl;
@@ -4210,16 +4262,76 @@ function parseCsvRows(text) {
   return rows;
 }
 
-const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => ({
-  title: doc.title,
-  url: doc.html_url,
-  summary: doc.abstract || doc.type,
-  publishedAt: doc.publication_date ? Date.parse(doc.publication_date) : Date.now(),
-  source: 'Federal Register',
-  category: feed.category,
-  alertType: doc.type,
-  deadline: doc.comments_close_on || doc.effective_on || null
-}));
+const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => {
+  const publishedAt = doc.publication_date ? Date.parse(doc.publication_date) : Date.now();
+  const commentsClose = doc.comments_close_on || null;
+  const effective = doc.effective_on || null;
+  const deadline = commentsClose || effective || null;
+  const detailFields = [
+    { label: 'Document #', value: doc.document_number || '' },
+    { label: 'Type', value: doc.type || '' },
+    { label: 'Published', value: doc.publication_date || '' }
+  ].filter((field) => field.value);
+  if (deadline) {
+    detailFields.push({ label: commentsClose ? 'Comments Close' : 'Effective', value: deadline });
+  }
+  return {
+    title: doc.title,
+    url: doc.html_url,
+    externalUrl: doc.html_url,
+    summary: doc.abstract || doc.type,
+    publishedAt,
+    source: 'Federal Register',
+    category: feed.category,
+    alertType: doc.type,
+    deadline,
+    documentNumber: doc.document_number || '',
+    detailTitle: doc.title,
+    detailFields
+  };
+});
+
+const parseGovinfoCollectionUpdate = (data, feed) => {
+  const packages = Array.isArray(data?.packages) ? data.packages : [];
+  if (!packages.length) return [];
+  return packages.slice(0, 40).map((pkg) => {
+    const packageId = pkg.packageId || pkg.package_id || '';
+    const detailsUrl = packageId ? `https://www.govinfo.gov/app/details/${packageId}` : '';
+    const lastModified = pkg.lastModified || pkg.last_modified || '';
+    const dateIssued = pkg.dateIssued || pkg.date_issued || '';
+    const publishedAt = lastModified
+      ? Date.parse(lastModified)
+      : (dateIssued ? Date.parse(dateIssued) : Date.now());
+    const summaryParts = [
+      pkg.collectionCode ? `Collection: ${pkg.collectionCode}` : '',
+      pkg.docClass ? `Class: ${pkg.docClass}` : '',
+      pkg.congress ? `Congress: ${pkg.congress}` : '',
+      dateIssued ? `Issued: ${dateIssued}` : ''
+    ].filter(Boolean);
+    const detailFields = [
+      { label: 'Package', value: packageId },
+      { label: 'Collection', value: pkg.collectionName || pkg.collectionCode || '' },
+      { label: 'Doc Class', value: pkg.docClass || '' },
+      { label: 'Congress', value: pkg.congress || '' },
+      { label: 'Issued', value: dateIssued || '' },
+      { label: 'Last Modified', value: lastModified || '' }
+    ].filter((field) => field.value);
+    return {
+      title: pkg.title || packageId || 'GovInfo Package',
+      url: detailsUrl,
+      externalUrl: detailsUrl,
+      summary: summaryParts.join(' • '),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: 'GovInfo',
+      category: feed.category,
+      alertType: pkg.docClass || pkg.collectionCode || 'GovInfo',
+      packageId,
+      apiUrl: pkg.packageLink || '',
+      detailTitle: pkg.title || packageId || 'GovInfo Package',
+      detailFields
+    };
+  });
+};
 
 const parseCongressList = (data, feed) => {
   const isUntitled = (value) => !value || String(value).trim().toLowerCase() === 'untitled';
@@ -5011,6 +5123,7 @@ const feedParsers = {
   'ucdp-candidate-events': parseUcdpCandidateEvents,
   'federal-register': parseFederalRegister,
   'federal-register-transport': parseFederalRegister,
+  'govinfo-api': parseGovinfoCollectionUpdate,
   'congress-api': parseCongressList,
   'congress-amendments': parseCongressList,
   'congress-summaries': parseCongressList,
@@ -7278,6 +7391,18 @@ function enrichItem(item) {
     else if (item.tags?.includes('global')) enriched.regionTag = 'Global';
   }
 
+  if (Array.isArray(item.tags) && item.tags.includes('govinfo')) {
+    enriched.externalUrl = enriched.externalUrl || enriched.url || '';
+    enriched.detailTitle = enriched.detailTitle || enriched.title || 'GovInfo';
+    if (!Array.isArray(enriched.detailFields) || !enriched.detailFields.length) {
+      const packageId = extractGovinfoPackageId(enriched.externalUrl || enriched.url || '');
+      enriched.detailFields = [
+        { label: 'Package', value: packageId || '' },
+        { label: 'Feed', value: enriched.feedName || 'GovInfo' }
+      ].filter((field) => field.value);
+    }
+  }
+
   return enriched;
 }
 
@@ -8617,6 +8742,534 @@ function extractHearingDetail(detail) {
     || detail.meetings?.[0]
     || detail.results?.[0]
     || detail;
+}
+
+function extractGovinfoPackageId(value) {
+  if (!value) return '';
+  const raw = String(value);
+  const match = raw.match(/govinfo\.gov\/app\/details\/([^/?#]+)/i);
+  if (match && match[1]) return match[1];
+  const pkgMatch = raw.match(/\/content\/pkg\/([^/]+)/i);
+  if (pkgMatch && pkgMatch[1]) return pkgMatch[1];
+  return '';
+}
+
+function buildGovinfoSummaryUrl(packageId) {
+  if (!packageId) return '';
+  return `https://api.govinfo.gov/packages/${encodeURIComponent(packageId)}/summary`;
+}
+
+async function fetchGovinfoDetail(apiUrl) {
+  if (!apiUrl) return null;
+  const { response, data } = await apiJson(`/api/govinfo-detail?url=${encodeURIComponent(apiUrl)}`, {}, 12000);
+  if (!response?.ok) {
+    if (data?.status === 404) {
+      return { __empty: true, __status: 404 };
+    }
+    return null;
+  }
+  return data;
+}
+
+async function fetchGovinfoDetailCached(apiUrl) {
+  if (!apiUrl) return null;
+  if (state.govinfoDetailCache.has(apiUrl)) {
+    return state.govinfoDetailCache.get(apiUrl);
+  }
+  if (state.govinfoDetailLoading.has(apiUrl)) {
+    return state.govinfoDetailLoading.get(apiUrl);
+  }
+  const pending = fetchGovinfoDetail(apiUrl)
+    .then((detail) => {
+      const resolved = detail?.__empty ? null : detail;
+      state.govinfoDetailCache.set(apiUrl, resolved || null);
+      state.govinfoDetailLoading.delete(apiUrl);
+      return resolved || null;
+    })
+    .catch(() => {
+      state.govinfoDetailCache.set(apiUrl, null);
+      state.govinfoDetailLoading.delete(apiUrl);
+      return null;
+    });
+  state.govinfoDetailLoading.set(apiUrl, pending);
+  return pending;
+}
+
+async function hydrateGovinfoDetails(item, container) {
+  if (!container || !item) return;
+  const existingStatus = container.querySelector('.detail-related-status');
+  const packageId = item.packageId || extractGovinfoPackageId(item.externalUrl || item.url || '');
+  const apiUrl = item.apiUrl && String(item.apiUrl).includes('api.govinfo.gov/packages/')
+    ? item.apiUrl
+    : buildGovinfoSummaryUrl(packageId);
+  if (!apiUrl) {
+    if (existingStatus) existingStatus.textContent = 'No GovInfo package identifier found.';
+    return;
+  }
+  const detail = await fetchGovinfoDetailCached(apiUrl);
+  if (!detail) {
+    if (existingStatus) existingStatus.textContent = 'GovInfo details unavailable right now.';
+    return;
+  }
+  if (existingStatus) existingStatus.remove();
+
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = 'GovInfo';
+  container.appendChild(heading);
+
+  const rows = [
+    { label: 'Collection', value: detail.collectionName || detail.collectionCode || '' },
+    { label: 'Package', value: detail.packageId || packageId || '' },
+    { label: 'Issued', value: detail.dateIssued || '' },
+    { label: 'Doc Class', value: detail.docClass || detail.documentType || '' },
+    { label: 'Branch', value: detail.branch || '' },
+    { label: 'Congress', value: detail.congress || '' },
+    { label: 'Pages', value: detail.pages || '' },
+    { label: 'Category', value: detail.category || '' },
+    { label: 'Publisher', value: detail.publisher || '' },
+    { label: 'Last Modified', value: detail.lastModified || '' }
+  ].filter((entry) => entry.value);
+
+  rows.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'detail-row';
+    const label = document.createElement('div');
+    label.className = 'detail-label';
+    label.textContent = entry.label;
+    const value = document.createElement('div');
+    value.className = 'detail-value';
+    value.textContent = String(entry.value);
+    row.appendChild(label);
+    row.appendChild(value);
+    container.appendChild(row);
+  });
+
+  const detailsLink = detail.detailsLink || '';
+  if (detailsLink && !item.externalUrl) {
+    item.externalUrl = detailsLink;
+  }
+}
+
+function extractFederalRegisterDocumentNumber(item) {
+  const direct = item?.documentNumber || '';
+  if (direct && /^\d{4}-\d{5}$/.test(direct)) return direct;
+  const url = String(item?.externalUrl || item?.url || '');
+  const match = url.match(/\/documents\/\d{4}\/\d{2}\/\d{2}\/(\d{4}-\d{5})\b/i)
+    || url.match(/\/documents\/(\d{4}-\d{5})\b/i);
+  return match && match[1] ? match[1] : '';
+}
+
+async function fetchFederalRegisterDetail(documentNumber) {
+  if (!documentNumber) return null;
+  const { response, data } = await apiJson(`/api/federal-register-detail?documentNumber=${encodeURIComponent(documentNumber)}`, {}, 12000);
+  if (!response?.ok) return null;
+  return data;
+}
+
+async function fetchFederalRegisterDetailCached(documentNumber) {
+  if (!documentNumber) return null;
+  if (state.federalRegisterDetailCache.has(documentNumber)) {
+    return state.federalRegisterDetailCache.get(documentNumber);
+  }
+  if (state.federalRegisterDetailLoading.has(documentNumber)) {
+    return state.federalRegisterDetailLoading.get(documentNumber);
+  }
+  const pending = fetchFederalRegisterDetail(documentNumber)
+    .then((detail) => {
+      state.federalRegisterDetailCache.set(documentNumber, detail || null);
+      state.federalRegisterDetailLoading.delete(documentNumber);
+      return detail || null;
+    })
+    .catch(() => {
+      state.federalRegisterDetailCache.set(documentNumber, null);
+      state.federalRegisterDetailLoading.delete(documentNumber);
+      return null;
+    });
+  state.federalRegisterDetailLoading.set(documentNumber, pending);
+  return pending;
+}
+
+async function fetchRegulationsComments({ docketId, searchTerm = '', pageSize = 20, pageNumber = 1, sort = '-postedDate' } = {}) {
+  if (!docketId) return { data: null, error: 'missing_docketId' };
+  const params = new URLSearchParams();
+  params.set('docketId', docketId);
+  if (searchTerm) params.set('searchTerm', searchTerm);
+  params.set('pageSize', String(pageSize));
+  params.set('pageNumber', String(pageNumber));
+  params.set('sort', sort);
+  const { response, data, error } = await apiJson(`/api/regulations-comments?${params.toString()}`, {}, 20000);
+  if (!response?.ok || error) {
+    return { data: null, error: data?.error || error || 'fetch_failed' };
+  }
+  return { data, error: null };
+}
+
+function buildRegulationsSubmitterKey(detail) {
+  const attrs = detail?.data?.attributes || detail?.attributes || {};
+  const organization = String(attrs.organization || '').trim();
+  const first = String(attrs.firstName || '').trim();
+  const last = String(attrs.lastName || '').trim();
+  const rep = String(attrs.submitterRep || '').trim();
+  const title = String(attrs.title || '').trim();
+  if (organization) return organization;
+  if (first || last) return `${first} ${last}`.trim();
+  if (rep) return rep;
+  if (/anonymous/i.test(title)) return 'Anonymous';
+  return '';
+}
+
+async function fetchRegulationsCommentDetail(commentId) {
+  if (!commentId) return null;
+  const { response, data } = await apiJson(`/api/regulations-comment-detail?commentId=${encodeURIComponent(commentId)}`, {}, 20000);
+  if (!response?.ok) return null;
+  return data;
+}
+
+async function fetchRegulationsCommentDetailCached(commentId) {
+  if (!commentId) return null;
+  if (state.regulationsCommentDetailCache.has(commentId)) {
+    return state.regulationsCommentDetailCache.get(commentId);
+  }
+  if (state.regulationsCommentDetailLoading.has(commentId)) {
+    return state.regulationsCommentDetailLoading.get(commentId);
+  }
+  const pending = fetchRegulationsCommentDetail(commentId)
+    .then((detail) => {
+      state.regulationsCommentDetailCache.set(commentId, detail || null);
+      state.regulationsCommentDetailLoading.delete(commentId);
+      return detail || null;
+    })
+    .catch(() => {
+      state.regulationsCommentDetailCache.set(commentId, null);
+      state.regulationsCommentDetailLoading.delete(commentId);
+      return null;
+    });
+  state.regulationsCommentDetailLoading.set(commentId, pending);
+  return pending;
+}
+
+function extractCommenterNameFromTitle(title) {
+  const raw = String(title || '').trim();
+  if (!raw) return '';
+  if (/^anonymous\b/i.test(raw)) return 'Anonymous';
+  const match = raw.match(/comment submitted by\s+(.+)$/i);
+  if (match && match[1]) return match[1].trim();
+  return raw.length > 80 ? raw.slice(0, 80) : raw;
+}
+
+async function hydrateFederalRegisterDetails(item, container) {
+  if (!container || !item) return;
+  const status = container.querySelector('.detail-related-status');
+  const documentNumber = extractFederalRegisterDocumentNumber(item);
+  if (!documentNumber) {
+    if (status) status.textContent = 'Federal Register identifier missing.';
+    return;
+  }
+  const detail = await fetchFederalRegisterDetailCached(documentNumber);
+  if (!detail) {
+    if (status) status.textContent = 'Federal Register detail unavailable right now.';
+    return;
+  }
+  if (status) status.remove();
+
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = 'Public Comments';
+  container.appendChild(heading);
+
+  const regs = detail.regulations_dot_gov_info || {};
+  const docketId = regs.docket_id || '';
+  const commentsUrl = regs.comments_url || regs.commentsUrl || '';
+  const commentUrl = detail.comment_url || detail.regulations_dot_gov_url || '';
+  const commentsClose = detail.comments_close_on || '';
+  const commentsCount = Number.isFinite(Number(regs.comments_count)) ? Number(regs.comments_count) : null;
+
+  const metaRows = [
+    { label: 'Docket', value: docketId || (Array.isArray(detail.docket_ids) ? detail.docket_ids[0] : '') },
+    { label: 'Comments Close', value: commentsClose || '' },
+    { label: 'Count', value: commentsCount !== null ? String(commentsCount) : '' }
+  ].filter((entry) => entry.value);
+
+  metaRows.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'detail-row';
+    const label = document.createElement('div');
+    label.className = 'detail-label';
+    label.textContent = entry.label;
+    const value = document.createElement('div');
+    value.className = 'detail-value';
+    value.textContent = entry.value;
+    row.appendChild(label);
+    row.appendChild(value);
+    container.appendChild(row);
+  });
+
+  const linkRow = document.createElement('div');
+  linkRow.className = 'detail-actions';
+  if (commentsUrl) {
+    const docketLink = document.createElement('a');
+    docketLink.className = 'btn ghost';
+    docketLink.href = commentsUrl;
+    docketLink.target = '_blank';
+    docketLink.rel = 'noopener noreferrer';
+    docketLink.textContent = 'Open Docket';
+    linkRow.appendChild(docketLink);
+  }
+  if (commentUrl) {
+    const submitLink = document.createElement('a');
+    submitLink.className = 'btn';
+    submitLink.href = commentUrl;
+    submitLink.target = '_blank';
+    submitLink.rel = 'noopener noreferrer';
+    submitLink.textContent = 'Submit / View Comments';
+    linkRow.appendChild(submitLink);
+  }
+  if (linkRow.childNodes.length) {
+    container.appendChild(linkRow);
+  }
+
+  if (!docketId) {
+    const note = document.createElement('div');
+    note.className = 'detail-related-status';
+    note.textContent = 'Comment docket unavailable for this document.';
+    container.appendChild(note);
+    return;
+  }
+
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'detail-subsection';
+  const searchTitle = document.createElement('div');
+  searchTitle.className = 'detail-section-title';
+  searchTitle.textContent = 'Search Comments';
+  searchWrap.appendChild(searchTitle);
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Search within public comments (optional)…';
+  input.autocomplete = 'off';
+  searchWrap.appendChild(input);
+  const runBtn = document.createElement('button');
+  runBtn.className = 'btn ghost';
+  runBtn.type = 'button';
+  runBtn.textContent = 'Search';
+  searchWrap.appendChild(runBtn);
+
+  const resultsMeta = document.createElement('div');
+  resultsMeta.className = 'detail-related-status';
+  resultsMeta.textContent = 'Enter a term to search, or run empty to see latest comments.';
+  searchWrap.appendChild(resultsMeta);
+  const resultsList = document.createElement('div');
+  resultsList.className = 'detail-list';
+  searchWrap.appendChild(resultsList);
+  const loadMoreRow = document.createElement('div');
+  loadMoreRow.className = 'detail-actions';
+  const loadMoreBtn = document.createElement('button');
+  loadMoreBtn.className = 'btn ghost';
+  loadMoreBtn.type = 'button';
+  loadMoreBtn.textContent = 'Load more';
+  loadMoreBtn.disabled = true;
+  loadMoreRow.appendChild(loadMoreBtn);
+  searchWrap.appendChild(loadMoreRow);
+  container.appendChild(searchWrap);
+
+  const listState = {
+    searchTerm: '',
+    pageNumber: 1,
+    pageSize: 20,
+    hasNextPage: false,
+    totalElements: null,
+    loaded: [],
+    submitterCounts: new Map()
+  };
+
+  const normalizeListPayload = (payload) => {
+    const data = payload?.data;
+    const items = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+    const meta = data?.meta || payload?.meta || {};
+    return { items, meta };
+  };
+
+  const deriveSubmitterFromEntry = (entry) => {
+    const title = entry?.attributes?.title || '';
+    return extractCommenterNameFromTitle(title) || 'Unknown';
+  };
+
+  const updateSubmitterRollup = () => {
+    const top = [...listState.submitterCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, count]) => `${name} (${count})`);
+    const totalSuffix = Number.isFinite(listState.totalElements) ? ` of ${listState.totalElements}` : '';
+    const loadedCount = listState.loaded.length;
+    resultsMeta.textContent = loadedCount
+      ? `Loaded ${loadedCount}${totalSuffix} comments. Top submitters: ${top.join(', ') || '—'}`
+      : 'No comments found.';
+  };
+
+  const renderCommentRow = (entry) => {
+    const row = document.createElement('div');
+    row.className = 'detail-item';
+
+    const title = document.createElement('div');
+    title.className = 'detail-item-title';
+    const link = document.createElement('a');
+    link.href = `https://www.regulations.gov/document/${entry.id}`;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = entry?.attributes?.title || entry.id;
+    title.appendChild(link);
+    row.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'detail-item-meta';
+    meta.textContent = entry?.attributes?.postedDate ? formatShortDate(entry.attributes.postedDate) : '';
+    row.appendChild(meta);
+
+    const snippet = entry?.attributes?.highlightedContent || '';
+    if (snippet) {
+      const summary = document.createElement('div');
+      summary.className = 'detail-item-summary';
+      summary.textContent = truncateText(stripHtml(snippet), 240);
+      row.appendChild(summary);
+    }
+
+    const expand = document.createElement('button');
+    expand.className = 'btn ghost';
+    expand.type = 'button';
+    expand.textContent = 'Details';
+    row.appendChild(expand);
+
+    const detailBox = document.createElement('div');
+    detailBox.className = 'detail-item-summary';
+    detailBox.style.display = 'none';
+    row.appendChild(detailBox);
+
+    let open = false;
+    const openDetail = async () => {
+      if (open) {
+        open = false;
+        expand.textContent = 'Details';
+        detailBox.style.display = 'none';
+        return;
+      }
+      open = true;
+      expand.textContent = 'Hide';
+      detailBox.style.display = 'block';
+      detailBox.textContent = 'Loading comment detail…';
+      const detail = await fetchRegulationsCommentDetailCached(entry.id);
+      if (!detail) {
+        detailBox.textContent = 'Comment detail unavailable.';
+        return;
+      }
+      const attrs = detail?.data?.attributes || {};
+      const submitter = buildRegulationsSubmitterKey(detail) || deriveSubmitterFromEntry(entry);
+      const subtype = attrs.subtype || attrs.category || '';
+      const tracking = attrs.trackingNbr || '';
+      const received = attrs.receiveDate || '';
+      const commentText = attrs.comment || '';
+      const parts = [];
+      if (submitter) parts.push(`Submitter: ${submitter}`);
+      if (subtype) parts.push(`Type: ${subtype}`);
+      if (tracking) parts.push(`Tracking: ${tracking}`);
+      if (received) parts.push(`Received: ${formatShortDate(received)}`);
+      if (commentText) parts.push(`Comment: ${truncateText(stripHtml(commentText), 360)}`);
+      detailBox.textContent = parts.length ? parts.join(' • ') : 'No extra metadata on this comment.';
+    };
+
+    expand.addEventListener('click', openDetail);
+    return row;
+  };
+
+  const appendComments = (items) => {
+    items.forEach((entry) => {
+      if (!entry?.id) return;
+      if (listState.loaded.some((e) => e.id === entry.id)) return;
+      listState.loaded.push(entry);
+      const submitter = deriveSubmitterFromEntry(entry);
+      listState.submitterCounts.set(submitter, (listState.submitterCounts.get(submitter) || 0) + 1);
+      resultsList.appendChild(renderCommentRow(entry));
+    });
+    updateSubmitterRollup();
+  };
+
+  const prefetchDetailsForRollup = async (items) => {
+    const sample = items.slice(0, 10);
+    const concurrency = 3;
+    const queue = [...sample];
+    const workers = Array.from({ length: concurrency }).map(async () => {
+      while (queue.length) {
+        const next = queue.shift();
+        if (!next?.id) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const detail = await fetchRegulationsCommentDetailCached(next.id);
+        if (!detail) continue;
+        const submitter = buildRegulationsSubmitterKey(detail);
+        if (!submitter) continue;
+        const prev = deriveSubmitterFromEntry(next);
+        if (prev === submitter) continue;
+        // adjust counts (best-effort on loaded window)
+        const prevCount = listState.submitterCounts.get(prev) || 0;
+        if (prevCount > 0) listState.submitterCounts.set(prev, prevCount - 1);
+        listState.submitterCounts.set(submitter, (listState.submitterCounts.get(submitter) || 0) + 1);
+      }
+    });
+    await Promise.all(workers);
+    updateSubmitterRollup();
+  };
+
+  const runSearch = async ({ reset = true } = {}) => {
+    runBtn.disabled = true;
+    loadMoreBtn.disabled = true;
+    resultsMeta.textContent = reset ? 'Searching comments…' : 'Loading more comments…';
+    try {
+      const term = input.value.trim();
+      if (reset) {
+        resultsList.innerHTML = '';
+        listState.loaded = [];
+        listState.submitterCounts = new Map();
+        listState.pageNumber = 1;
+        listState.searchTerm = term;
+        listState.totalElements = null;
+      }
+      const payload = await fetchRegulationsComments({
+        docketId,
+        searchTerm: term,
+        pageSize: listState.pageSize,
+        pageNumber: listState.pageNumber,
+        sort: '-postedDate'
+      });
+      if (payload.error || !payload.data) {
+        resultsMeta.textContent = 'Comment search unavailable right now.';
+        resultsList.innerHTML = '';
+        return;
+      }
+      const { items, meta } = normalizeListPayload(payload);
+      if (reset && !items.length) {
+        resultsMeta.textContent = 'No comments found.';
+        resultsList.innerHTML = '';
+        return;
+      }
+      listState.hasNextPage = Boolean(meta?.hasNextPage);
+      listState.totalElements = Number.isFinite(Number(meta?.totalElements)) ? Number(meta.totalElements) : listState.totalElements;
+      appendComments(items);
+      loadMoreBtn.disabled = !listState.hasNextPage;
+      if (items.length) {
+        prefetchDetailsForRollup(items).catch(() => {});
+      }
+    } finally {
+      runBtn.disabled = false;
+    }
+  };
+
+  runBtn.addEventListener('click', runSearch);
+  input.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') runSearch();
+  });
+  loadMoreBtn.addEventListener('click', async () => {
+    if (!listState.hasNextPage) return;
+    listState.pageNumber += 1;
+    await runSearch({ reset: false });
+  });
 }
 
 async function fetchCongressDetail(apiUrl) {
