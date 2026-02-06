@@ -478,28 +478,30 @@
         </section>
 
         <main class="grid" id="panelGrid">
-          <section class="panel briefing-panel" data-panel="briefing" data-category="analysis">
-            <div class="panel-header">
-              <div>
-                <div class="panel-title"><span class="panel-icon tone-analysis"><svg class="icon" aria-hidden="true"><use href="#icon-signal"></use></svg></span>Briefing</div>
-                <div class="panel-sub">Concise situation summary from live or cached feeds.</div>
-              </div>
-              <div class="panel-actions">
-                <button class="btn" id="analysisRun">Create Brief</button>
-              </div>
-            </div>
-            <div class="analysis-output" id="analysisOutput">
-              <div class="analysis-title">AI Analysis</div>
-              <div class="analysis-meta" id="analysisMeta">Awaiting briefing.</div>
-              <div class="analysis-story" id="analysisStory"></div>
-              <div class="analysis-body">Pull data or run analysis to generate a briefing.</div>
-            </div>
-            <div class="denario-panel is-hidden" id="denarioPanel">
-              <div class="denario-title">Deep Analysis</div>
-              <div class="denario-meta" id="denarioMeta">Waiting for Denario pipeline.</div>
-              <div class="denario-list" id="denarioList"></div>
-            </div>
-          </section>
+	          <section class="panel briefing-panel" data-panel="briefing" data-category="analysis">
+	            <div class="panel-header">
+	              <div>
+	                <div class="panel-title"><span class="panel-icon tone-analysis"><svg class="icon" aria-hidden="true"><use href="#icon-signal"></use></svg></span>Briefing</div>
+	                <div class="panel-sub">Concise situation summary from live or cached feeds.</div>
+	              </div>
+	              <div class="panel-actions">
+	                <button class="btn" id="analysisRun">Create Brief</button>
+	              </div>
+	            </div>
+	            <div class="briefing-scroll">
+	              <div class="analysis-output" id="analysisOutput">
+	                <div class="analysis-title">AI Analysis</div>
+	                <div class="analysis-meta" id="analysisMeta">Awaiting briefing.</div>
+	                <div class="analysis-story" id="analysisStory"></div>
+	                <div class="analysis-body">Pull data or run analysis to generate a briefing.</div>
+	              </div>
+	              <div class="denario-panel is-hidden" id="denarioPanel">
+	                <div class="denario-title">Deep Analysis</div>
+	                <div class="denario-meta" id="denarioMeta">Waiting for Denario pipeline.</div>
+	                <div class="denario-list" id="denarioList"></div>
+	              </div>
+	            </div>
+	          </section>
           <section class="panel trends-panel" data-panel="mcp-trends" data-category="analysis" id="mcpTrendsPanel">
             <div class="panel-header">
               <div>
