@@ -990,6 +990,10 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
+  if (url.pathname === '/health') {
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (url.pathname === '/api/feeds') {
     const sanitized = feedsConfig.feeds.map((feed) => ({
       ...feed,
@@ -1006,6 +1010,186 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 502, payload);
       }
       return sendJson(res, 200, payload);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
+    }
+  }
+
+  if (url.pathname === '/api/congress-detail') {
+    const target = url.searchParams.get('url');
+    if (!target) {
+      return sendJson(res, 400, { error: 'missing_url' });
+    }
+    let parsed;
+    try {
+      parsed = new URL(target);
+    } catch (error) {
+      return sendJson(res, 400, { error: 'invalid_url', message: error.message });
+    }
+    if (parsed.hostname !== 'api.congress.gov') {
+      return sendJson(res, 400, { error: 'invalid_host' });
+    }
+    const key = process.env.DATA_GOV;
+    if (!key) {
+      return sendJson(res, 502, { error: 'missing_key', message: 'Server API key required.' });
+    }
+    parsed.searchParams.set('api_key', key);
+    try {
+      const response = await fetchWithTimeout(parsed.toString(), {
+        headers: {
+          'User-Agent': appConfig.userAgent,
+          'Accept': 'application/json'
+        }
+      }, FETCH_TIMEOUT_MS);
+      if (!response.ok) {
+        return sendJson(res, 502, { error: 'fetch_failed', status: response.status });
+      }
+      const data = await response.json();
+      return sendJson(res, 200, data);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
+    }
+  }
+
+  if (url.pathname === '/api/govinfo-detail') {
+    const target = url.searchParams.get('url');
+    if (!target) {
+      return sendJson(res, 400, { error: 'missing_url' });
+    }
+    let parsed;
+    try {
+      parsed = new URL(target);
+    } catch (error) {
+      return sendJson(res, 400, { error: 'invalid_url', message: error.message });
+    }
+    if (parsed.hostname !== 'api.govinfo.gov') {
+      return sendJson(res, 400, { error: 'invalid_host' });
+    }
+    if (!parsed.pathname.startsWith('/packages/') || !parsed.pathname.endsWith('/summary')) {
+      return sendJson(res, 400, { error: 'invalid_path' });
+    }
+    const key = process.env.DATA_GOV;
+    if (!key) {
+      return sendJson(res, 502, { error: 'missing_key', message: 'Server API key required.' });
+    }
+    parsed.searchParams.set('api_key', key);
+    try {
+      const response = await fetchWithTimeout(parsed.toString(), {
+        headers: {
+          'User-Agent': appConfig.userAgent,
+          'Accept': 'application/json'
+        }
+      }, FETCH_TIMEOUT_MS);
+      if (!response.ok) {
+        return sendJson(res, 502, { error: 'fetch_failed', status: response.status });
+      }
+      const data = await response.json();
+      return sendJson(res, 200, data);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
+    }
+  }
+
+  if (url.pathname === '/api/federal-register-detail') {
+    const documentNumber = url.searchParams.get('documentNumber');
+    if (!documentNumber) {
+      return sendJson(res, 400, { error: 'missing_documentNumber' });
+    }
+    if (!/^\d{4}-\d{5}$/.test(documentNumber)) {
+      return sendJson(res, 400, { error: 'invalid_documentNumber' });
+    }
+    const target = `https://www.federalregister.gov/api/v1/documents/${documentNumber}.json`;
+    try {
+      const response = await fetchWithTimeout(target, {
+        headers: {
+          'User-Agent': appConfig.userAgent,
+          'Accept': 'application/json'
+        }
+      }, FETCH_TIMEOUT_MS);
+      if (!response.ok) {
+        return sendJson(res, 502, { error: 'fetch_failed', status: response.status });
+      }
+      const data = await response.json();
+      return sendJson(res, 200, data);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
+    }
+  }
+
+  if (url.pathname === '/api/regulations-comments') {
+    const docketId = url.searchParams.get('docketId');
+    if (!docketId) {
+      return sendJson(res, 400, { error: 'missing_docketId' });
+    }
+    const key = process.env.DATA_GOV;
+    if (!key) {
+      return sendJson(res, 502, { error: 'missing_key', message: 'Server API key required.' });
+    }
+    const searchTerm = url.searchParams.get('searchTerm') || '';
+    const sort = url.searchParams.get('sort') || '-postedDate';
+    const pageNumberRaw = url.searchParams.get('pageNumber') || '1';
+    let pageNumber = Number(pageNumberRaw);
+    if (!Number.isFinite(pageNumber)) pageNumber = 1;
+    pageNumber = Math.max(1, Math.min(250, Math.round(pageNumber)));
+    const pageSizeRaw = url.searchParams.get('pageSize') || '20';
+    let pageSize = Number(pageSizeRaw);
+    if (!Number.isFinite(pageSize)) pageSize = 20;
+    pageSize = Math.max(5, Math.min(50, Math.round(pageSize)));
+    const allowedSort = new Set(['postedDate', '-postedDate', 'lastModifiedDate', '-lastModifiedDate']);
+    const effectiveSort = allowedSort.has(sort) ? sort : '-postedDate';
+    const target = new URL('https://api.regulations.gov/v4/comments');
+    target.searchParams.set('api_key', key);
+    target.searchParams.set('filter[docketId]', docketId);
+    if (searchTerm) {
+      target.searchParams.set('filter[searchTerm]', searchTerm);
+    }
+    target.searchParams.set('page[size]', String(pageSize));
+    target.searchParams.set('page[number]', String(pageNumber));
+    target.searchParams.set('sort', effectiveSort);
+    try {
+      const response = await fetchWithTimeout(target.toString(), {
+        headers: {
+          'User-Agent': appConfig.userAgent,
+          'Accept': 'application/json'
+        }
+      }, FETCH_TIMEOUT_MS);
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        return sendJson(res, 502, { error: 'fetch_failed', status: response.status, data });
+      }
+      return sendJson(res, 200, data);
+    } catch (error) {
+      return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
+    }
+  }
+
+  if (url.pathname === '/api/regulations-comment-detail') {
+    const commentId = url.searchParams.get('commentId');
+    if (!commentId) {
+      return sendJson(res, 400, { error: 'missing_commentId' });
+    }
+    const key = process.env.DATA_GOV;
+    if (!key) {
+      return sendJson(res, 502, { error: 'missing_key', message: 'Server API key required.' });
+    }
+    const safeId = String(commentId).trim();
+    if (!/^[A-Za-z0-9_.:-]+$/.test(safeId)) {
+      return sendJson(res, 400, { error: 'invalid_commentId' });
+    }
+    const target = new URL(`https://api.regulations.gov/v4/comments/${encodeURIComponent(safeId)}`);
+    target.searchParams.set('api_key', key);
+    try {
+      const response = await fetchWithTimeout(target.toString(), {
+        headers: {
+          'User-Agent': appConfig.userAgent,
+          'Accept': 'application/json'
+        }
+      }, FETCH_TIMEOUT_MS);
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        return sendJson(res, 502, { error: 'fetch_failed', status: response.status, data });
+      }
+      return sendJson(res, 200, data);
     } catch (error) {
       return sendJson(res, 502, { error: 'fetch_failed', message: error.message });
     }

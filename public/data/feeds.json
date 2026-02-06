@@ -1038,14 +1038,74 @@
     },
     {
       "id": "govinfo-rss",
-      "name": "GovInfo RSS (custom feed URL)",
+      "name": "GovInfo RSS (Presidential Docs)",
       "category": "gov",
       "format": "rss",
-      "url": "https://www.govinfo.gov/rss/bills.xml",
+      "url": "https://www.govinfo.gov/rss/dcpd.xml",
       "ttlMinutes": 60,
       "tags": [
         "us",
-        "gov"
+        "gov",
+        "govinfo",
+        "presidential"
+      ]
+    },
+    {
+      "id": "govinfo-plaw-rss",
+      "name": "GovInfo RSS (Public Laws)",
+      "category": "gov",
+      "format": "rss",
+      "url": "https://www.govinfo.gov/rss/plaw.xml",
+      "ttlMinutes": 60,
+      "tags": [
+        "us",
+        "gov",
+        "govinfo",
+        "laws"
+      ]
+    },
+    {
+      "id": "govinfo-cmr-rss",
+      "name": "GovInfo RSS (Mandated Reports)",
+      "category": "gov",
+      "format": "rss",
+      "url": "https://www.govinfo.gov/rss/cmr.xml",
+      "ttlMinutes": 60,
+      "tags": [
+        "us",
+        "gov",
+        "govinfo",
+        "reports"
+      ]
+    },
+    {
+      "id": "govinfo-crpt-rss",
+      "name": "GovInfo RSS (Congressional Reports)",
+      "category": "gov",
+      "format": "rss",
+      "url": "https://www.govinfo.gov/rss/crpt.xml",
+      "ttlMinutes": 60,
+      "tags": [
+        "us",
+        "gov",
+        "govinfo",
+        "congress",
+        "reports"
+      ]
+    },
+    {
+      "id": "govinfo-chrg-rss",
+      "name": "GovInfo RSS (Congressional Hearings)",
+      "category": "gov",
+      "format": "rss",
+      "url": "https://www.govinfo.gov/rss/chrg.xml",
+      "ttlMinutes": 60,
+      "tags": [
+        "us",
+        "gov",
+        "govinfo",
+        "congress",
+        "hearings"
       ]
     },
     {
@@ -1070,7 +1130,7 @@
     },
     {
       "id": "govinfo-api",
-      "name": "GovInfo API",
+      "name": "GovInfo API (Mandated Reports)",
       "docsUrl": "https://api.govinfo.gov/docs/",
       "category": "gov",
       "format": "json",
@@ -1080,11 +1140,13 @@
       "keyParam": "api_key",
       "lockKeyParam": true,
       "lockKeyHeader": true,
-      "url": "https://api.govinfo.gov/collections?offset=0&pageSize=1",
+      "url": "https://api.govinfo.gov/collections/CMR/2024-01-01T00:00:00Z?offsetMark=*&pageSize=20",
       "ttlMinutes": 1440,
       "tags": [
         "us",
         "gov",
+        "govinfo",
+        "reports",
         "key"
       ]
     },
