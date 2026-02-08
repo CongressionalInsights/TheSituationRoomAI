@@ -1,0 +1,7 @@
+{
+  "id": "usda-nass-reports",
+  "fetchedAt": 1770566941938,
+  "contentType": "text/xml",
+  "body": "\r\n<rss  version=\"2\">\r\n  <channel>\r\n    <title>USDA - National Agricultural Statistics Service Reports</title>\r\n    <link>https://www.nass.usda.gov/</link>\r\n    <description>National Agricultural Statistics Service provides timely, accurate, and useful statistics in service to U. S. agriculture.</description>\r\n    <language>en-us</language>\r\n    <ttl>30</ttl>\r\n    <image>\r\n      <url>https://www.nass.usda.gov/rss/logo.gif</url>\r\n      <title>USDA - National Agricultural Statistics Service Reports</title>\r\n      <link>https://www.nass.usda.gov/</link>\r\n    </image>\r\n    <copyright>Copyright 2005</copyright>\r\n    <webMaster>nass@nass.usda.gov</webMaster>\r\n    <item>\r\n      <title>North American Potatoes</title>\r\n      <link>http://www.nass.usda.gov/Publications/Todays_Reports/reports/uscp0226.pdf</link>\r\n      <description>Combined United States and Canada Potato Production Down 2 Percent From 2024...</description>\r\n    </item>\r\n    <item>\r\n      <title>Peanut Prices</title>\r\n      <link>http://www.nass.usda.gov/Publications/Todays_Reports/reports/pnpr0626.pdf</link>\r\n      <description>Peanut Price Highlights. Peanut prices received by farmers for all farmer stock peanuts averaged 23.5 cents per pound for the week ending January 31, up 0.4...</description>\r\n    </item>\r\n  </channel>\r\n</rss>",
+  "httpStatus": 200
+}
