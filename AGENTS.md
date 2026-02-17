@@ -36,7 +36,7 @@
 - PRs should include: summary, screenshots for UI work, and any new key requirements or feed IDs touched.
 
 ## Security & Configuration Notes
-- Server‑managed keys (DATA_GOV, EIA, NASA_FIRMS, OPEN_AQ, etc.) live in GCP Secret Manager and are injected by GitHub Actions when deploying Cloud Run.
+- Server‑managed keys (DATA_GOV, EIA, NASA_FIRMS, OPEN_AQ, OPENSTATES, etc.) live in GCP Secret Manager and are injected by GitHub Actions when deploying Cloud Run.
 - Client‑side Settings only hold user BYO keys (OpenAI) and local preferences; do not add server keys to the UI.
 - Do not hard‑code secrets in `data/feeds.json`; use `requiresKey`, `keyGroup`, and server proxy routing.
 - The MCP proxy (`gcp/mcp-proxy`) is public read‑only; keep it stateless and avoid persisting upstream data.
