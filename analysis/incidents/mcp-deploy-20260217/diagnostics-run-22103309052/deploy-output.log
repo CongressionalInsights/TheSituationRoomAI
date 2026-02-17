@@ -1,0 +1,7 @@
+Building using Buildpacks and deploying container to Cloud Run service [situation-room-mcp] in project [situationroom-ai-20260112] region [us-central1]
+Building and deploying...
+Validating configuration.......done
+Uploading sources........done
+Building Container..............................................................................................................................................................................................................................................failed
+Deployment failed
+ERROR: (gcloud.run.deploy) Build failed; check build logs for details

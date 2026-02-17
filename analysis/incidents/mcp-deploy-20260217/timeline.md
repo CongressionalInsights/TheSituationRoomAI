@@ -6,6 +6,7 @@
 - Failing commit on `main`: `4f6102a12efcc9af338282123f41f83c93ef4629`
 - Last known successful MCP deploy run: `21734515807` on `c72de91c1a46d16e66c7da60a7d7e9ac577885d7`
 - RCA instrumentation validation run (branch): `22103142410` on `faab1d9b4fe701cbb243caa2a9ccecc3d23aea57`
+- Root-cause capture run (branch): `22103309052` on `46f9873c041f96a03b55a3164bdac7aecc713afb`
 
 ## Chronology
 
@@ -22,6 +23,10 @@
 | 2026-02-17T14:51:54Z | Deploy failed with same signature in run `22103142410`. |
 | 2026-02-17T14:51:57Z | Diagnostics reported `No Cloud Build ID found from gcloud builds list.` |
 | 2026-02-17T14:51:58Z | Diagnostics artifact `mcp-deploy-diagnostics-22103142410` uploaded. |
+| 2026-02-17T14:54:59Z | Run `22103309052` started with region-scoped Cloud Build diagnostics. |
+| 2026-02-17T14:56:31Z | Deploy failed again with same top-level signature (`Build failed`). |
+| 2026-02-17T14:56:37Z | Diagnostics captured Cloud Build ID `93fd8f1c-4fc8-4d5f-bcd0-4a8a9898fc07` and log URL. |
+| 2026-02-17T14:57:xxZ | Cloud Build describe output decoded: buildpack runtime error shows Node `20.x` is unsupported in current builder. |
 
 ## Differential inputs reviewed
 
@@ -42,12 +47,16 @@
 - `github-run-21734515807.meta.json`
 - `github-run-22103142410.log`
 - `github-run-22103142410.meta.json`
+- `github-run-22103309052.log`
+- `github-run-22103309052.meta.json`
 - `failure-signatures.txt`
 - `gcloud-access-check.txt`
 - `diagnostics-run-22103142410/`
+- `diagnostics-run-22103309052/`
 
 ## Notes
 
 - Local `gcloud` context (`ashir.gruder@gmail.com` / project `sitehunterai-dev`) did not return Cloud Build rows for `situationroom-ai-20260112`.
 - Existing workflow did not emit Cloud Build ID or log URL, blocking direct root-cause confirmation from Cloud Build logs.
 - First hardened diagnostics run showed `gcloud builds list` was querying default/global context and returned no rows; workflow updated to include `--region "$REGION"` for all Cloud Build diagnostics commands.
+- Region-scoped run confirmed the deploy root cause: MCP `package.json` required `node: 20.x`, but active Cloud Run buildpack builder only offered Node 22/24 lines.

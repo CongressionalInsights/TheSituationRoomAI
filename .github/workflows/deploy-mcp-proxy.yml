@@ -44,7 +44,7 @@ jobs:
           find gcp/mcp-proxy -maxdepth 2 -type f | sort
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Dependency preflight
         run: npm ci --prefix gcp/mcp-proxy
       - name: Syntax preflight

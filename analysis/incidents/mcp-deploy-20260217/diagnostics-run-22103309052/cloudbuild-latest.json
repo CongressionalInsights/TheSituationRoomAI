@@ -1,0 +1,2094 @@
+[
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+      ]
+    },
+    "createTime": "2026-02-17T14:56:08.078467022Z",
+    "failureInfo": {
+      "detail": "Build step failure: build step 1 \"us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02\" failed: step exited with non-zero status: 51",
+      "type": "USER_BUILD_STEP"
+    },
+    "finishTime": "2026-02-17T14:56:31.453975Z",
+    "id": "93fd8f1c-4fc8-4d5f-bcd0-4a8a9898fc07",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/93fd8f1c-4fc8-4d5f-bcd0-4a8a9898fc07?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/93fd8f1c-4fc8-4d5f-bcd0-4a8a9898fc07",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=33",
+        "CNB_GROUP_ID=33",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:c9462c20d404aa680a8816bda63f421ccd6ecec29c67ea396402763e2094c737",
+        "sha256:c17e3fe9ab5549affa93ab868070f2d2ee9861468906a96a6c75b56616c6b468",
+        ""
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiJnb29nbGUubm9kZWpzLnJ1bnRpbWUiLCJidWlsZHBhY2tWZXJzaW9uIjoiMS4wLjAiLCJlcnJvclR5cGUiOiJJTlRFUk5BTCIsImNhbm9uaWNhbENvZGUiOiJJTlRFUk5BTCIsImVycm9ySWQiOiI0NzJmZGM5OCIsImVycm9yTWVzc2FnZSI6ImludmFsaWQgTm9kZS5qcyB2ZXJzaW9uIHNwZWNpZmllZDogZmFpbGVkIHRvIHJlc29sdmUgdmVyc2lvbiBtYXRjaGluZzogMjAueCBhZ2FpbnN0IFsyNC4xMy4wIDI0LjEyLjAgMjQuMTEuMSAyNC4xMS4wIDI0LjEwLjAgMjQuOS4wIDI0LjguMCAyNC43LjAgMjQuNi4wIDI0LjUuMCAyNC40LjEgMjQuNC4wIDI0LjMuMCAyNC4yLjAgMjQuMS4wIDI0LjAuMiAyNC4wLjEgMjQuMC4wIDIyLjIyLjAgMjIuMjEuMSAyMi4yMS4wIDIyLjIwLjAgMjIuMTkuMCAyMi4xOC4wIDIyLjE3LjEgMjIuMTcuMCAyMi4xNi4wIDIyLjE1LjEgMjIuMTUuMCAyMi4xNC4wIDIyLjEzLjEgMjIuMTMuMCAyMi4xMi4wIDIyLjExLjAgMjIuMTAuMCAyMi45LjAgMjIuOC4wIDIyLjcuMCAyMi42LjAgMjIuNS4xIDIyLjUuMCAyMi40LjEgMjIuNC4wIDIyLjMuMCAyMi4yLjAgMjIuMS4wIDIyLjAuMF0gLiBWZXJzaW9uIGNvbnN0cmFpbnQgXCIyMC54XCIgbm90IHNhdGlzZmllZCBieSBhbnkgYXZhaWxhYmxlIHZlcnNpb25zIGluIEFydGlmYWN0IFJlZ2lzdHJ5LiBZb3UgbWF5IG5lZWQgdG8gdXNlIGEgZGlmZmVyZW50IGJ1aWxkZXIuIFBsZWFzZSBjaGVjayBpZiB0aGUgbGFuZ3VhZ2UgdmVyc2lvbiBzcGVjaWZpZWQgaXMgc3VwcG9ydGVkLiBZb3UgY2FuIHJlZmVyIHRvIGh0dHBzOi8vY2xvdWQuZ29vZ2xlLmNvbS9kb2NzL2J1aWxkcGFja3MvYnVpbGRlcnMgZm9yIGEgbGlzdCBvZiBjb21wYXRpYmxlIHJ1bnRpbWUgbGFuZ3VhZ2VzIHBlciBidWlsZGVyIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOm51bGwsIndhcm5pbmdzIjpudWxsLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771340167695241",
+        "object": "services/situation-room-mcp/1771340167.608605-17f8793685a64f619bf418b461a1ac63.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771340167.608605-17f8793685a64f619bf418b461a1ac63.zip#1771340167695241": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "cOpAWg2UGfHV7qPabgvaWg=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771340167695241",
+        "object": "services/situation-room-mcp/1771340167.608605-17f8793685a64f619bf418b461a1ac63.zip"
+      }
+    },
+    "startTime": "2026-02-17T14:56:08.639133605Z",
+    "status": "FAILURE",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,GOOGLE_TPC_TARBALL_PROJECT,GOOGLE_TPC_HOSTNAME,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771340167.608605-17f8793685a64f619bf418b461a1ac63.zip#1771340167695241",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "GOOGLE_TPC_TARBALL_PROJECT=",
+          "GOOGLE_TPC_HOSTNAME=",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=93fd8f1c-4fc8-4d5f-bcd0-4a8a9898fc07",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20260130_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:56:13.955706541Z",
+          "startTime": "2026-02-17T14:56:13.074979459Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-17T14:56:14.613170742Z",
+          "startTime": "2026-02-17T14:56:13.074979459Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "exitCode": 51,
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:56:16.545324054Z",
+          "startTime": "2026-02-17T14:56:14.613253566Z"
+        },
+        "status": "FAILURE",
+        "timing": {
+          "endTime": "2026-02-17T14:56:20.426654002Z",
+          "startTime": "2026-02-17T14:56:14.613253566Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "status": "QUEUED"
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771340167.608605-17f8793685a64f619bf418b461a1ac63.zip#1771340167695241",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_TPC_HOSTNAME": "",
+      "_GOOGLE_TPC_TARBALL_PROJECT": "",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260202_RC02",
+      "bt-LIFECYCLE",
+      "service_situation-room-mcp"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-17T14:56:20.426712365Z",
+        "startTime": "2026-02-17T14:56:12.583730109Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-17T14:56:12.582922248Z",
+        "startTime": "2026-02-17T14:56:10.541257156Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-17T14:56:12.582922248Z",
+        "startTime": "2026-02-17T14:56:10.541257156Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+      ]
+    },
+    "createTime": "2026-02-17T14:51:29.506955489Z",
+    "failureInfo": {
+      "detail": "Build step failure: build step 1 \"us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02\" failed: step exited with non-zero status: 51",
+      "type": "USER_BUILD_STEP"
+    },
+    "finishTime": "2026-02-17T14:51:54.044350Z",
+    "id": "238c8d25-98aa-4923-abe1-ae1385f8ac24",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/238c8d25-98aa-4923-abe1-ae1385f8ac24?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/238c8d25-98aa-4923-abe1-ae1385f8ac24",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=33",
+        "CNB_GROUP_ID=33",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:c9462c20d404aa680a8816bda63f421ccd6ecec29c67ea396402763e2094c737",
+        "sha256:c17e3fe9ab5549affa93ab868070f2d2ee9861468906a96a6c75b56616c6b468",
+        ""
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiJnb29nbGUubm9kZWpzLnJ1bnRpbWUiLCJidWlsZHBhY2tWZXJzaW9uIjoiMS4wLjAiLCJlcnJvclR5cGUiOiJJTlRFUk5BTCIsImNhbm9uaWNhbENvZGUiOiJJTlRFUk5BTCIsImVycm9ySWQiOiI0NzJmZGM5OCIsImVycm9yTWVzc2FnZSI6ImludmFsaWQgTm9kZS5qcyB2ZXJzaW9uIHNwZWNpZmllZDogZmFpbGVkIHRvIHJlc29sdmUgdmVyc2lvbiBtYXRjaGluZzogMjAueCBhZ2FpbnN0IFsyNC4xMy4wIDI0LjEyLjAgMjQuMTEuMSAyNC4xMS4wIDI0LjEwLjAgMjQuOS4wIDI0LjguMCAyNC43LjAgMjQuNi4wIDI0LjUuMCAyNC40LjEgMjQuNC4wIDI0LjMuMCAyNC4yLjAgMjQuMS4wIDI0LjAuMiAyNC4wLjEgMjQuMC4wIDIyLjIyLjAgMjIuMjEuMSAyMi4yMS4wIDIyLjIwLjAgMjIuMTkuMCAyMi4xOC4wIDIyLjE3LjEgMjIuMTcuMCAyMi4xNi4wIDIyLjE1LjEgMjIuMTUuMCAyMi4xNC4wIDIyLjEzLjEgMjIuMTMuMCAyMi4xMi4wIDIyLjExLjAgMjIuMTAuMCAyMi45LjAgMjIuOC4wIDIyLjcuMCAyMi42LjAgMjIuNS4xIDIyLjUuMCAyMi40LjEgMjIuNC4wIDIyLjMuMCAyMi4yLjAgMjIuMS4wIDIyLjAuMF0gLiBWZXJzaW9uIGNvbnN0cmFpbnQgXCIyMC54XCIgbm90IHNhdGlzZmllZCBieSBhbnkgYXZhaWxhYmxlIHZlcnNpb25zIGluIEFydGlmYWN0IFJlZ2lzdHJ5LiBZb3UgbWF5IG5lZWQgdG8gdXNlIGEgZGlmZmVyZW50IGJ1aWxkZXIuIFBsZWFzZSBjaGVjayBpZiB0aGUgbGFuZ3VhZ2UgdmVyc2lvbiBzcGVjaWZpZWQgaXMgc3VwcG9ydGVkLiBZb3UgY2FuIHJlZmVyIHRvIGh0dHBzOi8vY2xvdWQuZ29vZ2xlLmNvbS9kb2NzL2J1aWxkcGFja3MvYnVpbGRlcnMgZm9yIGEgbGlzdCBvZiBjb21wYXRpYmxlIHJ1bnRpbWUgbGFuZ3VhZ2VzIHBlciBidWlsZGVyIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOm51bGwsIndhcm5pbmdzIjpudWxsLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771339888870406",
+        "object": "services/situation-room-mcp/1771339888.574856-4c9cf17258aa4936a68209bea347e16a.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771339888.574856-4c9cf17258aa4936a68209bea347e16a.zip#1771339888870406": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "8aobebKIJaEIocTQXlTpHg=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771339888870406",
+        "object": "services/situation-room-mcp/1771339888.574856-4c9cf17258aa4936a68209bea347e16a.zip"
+      }
+    },
+    "startTime": "2026-02-17T14:51:30.040272206Z",
+    "status": "FAILURE",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,GOOGLE_TPC_TARBALL_PROJECT,GOOGLE_TPC_HOSTNAME,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771339888.574856-4c9cf17258aa4936a68209bea347e16a.zip#1771339888870406",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "GOOGLE_TPC_TARBALL_PROJECT=",
+          "GOOGLE_TPC_HOSTNAME=",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=238c8d25-98aa-4923-abe1-ae1385f8ac24",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20260130_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:51:36.301600010Z",
+          "startTime": "2026-02-17T14:51:35.311153204Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-17T14:51:37.015475743Z",
+          "startTime": "2026-02-17T14:51:35.311153204Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "exitCode": 51,
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:51:39.099605788Z",
+          "startTime": "2026-02-17T14:51:37.015569437Z"
+        },
+        "status": "FAILURE",
+        "timing": {
+          "endTime": "2026-02-17T14:51:43.144374339Z",
+          "startTime": "2026-02-17T14:51:37.015569437Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "status": "QUEUED"
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771339888.574856-4c9cf17258aa4936a68209bea347e16a.zip#1771339888870406",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_TPC_HOSTNAME": "",
+      "_GOOGLE_TPC_TARBALL_PROJECT": "",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260202_RC02",
+      "bt-LIFECYCLE",
+      "service_situation-room-mcp"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-17T14:51:43.144439051Z",
+        "startTime": "2026-02-17T14:51:34.773910Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-17T14:51:34.772587215Z",
+        "startTime": "2026-02-17T14:51:32.759277346Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-17T14:51:34.772587215Z",
+        "startTime": "2026-02-17T14:51:32.759277346Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+      ]
+    },
+    "createTime": "2026-02-17T14:17:46.784953672Z",
+    "failureInfo": {
+      "detail": "Build step failure: build step 1 \"us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02\" failed: step exited with non-zero status: 51",
+      "type": "USER_BUILD_STEP"
+    },
+    "finishTime": "2026-02-17T14:18:15.058491Z",
+    "id": "eedcd988-c93b-4b6d-a1d1-23c0c48946a3",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/eedcd988-c93b-4b6d-a1d1-23c0c48946a3?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/eedcd988-c93b-4b6d-a1d1-23c0c48946a3",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=33",
+        "CNB_GROUP_ID=33",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:c9462c20d404aa680a8816bda63f421ccd6ecec29c67ea396402763e2094c737",
+        "sha256:c17e3fe9ab5549affa93ab868070f2d2ee9861468906a96a6c75b56616c6b468",
+        ""
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiJnb29nbGUubm9kZWpzLnJ1bnRpbWUiLCJidWlsZHBhY2tWZXJzaW9uIjoiMS4wLjAiLCJlcnJvclR5cGUiOiJJTlRFUk5BTCIsImNhbm9uaWNhbENvZGUiOiJJTlRFUk5BTCIsImVycm9ySWQiOiI0NzJmZGM5OCIsImVycm9yTWVzc2FnZSI6ImludmFsaWQgTm9kZS5qcyB2ZXJzaW9uIHNwZWNpZmllZDogZmFpbGVkIHRvIHJlc29sdmUgdmVyc2lvbiBtYXRjaGluZzogMjAueCBhZ2FpbnN0IFsyNC4xMy4wIDI0LjEyLjAgMjQuMTEuMSAyNC4xMS4wIDI0LjEwLjAgMjQuOS4wIDI0LjguMCAyNC43LjAgMjQuNi4wIDI0LjUuMCAyNC40LjEgMjQuNC4wIDI0LjMuMCAyNC4yLjAgMjQuMS4wIDI0LjAuMiAyNC4wLjEgMjQuMC4wIDIyLjIyLjAgMjIuMjEuMSAyMi4yMS4wIDIyLjIwLjAgMjIuMTkuMCAyMi4xOC4wIDIyLjE3LjEgMjIuMTcuMCAyMi4xNi4wIDIyLjE1LjEgMjIuMTUuMCAyMi4xNC4wIDIyLjEzLjEgMjIuMTMuMCAyMi4xMi4wIDIyLjExLjAgMjIuMTAuMCAyMi45LjAgMjIuOC4wIDIyLjcuMCAyMi42LjAgMjIuNS4xIDIyLjUuMCAyMi40LjEgMjIuNC4wIDIyLjMuMCAyMi4yLjAgMjIuMS4wIDIyLjAuMF0gLiBWZXJzaW9uIGNvbnN0cmFpbnQgXCIyMC54XCIgbm90IHNhdGlzZmllZCBieSBhbnkgYXZhaWxhYmxlIHZlcnNpb25zIGluIEFydGlmYWN0IFJlZ2lzdHJ5LiBZb3UgbWF5IG5lZWQgdG8gdXNlIGEgZGlmZmVyZW50IGJ1aWxkZXIuIFBsZWFzZSBjaGVjayBpZiB0aGUgbGFuZ3VhZ2UgdmVyc2lvbiBzcGVjaWZpZWQgaXMgc3VwcG9ydGVkLiBZb3UgY2FuIHJlZmVyIHRvIGh0dHBzOi8vY2xvdWQuZ29vZ2xlLmNvbS9kb2NzL2J1aWxkcGFja3MvYnVpbGRlcnMgZm9yIGEgbGlzdCBvZiBjb21wYXRpYmxlIHJ1bnRpbWUgbGFuZ3VhZ2VzIHBlciBidWlsZGVyIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOm51bGwsIndhcm5pbmdzIjpudWxsLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771337866242431",
+        "object": "services/situation-room-mcp/1771337866.128063-831ec9483d7340f69c092db70555d334.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771337866.128063-831ec9483d7340f69c092db70555d334.zip#1771337866242431": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "KiDEUu53t36hZyq2Siuz_w=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771337866242431",
+        "object": "services/situation-room-mcp/1771337866.128063-831ec9483d7340f69c092db70555d334.zip"
+      }
+    },
+    "startTime": "2026-02-17T14:17:47.641422985Z",
+    "status": "FAILURE",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,GOOGLE_TPC_TARBALL_PROJECT,GOOGLE_TPC_HOSTNAME,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771337866.128063-831ec9483d7340f69c092db70555d334.zip#1771337866242431",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "GOOGLE_TPC_TARBALL_PROJECT=",
+          "GOOGLE_TPC_HOSTNAME=",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=eedcd988-c93b-4b6d-a1d1-23c0c48946a3",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20260130_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:17:55.748477150Z",
+          "startTime": "2026-02-17T14:17:54.276839152Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-17T14:17:56.933390622Z",
+          "startTime": "2026-02-17T14:17:54.276839152Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "exitCode": 51,
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:18:00.031005314Z",
+          "startTime": "2026-02-17T14:17:56.933495770Z"
+        },
+        "status": "FAILURE",
+        "timing": {
+          "endTime": "2026-02-17T14:18:05.219105392Z",
+          "startTime": "2026-02-17T14:17:56.933495770Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "status": "QUEUED"
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771337866.128063-831ec9483d7340f69c092db70555d334.zip#1771337866242431",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_TPC_HOSTNAME": "",
+      "_GOOGLE_TPC_TARBALL_PROJECT": "",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260202_RC02",
+      "bt-LIFECYCLE",
+      "service_situation-room-mcp"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-17T14:18:05.219451655Z",
+        "startTime": "2026-02-17T14:17:53.575577736Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-17T14:17:53.574205236Z",
+        "startTime": "2026-02-17T14:17:49.735775136Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-17T14:17:53.574205236Z",
+        "startTime": "2026-02-17T14:17:49.735775136Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+      ]
+    },
+    "createTime": "2026-02-17T14:14:12.101579216Z",
+    "failureInfo": {
+      "detail": "Build step failure: build step 1 \"us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02\" failed: step exited with non-zero status: 51",
+      "type": "USER_BUILD_STEP"
+    },
+    "finishTime": "2026-02-17T14:14:35.222650Z",
+    "id": "1d6989ca-84a6-49eb-8641-43a294dd1e13",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/1d6989ca-84a6-49eb-8641-43a294dd1e13?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/1d6989ca-84a6-49eb-8641-43a294dd1e13",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=33",
+        "CNB_GROUP_ID=33",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:c9462c20d404aa680a8816bda63f421ccd6ecec29c67ea396402763e2094c737",
+        "sha256:c17e3fe9ab5549affa93ab868070f2d2ee9861468906a96a6c75b56616c6b468",
+        ""
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiJnb29nbGUubm9kZWpzLnJ1bnRpbWUiLCJidWlsZHBhY2tWZXJzaW9uIjoiMS4wLjAiLCJlcnJvclR5cGUiOiJJTlRFUk5BTCIsImNhbm9uaWNhbENvZGUiOiJJTlRFUk5BTCIsImVycm9ySWQiOiI0NzJmZGM5OCIsImVycm9yTWVzc2FnZSI6ImludmFsaWQgTm9kZS5qcyB2ZXJzaW9uIHNwZWNpZmllZDogZmFpbGVkIHRvIHJlc29sdmUgdmVyc2lvbiBtYXRjaGluZzogMjAueCBhZ2FpbnN0IFsyNC4xMy4wIDI0LjEyLjAgMjQuMTEuMSAyNC4xMS4wIDI0LjEwLjAgMjQuOS4wIDI0LjguMCAyNC43LjAgMjQuNi4wIDI0LjUuMCAyNC40LjEgMjQuNC4wIDI0LjMuMCAyNC4yLjAgMjQuMS4wIDI0LjAuMiAyNC4wLjEgMjQuMC4wIDIyLjIyLjAgMjIuMjEuMSAyMi4yMS4wIDIyLjIwLjAgMjIuMTkuMCAyMi4xOC4wIDIyLjE3LjEgMjIuMTcuMCAyMi4xNi4wIDIyLjE1LjEgMjIuMTUuMCAyMi4xNC4wIDIyLjEzLjEgMjIuMTMuMCAyMi4xMi4wIDIyLjExLjAgMjIuMTAuMCAyMi45LjAgMjIuOC4wIDIyLjcuMCAyMi42LjAgMjIuNS4xIDIyLjUuMCAyMi40LjEgMjIuNC4wIDIyLjMuMCAyMi4yLjAgMjIuMS4wIDIyLjAuMF0gLiBWZXJzaW9uIGNvbnN0cmFpbnQgXCIyMC54XCIgbm90IHNhdGlzZmllZCBieSBhbnkgYXZhaWxhYmxlIHZlcnNpb25zIGluIEFydGlmYWN0IFJlZ2lzdHJ5LiBZb3UgbWF5IG5lZWQgdG8gdXNlIGEgZGlmZmVyZW50IGJ1aWxkZXIuIFBsZWFzZSBjaGVjayBpZiB0aGUgbGFuZ3VhZ2UgdmVyc2lvbiBzcGVjaWZpZWQgaXMgc3VwcG9ydGVkLiBZb3UgY2FuIHJlZmVyIHRvIGh0dHBzOi8vY2xvdWQuZ29vZ2xlLmNvbS9kb2NzL2J1aWxkcGFja3MvYnVpbGRlcnMgZm9yIGEgbGlzdCBvZiBjb21wYXRpYmxlIHJ1bnRpbWUgbGFuZ3VhZ2VzIHBlciBidWlsZGVyIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOm51bGwsIndhcm5pbmdzIjpudWxsLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771337651462659",
+        "object": "services/situation-room-mcp/1771337651.319501-bde2f90f5f314caf907e85641fe15a9f.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771337651.319501-bde2f90f5f314caf907e85641fe15a9f.zip#1771337651462659": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "uGPY6xljYeR001g6ulNf2A=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771337651462659",
+        "object": "services/situation-room-mcp/1771337651.319501-bde2f90f5f314caf907e85641fe15a9f.zip"
+      }
+    },
+    "startTime": "2026-02-17T14:14:12.674245188Z",
+    "status": "FAILURE",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,GOOGLE_TPC_TARBALL_PROJECT,GOOGLE_TPC_HOSTNAME,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771337651.319501-bde2f90f5f314caf907e85641fe15a9f.zip#1771337651462659",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "GOOGLE_TPC_TARBALL_PROJECT=",
+          "GOOGLE_TPC_HOSTNAME=",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=1d6989ca-84a6-49eb-8641-43a294dd1e13",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20260130_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:14:17.110945096Z",
+          "startTime": "2026-02-17T14:14:16.124576898Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-17T14:14:17.809835581Z",
+          "startTime": "2026-02-17T14:14:16.124576898Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "exitCode": 51,
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:14:19.831609235Z",
+          "startTime": "2026-02-17T14:14:17.809910632Z"
+        },
+        "status": "FAILURE",
+        "timing": {
+          "endTime": "2026-02-17T14:14:23.885466598Z",
+          "startTime": "2026-02-17T14:14:17.809910632Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "status": "QUEUED"
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1771337651.319501-bde2f90f5f314caf907e85641fe15a9f.zip#1771337651462659",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_TPC_HOSTNAME": "",
+      "_GOOGLE_TPC_TARBALL_PROJECT": "",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260202_RC02",
+      "bt-LIFECYCLE",
+      "service_situation-room-mcp"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-17T14:14:23.885636780Z",
+        "startTime": "2026-02-17T14:14:15.607798068Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-17T14:14:15.607124218Z",
+        "startTime": "2026-02-17T14:14:13.530594408Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-17T14:14:15.607124218Z",
+        "startTime": "2026-02-17T14:14:13.530594408Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest"
+      ]
+    },
+    "createTime": "2026-02-17T14:14:10.014963710Z",
+    "finishTime": "2026-02-17T14:14:44.643763Z",
+    "id": "d9846cbe-7b2d-41b5-aee9-a0e66778b23c",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/d9846cbe-7b2d-41b5-aee9-a0e66778b23c?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/d9846cbe-7b2d-41b5-aee9-a0e66778b23c",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=33",
+        "CNB_GROUP_ID=33",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:c9462c20d404aa680a8816bda63f421ccd6ecec29c67ea396402763e2094c737",
+        "sha256:c17e3fe9ab5549affa93ab868070f2d2ee9861468906a96a6c75b56616c6b468",
+        "sha256:f80b64d99b04558b0ee730da54471186b588bcaf8d4b82d0b1e0699952718eb9"
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7ImMiOnsiMTciOjF9fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiIiLCJidWlsZHBhY2tWZXJzaW9uIjoiIiwiZXJyb3JUeXBlIjoiT0siLCJjYW5vbmljYWxDb2RlIjoiT0siLCJlcnJvcklkIjoiIiwiZXJyb3JNZXNzYWdlIjoiIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOlt7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLm5vZGVqcy5ydW50aW1lIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMC4wIiwidG90YWxEdXJhdGlvbk1zIjoyODYxLCJ1c2VyRHVyYXRpb25NcyI6MH0seyJidWlsZHBhY2tJZCI6Imdvb2dsZS5ub2RlanMubnBtIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMS4xIiwidG90YWxEdXJhdGlvbk1zIjoxMDc0LCJ1c2VyRHVyYXRpb25NcyI6OTUzfSx7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLnV0aWxzLmxhYmVsLWltYWdlIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjAuMC4yIiwidG90YWxEdXJhdGlvbk1zIjowLCJ1c2VyRHVyYXRpb25NcyI6MH1dLCJ3YXJuaW5ncyI6WyIqKiogSW1wcm92ZSBidWlsZCBwZXJmb3JtYW5jZSBieSBnZW5lcmF0aW5nIGFuZCBjb21taXR0aW5nIHBhY2thZ2UtbG9jay5qc29uLiJdLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-feed/versions/sha256:2d56d79f32a1afab1ba8ccce0f9af55b35ab000a30c9ac0240cb818e13c0b666",
+          "digest": "sha256:2d56d79f32a1afab1ba8ccce0f9af55b35ab000a30c9ac0240cb818e13c0b666",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed",
+          "pushTiming": {
+            "endTime": "2026-02-17T14:14:44.474995515Z",
+            "startTime": "2026-02-17T14:14:43.568207833Z"
+          }
+        },
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-feed/versions/sha256:2d56d79f32a1afab1ba8ccce0f9af55b35ab000a30c9ac0240cb818e13c0b666",
+          "digest": "sha256:2d56d79f32a1afab1ba8ccce0f9af55b35ab000a30c9ac0240cb818e13c0b666",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest",
+          "pushTiming": {
+            "endTime": "2026-02-17T14:14:44.474995515Z",
+            "startTime": "2026-02-17T14:14:43.568207833Z"
+          }
+        }
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771337649561295",
+        "object": "services/situation-room-feed/1771337649.423302-dee71d39882a458198710d3d2feb2b98.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-feed/1771337649.423302-dee71d39882a458198710d3d2feb2b98.zip#1771337649561295": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "pcX8ROP1X91BQOyo0b1FMw=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1771337649561295",
+        "object": "services/situation-room-feed/1771337649.423302-dee71d39882a458198710d3d2feb2b98.zip"
+      }
+    },
+    "startTime": "2026-02-17T14:14:10.512445835Z",
+    "status": "SUCCESS",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,GOOGLE_TPC_TARBALL_PROJECT,GOOGLE_TPC_HOSTNAME,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-feed/1771337649.423302-dee71d39882a458198710d3d2feb2b98.zip#1771337649561295",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "GOOGLE_TPC_TARBALL_PROJECT=",
+          "GOOGLE_TPC_HOSTNAME=",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=d9846cbe-7b2d-41b5-aee9-a0e66778b23c",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20260130_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:14:17.877060381Z",
+          "startTime": "2026-02-17T14:14:16.913907188Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-17T14:14:18.635362325Z",
+          "startTime": "2026-02-17T14:14:16.913907188Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next"
+        ],
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:14:20.773534174Z",
+          "startTime": "2026-02-17T14:14:18.635437425Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-17T14:14:35.940862310Z",
+          "startTime": "2026-02-17T14:14:18.635437425Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-02-17T14:14:35.945746717Z",
+          "startTime": "2026-02-17T14:14:35.940937060Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-17T14:14:43.542820105Z",
+          "startTime": "2026-02-17T14:14:35.940937060Z"
+        }
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24-full/builder/universal:universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260202_RC02",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-24/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-feed/1771337649.423302-dee71d39882a458198710d3d2feb2b98.zip#1771337649561295",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_TPC_HOSTNAME": "",
+      "_GOOGLE_TPC_TARBALL_PROJECT": "",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260202_RC02",
+      "bt-LIFECYCLE",
+      "service_situation-room-feed"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-17T14:14:43.568155353Z",
+        "startTime": "2026-02-17T14:14:16.354951306Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-17T14:14:16.353548715Z",
+        "startTime": "2026-02-17T14:14:13.987660488Z"
+      },
+      "PUSH": {
+        "endTime": "2026-02-17T14:14:44.476424674Z",
+        "startTime": "2026-02-17T14:14:43.568207003Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-17T14:14:16.353548715Z",
+        "startTime": "2026-02-17T14:14:13.987660488Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+      ]
+    },
+    "createTime": "2026-02-06T00:54:36.062697112Z",
+    "finishTime": "2026-02-06T00:55:32.494217Z",
+    "id": "0c8dde02-1217-43ee-98cb-cdd4b953d7bb",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/0c8dde02-1217-43ee-98cb-cdd4b953d7bb?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/0c8dde02-1217-43ee-98cb-cdd4b953d7bb",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=1000",
+        "CNB_GROUP_ID=1000",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:b0eb72e83e3fb47cd0041e359e03e5056d3e4b53f290f5fde574227cfd176e2e",
+        "sha256:0b51e2cde8594ef38d18335d9bde3a109da56cda9a8622966ad1ee36e5cbadb8",
+        "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7ImMiOnsiMTciOjF9fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiIiLCJidWlsZHBhY2tWZXJzaW9uIjoiIiwiZXJyb3JUeXBlIjoiT0siLCJjYW5vbmljYWxDb2RlIjoiT0siLCJlcnJvcklkIjoiIiwiZXJyb3JNZXNzYWdlIjoiIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOlt7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLm5vZGVqcy5ydW50aW1lIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMC4wIiwidG90YWxEdXJhdGlvbk1zIjoyNjQ1LCJ1c2VyRHVyYXRpb25NcyI6MH0seyJidWlsZHBhY2tJZCI6Imdvb2dsZS5ub2RlanMubnBtIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMS4xIiwidG90YWxEdXJhdGlvbk1zIjoxMDY5MCwidXNlckR1cmF0aW9uTXMiOjEwNTQ0fSx7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLnV0aWxzLmxhYmVsLWltYWdlIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjAuMC4yIiwidG90YWxEdXJhdGlvbk1zIjowLCJ1c2VyRHVyYXRpb25NcyI6MH1dLCJ3YXJuaW5ncyI6WyIqKiogSW1wcm92ZSBidWlsZCBwZXJmb3JtYW5jZSBieSBnZW5lcmF0aW5nIGFuZCBjb21taXR0aW5nIHBhY2thZ2UtbG9jay5qc29uLiJdLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-mcp/versions/sha256:d1a0dfe7f77b8f9fc5e4907e52af215c6d43005d8f515e5a4516f3da6c6d8f2e",
+          "digest": "sha256:d1a0dfe7f77b8f9fc5e4907e52af215c6d43005d8f515e5a4516f3da6c6d8f2e",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp",
+          "pushTiming": {
+            "endTime": "2026-02-06T00:55:32.190931910Z",
+            "startTime": "2026-02-06T00:55:31.270885821Z"
+          }
+        },
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-mcp/versions/sha256:d1a0dfe7f77b8f9fc5e4907e52af215c6d43005d8f515e5a4516f3da6c6d8f2e",
+          "digest": "sha256:d1a0dfe7f77b8f9fc5e4907e52af215c6d43005d8f515e5a4516f3da6c6d8f2e",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "pushTiming": {
+            "endTime": "2026-02-06T00:55:32.190931910Z",
+            "startTime": "2026-02-06T00:55:31.270885821Z"
+          }
+        }
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770339275693662",
+        "object": "services/situation-room-mcp/1770339275.598382-666681d190e2460bb4342eee3dd01612.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770339275.598382-666681d190e2460bb4342eee3dd01612.zip#1770339275693662": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "auGBaEC2IE-H12iXc9U7bA=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770339275693662",
+        "object": "services/situation-room-mcp/1770339275.598382-666681d190e2460bb4342eee3dd01612.zip"
+      }
+    },
+    "startTime": "2026-02-06T00:54:36.587761356Z",
+    "status": "SUCCESS",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770339275.598382-666681d190e2460bb4342eee3dd01612.zip#1770339275693662",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=0c8dde02-1217-43ee-98cb-cdd4b953d7bb",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20251219_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-06T00:54:42.907253218Z",
+          "startTime": "2026-02-06T00:54:41.921397547Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-06T00:54:43.676659386Z",
+          "startTime": "2026-02-06T00:54:41.921397547Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-06T00:54:59.520847264Z",
+          "startTime": "2026-02-06T00:54:43.676740488Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-06T00:55:20.799924206Z",
+          "startTime": "2026-02-06T00:54:43.676740488Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-02-06T00:55:20.804216035Z",
+          "startTime": "2026-02-06T00:55:20.800003438Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-06T00:55:31.241947117Z",
+          "startTime": "2026-02-06T00:55:20.800003438Z"
+        }
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770339275.598382-666681d190e2460bb4342eee3dd01612.zip#1770339275693662",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260125_RC00",
+      "bt-LIFECYCLE",
+      "service_situation-room-mcp"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-06T00:55:31.270810597Z",
+        "startTime": "2026-02-06T00:54:41.347784109Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-06T00:54:41.346567780Z",
+        "startTime": "2026-02-06T00:54:38.760787530Z"
+      },
+      "PUSH": {
+        "endTime": "2026-02-06T00:55:32.192936986Z",
+        "startTime": "2026-02-06T00:55:31.270875144Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-06T00:54:41.346567780Z",
+        "startTime": "2026-02-06T00:54:38.760787530Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest"
+      ]
+    },
+    "createTime": "2026-02-06T00:54:35.033561768Z",
+    "finishTime": "2026-02-06T00:55:21.070265Z",
+    "id": "d8727b5e-9563-4ca0-a5f8-284388a5b645",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/d8727b5e-9563-4ca0-a5f8-284388a5b645?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/d8727b5e-9563-4ca0-a5f8-284388a5b645",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=1000",
+        "CNB_GROUP_ID=1000",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:b0eb72e83e3fb47cd0041e359e03e5056d3e4b53f290f5fde574227cfd176e2e",
+        "sha256:0b51e2cde8594ef38d18335d9bde3a109da56cda9a8622966ad1ee36e5cbadb8",
+        "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7ImMiOnsiMTciOjF9fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiIiLCJidWlsZHBhY2tWZXJzaW9uIjoiIiwiZXJyb3JUeXBlIjoiT0siLCJjYW5vbmljYWxDb2RlIjoiT0siLCJlcnJvcklkIjoiIiwiZXJyb3JNZXNzYWdlIjoiIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOlt7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLm5vZGVqcy5ydW50aW1lIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMC4wIiwidG90YWxEdXJhdGlvbk1zIjozMTc1LCJ1c2VyRHVyYXRpb25NcyI6MH0seyJidWlsZHBhY2tJZCI6Imdvb2dsZS5ub2RlanMubnBtIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMS4xIiwidG90YWxEdXJhdGlvbk1zIjoxMDc1LCJ1c2VyRHVyYXRpb25NcyI6OTQ5fSx7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLnV0aWxzLmxhYmVsLWltYWdlIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjAuMC4yIiwidG90YWxEdXJhdGlvbk1zIjowLCJ1c2VyRHVyYXRpb25NcyI6MH1dLCJ3YXJuaW5ncyI6WyIqKiogSW1wcm92ZSBidWlsZCBwZXJmb3JtYW5jZSBieSBnZW5lcmF0aW5nIGFuZCBjb21taXR0aW5nIHBhY2thZ2UtbG9jay5qc29uLiJdLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-feed/versions/sha256:4d5aa75a4e01053be58fd35d5a705b0f80f8b3643876e38d11c672012b6757a0",
+          "digest": "sha256:4d5aa75a4e01053be58fd35d5a705b0f80f8b3643876e38d11c672012b6757a0",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed",
+          "pushTiming": {
+            "endTime": "2026-02-06T00:55:21.822114195Z",
+            "startTime": "2026-02-06T00:55:20.907101431Z"
+          }
+        },
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-feed/versions/sha256:4d5aa75a4e01053be58fd35d5a705b0f80f8b3643876e38d11c672012b6757a0",
+          "digest": "sha256:4d5aa75a4e01053be58fd35d5a705b0f80f8b3643876e38d11c672012b6757a0",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest",
+          "pushTiming": {
+            "endTime": "2026-02-06T00:55:21.822114195Z",
+            "startTime": "2026-02-06T00:55:20.907101431Z"
+          }
+        }
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770339274576441",
+        "object": "services/situation-room-feed/1770339274.428541-613cf9b7c8fc48a5af91b68939156bc7.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-feed/1770339274.428541-613cf9b7c8fc48a5af91b68939156bc7.zip#1770339274576441": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "SjH8f5YnwGDqNKNXk8Feyw=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770339274576441",
+        "object": "services/situation-room-feed/1770339274.428541-613cf9b7c8fc48a5af91b68939156bc7.zip"
+      }
+    },
+    "startTime": "2026-02-06T00:54:35.495124294Z",
+    "status": "SUCCESS",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-feed/1770339274.428541-613cf9b7c8fc48a5af91b68939156bc7.zip#1770339274576441",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=d8727b5e-9563-4ca0-a5f8-284388a5b645",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20251219_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-06T00:54:42.565624334Z",
+          "startTime": "2026-02-06T00:54:41.549057550Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-06T00:54:43.332132448Z",
+          "startTime": "2026-02-06T00:54:41.549057550Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-06T00:54:58.911244026Z",
+          "startTime": "2026-02-06T00:54:43.332227539Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-06T00:55:10.639544943Z",
+          "startTime": "2026-02-06T00:54:43.332227539Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-feed:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-02-06T00:55:10.645067392Z",
+          "startTime": "2026-02-06T00:55:10.639641126Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-06T00:55:20.884638319Z",
+          "startTime": "2026-02-06T00:55:10.639641126Z"
+        }
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-feed/1770339274.428541-613cf9b7c8fc48a5af91b68939156bc7.zip#1770339274576441",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260125_RC00",
+      "bt-LIFECYCLE",
+      "service_situation-room-feed"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-06T00:55:20.907042684Z",
+        "startTime": "2026-02-06T00:54:40.991019606Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-06T00:54:40.990073952Z",
+        "startTime": "2026-02-06T00:54:38.573594671Z"
+      },
+      "PUSH": {
+        "endTime": "2026-02-06T00:55:21.824060473Z",
+        "startTime": "2026-02-06T00:55:20.907100377Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-06T00:54:40.990073952Z",
+        "startTime": "2026-02-06T00:54:38.573594671Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+      ]
+    },
+    "createTime": "2026-02-05T19:00:09.842172731Z",
+    "finishTime": "2026-02-05T19:01:10.383930Z",
+    "id": "28b4b40f-d634-42f0-9dab-3499e69d28e5",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/28b4b40f-d634-42f0-9dab-3499e69d28e5?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/28b4b40f-d634-42f0-9dab-3499e69d28e5",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=1000",
+        "CNB_GROUP_ID=1000",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:b0eb72e83e3fb47cd0041e359e03e5056d3e4b53f290f5fde574227cfd176e2e",
+        "sha256:0b51e2cde8594ef38d18335d9bde3a109da56cda9a8622966ad1ee36e5cbadb8",
+        "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7ImMiOnsiMTciOjF9fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiIiLCJidWlsZHBhY2tWZXJzaW9uIjoiIiwiZXJyb3JUeXBlIjoiT0siLCJjYW5vbmljYWxDb2RlIjoiT0siLCJlcnJvcklkIjoiIiwiZXJyb3JNZXNzYWdlIjoiIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOlt7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLm5vZGVqcy5ydW50aW1lIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMC4wIiwidG90YWxEdXJhdGlvbk1zIjozMDMxLCJ1c2VyRHVyYXRpb25NcyI6MH0seyJidWlsZHBhY2tJZCI6Imdvb2dsZS5ub2RlanMubnBtIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMS4xIiwidG90YWxEdXJhdGlvbk1zIjoxMjMyMSwidXNlckR1cmF0aW9uTXMiOjEyMTUwfSx7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLnV0aWxzLmxhYmVsLWltYWdlIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjAuMC4yIiwidG90YWxEdXJhdGlvbk1zIjowLCJ1c2VyRHVyYXRpb25NcyI6MH1dLCJ3YXJuaW5ncyI6WyIqKiogSW1wcm92ZSBidWlsZCBwZXJmb3JtYW5jZSBieSBnZW5lcmF0aW5nIGFuZCBjb21taXR0aW5nIHBhY2thZ2UtbG9jay5qc29uLiJdLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-mcp/versions/sha256:165bf56a75d2217f8120a285706a6bf48ad495342bf3bc5f47314ddf8858be24",
+          "digest": "sha256:165bf56a75d2217f8120a285706a6bf48ad495342bf3bc5f47314ddf8858be24",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp",
+          "pushTiming": {
+            "endTime": "2026-02-05T19:01:10.248354960Z",
+            "startTime": "2026-02-05T19:01:09.127029270Z"
+          }
+        },
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-mcp/versions/sha256:165bf56a75d2217f8120a285706a6bf48ad495342bf3bc5f47314ddf8858be24",
+          "digest": "sha256:165bf56a75d2217f8120a285706a6bf48ad495342bf3bc5f47314ddf8858be24",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "pushTiming": {
+            "endTime": "2026-02-05T19:01:10.248354960Z",
+            "startTime": "2026-02-05T19:01:09.127029270Z"
+          }
+        }
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770318009387285",
+        "object": "services/situation-room-mcp/1770318009.266871-b794fe57545744c4acb48cbf55964ca4.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770318009.266871-b794fe57545744c4acb48cbf55964ca4.zip#1770318009387285": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "uSH_Du36w9mD1oKftTHSGw=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770318009387285",
+        "object": "services/situation-room-mcp/1770318009.266871-b794fe57545744c4acb48cbf55964ca4.zip"
+      }
+    },
+    "startTime": "2026-02-05T19:00:10.311485561Z",
+    "status": "SUCCESS",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770318009.266871-b794fe57545744c4acb48cbf55964ca4.zip#1770318009387285",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=28b4b40f-d634-42f0-9dab-3499e69d28e5",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20251219_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-05T19:00:17.226574292Z",
+          "startTime": "2026-02-05T19:00:16.030879140Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T19:00:18.006741376Z",
+          "startTime": "2026-02-05T19:00:16.030879140Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-05T19:00:34.195705453Z",
+          "startTime": "2026-02-05T19:00:18.006855996Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T19:00:57.841751425Z",
+          "startTime": "2026-02-05T19:00:18.006855996Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-02-05T19:00:57.854340151Z",
+          "startTime": "2026-02-05T19:00:57.841993160Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T19:01:09.100381112Z",
+          "startTime": "2026-02-05T19:00:57.841993160Z"
+        }
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770318009.266871-b794fe57545744c4acb48cbf55964ca4.zip#1770318009387285",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260125_RC00",
+      "bt-LIFECYCLE",
+      "service_situation-room-mcp"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-05T19:01:09.126893406Z",
+        "startTime": "2026-02-05T19:00:15.457911347Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-05T19:00:15.456765604Z",
+        "startTime": "2026-02-05T19:00:12.809440149Z"
+      },
+      "PUSH": {
+        "endTime": "2026-02-05T19:01:10.250478358Z",
+        "startTime": "2026-02-05T19:01:09.127026743Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-05T19:00:15.456765604Z",
+        "startTime": "2026-02-05T19:00:12.809440149Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+      ]
+    },
+    "createTime": "2026-02-05T18:53:54.966504971Z",
+    "finishTime": "2026-02-05T18:54:51.868760Z",
+    "id": "20ac35d5-e9b8-4424-94d5-e55dc1c8f683",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/20ac35d5-e9b8-4424-94d5-e55dc1c8f683?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/20ac35d5-e9b8-4424-94d5-e55dc1c8f683",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=1000",
+        "CNB_GROUP_ID=1000",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:b0eb72e83e3fb47cd0041e359e03e5056d3e4b53f290f5fde574227cfd176e2e",
+        "sha256:0b51e2cde8594ef38d18335d9bde3a109da56cda9a8622966ad1ee36e5cbadb8",
+        "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7ImMiOnsiMTciOjF9fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiIiLCJidWlsZHBhY2tWZXJzaW9uIjoiIiwiZXJyb3JUeXBlIjoiT0siLCJjYW5vbmljYWxDb2RlIjoiT0siLCJlcnJvcklkIjoiIiwiZXJyb3JNZXNzYWdlIjoiIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOlt7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLm5vZGVqcy5ydW50aW1lIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMC4wIiwidG90YWxEdXJhdGlvbk1zIjoyODUyLCJ1c2VyRHVyYXRpb25NcyI6MH0seyJidWlsZHBhY2tJZCI6Imdvb2dsZS5ub2RlanMubnBtIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMS4xIiwidG90YWxEdXJhdGlvbk1zIjoxMDE0OSwidXNlckR1cmF0aW9uTXMiOjk5OTh9LHsiYnVpbGRwYWNrSWQiOiJnb29nbGUudXRpbHMubGFiZWwtaW1hZ2UiLCJidWlsZHBhY2tWZXJzaW9uIjoiMC4wLjIiLCJ0b3RhbER1cmF0aW9uTXMiOjAsInVzZXJEdXJhdGlvbk1zIjowfV0sIndhcm5pbmdzIjpbIioqKiBJbXByb3ZlIGJ1aWxkIHBlcmZvcm1hbmNlIGJ5IGdlbmVyYXRpbmcgYW5kIGNvbW1pdHRpbmcgcGFja2FnZS1sb2NrLmpzb24uIl0sImN1c3RvbUltYWdlIjpmYWxzZX0=",
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-mcp/versions/sha256:c5bec4206d60bd50f589fe8dedd09dfc8a191c5827331a4aa0ff085cad319e63",
+          "digest": "sha256:c5bec4206d60bd50f589fe8dedd09dfc8a191c5827331a4aa0ff085cad319e63",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp",
+          "pushTiming": {
+            "endTime": "2026-02-05T18:54:51.645227292Z",
+            "startTime": "2026-02-05T18:54:50.687046931Z"
+          }
+        },
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-mcp/versions/sha256:c5bec4206d60bd50f589fe8dedd09dfc8a191c5827331a4aa0ff085cad319e63",
+          "digest": "sha256:c5bec4206d60bd50f589fe8dedd09dfc8a191c5827331a4aa0ff085cad319e63",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "pushTiming": {
+            "endTime": "2026-02-05T18:54:51.645227292Z",
+            "startTime": "2026-02-05T18:54:50.687046931Z"
+          }
+        }
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770317634527878",
+        "object": "services/situation-room-mcp/1770317634.442711-1831685d17834cc387197e489d387d92.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770317634.442711-1831685d17834cc387197e489d387d92.zip#1770317634527878": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "eAgyxHwXNqTODd7QIa6lWw=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770317634527878",
+        "object": "services/situation-room-mcp/1770317634.442711-1831685d17834cc387197e489d387d92.zip"
+      }
+    },
+    "startTime": "2026-02-05T18:53:55.512748781Z",
+    "status": "SUCCESS",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770317634.442711-1831685d17834cc387197e489d387d92.zip#1770317634527878",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=20ac35d5-e9b8-4424-94d5-e55dc1c8f683",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20251219_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-05T18:54:01.290889944Z",
+          "startTime": "2026-02-05T18:54:00.241755458Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T18:54:02.082960391Z",
+          "startTime": "2026-02-05T18:54:00.241755458Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-05T18:54:18.465278051Z",
+          "startTime": "2026-02-05T18:54:02.083076208Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T18:54:39.766144779Z",
+          "startTime": "2026-02-05T18:54:02.083076208Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-02-05T18:54:39.771921206Z",
+          "startTime": "2026-02-05T18:54:39.766238584Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T18:54:50.655423517Z",
+          "startTime": "2026-02-05T18:54:39.766238584Z"
+        }
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770317634.442711-1831685d17834cc387197e489d387d92.zip#1770317634527878",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260125_RC00",
+      "bt-LIFECYCLE",
+      "service_situation-room-mcp"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-05T18:54:50.686979433Z",
+        "startTime": "2026-02-05T18:53:59.624493686Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-05T18:53:59.623232733Z",
+        "startTime": "2026-02-05T18:53:56.933812764Z"
+      },
+      "PUSH": {
+        "endTime": "2026-02-05T18:54:51.646833948Z",
+        "startTime": "2026-02-05T18:54:50.687046040Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-05T18:53:59.623232733Z",
+        "startTime": "2026-02-05T18:53:56.933812764Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+      ]
+    },
+    "createTime": "2026-02-05T18:47:35.605711011Z",
+    "finishTime": "2026-02-05T18:48:39.992449Z",
+    "id": "e3075450-d5ee-42cc-94a6-608ad1ed37ed",
+    "images": [
+      "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds;region=us-central1/e3075450-d5ee-42cc-94a6-608ad1ed37ed?project=382918878290",
+    "name": "projects/382918878290/locations/us-central1/builds/e3075450-d5ee-42cc-94a6-608ad1ed37ed",
+    "options": {
+      "env": [
+        "CNB_APP_DIR=/workspace",
+        "CNB_ANALYZED_PATH=/layers/analyzed.toml",
+        "CNB_BUILDPACKS_DIR=/cnb/buildpacks",
+        "CNB_GROUP_PATH=/layers/group.toml",
+        "CNB_LAYERS_DIR=/layers",
+        "CNB_PLAN_PATH=/layers/plan.toml",
+        "CNB_PLATFORM_DIR=/platform",
+        "CNB_PLATFORM_API=0.11",
+        "CNB_NO_COLOR=true",
+        "CNB_USER_ID=1000",
+        "CNB_GROUP_ID=1000",
+        "CNB_SKIP_RESTORE=true",
+        "CNB_REPORT_PATH=/workspace/report.toml"
+      ],
+      "logStreamingOption": "STREAM_OFF",
+      "logging": "CLOUD_LOGGING_ONLY",
+      "pool": {},
+      "volumes": [
+        {
+          "name": "layers",
+          "path": "/layers"
+        },
+        {
+          "name": "platform",
+          "path": "/platform"
+        }
+      ]
+    },
+    "projectId": "situationroom-ai-20260112",
+    "queueTtl": "360s",
+    "results": {
+      "buildStepImages": [
+        "sha256:b0eb72e83e3fb47cd0041e359e03e5056d3e4b53f290f5fde574227cfd176e2e",
+        "sha256:0b51e2cde8594ef38d18335d9bde3a109da56cda9a8622966ad1ee36e5cbadb8",
+        "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+      ],
+      "buildStepOutputs": [
+        "",
+        "eyJtZXRyaWNzIjp7ImMiOnsiMTciOjF9fSwiZXJyb3IiOnsiYnVpbGRwYWNrSWQiOiIiLCJidWlsZHBhY2tWZXJzaW9uIjoiIiwiZXJyb3JUeXBlIjoiT0siLCJjYW5vbmljYWxDb2RlIjoiT0siLCJlcnJvcklkIjoiIiwiZXJyb3JNZXNzYWdlIjoiIn0sIm1ldGFkYXRhIjp7fSwic3RhdHMiOlt7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLm5vZGVqcy5ydW50aW1lIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMC4wIiwidG90YWxEdXJhdGlvbk1zIjozMzg5LCJ1c2VyRHVyYXRpb25NcyI6MH0seyJidWlsZHBhY2tJZCI6Imdvb2dsZS5ub2RlanMubnBtIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjEuMS4xIiwidG90YWxEdXJhdGlvbk1zIjoxMTk1MCwidXNlckR1cmF0aW9uTXMiOjExNzgyfSx7ImJ1aWxkcGFja0lkIjoiZ29vZ2xlLnV0aWxzLmxhYmVsLWltYWdlIiwiYnVpbGRwYWNrVmVyc2lvbiI6IjAuMC4yIiwidG90YWxEdXJhdGlvbk1zIjowLCJ1c2VyRHVyYXRpb25NcyI6MH1dLCJ3YXJuaW5ncyI6WyIqKiogSW1wcm92ZSBidWlsZCBwZXJmb3JtYW5jZSBieSBnZW5lcmF0aW5nIGFuZCBjb21taXR0aW5nIHBhY2thZ2UtbG9jay5qc29uLiJdLCJjdXN0b21JbWFnZSI6ZmFsc2V9",
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-mcp/versions/sha256:78c344ff1d4b1a478994cdfe621c9b9da13e2717e914d6465bd7cb4491c44622",
+          "digest": "sha256:78c344ff1d4b1a478994cdfe621c9b9da13e2717e914d6465bd7cb4491c44622",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp",
+          "pushTiming": {
+            "endTime": "2026-02-05T18:48:39.641799805Z",
+            "startTime": "2026-02-05T18:48:38.419323238Z"
+          }
+        },
+        {
+          "artifactRegistryPackage": "projects/situationroom-ai-20260112/locations/us-central1/repositories/cloud-run-source-deploy/packages/situation-room-mcp/versions/sha256:78c344ff1d4b1a478994cdfe621c9b9da13e2717e914d6465bd7cb4491c44622",
+          "digest": "sha256:78c344ff1d4b1a478994cdfe621c9b9da13e2717e914d6465bd7cb4491c44622",
+          "name": "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "pushTiming": {
+            "endTime": "2026-02-05T18:48:39.641799805Z",
+            "startTime": "2026-02-05T18:48:38.419323238Z"
+          }
+        }
+      ]
+    },
+    "serviceAccount": "projects/situationroom-ai-20260112/serviceAccounts/382918878290-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770317255225090",
+        "object": "services/situation-room-mcp/1770317255.140523-a723d4073fd54720996bc5c2335423c2.zip"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770317255.140523-a723d4073fd54720996bc5c2335423c2.zip#1770317255225090": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "2UabABECxjKh7Tj1iVqkOA=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "run-sources-situationroom-ai-20260112-us-central1",
+        "generation": "1770317255225090",
+        "object": "services/situation-room-mcp/1770317255.140523-a723d4073fd54720996bc5c2335423c2.zip"
+      }
+    },
+    "startTime": "2026-02-05T18:47:36.174317744Z",
+    "status": "SUCCESS",
+    "steps": [
+      {
+        "args": [
+          "--phase=pre",
+          "--app_image_unique=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--app_image_stable=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "--env_var_names=BUILDER_OUTPUT,GOOGLE_LABEL_BUILDER_VERSION,GOOGLE_LABEL_BUILDER_IMAGE,GOOGLE_LABEL_RUN_IMAGE,GOOGLE_LABEL_SOURCE,GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS,GOOGLE_RUNTIME_IMAGE_REGION,GOOGLE_BUILD_ENV,GOOGLE_BUILD_UNIVERSE,X_GOOGLE_SET_NODE_HEAP_SIZE,GOOGLE_LABEL_BUILD_ID,GOOGLE_LABEL_BASE_IMAGE",
+          "--experimental_skip_retag_cache"
+        ],
+        "env": [
+          "GOOGLE_LABEL_BUILDER_VERSION=universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_BUILDER_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+          "GOOGLE_LABEL_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+          "GOOGLE_LABEL_SOURCE=gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770317255.140523-a723d4073fd54720996bc5c2335423c2.zip#1770317255225090",
+          "GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS=true",
+          "GOOGLE_RUNTIME_IMAGE_REGION=us-central1",
+          "GOOGLE_BUILD_ENV=prod",
+          "GOOGLE_BUILD_UNIVERSE=gdu",
+          "X_GOOGLE_SET_NODE_HEAP_SIZE=true",
+          "GOOGLE_LABEL_BUILD_ID=e3075450-d5ee-42cc-94a6-608ad1ed37ed",
+          "GOOGLE_LABEL_BASE_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "pre-buildpack",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/utilities/buildpack-shim:base_20251219_18_04_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-05T18:47:43.232399178Z",
+          "startTime": "2026-02-05T18:47:41.968609446Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T18:47:44.157849941Z",
+          "startTime": "2026-02-05T18:47:41.968609446Z"
+        }
+      },
+      {
+        "args": [
+          "--tag=us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest",
+          "us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest"
+        ],
+        "entrypoint": "/cnb/lifecycle/creator",
+        "env": [
+          "CNB_RUN_IMAGE=us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next"
+        ],
+        "id": "build",
+        "name": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+        "pullTiming": {
+          "endTime": "2026-02-05T18:48:02.668472149Z",
+          "startTime": "2026-02-05T18:47:44.157981836Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T18:48:26.540585440Z",
+          "startTime": "2026-02-05T18:47:44.157981836Z"
+        }
+      },
+      {
+        "args": [
+          "-c",
+          "text=\"$(cat /workspace/report.toml)\"\napp=\"us-central1-docker.pkg.dev/situationroom-ai-20260112/cloud-run-source-deploy/situation-room-mcp:latest\"\nregex=\"digest\\s*=\\s*\\\"([^\\\"]+)\\\"\"\nif [[ \"$text\" =~ $regex ]]\nthen\n\tdigest=\"@${BASH_REMATCH[1]}\"\n\tdigestImage=\"${app/:latest/$digest}\"\n\tdocker pull $digestImage\n\tdocker tag $digestImage $app\nelse\n\techo \"failed to detect image digest\"\n\texit 1\nfi"
+        ],
+        "entrypoint": "bash",
+        "id": "post-buildpack",
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-02-05T18:48:26.549465728Z",
+          "startTime": "2026-02-05T18:48:26.540683875Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-05T18:48:38.381410217Z",
+          "startTime": "2026-02-05T18:48:26.540683875Z"
+        }
+      }
+    ],
+    "substitutions": {
+      "_GOOGLE_BUILD_ENV": "prod",
+      "_GOOGLE_BUILD_UNIVERSE": "gdu",
+      "_GOOGLE_LABEL_BASE_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_BUILDER_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/builder/universal:universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_BUILDER_VERSION": "universal_builder_20260125_RC00",
+      "_GOOGLE_LABEL_RUN_IMAGE": "us-central1-docker.pkg.dev/serverless-runtimes/google-22/run/universal:public-image-next",
+      "_GOOGLE_LABEL_SOURCE": "gs://run-sources-situationroom-ai-20260112-us-central1/services/situation-room-mcp/1770317255.140523-a723d4073fd54720996bc5c2335423c2.zip#1770317255225090",
+      "_GOOGLE_RUNTIME_IMAGE_REGION": "us-central1",
+      "_GOOGLE_USE_SERVERLESS_RUNTIMES_TARBALLS": "true",
+      "_X_GOOGLE_SET_NODE_HEAP_SIZE": "true"
+    },
+    "tags": [
+      "p-run",
+      "r-buildpacks",
+      "b-universal_builder_20260125_RC00",
+      "bt-LIFECYCLE",
+      "service_situation-room-mcp"
+    ],
+    "timeout": "1800s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-05T18:48:38.419217227Z",
+        "startTime": "2026-02-05T18:47:41.306736786Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-05T18:47:41.305613057Z",
+        "startTime": "2026-02-05T18:47:38.248380333Z"
+      },
+      "PUSH": {
+        "endTime": "2026-02-05T18:48:39.644187656Z",
+        "startTime": "2026-02-05T18:48:38.419308168Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-05T18:47:41.305613057Z",
+        "startTime": "2026-02-05T18:47:38.248380333Z"
+      }
+    }
+  }
+]
