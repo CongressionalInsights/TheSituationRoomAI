@@ -121,6 +121,13 @@ jobs:
           ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
           ACLED_PROXY: "${ACLED_PROXY}"
           EOF
+          SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest"
+          OPENSTATES_VERSION=$(gcloud secrets versions list openstates-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
+          if [ -n "$OPENSTATES_VERSION" ]; then
+            SECRET_BINDINGS="${SECRET_BINDINGS},OPENSTATES=openstates-key:latest"
+          else
+            echo "OPENSTATES not configured (no enabled versions); deploying MCP proxy without OPENSTATES."
+          fi
 
           set +e
           gcloud run deploy "$SERVICE_NAME" \
@@ -128,7 +135,7 @@ jobs:
             --source gcp/mcp-proxy \
             --allow-unauthenticated \
             --min-instances 1 \
-            --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,OPENSTATES=openstates-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest \
+            --set-secrets "$SECRET_BINDINGS" \
             --env-vars-file /tmp/sr-mcp-env.yaml 2>&1 | tee "$DIAG_DIR/deploy-output.log"
           DEPLOY_EXIT=${PIPESTATUS[0]}
           set -e
