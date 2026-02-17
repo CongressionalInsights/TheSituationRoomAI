@@ -1119,14 +1119,15 @@
       "keyGroup": "openstates",
       "keyHeader": "X-API-KEY",
       "lockKeyHeader": true,
-      "url": "https://v3.openstates.org/bills?sort=updated_desc&per_page=50",
+      "url": "https://v3.openstates.org/bills?sort=updated_desc",
       "ttlMinutes": 120,
       "timeoutMs": 20000,
       "supportsParams": true,
       "paramStrategy": "openstates-jurisdiction",
       "defaultParams": {
-        "jurisdiction": "",
-        "classification": ""
+        "jurisdiction": "ocd-jurisdiction/country:us/government",
+        "classification": "",
+        "per_page": 20
       },
       "jurisdictionLevel": "state",
       "capabilities": [
