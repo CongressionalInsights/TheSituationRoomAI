@@ -14,6 +14,7 @@ DATA_GOV="your_data_gov_key" \
 EIA="your_eia_key" \
 NASA_FIRMS="your_nasa_firms_key" \
 OPEN_AQ="your_openaq_key" \
+OPENSTATES="your_openstates_key" \
 node server.mjs
 ```
 Then open `http://localhost:5173`.
@@ -75,6 +76,7 @@ GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snap
   - `EIA`
   - `NASA_FIRMS`
   - `OPEN_AQ`
+  - `OPENSTATES` (required for state legislation feeds)
   - `EARTHDATA_NASA` (optional, only needed if you add Earthdata‑protected feeds)
   - `OPEN_AI` (optional, enables build-time AI briefing cache)
   - `analysis.json` is generated at build time if `OPEN_AI` is set.
@@ -153,6 +155,7 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
   - `EIA`
   - `NASA_FIRMS`
   - `OPEN_AQ`
+  - `OPENSTATES`
   - `EARTHDATA_NASA`
 
 ## OpenSky proxy (Cloud Run on GCP)
@@ -190,6 +193,7 @@ as `window.SR_CONFIG.apiBase` on `*.github.io`.
   - `EIA`
   - `NASA_FIRMS`
   - `OPEN_AQ`
+  - `OPENSTATES`
   - `EARTHDATA_NASA`
 - The workflow writes secrets into GCP Secret Manager and deploys the Cloud Run service.
 
@@ -206,6 +210,7 @@ If you later add a full runtime backend, you can disable static mode and point t
 ## Troubleshooting
 - "Feed API unreachable" → static cache failed to build; check the GitHub Actions logs.
 - Energy map says the server key is missing → ensure `EIA` is set in repo secrets.
+- State legislation requests fail with `missing_server_key`/`HTTP 403` → ensure `OPENSTATES` is set in repo secrets and redeploy Feed + MCP proxies.
 - Chat errors → AI chat is unavailable in static mode without a proxy.
 
 ## Geo enrichment

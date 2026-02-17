@@ -835,6 +835,12 @@ async function fetchRaw(feed, options) {
 
   const startedAt = Date.now();
   const key = options.key || resolveServerKey(feed);
+  if (feed.requiresKey && !key) {
+    return {
+      error: feed.keySource === 'server' ? 'missing_server_key' : 'requires_key',
+      message: feed.keySource === 'server' ? 'Server API key required for this feed.' : 'API key required for this feed.'
+    };
+  }
   const url = buildFeedUrl(feed, { ...options, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
   const primaryProxy = feed.proxy || options.proxy || null;
