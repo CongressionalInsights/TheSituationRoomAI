@@ -7,6 +7,15 @@ import { initSearchUI } from './modules/search.js';
 import { initPanelScroll, initListAutoSizing } from './modules/panels.js';
 import { initSettingsUI } from './modules/settings.js';
 import { createFeedManager } from './modules/feeds.js';
+import {
+  applyStateSignalFilter as applyStateSignalFilterBySelection,
+  buildStateFeedRequestParams as buildStateFeedRequestParamsForSelection,
+  getStateNameByCode,
+  getStateSignalFilterCode,
+  getStateSignalFilterName,
+  normalizeJurisdictionCode,
+  renderStateSignalFilterOptions
+} from './modules/state-signals.js';
 
 const LAYOUT_VERSION = 4;
 const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
@@ -78,6 +87,7 @@ const DEFAULT_SETTINGS = {
   scope: 'global',
   country: 'US',
   countryAuto: true,
+  stateSignalFilter: 'ALL',
   aiTranslate: true,
   superMonitor: false,
   showStatus: true,
@@ -174,6 +184,8 @@ function normalizeSettings(parsed = {}) {
   if (typeof merged.countryAuto !== 'boolean') {
     merged.countryAuto = defaults.countryAuto;
   }
+  const stateFilter = normalizeJurisdictionCode(merged.stateSignalFilter);
+  merged.stateSignalFilter = stateFilter || 'ALL';
 
   return merged;
 }
@@ -200,6 +212,7 @@ const state = {
   lastSearchQuery: '',
   lastSearchScope: 'all',
   lastSearchCategories: [],
+  lastSearchState: 'ALL',
   translationCache: {},
   translationInFlight: new Set(),
   congressAmendmentCache: new Map(),
@@ -399,6 +412,7 @@ const elements = {
   searchInput: document.getElementById('searchInput'),
   searchBtn: document.getElementById('searchBtn'),
   searchHint: document.getElementById('searchHint'),
+  stateSignalFilter: document.getElementById('stateSignalFilter'),
   liveSearchToggle: document.getElementById('liveSearchToggle'),
   scopeToggle: document.getElementById('scopeToggle'),
   countrySelect: document.getElementById('countrySelect'),
@@ -620,7 +634,8 @@ const DOCS_CONFIG = [
 const DOCS_MAP = Object.fromEntries(DOCS_CONFIG.map((entry) => [entry.id, entry.url]));
 const KEY_GROUP_CONFIG = [
   { id: 'api.data.gov', label: 'Data.gov (FOIA + GovInfo)' },
-  { id: 'eia', label: 'EIA (Energy)' }
+  { id: 'eia', label: 'EIA (Energy)' },
+  { id: 'openstates', label: 'OpenStates (State Legislation)' }
 ];
 const KEY_GROUP_LABELS = Object.fromEntries(KEY_GROUP_CONFIG.map((group) => [group.id, group.label]));
 const PANEL_KEY_FILTER_CONFIG = [
@@ -1041,6 +1056,33 @@ const DATA_ATTRIBUTIONS = [
     notes: 'Bills, nominations, hearings, treaties, and record.'
   },
   {
+    id: 'openstates',
+    name: 'OpenStates',
+    short: 'State legislation',
+    url: 'https://openstates.org',
+    attribution: 'Source: OpenStates by Plural. Credit OpenStates/Plural for legislative data.',
+    termsUrl: 'https://docs.openstates.org/api-v3/',
+    notes: 'Multi-state legislative data (bills, actions, committees).'
+  },
+  {
+    id: 'state-open-data',
+    name: 'State Open Data Portals',
+    short: 'State rulemaking + EO',
+    url: 'https://s3-us-gov-west-1.amazonaws.com/cg-0817d6e3-93c4-4de8-8b32-da6919464e61/open_data_us.csv',
+    attribution: 'Source: official state government websites and state open data portals. Credit each state source when displayed.',
+    termsUrl: 'https://data.gov/open-gov/',
+    notes: 'State-level rulemaking and executive-order connectors are sourced from official state portals.'
+  },
+  {
+    id: 'follow-the-money',
+    name: 'FollowTheMoney',
+    short: 'State-level reference',
+    url: 'https://www.followthemoney.org',
+    attribution: 'Reference source for state-level public-data API landscape and money-in-politics context.',
+    termsUrl: 'https://www.followthemoney.org/research/institute-reports/apis-for-state-level-data',
+    notes: 'Used as a source reference for state-level data coverage planning.'
+  },
+  {
     id: 'fda',
     name: 'FDA MedWatch',
     short: 'Health alerts',
@@ -1357,6 +1399,22 @@ function getSelectedCountry() {
 
 function normalizeText(value) {
   return (value || '').toString().toLowerCase();
+}
+
+function getSelectedStateSignalFilter() {
+  return getStateSignalFilterCode(state.settings.stateSignalFilter);
+}
+
+function getSelectedStateSignalName() {
+  return getStateSignalFilterName(getSelectedStateSignalFilter());
+}
+
+function applyStateSignalFilter(items, { includeFederal = true } = {}) {
+  return applyStateSignalFilterBySelection(items, getSelectedStateSignalFilter(), { includeFederal });
+}
+
+function updateStateSignalFilterOptions() {
+  renderStateSignalFilterOptions(elements.stateSignalFilter, getSelectedStateSignalFilter());
 }
 
 function sampleByStep(list, max) {
@@ -2585,6 +2643,7 @@ function buildFeedOptions() {
   });
 
   updateCategoryFilters();
+  updateStateSignalFilterOptions();
 }
 
 function updateCategoryFilters() {
@@ -4268,6 +4327,108 @@ function parseCsvRows(text) {
   return rows;
 }
 
+function extractJurisdictionCode(entry) {
+  const candidates = [
+    entry?.jurisdictionCode,
+    entry?.state,
+    entry?.stateCode,
+    entry?.state_code,
+    entry?.jurisdiction?.id,
+    entry?.jurisdiction?.name,
+    entry?.from_organization?.id,
+    entry?.organization?.id
+  ];
+  for (const value of candidates) {
+    const normalized = normalizeJurisdictionCode(value);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function extractJurisdictionName(entry, code) {
+  const candidates = [
+    entry?.jurisdictionName,
+    entry?.stateName,
+    entry?.state_name,
+    entry?.jurisdiction?.name,
+    entry?.from_organization?.name
+  ];
+  for (const value of candidates) {
+    if (value) return String(value).trim();
+  }
+  if (code) return getStateNameByCode(code);
+  return '';
+}
+
+function parseStateGovernmentItems(data, feed, signalType) {
+  const list = Array.isArray(data?.results)
+    ? data.results
+    : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.bills)
+        ? data.bills
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+  return list.slice(0, 100).map((entry) => {
+    const jurisdictionCode = extractJurisdictionCode(entry);
+    const jurisdictionName = extractJurisdictionName(entry, jurisdictionCode);
+    const title = entry.title
+      || entry.identifier
+      || entry.name
+      || `${jurisdictionName || jurisdictionCode || 'State'} ${signalType || 'Signal'}`;
+    const url = entry.openstates_url || entry.url || entry.link || entry.permalink || '';
+    const summary = entry.latest_action_description
+      || entry.abstract
+      || entry.description
+      || entry.summary
+      || '';
+    const published = entry.updated_at
+      || entry.latest_action_date
+      || entry.latest_action_at
+      || entry.first_action_date
+      || entry.publishedAt
+      || entry.date
+      || entry.created_at;
+    const docId = entry.id || entry.identifier || entry.docId || '';
+    const status = entry.latest_action_description || entry.status || '';
+    const agency = entry.from_organization?.name || entry.organization?.name || entry.agency || '';
+    const effectiveDate = entry.effective_date || entry.latest_action_date || '';
+    const parsedPublished = published ? Date.parse(published) : Date.now();
+    const rawTags = Array.isArray(entry.classification)
+      ? entry.classification
+      : Array.isArray(entry.tags)
+        ? entry.tags
+        : (entry.classification ? [entry.classification] : []);
+    const tags = ['us', 'gov', 'state', signalType, ...(feed.tags || []), ...rawTags]
+      .map((tag) => String(tag || '').trim().toLowerCase())
+      .filter(Boolean);
+    const dedupedTags = Array.from(new Set(tags));
+
+    return {
+      title,
+      url,
+      summary,
+      publishedAt: Number.isNaN(parsedPublished) ? Date.now() : parsedPublished,
+      source: entry.source || feed.name,
+      category: feed.category,
+      jurisdictionLevel: 'state',
+      jurisdictionCode,
+      jurisdictionName,
+      signalType,
+      docId: String(docId || ''),
+      status,
+      agency,
+      effectiveDate,
+      tags: dedupedTags
+    };
+  }).filter((item) => item.title);
+}
+
+const parseStateLegislation = (data, feed) => parseStateGovernmentItems(data, feed, 'legislation');
+const parseStateRulemaking = (data, feed) => parseStateGovernmentItems(data, feed, 'rulemaking');
+const parseStateExecutiveOrders = (data, feed) => parseStateGovernmentItems(data, feed, 'executive_order');
+
 const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => {
   const publishedAt = doc.publication_date ? Date.parse(doc.publication_date) : Date.now();
   const commentsClose = doc.comments_close_on || null;
@@ -5127,6 +5288,9 @@ const feedParsers = {
   })),
   'gdelt-conflict-geo': parseGdeltConflictGeo,
   'ucdp-candidate-events': parseUcdpCandidateEvents,
+  'state-legislation': parseStateLegislation,
+  'state-rulemaking': parseStateRulemaking,
+  'state-executive-orders': parseStateExecutiveOrders,
   'federal-register': parseFederalRegister,
   'federal-register-transport': parseFederalRegister,
   'govinfo-api': parseGovinfoCollectionUpdate,
@@ -6424,23 +6588,38 @@ async function geocodeItems(items, maxItems = 60) {
   return updated;
 }
 
-async function fetchFeed(feed, query, force = false) {
+function buildStateFeedRequestParams(feed) {
+  return buildStateFeedRequestParamsForSelection(feed, getSelectedStateSignalFilter());
+}
+
+async function fetchFeed(feed, query, force = false, requestParams = {}) {
   if (feed.isCustom) {
     return fetchCustomFeedDirect(feed, query);
   }
   if (feed.id === 'gpsjam') {
     return fetchGpsJamFeed(feed, force);
   }
-  const params = new URLSearchParams();
+  const queryParams = new URLSearchParams();
+  const feedParams = {
+    ...buildStateFeedRequestParams(feed),
+    ...(requestParams && typeof requestParams === 'object' ? requestParams : {})
+  };
+  const hasFeedParams = Object.keys(feedParams).some((key) => feedParams[key] !== undefined && feedParams[key] !== null && String(feedParams[key]) !== '');
   const keyConfig = getKeyConfig(feed);
   try {
     let payload;
     let res;
     if (isStaticMode()) {
-      params.set('id', feed.id);
-      if (query) params.set('query', query);
-      if (force) params.set('force', '1');
-      res = await apiFetch(`/api/feed?${params.toString()}`);
+      queryParams.set('id', feed.id);
+      if (query) queryParams.set('query', query);
+      if (force) queryParams.set('force', '1');
+      if (hasFeedParams) {
+        Object.entries(feedParams).forEach(([key, value]) => {
+          if (value === undefined || value === null || value === '') return;
+          queryParams.set(`param.${key}`, String(value));
+        });
+      }
+      res = await apiFetch(`/api/feed?${queryParams.toString()}`);
       payload = await res.json();
     } else {
       res = await apiFetch('/api/feed', {
@@ -6452,7 +6631,8 @@ async function fetchFeed(feed, query, force = false) {
           force: Boolean(force),
           key: keyConfig.key || undefined,
           keyParam: keyConfig.keyParam || undefined,
-          keyHeader: keyConfig.keyHeader || undefined
+          keyHeader: keyConfig.keyHeader || undefined,
+          params: hasFeedParams ? feedParams : undefined
         })
       });
       payload = await res.json();
@@ -6461,7 +6641,12 @@ async function fetchFeed(feed, query, force = false) {
     const error = payload.error || (httpStatus >= 400 ? `http_${httpStatus}` : null);
     const errorMessage = payload.message || (httpStatus >= 400 ? `HTTP ${httpStatus}` : null);
     const items = error ? [] : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
-    const enriched = items.map((item) => ({ ...item, tags: feed.tags || [], feedId: feed.id, feedName: feed.name }));
+    const enriched = items.map((item) => ({
+      ...item,
+      tags: Array.from(new Set([...(feed.tags || []), ...((Array.isArray(item.tags) ? item.tags : []))])),
+      feedId: feed.id,
+      feedName: feed.name
+    }));
     return {
       feed,
       items: enriched,
@@ -6722,7 +6907,12 @@ async function fetchCustomFeedDirect(feed, query) {
         // eslint-disable-next-line no-await-in-loop
         const body = await response.text();
         const items = feed.format === 'rss' ? parseRss(body, feed) : parseJson(body, feed);
-        const enriched = items.map((item) => ({ ...item, tags: feed.tags || [], feedId: feed.id, feedName: feed.name }));
+        const enriched = items.map((item) => ({
+          ...item,
+          tags: Array.from(new Set([...(feed.tags || []), ...((Array.isArray(item.tags) ? item.tags : []))])),
+          feedId: feed.id,
+          feedName: feed.name
+        }));
         return {
           feed,
           items: enriched,
@@ -6739,7 +6929,12 @@ async function fetchCustomFeedDirect(feed, query) {
     const items = lastResponse && lastResponse.ok
       ? (feed.format === 'rss' ? parseRss(body, feed) : parseJson(body, feed))
       : [];
-    const enriched = items.map((item) => ({ ...item, tags: feed.tags || [], feedId: feed.id, feedName: feed.name }));
+    const enriched = items.map((item) => ({
+      ...item,
+      tags: Array.from(new Set([...(feed.tags || []), ...((Array.isArray(item.tags) ? item.tags : []))])),
+      feedId: feed.id,
+      feedName: feed.name
+    }));
     return {
       feed,
       items: enriched,
@@ -8072,6 +8267,17 @@ function buildChatContext() {
     publishedAt: item.publishedAt,
     url: item.externalUrl || item.url
   }));
+  const stateGovSignals = applyStateSignalFilter(
+    state.scopedItems.filter((item) => (item.category || '').toLowerCase() === 'gov' && (item.jurisdictionLevel || '').toLowerCase() === 'state'),
+    { includeFederal: false }
+  );
+  const stateSignalBuckets = stateGovSignals.reduce((acc, item) => {
+    const key = item.signalType || 'other';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const selectedStateCode = getSelectedStateSignalFilter();
+  const selectedStateName = getSelectedStateSignalName();
 
   return {
     generatedAt: new Date().toISOString(),
@@ -8090,10 +8296,25 @@ function buildChatContext() {
       congressItems: congressItems.length
     },
     congressSignals: congressSample,
+    stateSignals: {
+      selectedStateCode,
+      selectedStateName,
+      total: stateGovSignals.length,
+      bySignalType: stateSignalBuckets,
+      sample: stateGovSignals.slice(0, 6).map((item) => ({
+        title: item.title,
+        signalType: item.signalType || null,
+        jurisdictionCode: item.jurisdictionCode || null,
+        jurisdictionName: item.jurisdictionName || null,
+        publishedAt: item.publishedAt || null,
+        url: item.externalUrl || item.url || null
+      }))
+    },
     searchContext: {
       query: state.lastSearchQuery || null,
       scope: state.lastSearchScope,
-      categories: state.lastSearchCategories
+      categories: state.lastSearchCategories,
+      state: state.lastSearchState || selectedStateCode
     },
     themes: getTopThemes(5),
     focusCluster: focusCluster ? {
@@ -8653,6 +8874,9 @@ function getCategoryItems(category) {
   }
   if (category === 'security') {
     items = dedupeConflictItems(items);
+  }
+  if (category === 'gov') {
+    items = applyStateSignalFilter(items, { includeFederal: false });
   }
   return { items, mapOnlyNotice: false };
 }
@@ -12870,6 +13094,18 @@ function initEvents() {
       if (searchController?.handleSearch) {
         searchController.handleSearch();
       }
+    });
+  }
+  if (elements.stateSignalFilter) {
+    elements.stateSignalFilter.addEventListener('change', () => {
+      const selected = normalizeJurisdictionCode(elements.stateSignalFilter.value) || 'ALL';
+      state.settings.stateSignalFilter = selected;
+      state.lastSearchState = selected;
+      saveSettings();
+      renderCategory('gov', elements.policyList);
+      renderSignals();
+      updateSearchHint();
+      refreshAll(true).catch(() => {});
     });
   }
   if (elements.financeTabs) {

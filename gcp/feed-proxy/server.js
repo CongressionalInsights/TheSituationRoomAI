@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { gunzipSync } from 'zlib';
+import { mergeFeedParams, sanitizeParamsObject } from './state-signals.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -139,6 +140,7 @@ function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
   if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
   if (feed.keyGroup === 'eia') return process.env.EIA;
+  if (feed.keyGroup === 'openstates') return process.env.OPENSTATES;
   if (feed.keyGroup === 'earthdata') return process.env.EARTHDATA_NASA;
   if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
   if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
@@ -426,6 +428,23 @@ function buildUrl(template, params = {}) {
   return url;
 }
 
+function serializeParams(params = {}) {
+  return Object.entries(params)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+}
+
+function applyUrlParams(url, params = {}) {
+  if (!params || !Object.keys(params).length) return url;
+  const parsed = new URL(url);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    parsed.searchParams.set(key, String(value));
+  });
+  return parsed.toString();
+}
+
 function applyKey(url, feed, key, keyParam, keyHeader) {
   if (!key) return { url, headers: {} };
   const header = keyHeader || feed.keyHeader;
@@ -586,8 +605,9 @@ function buildAcledProxyUrl(feed) {
   return `${base}/${endpoint}?${params.toString()}`;
 }
 
-async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader } = {}) {
-  const cacheKey = `${feed.id}:${query || ''}`;
+async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
+  const mergedParams = mergeFeedParams(feed, params);
+  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const timeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
   const cached = cache.get(cacheKey);
@@ -621,6 +641,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader 
 
   const finalQuery = feed.supportsQuery ? (query || feed.defaultQuery || '') : undefined;
   let url = feed.supportsQuery ? buildUrl(feed.url, { query: finalQuery }) : buildUrl(feed.url, {});
+  url = applyUrlParams(url, mergedParams);
   const isEiaSeries = feed.id === 'energy-eia'
     || feed.id === 'energy-eia-brent'
     || feed.id === 'energy-eia-ng';
@@ -1443,12 +1464,23 @@ const server = http.createServer(async (req, res) => {
     const key = body.key || url.searchParams.get('key') || undefined;
     const keyParam = body.keyParam || url.searchParams.get('keyParam') || undefined;
     const keyHeader = body.keyHeader || url.searchParams.get('keyHeader') || undefined;
+    const paramsFromQuery = {};
+    url.searchParams.forEach((value, queryKey) => {
+      if (!queryKey.startsWith('param.')) return;
+      const rawKey = queryKey.slice('param.'.length).trim();
+      if (!rawKey) return;
+      paramsFromQuery[rawKey] = value;
+    });
+    const params = {
+      ...sanitizeParamsObject(paramsFromQuery),
+      ...sanitizeParamsObject(body.params)
+    };
     const feed = feedsConfig.feeds.find((f) => f.id === id);
     if (!feed) {
       return sendJson(res, 404, { error: 'unknown_feed', id }, origin);
     }
     try {
-      const payload = await fetchFeed(feed, { query, force, key, keyParam, keyHeader });
+      const payload = await fetchFeed(feed, { query, force, key, keyParam, keyHeader, params });
       console.log(JSON.stringify({
         event: 'feed_fetch',
         feedId: id,

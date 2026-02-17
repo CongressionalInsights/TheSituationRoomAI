@@ -7,6 +7,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject } from './state-signals.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -180,6 +181,7 @@ function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
   if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
   if (feed.keyGroup === 'eia') return process.env.EIA;
+  if (feed.keyGroup === 'openstates') return process.env.OPENSTATES;
   if (feed.keyGroup === 'earthdata') return process.env.EARTHDATA_NASA;
   if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
   if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
@@ -458,9 +460,12 @@ function buildFeedUrl(feed, options) {
     url = `${ACLED_PROXY}/${endpoint}`;
   }
 
-  if (options.params && typeof options.params === 'object') {
+  const mergedParams = feed.supportsParams
+    ? mergeFeedParams(feed, options.params)
+    : sanitizeParamsObject(options.params);
+  if (mergedParams && Object.keys(mergedParams).length) {
     const parsed = new URL(url);
-    Object.entries(options.params).forEach(([key, value]) => {
+    Object.entries(mergedParams).forEach(([key, value]) => {
       if (value === undefined || value === null || value === '') return;
       parsed.searchParams.set(key, String(value));
     });
@@ -554,6 +559,45 @@ function parseRss(text, feed) {
   return [];
 }
 
+function extractStateMetadata(entry, feed) {
+  const jurisdictionCode = normalizeJurisdictionCode(
+    entry.jurisdictionCode
+    || entry.state
+    || entry.stateCode
+    || entry.state_code
+    || entry.jurisdiction?.id
+    || entry.jurisdiction?.name
+    || entry.from_organization?.id
+    || entry.organization?.id
+  );
+  const jurisdictionName = entry.jurisdictionName
+    || entry.stateName
+    || entry.state_name
+    || entry.jurisdiction?.name
+    || entry.from_organization?.name
+    || null;
+  const signalType = entry.signalType
+    || entry.type
+    || entry.documentType
+    || (Array.isArray(feed.capabilities) ? feed.capabilities[0] : null)
+    || null;
+  const docId = entry.docId || entry.id || entry.identifier || null;
+  const status = entry.status || entry.latest_action_description || null;
+  const agency = entry.agency || entry.from_organization?.name || entry.organization?.name || null;
+  const effectiveDate = entry.effectiveDate || entry.effective_date || entry.latest_action_date || null;
+  const level = entry.jurisdictionLevel || feed.jurisdictionLevel || null;
+  return {
+    jurisdictionLevel: level,
+    jurisdictionCode,
+    jurisdictionName,
+    signalType,
+    docId,
+    status,
+    agency,
+    effectiveDate
+  };
+}
+
 function parseGenericJsonFeed(data, feed) {
   const list = Array.isArray(data?.items)
     ? data.items
@@ -599,6 +643,8 @@ function parseGenericJsonFeed(data, feed) {
     const summary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || '');
     const published = entry.publishedAt || entry.pubDate || entry.date || entry.updatedAt || entry.updated;
     const geo = entry.geo || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null);
+    const stateMeta = extractStateMetadata(entry, feed);
+    const hasStateMeta = Object.values(stateMeta).some((value) => value !== null && value !== '');
     return {
       title,
       url,
@@ -606,7 +652,8 @@ function parseGenericJsonFeed(data, feed) {
       publishedAt: published ? Date.parse(published) : Date.now(),
       source: entry.source || feed.name,
       category: feed.category,
-      geo
+      geo,
+      ...(hasStateMeta ? stateMeta : {})
     };
   });
 }
@@ -643,7 +690,7 @@ function classifyQuery(query = '') {
   const categories = new Set();
   const tags = new Set();
 
-  if (includesAny(lowered, ['congress', 'senate', 'house', 'bill', 'amendment', 'nomination', 'hearing', 'treaty', 'federal register', 'executive order', 'regulation'])) {
+  if (includesAny(lowered, ['congress', 'senate', 'house', 'bill', 'amendment', 'nomination', 'hearing', 'treaty', 'federal register', 'executive order', 'regulation', 'state legislature', 'state bill', 'state register', 'governor'])) {
     categories.add('gov');
     tags.add('congress');
   }
@@ -733,6 +780,9 @@ function createItemId(item) {
 }
 
 async function fetchRaw(feed, options) {
+  if (feed?.requiresConfig && !feed?.url) {
+    return { error: 'config_required', message: 'Feed requires configuration and has no url.' };
+  }
   if (!feed?.url) {
     return { error: 'missing_url', message: 'Feed url missing.' };
   }
@@ -1190,10 +1240,15 @@ server.registerTool(
       category: feed.category,
       format: feed.format,
       supportsQuery: Boolean(feed.supportsQuery),
+      supportsParams: Boolean(feed.supportsParams),
+      paramStrategy: feed.paramStrategy || null,
       requiresKey: Boolean(feed.requiresKey),
       docsUrl: feed.docsUrl || null,
       urlTemplate: feed.url || null,
-      tags: feed.tags || []
+      tags: feed.tags || [],
+      jurisdictionLevel: feed.jurisdictionLevel || null,
+      defaultParams: feed.defaultParams || null,
+      capabilities: feed.capabilities || []
     }));
     return {
       content: [{ type: 'text', text: `Sources: ${payload.length}` }],
@@ -1407,10 +1462,11 @@ server.registerTool(
     inputSchema: z.object({
       sourceId: z.string(),
       id: z.string(),
-      query: z.string().optional()
+      query: z.string().optional(),
+      params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional()
     })
   },
-  async ({ sourceId, id, query }) => {
+  async ({ sourceId, id, query, params }) => {
     const feed = feeds.find((entry) => entry.id === sourceId);
     if (!feed) {
       return {
@@ -1419,7 +1475,7 @@ server.registerTool(
       };
     }
 
-    const result = await fetchRaw(feed, { query });
+    const result = await fetchRaw(feed, { query, params });
     if (result.error) {
       return {
         content: [{ type: 'text', text: `Signal fetch failed: ${result.message || result.error}` }],
@@ -1463,12 +1519,13 @@ server.registerTool(
       sources: z.array(z.string()).optional(),
       start: z.string().optional(),
       end: z.string().optional(),
+      params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
       maxSources: z.number().optional(),
       perSourceLimit: z.number().optional(),
       totalLimit: z.number().optional()
     })
   },
-  async ({ query, categories, sources, start, end, maxSources, perSourceLimit, totalLimit }) => {
+  async ({ query, categories, sources, start, end, params, maxSources, perSourceLimit, totalLimit }) => {
     const selectedFeeds = selectSmartFeeds({ query, categories, sources, maxSources });
     const perLimit = Math.max(1, Number(perSourceLimit) || 25);
 
@@ -1479,7 +1536,7 @@ server.registerTool(
     for (const feed of selectedFeeds) {
       const translatedQuery = feed.supportsQuery ? translateQueryForFeed(feed, query || feed.defaultQuery || '') : undefined;
       // eslint-disable-next-line no-await-in-loop
-      const result = await fetchRaw(feed, { query: translatedQuery, start, end });
+      const result = await fetchRaw(feed, { query: translatedQuery, start, end, params });
       if (result.error) {
         sourcesChecked.push({
           sourceId: feed.id,

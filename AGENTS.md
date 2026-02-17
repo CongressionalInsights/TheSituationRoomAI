@@ -12,6 +12,10 @@
 - `node server.mjs` — run the local server at `http://localhost:5173`.
 - `curl http://localhost:5173/api/feeds` — verify the server is live and feeds load.
 - `curl "http://localhost:5173/api/feed?id=<feed-id>&force=1"` — force-refresh a single feed.
+- `node scripts/build_static_cache.mjs` — rebuild the static cache in `data/`.
+- `node scripts/build_frontend.mjs` — rebuild the versioned frontend bundle (matches `npm run build:frontend`).
+- `npm test` — run feed sync validation plus the Node test suite.
+- `npm run test:ui` — run Playwright UI tests.
 
 ## Coding Style & Naming Conventions
 - Use 2‑space indentation for JavaScript, HTML, and JSON.
@@ -21,12 +25,14 @@
 - Layout defaults, list defaults, and modal configs live in `public/app.js`. Update those constants first, then wire UI.
 
 ## Testing Guidelines
-- No automated test suite is configured.
+- Automated tests are limited; prioritize manual verification for UI changes.
+- Use `npm test` for feed sync + Node tests when touching feed registry logic or sync flows.
+- Use `npm run test:ui` for UI regressions that need browser coverage.
 - Validate changes by running the server and checking: map interactivity, feed health, and per‑panel “last updated” stamps.
 - For new feeds, confirm output in `/api/feed` and the in‑app Feed Health status.
 
 ## Commit & Pull Request Guidelines
-- No Git history is present; if you initialize Git, use short present‑tense messages (e.g., “Refine energy map legend”).
+- Use short present‑tense commit messages (e.g., “Refine energy map legend”).
 - PRs should include: summary, screenshots for UI work, and any new key requirements or feed IDs touched.
 
 ## Security & Configuration Notes
@@ -44,9 +50,11 @@
 
 ## Safe Change Checklist
 - Add feeds in `data/feeds.json`, then update `public/data/feeds.json` and the Cloud Run copies in `gcp/feed-proxy/feeds.json` and `gcp/mcp-proxy/feeds.json` so UI, search/briefings, and MCP stay aligned.
+- For state-level feeds, set `jurisdictionLevel`, `supportsParams`, `defaultParams`, `capabilities`, and `paramStrategy` so param behavior is declarative and consistent across UI/proxies/MCP.
 - Update panel list defaults and any map layer wiring in `public/app.js` (and the versioned bundle when needed).
 - Ensure AI context/search coverage includes the new feed category in `buildChatContext()` so briefings and search stay in sync.
 - Add or update attribution in the About modal’s “Where the data comes from” list, with required source wording and links.
+- Keep MCP parity when adding feed metadata: `catalog.sources`, `signals.list`, `signals.get`, and `search.smart` should accept or expose the same state-filter capabilities.
 - Keep panel IDs and list keys stable; they drive layout persistence and settings.
 - When adding map layers, also update legend groups and default toggles to avoid hidden layers.
 - If you change search behavior or add categories, update `state.lastSearch*` tracking and the AI context to reflect the new filters.
