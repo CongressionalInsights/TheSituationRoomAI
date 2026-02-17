@@ -36,6 +36,17 @@ Then open `http://localhost:5173`.
 
 ## Congress.gov summaries + detail validation
 - Congress.gov summaries are merged into bill items for the Congressional Insights list (summary text is stripped of HTML for readability).
+- As of February 17, 2026, the upstream `/committee-report` endpoint may ignore `sort=updateDate` ordering. Keep the current query but monitor sort health.
+- Operational sort check (if top 5 citations for `desc` and `asc` are identical, treat sorting as degraded upstream):
+```bash
+BASE=http://127.0.0.1:5173
+for SORT in 'updateDate+desc' 'updateDate+asc'; do
+  echo "sort=$SORT"
+  curl -sS --get "$BASE/api/congress-detail" \
+    --data-urlencode "url=https://api.congress.gov/v3/committee-report?format=json&limit=20&sort=$SORT" \
+    | jq -r '.reports[0:5][]?.citation'
+done
+```
 - Validate Congress detail endpoints locally:
 ```bash
 node server.mjs

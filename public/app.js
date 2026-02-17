@@ -4553,7 +4553,7 @@ const parseCongressList = (data, feed) => {
     return item.citation || formatCodeNumber(reportCode, reportNumber, prettyMap);
   };
   const voteTitle = (item) => {
-    const voteNumber = item.voteNumber || item.rollCall || item.number;
+    const voteNumber = item.voteNumber || item.rollCall || item.rollCallNumber || item.number;
     if (!voteNumber) return '';
     const session = item.session || item.sessionNumber;
     return session ? `Roll Call ${voteNumber} • Session ${session}` : `Roll Call ${voteNumber}`;
@@ -4602,7 +4602,7 @@ const parseCongressList = (data, feed) => {
   const buildHouseVoteUrl = (item) => {
     const congress = item.congress;
     const session = item.session || item.sessionNumber;
-    const voteNumber = item.voteNumber || item.rollCall || item.number;
+    const voteNumber = item.voteNumber || item.rollCall || item.rollCallNumber || item.number;
     if (congress && session && voteNumber) {
       return `https://www.congress.gov/roll-call-vote/${congress}th-congress/house-session-${session}/${voteNumber}`;
     }
@@ -4767,6 +4767,7 @@ const parseCongressList = (data, feed) => {
     || pickArray(data?.amendments)
     || pickArray(data?.committeeReports)
     || pickArray(data?.committeeReport)
+    || pickArray(data?.reports)
     || pickArray(data?.nominations)
     || pickArray(data?.treaties)
     || pickArray(data?.hearings)
@@ -4777,6 +4778,7 @@ const parseCongressList = (data, feed) => {
     || pickArray(data?.committeePrint)
     || pickArray(data?.houseVotes)
     || pickArray(data?.houseVote)
+    || pickArray(data?.houseRollCallVotes)
     || pickArray(data?.houseCommunications)
     || pickArray(data?.houseCommunication)
     || pickArray(data?.senateCommunications)
@@ -4794,6 +4796,7 @@ const parseCongressList = (data, feed) => {
       || item.amendmentNumber
       || item.reportNumber
       || item.voteNumber
+      || item.rollCallNumber
       || item.communicationNumber
       || item.jacketNumber
       || item.nominationNumber
@@ -4830,7 +4833,7 @@ const parseCongressList = (data, feed) => {
       || (item.type && item.type.includes('AMDT') ? 'Amendment' : '')
       || (item.type && item.type.includes('RPT') ? 'Committee Report' : '')
       || (item.citation && item.citation.startsWith('PN') ? 'Nomination' : '')
-      || (item.voteNumber || item.rollCall ? 'House Vote' : '')
+      || (item.voteNumber || item.rollCall || item.rollCallNumber ? 'House Vote' : '')
       || (item.committeeCode || item.systemCode || item.committee?.systemCode ? 'Committee' : '')
       || (item.printTitle || item.jacketNumber ? 'Committee Print' : '')
       || (item.meetingType || item.eventId ? 'Committee Meeting' : '')
@@ -4886,7 +4889,7 @@ const parseCongressList = (data, feed) => {
       } else if (derivedType === 'House Vote') {
         const question = item.question || item.voteQuestion || item.title || '';
         const result = item.result || item.voteResult || item.voteResultText || '';
-        const when = item.voteDate || item.actionDate || item.date;
+        const when = item.voteDate || item.startDate || item.actionDate || item.date || item.updateDate;
         summary = [question, result, when ? formatShortDate(when) : ''].filter(Boolean).join(' • ');
       } else if (derivedType === 'Committee') {
         const chamber = item.chamber || item.committeeChamber || '';
@@ -4986,7 +4989,7 @@ const parseCongressList = (data, feed) => {
     const billNumberValue = item.billNumber || item.bill?.number || (derivedType === 'Bill' ? item.number : '') || '';
     const amendmentTypeValue = derivedType === 'Amendment' ? (item.type || item.amendmentType || '') : '';
     const amendmentNumberValue = derivedType === 'Amendment' ? (item.number || item.amendmentNumber || '') : '';
-    const voteNumberValue = item.voteNumber || item.rollCall || (derivedType === 'House Vote' ? item.number : '');
+    const voteNumberValue = item.voteNumber || item.rollCall || item.rollCallNumber || (derivedType === 'House Vote' ? item.number : '');
     const voteSessionValue = item.session || item.sessionNumber || '';
     const committeeCodeValue = item.committeeCode || item.systemCode || item.committee?.systemCode || '';
     const committeeChamberValue = item.committeeChamber || item.chamber || item.committee?.chamber || '';

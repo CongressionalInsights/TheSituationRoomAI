@@ -59,3 +59,4 @@
 - When adding map layers, also update legend groups and default toggles to avoid hidden layers.
 - If you change search behavior or add categories, update `state.lastSearch*` tracking and the AI context to reflect the new filters.
 - When touching Congress.gov summaries or detail targets, run `node scripts/validate_congress_detail.mjs` (use `--base <deploy-url>` when validating Cloud Run) and review `analysis/congress/congress-detail-404.json`.
+- For Congress.gov committee reports, do not assume `sort=updateDate` is honored upstream. Compare top 5 citations for asc vs desc periodically; if they match, treat sorting as degraded and monitor until upstream fix lands.
