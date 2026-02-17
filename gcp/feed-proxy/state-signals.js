@@ -103,7 +103,7 @@ function applyStateCodeStrategy(feed, params) {
 
 function applyOpenStatesStrategy(params) {
   const stateCode = normalizeJurisdictionCode(params.state || params.jurisdictionCode || params.jurisdiction);
-  if (stateCode && !String(params.jurisdiction || '').includes('ocd-jurisdiction/')) {
+  if (stateCode) {
     params.jurisdiction = `ocd-jurisdiction/country:us/state:${stateCode.toLowerCase()}/government`;
   }
   delete params.state;
