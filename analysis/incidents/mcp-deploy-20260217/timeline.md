@@ -27,6 +27,10 @@
 | 2026-02-17T14:56:31Z | Deploy failed again with same top-level signature (`Build failed`). |
 | 2026-02-17T14:56:37Z | Diagnostics captured Cloud Build ID `93fd8f1c-4fc8-4d5f-bcd0-4a8a9898fc07` and log URL. |
 | 2026-02-17T14:57:xxZ | Cloud Build describe output decoded: buildpack runtime error shows Node `20.x` is unsupported in current builder. |
+| 2026-02-17T14:59:27Z | Post-fix verification run `22103468629` started (`node` engine updated to `22.x`). |
+| 2026-02-17T15:01:29Z | Run `22103468629` completed successfully (deploy + health check). |
+| 2026-02-17T15:02:08Z | Second verification run `22103564465` started for consecutive-success gate. |
+| 2026-02-17T15:04:30Z | Run `22103564465` completed successfully (deploy + health check). |
 
 ## Differential inputs reviewed
 
@@ -49,10 +53,16 @@
 - `github-run-22103142410.meta.json`
 - `github-run-22103309052.log`
 - `github-run-22103309052.meta.json`
+- `github-run-22103468629.log`
+- `github-run-22103468629.meta.json`
+- `github-run-22103564465.log`
+- `github-run-22103564465.meta.json`
 - `failure-signatures.txt`
 - `gcloud-access-check.txt`
 - `diagnostics-run-22103142410/`
 - `diagnostics-run-22103309052/`
+- `diagnostics-run-22103468629/`
+- `diagnostics-run-22103564465/`
 
 ## Notes
 

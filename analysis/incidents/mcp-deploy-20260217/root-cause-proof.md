@@ -20,3 +20,10 @@ Version constraint "20.x" not satisfied by any available versions in Artifact Re
 - The deployed builder image (`universal_builder_20260202_RC02`) currently provides Node 22/24 lines, not Node 20.
 - `gcp/mcp-proxy/package.json` declared `"engines": { "node": "20.x" }`, which deterministically fails build resolution.
 - Therefore the deploy failure is caused by runtime constraint incompatibility, not transient infra failure.
+
+## Fix verification
+
+- Runtime constraint updated to `22.x` and workflow preflight Node version aligned to `22`.
+- Two consecutive post-fix workflow-dispatch runs succeeded:
+  - `22103468629`
+  - `22103564465`

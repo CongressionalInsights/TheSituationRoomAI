@@ -1,0 +1,11 @@
+Building using Buildpacks and deploying container to Cloud Run service [situation-room-mcp] in project [situationroom-ai-20260112] region [us-central1]
+Building and deploying...
+Validating configuration.......done
+Uploading sources.........done
+Building Container............................................................................................................................................................................................................................................................................................................................................................................................................................................................................done
+Setting IAM Policy............done
+Creating Revision.................................................................................................................................done
+Routing traffic.....done
+Done.
+Service [situation-room-mcp] revision [situation-room-mcp-00048-7dj] has been deployed and is serving 100 percent of traffic.
+Service URL: https://situation-room-mcp-382918878290.us-central1.run.app

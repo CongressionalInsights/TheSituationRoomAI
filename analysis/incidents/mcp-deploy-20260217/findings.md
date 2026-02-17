@@ -20,6 +20,7 @@
     - Buildpack: `google.nodejs.runtime`
     - Error: `invalid Node.js version specified ... failed to resolve version matching: 20.x ... Version constraint "20.x" not satisfied by any available versions in Artifact Registry`
     - Available versions in builder: `22.x` and `24.x` lines only (no `20.x`)
+11. After changing MCP runtime to Node `22.x`, full deploy runs `22103468629` and `22103564465` both completed successfully with health checks passing.
 
 ## Root-cause status
 
@@ -48,6 +49,6 @@
 
 ## Closure gates
 
-- Confirm fixed branch deploy run succeeds (build, revision, health checks).
-- Achieve two consecutive successful `Deploy MCP Proxy (GCP)` runs on `main`.
-- Confirm MCP health checks pass post-deploy (`/health`, `/.well-known/mcp.json`).
+- Confirm fixed branch deploy run succeeds (build, revision, health checks). **Done** (`22103468629`).
+- Achieve two consecutive successful `Deploy MCP Proxy (GCP)` runs on `main`. **Pending merge to main**.
+- Confirm MCP health checks pass post-deploy (`/health`, `/.well-known/mcp.json`). **Done on branch deploy runs** (`22103468629`, `22103564465`).
