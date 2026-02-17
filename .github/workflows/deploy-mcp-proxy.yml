@@ -7,12 +7,55 @@ on:
     paths:
       - gcp/mcp-proxy/**
       - .github/workflows/deploy-mcp-proxy.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - gcp/mcp-proxy/**
+      - .github/workflows/deploy-mcp-proxy.yml
 
 permissions:
   contents: read
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync feed registry
+        run: node scripts/sync-feeds.mjs
+      - name: Verify MCP deploy source files
+        run: |
+          set -euo pipefail
+          required_files=(
+            "gcp/mcp-proxy/server.js"
+            "gcp/mcp-proxy/state-signals.js"
+            "gcp/mcp-proxy/feeds.json"
+            "gcp/mcp-proxy/package.json"
+            "gcp/mcp-proxy/package-lock.json"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Missing required deploy source file: $file"
+              exit 1
+            fi
+          done
+
+          find gcp/mcp-proxy -maxdepth 2 -type f | sort
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Dependency preflight
+        run: npm ci --prefix gcp/mcp-proxy
+      - name: Syntax preflight
+        run: |
+          set -euo pipefail
+          node --check gcp/mcp-proxy/server.js
+          node --check gcp/mcp-proxy/state-signals.js
+
   deploy:
+    if: github.event_name != 'pull_request'
+    needs: preflight
     runs-on: ubuntu-latest
     env:
       PROJECT_ID: situationroom-ai-20260112
@@ -64,19 +107,79 @@ jobs:
           if [ -n "$EARTHDATA_NASA" ]; then echo -n "$EARTHDATA_NASA" | gcloud secrets versions add earthdata-nasa-key --data-file=-; fi
           if [ -n "$SAMGOV_API_KEY" ]; then echo -n "$SAMGOV_API_KEY" | gcloud secrets versions add samgov-key --data-file=-; fi
       - name: Deploy MCP proxy service
+        id: deploy
         run: |
+          set -euo pipefail
+          DIAG_DIR=/tmp/mcp-diagnostics
+          mkdir -p "$DIAG_DIR"
           cat > /tmp/sr-mcp-env.yaml <<EOF
           ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
           ACLED_PROXY: "${ACLED_PROXY}"
           EOF
+
+          set +e
           gcloud run deploy "$SERVICE_NAME" \
             --region "$REGION" \
             --source gcp/mcp-proxy \
             --allow-unauthenticated \
             --min-instances 1 \
             --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest \
-            --env-vars-file /tmp/sr-mcp-env.yaml
+            --env-vars-file /tmp/sr-mcp-env.yaml 2>&1 | tee "$DIAG_DIR/deploy-output.log"
+          DEPLOY_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          echo "deploy_exit=${DEPLOY_EXIT}" >> "$GITHUB_OUTPUT"
+          if [ "$DEPLOY_EXIT" -eq 0 ]; then
+            echo "deploy_succeeded=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy_succeeded=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Collect Cloud Build diagnostics
+        if: always()
+        run: |
+          set +e
+          DIAG_DIR=/tmp/mcp-diagnostics
+          mkdir -p "$DIAG_DIR"
+
+          gcloud builds list \
+            --project "$PROJECT_ID" \
+            --sort-by=~createTime \
+            --limit=10 \
+            --format=json > "$DIAG_DIR/cloudbuild-latest.json" 2>&1
+
+          gcloud builds list \
+            --project "$PROJECT_ID" \
+            --sort-by=~createTime \
+            --limit=10 \
+            --format='table(id,status,createTime,finishTime,logUrl)' > "$DIAG_DIR/cloudbuild-latest.table.txt" 2>&1
+
+          BUILD_ID=$(gcloud builds list --project "$PROJECT_ID" --sort-by=~createTime --limit=1 --format='value(id)')
+          if [ -n "$BUILD_ID" ]; then
+            echo "Latest Cloud Build ID: $BUILD_ID" | tee "$DIAG_DIR/cloudbuild-summary.txt"
+            LOG_URL=$(gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --format='value(logUrl)')
+            if [ -n "$LOG_URL" ]; then
+              echo "Cloud Build log URL: $LOG_URL" | tee -a "$DIAG_DIR/cloudbuild-summary.txt"
+            fi
+            gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --format=json > "$DIAG_DIR/cloudbuild-${BUILD_ID}-describe.json" 2>&1
+            gcloud builds log "$BUILD_ID" --project "$PROJECT_ID" > "$DIAG_DIR/cloudbuild-${BUILD_ID}.log" 2>&1
+          else
+            echo "No Cloud Build ID found from gcloud builds list." | tee "$DIAG_DIR/cloudbuild-summary.txt"
+          fi
+          set -e
+      - name: Upload MCP deploy diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-deploy-diagnostics-${{ github.run_id }}
+          path: /tmp/mcp-diagnostics
+          if-no-files-found: warn
+      - name: Fail deploy job when deploy command fails
+        if: steps.deploy.outputs.deploy_succeeded != 'true'
+        run: |
+          echo "Deploy failed. Review the mcp-deploy-diagnostics artifact for Cloud Build IDs and logs."
+          exit 1
       - name: Health check MCP proxy
+        if: steps.deploy.outputs.deploy_succeeded == 'true'
         run: |
           set -euo pipefail
           SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
