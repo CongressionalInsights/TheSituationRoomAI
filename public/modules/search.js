@@ -1,3 +1,5 @@
+import { applyStateSignalFilter, getStateSignalFilterCode } from './state-signals.js';
+
 export function initSearchUI({ state, elements, helpers }) {
   if (!elements || !helpers) return { handleSearch: null };
   const {
@@ -27,6 +29,12 @@ export function initSearchUI({ state, elements, helpers }) {
     state.lastSearchQuery = query;
     state.lastSearchScope = scope;
     state.lastSearchCategories = [...state.searchCategories];
+    const selectedState = getStateSignalFilterCode(state.settings.stateSignalFilter);
+    const applyScopedStateFilter = (items, isGovContext = false) => (
+      applyStateSignalFilter(items, selectedState, { includeFederal: !isGovContext })
+    );
+
+    state.lastSearchState = selectedState;
 
     const originalLabel = elements.searchBtn?.textContent;
     if (elements.searchBtn) {
@@ -60,7 +68,8 @@ export function initSearchUI({ state, elements, helpers }) {
         const liveItems = await runLiveSearch(liveFeeds);
         const combined = [...filtered, ...liveItems];
         const freshFiltered = applySearchFilters(combined);
-        showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${selected.map((cat) => CATEGORY_LABELS[cat] || cat).join(', ')}`);
+        const scopedFiltered = applyScopedStateFilter(freshFiltered, selected.includes('gov'));
+        showSearchResults(scopedFiltered, `${scopedFiltered.length} matches in ${selected.map((cat) => CATEGORY_LABELS[cat] || cat).join(', ')}`);
         elements.searchHint.textContent = liveFeeds.length
           ? 'Showing cached + live search results.'
           : 'Showing multi-category search results.';
@@ -78,10 +87,11 @@ export function initSearchUI({ state, elements, helpers }) {
         const liveItems = await runLiveSearch(liveSearchFeeds);
         const combined = [...filtered, ...liveItems];
         const freshFiltered = applySearchFilters(combined);
-        showSearchResults(freshFiltered, `${freshFiltered.length} matches across all feeds`);
+        const scopedFiltered = applyScopedStateFilter(freshFiltered, false);
+        showSearchResults(scopedFiltered, `${scopedFiltered.length} matches across all feeds`);
         elements.searchHint.textContent = liveSearchFeeds.length
-          ? `Showing cached + live results (${freshFiltered.length}).`
-          : `Showing ${freshFiltered.length} matches across all feeds.`;
+          ? `Showing cached + live results (${scopedFiltered.length}).`
+          : `Showing ${scopedFiltered.length} matches across all feeds.`;
         return;
       }
 
@@ -98,10 +108,11 @@ export function initSearchUI({ state, elements, helpers }) {
         const liveItems = await runLiveSearch(liveFeeds);
         const combined = [...filtered, ...liveItems];
         const freshFiltered = applySearchFilters(combined);
-        showSearchResults(freshFiltered, `${freshFiltered.length} matches in ${CATEGORY_LABELS[category] || category}`);
+        const scopedFiltered = applyScopedStateFilter(freshFiltered, category === 'gov');
+        showSearchResults(scopedFiltered, `${scopedFiltered.length} matches in ${CATEGORY_LABELS[category] || category}`);
         elements.searchHint.textContent = liveFeeds.length
-          ? `Showing cached + live results (${freshFiltered.length}).`
-          : `Showing ${freshFiltered.length} matches in ${CATEGORY_LABELS[category] || category}.`;
+          ? `Showing cached + live results (${scopedFiltered.length}).`
+          : `Showing ${scopedFiltered.length} matches in ${CATEGORY_LABELS[category] || category}.`;
         return;
       }
 
@@ -119,12 +130,14 @@ export function initSearchUI({ state, elements, helpers }) {
         if (liveSearchFeeds.find((entry) => entry.id === feed.id)) {
           const result = await fetchCustomFeedDirect(feed, translated);
           const items = applySearchFilters(result.items || []);
-          showSearchResults(items, `${items.length} live results from ${feed.name}`);
+          const scopedItems = applyScopedStateFilter(items, feed.category === 'gov');
+          showSearchResults(scopedItems, `${scopedItems.length} live results from ${feed.name}`);
           elements.searchHint.textContent = `Live search results from ${feed.name}.`;
         } else {
           const result = await fetchFeed(feed, translated, true);
           const items = applySearchFilters(result.items || []);
-          showSearchResults(items, `${items.length} results from ${feed.name}`);
+          const scopedItems = applyScopedStateFilter(items, feed.category === 'gov');
+          showSearchResults(scopedItems, `${scopedItems.length} results from ${feed.name}`);
           elements.searchHint.textContent = `Search results from ${feed.name}.`;
         }
       } catch {

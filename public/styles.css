@@ -1032,6 +1032,23 @@ a:focus-visible {
   gap: 8px;
 }
 
+.state-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.state-filter-row label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.state-filter-row .select {
+  min-width: 220px;
+  max-width: 100%;
+}
+
 .search-filters {
   display: flex;
   flex-wrap: wrap;

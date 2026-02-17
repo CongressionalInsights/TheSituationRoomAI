@@ -1109,6 +1109,90 @@
       ]
     },
     {
+      "id": "state-legislation",
+      "name": "State Legislation (OpenStates)",
+      "docsUrl": "https://docs.openstates.org/api-v3/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "openstates",
+      "keyHeader": "X-API-KEY",
+      "lockKeyHeader": true,
+      "url": "https://v3.openstates.org/bills?sort=-updated_at&per_page=50",
+      "ttlMinutes": 120,
+      "timeoutMs": 20000,
+      "supportsParams": true,
+      "paramStrategy": "openstates-jurisdiction",
+      "defaultParams": {
+        "jurisdiction": "",
+        "classification": ""
+      },
+      "jurisdictionLevel": "state",
+      "capabilities": [
+        "legislation"
+      ],
+      "tags": [
+        "us",
+        "gov",
+        "state",
+        "legislation",
+        "key"
+      ]
+    },
+    {
+      "id": "state-rulemaking",
+      "name": "State Rulemaking (Connector)",
+      "docsUrl": "https://s3-us-gov-west-1.amazonaws.com/cg-0817d6e3-93c4-4de8-8b32-da6919464e61/open_data_us.csv",
+      "category": "gov",
+      "format": "json",
+      "requiresConfig": true,
+      "ttlMinutes": 240,
+      "supportsParams": true,
+      "paramStrategy": "state-code",
+      "defaultParams": {
+        "state": "",
+        "signalType": "rulemaking"
+      },
+      "jurisdictionLevel": "state",
+      "capabilities": [
+        "rulemaking"
+      ],
+      "tags": [
+        "us",
+        "gov",
+        "state",
+        "rulemaking",
+        "connector"
+      ]
+    },
+    {
+      "id": "state-executive-orders",
+      "name": "State Executive Orders (Connector)",
+      "docsUrl": "https://s3-us-gov-west-1.amazonaws.com/cg-0817d6e3-93c4-4de8-8b32-da6919464e61/open_data_us.csv",
+      "category": "gov",
+      "format": "json",
+      "requiresConfig": true,
+      "ttlMinutes": 240,
+      "supportsParams": true,
+      "paramStrategy": "state-code",
+      "defaultParams": {
+        "state": "",
+        "signalType": "executive_order"
+      },
+      "jurisdictionLevel": "state",
+      "capabilities": [
+        "executive_order"
+      ],
+      "tags": [
+        "us",
+        "gov",
+        "state",
+        "executive-order",
+        "connector"
+      ]
+    },
+    {
       "id": "foia-api",
       "name": "FOIA.gov API",
       "docsUrl": "https://www.foia.gov/developer/",
