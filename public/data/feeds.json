@@ -1119,7 +1119,7 @@
       "keyGroup": "openstates",
       "keyHeader": "X-API-KEY",
       "lockKeyHeader": true,
-      "url": "https://v3.openstates.org/bills?sort=-updated_at&per_page=50",
+      "url": "https://v3.openstates.org/bills?sort=updated_desc&per_page=50",
       "ttlMinutes": 120,
       "timeoutMs": 20000,
       "supportsParams": true,

@@ -881,6 +881,10 @@ async function fetchRaw(feed, options) {
         message: `HTTP ${response.status}`,
         body
       };
+      // Client-side upstream errors are not recoverable via proxy fallback.
+      if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+        break;
+      }
     } catch (error) {
       lastError = { error: 'fetch_failed', message: error.message };
     }
