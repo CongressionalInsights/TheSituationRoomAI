@@ -143,25 +143,27 @@ jobs:
 
           gcloud builds list \
             --project "$PROJECT_ID" \
+            --region "$REGION" \
             --sort-by=~createTime \
             --limit=10 \
             --format=json > "$DIAG_DIR/cloudbuild-latest.json" 2>&1
 
           gcloud builds list \
             --project "$PROJECT_ID" \
+            --region "$REGION" \
             --sort-by=~createTime \
             --limit=10 \
             --format='table(id,status,createTime,finishTime,logUrl)' > "$DIAG_DIR/cloudbuild-latest.table.txt" 2>&1
 
-          BUILD_ID=$(gcloud builds list --project "$PROJECT_ID" --sort-by=~createTime --limit=1 --format='value(id)')
+          BUILD_ID=$(gcloud builds list --project "$PROJECT_ID" --region "$REGION" --sort-by=~createTime --limit=1 --format='value(id)')
           if [ -n "$BUILD_ID" ]; then
             echo "Latest Cloud Build ID: $BUILD_ID" | tee "$DIAG_DIR/cloudbuild-summary.txt"
-            LOG_URL=$(gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --format='value(logUrl)')
+            LOG_URL=$(gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --region "$REGION" --format='value(logUrl)')
             if [ -n "$LOG_URL" ]; then
               echo "Cloud Build log URL: $LOG_URL" | tee -a "$DIAG_DIR/cloudbuild-summary.txt"
             fi
-            gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --format=json > "$DIAG_DIR/cloudbuild-${BUILD_ID}-describe.json" 2>&1
-            gcloud builds log "$BUILD_ID" --project "$PROJECT_ID" > "$DIAG_DIR/cloudbuild-${BUILD_ID}.log" 2>&1
+            gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --region "$REGION" --format=json > "$DIAG_DIR/cloudbuild-${BUILD_ID}-describe.json" 2>&1
+            gcloud builds log "$BUILD_ID" --project "$PROJECT_ID" --region "$REGION" > "$DIAG_DIR/cloudbuild-${BUILD_ID}.log" 2>&1
           else
             echo "No Cloud Build ID found from gcloud builds list." | tee "$DIAG_DIR/cloudbuild-summary.txt"
           fi

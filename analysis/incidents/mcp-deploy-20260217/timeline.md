@@ -5,6 +5,7 @@
 - Failing run: `22101824930`
 - Failing commit on `main`: `4f6102a12efcc9af338282123f41f83c93ef4629`
 - Last known successful MCP deploy run: `21734515807` on `c72de91c1a46d16e66c7da60a7d7e9ac577885d7`
+- RCA instrumentation validation run (branch): `22103142410` on `faab1d9b4fe701cbb243caa2a9ccecc3d23aea57`
 
 ## Chronology
 
@@ -17,6 +18,10 @@
 | 2026-02-17T14:17:40Z | Attempt 2 deploy step started. |
 | 2026-02-17T14:18:15Z | Attempt 2 failed with same signature (`ERROR: (gcloud.run.deploy) Build failed; check build logs for details`). |
 | 2026-02-17T14:18:19Z | Run `22101824930` completed with failure. |
+| 2026-02-17T14:50:20Z | Branch workflow-dispatch run `22103142410` started with hardened diagnostics workflow. |
+| 2026-02-17T14:51:54Z | Deploy failed with same signature in run `22103142410`. |
+| 2026-02-17T14:51:57Z | Diagnostics reported `No Cloud Build ID found from gcloud builds list.` |
+| 2026-02-17T14:51:58Z | Diagnostics artifact `mcp-deploy-diagnostics-22103142410` uploaded. |
 
 ## Differential inputs reviewed
 
@@ -35,11 +40,14 @@
 - `github-run-22101824930-attempt1.meta.json`
 - `github-run-21734515807.log`
 - `github-run-21734515807.meta.json`
+- `github-run-22103142410.log`
+- `github-run-22103142410.meta.json`
 - `failure-signatures.txt`
 - `gcloud-access-check.txt`
+- `diagnostics-run-22103142410/`
 
 ## Notes
 
 - Local `gcloud` context (`ashir.gruder@gmail.com` / project `sitehunterai-dev`) did not return Cloud Build rows for `situationroom-ai-20260112`.
 - Existing workflow did not emit Cloud Build ID or log URL, blocking direct root-cause confirmation from Cloud Build logs.
-- Workflow hardening in this branch adds deterministic deploy diagnostics so future failures expose Cloud Build IDs and logs directly in Actions artifacts.
+- First hardened diagnostics run showed `gcloud builds list` was querying default/global context and returned no rows; workflow updated to include `--region "$REGION"` for all Cloud Build diagnostics commands.

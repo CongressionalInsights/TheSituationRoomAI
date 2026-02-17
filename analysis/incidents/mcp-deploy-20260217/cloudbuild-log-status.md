@@ -1,5 +1,6 @@
 # Cloud Build Log Status
 
 - Required artifact target: `cloudbuild-<BUILD_ID>.log`
-- Current status: unavailable for run `22101824930` because the previous workflow did not emit build IDs and local gcloud context could not list builds in project `situationroom-ai-20260112`.
-- Next action: rerun MCP deploy with hardened workflow to capture build ID and write `cloudbuild-<BUILD_ID>.log` automatically in workflow diagnostics artifact.
+- Current status for `22101824930`: unavailable because the original workflow did not emit build IDs/log URLs.
+- First hardened run (`22103142410`) reproduced failure but still showed no build IDs because diagnostics queried Cloud Build without explicit region.
+- Next action (implemented): diagnostics now call `gcloud builds list/describe/log --region "$REGION"`; rerun to collect definitive `cloudbuild-<BUILD_ID>.log`.

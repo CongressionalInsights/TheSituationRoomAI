@@ -13,6 +13,8 @@
    - `gcp/mcp-proxy/feeds.json` (modified)
    - `gcp/mcp-proxy/state-signals.js` (new)
 6. `gcp/mcp-proxy/package.json` did not change in that range and no committed lockfile existed before this RCA branch.
+7. Hardened workflow run `22103142410` reproduced the deploy failure and uploaded diagnostics artifact.
+8. In run `22103142410`, diagnostics showed `gcloud builds list` returned no build IDs when run without explicit `--region`, while deploy target region is `us-central1`.
 
 ## Root-cause status
 
@@ -20,13 +22,16 @@
 
 ## Ranked hypotheses
 
-1. **Dependency resolution drift (highest likelihood)**
+1. **Dependency resolution drift (high likelihood, still unproven)**
    - Buildpack resolves dependencies from open ranges without a lockfile, making Cloud Build outcomes time-variant.
    - Remediation prepared: commit `gcp/mcp-proxy/package-lock.json` and enforce `npm ci` preflight.
 2. **Build context packaging issue (medium likelihood)**
    - New file `state-signals.js` added; if source packaging excludes required files, container build can fail.
    - Remediation prepared: required-file preflight + source listing in workflow.
-3. **Platform transient/regression (lower likelihood)**
+3. **Cloud Build log visibility gap due region scoping (confirmed for diagnostics path)**
+   - `gcloud builds list` without region returned empty results in CI diagnostics, preventing build ID capture.
+   - Remediation implemented: all `gcloud builds list/describe/log` diagnostics now pass `--region "$REGION"`.
+4. **Platform transient/regression (lower likelihood)**
    - Two consecutive failures reduce transient probability but do not eliminate platform-side causes.
    - Remediation prepared: Cloud Build diagnostics capture to classify quickly on next run.
 
@@ -38,6 +43,7 @@
 - JS syntax checks: `node --check` on MCP entry files.
 - Deploy output capture via `tee`.
 - Automatic Cloud Build diagnostics capture (`builds list`, build ID, log URL, `builds describe`, `builds log`).
+- Cloud Build diagnostics now explicitly scoped to deploy region (`--region "$REGION"`).
 - Diagnostics artifact upload on every deploy run.
 
 ## Closure gates

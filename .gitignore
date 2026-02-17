@@ -14,6 +14,7 @@ public/feeds/
 *.tmp
 .DS_Store
 !analysis/incidents/mcp-deploy-20260217/*.log
+!analysis/incidents/mcp-deploy-20260217/**/*.log
 
 # test outputs
 /test-results
