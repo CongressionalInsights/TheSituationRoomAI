@@ -1,0 +1,11 @@
+# Attempt 1 failure signature
+248:deploy	Deploy MCP proxy service	2026-02-17T14:14:10.3013428Z Building using Buildpacks and deploying container to Cloud Run service [situation-room-mcp] in project [situationroom-ai-20260112] region [us-central1]
+252:deploy	Deploy MCP proxy service	2026-02-17T14:14:35.7314031Z Building Container............................................................................................................................................................................................................................................failed
+253:deploy	Deploy MCP proxy service	2026-02-17T14:14:35.7316058Z Deployment failed
+254:deploy	Deploy MCP proxy service	2026-02-17T14:14:35.7770427Z ERROR: (gcloud.run.deploy) Build failed; check build logs for details
+
+# Attempt 2 failure signature
+248:deploy	Deploy MCP proxy service	2026-02-17T14:17:45.2342677Z Building using Buildpacks and deploying container to Cloud Run service [situation-room-mcp] in project [situationroom-ai-20260112] region [us-central1]
+252:deploy	Deploy MCP proxy service	2026-02-17T14:18:15.1442340Z Building Container.........................................................................................................................................................................................................................................................................................failed
+253:deploy	Deploy MCP proxy service	2026-02-17T14:18:15.1443803Z Deployment failed
+254:deploy	Deploy MCP proxy service	2026-02-17T14:18:15.2305797Z ERROR: (gcloud.run.deploy) Build failed; check build logs for details

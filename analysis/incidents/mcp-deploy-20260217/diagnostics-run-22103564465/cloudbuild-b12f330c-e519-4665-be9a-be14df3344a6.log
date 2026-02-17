@@ -1,0 +1,8 @@
+/opt/hostedtoolcache/gcloud/556.0.0/x64/lib/third_party/google/cloud/__init__.py:20: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+/opt/hostedtoolcache/gcloud/556.0.0/x64/lib/third_party/google/cloud/appengine_v1alpha/proto/version_pb2.py:1659: SyntaxWarning: invalid escape sequence '\ '
+  '__doc__': """\ `Cloud Endpoints <https://cloud.google.com/endpoints>`__
+/opt/hostedtoolcache/gcloud/556.0.0/x64/lib/third_party/google/cloud/appengine_v1alpha/proto/app_yaml_pb2.py:991: SyntaxWarning: invalid escape sequence '\ '
+  \ ``30x`` code to use when performing redirects for the
+ERROR: (gcloud.builds.log) PERMISSION_DENIED: Permission denied for all log views. This command is authenticated as gh-actions-deployer@situationroom-ai-20260112.iam.gserviceaccount.com using the credentials in /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-7d5fb98d79e6cb33.json, specified by the [auth/credential_file_override] property
+----------------------------- REMOTE BUILD OUTPUT ------------------------------

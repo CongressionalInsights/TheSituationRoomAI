@@ -1,0 +1,300 @@
+deploy	UNKNOWN STEP	﻿2026-02-06T00:53:53.2749504Z Current runner version: '2.331.0'
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2776331Z ##[group]Runner Image Provisioner
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2777496Z Hosted Compute Agent
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2778341Z Version: 20260123.484
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2779372Z Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2780379Z Build Date: 2026-01-23T19:41:17Z
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2781425Z Worker ID: ***f32c7669-273e-4d88-8b6d-e7c6c4820081***
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2782396Z Azure Region: northcentralus
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2783505Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2785642Z ##[group]Operating System
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2786607Z Ubuntu
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2787388Z 24.04.3
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2788126Z LTS
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2788843Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2789630Z ##[group]Runner Image
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2790675Z Image: ubuntu-24.04
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2791413Z Version: 20260126.10.1
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2793130Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260126.10/images/ubuntu/Ubuntu2404-Readme.md
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2795022Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260126.10
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2796154Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2797675Z ##[group]GITHUB_TOKEN Permissions
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2800248Z Contents: read
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2801060Z Metadata: read
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2801891Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2804800Z Secret source: Actions
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.2805942Z Prepare workflow directory
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.3216982Z Prepare all required actions
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.3257855Z Getting action download info
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.6731983Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+deploy	UNKNOWN STEP	2026-02-06T00:53:53.7708242Z Download action repository 'google-github-actions/auth@v2' (SHA:c200f3691d83b41bf9bbd8638997a462592937ed)
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.1262278Z Download action repository 'google-github-actions/setup-gcloud@v2' (SHA:e427ad8a34f8676edf47cf7d7925499adf3eb74f)
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.5678170Z Complete job name: deploy
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6624930Z ##[group]Run actions/checkout@v4
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6626648Z with:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6627979Z   repository: CongressionalInsights/TheSituationRoomAI
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6629981Z   token: ***
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6631076Z   ssh-strict: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6632208Z   ssh-user: git
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6633711Z   persist-credentials: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6634971Z   clean: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6636125Z   sparse-checkout-cone-mode: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6637456Z   fetch-depth: 1
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6638567Z   fetch-tags: false
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6639723Z   show-progress: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6640865Z   lfs: false
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6641930Z   submodules: false
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6643302Z   set-safe-directory: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6644976Z env:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6646091Z   PROJECT_ID: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6647467Z   REGION: us-central1
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6648673Z   SERVICE_NAME: situation-room-mcp
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6650789Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6653690Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.6655653Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7812773Z Syncing repository: CongressionalInsights/TheSituationRoomAI
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7816996Z ##[group]Getting Git version info
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7819112Z Working directory is '/home/runner/work/TheSituationRoomAI/TheSituationRoomAI'
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7821985Z [command]/usr/bin/git version
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7870912Z git version 2.52.0
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7900136Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7915955Z Temporarily overriding HOME='/home/runner/work/_temp/bfba5886-bb4e-4fb6-b213-7bcf7213e392' before making global git config changes
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7919096Z Adding repository directory to the temporary git global config as a safe directory
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7930597Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7973664Z Deleting the contents of '/home/runner/work/TheSituationRoomAI/TheSituationRoomAI'
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7977531Z ##[group]Initializing the repository
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.7982108Z [command]/usr/bin/git init /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8101883Z hint: Using 'master' as the name for the initial branch. This default branch name
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8105816Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8108100Z hint: to use in all of your new repositories, which will suppress this warning,
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8109998Z hint: call:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8111485Z hint:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8112997Z hint: 	git config --global init.defaultBranch <name>
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8114623Z hint:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8116045Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8118776Z hint: 'development'. The just-created branch can be renamed via this command:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8120578Z hint:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8121640Z hint: 	git branch -m <name>
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8123435Z hint:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8198460Z hint: Disable this message with "git config set advice.defaultBranchName false"
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8202431Z Initialized empty Git repository in /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/.git/
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8207276Z [command]/usr/bin/git remote add origin https://github.com/CongressionalInsights/TheSituationRoomAI
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8211940Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8214175Z ##[group]Disabling automatic garbage collection
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8215804Z [command]/usr/bin/git config --local gc.auto 0
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8219255Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8221474Z ##[group]Setting up auth
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8223530Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8248200Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8628931Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8665668Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8904911Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.8940208Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.9184854Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.9225960Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.9229369Z ##[group]Fetching the repository
+deploy	UNKNOWN STEP	2026-02-06T00:53:54.9238656Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +c72de91c1a46d16e66c7da60a7d7e9ac577885d7:refs/remotes/origin/main
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2577451Z From https://github.com/CongressionalInsights/TheSituationRoomAI
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2579505Z  * [new ref]         c72de91c1a46d16e66c7da60a7d7e9ac577885d7 -> origin/main
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2614158Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2615246Z ##[group]Determining the checkout info
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2616176Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2620831Z [command]/usr/bin/git sparse-checkout disable
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2663450Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2691364Z ##[group]Checking out the ref
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.2696107Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.3711743Z Switched to a new branch 'main'
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.3713074Z branch 'main' set up to track 'origin/main'.
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.3726681Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.3768018Z [command]/usr/bin/git log -1 --format=%H
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.3792037Z c72de91c1a46d16e66c7da60a7d7e9ac577885d7
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.3984251Z ##[group]Run node scripts/sync-feeds.mjs
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.3985004Z [36;1mnode scripts/sync-feeds.mjs[0m
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.4021929Z shell: /usr/bin/bash -e ***0***
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.4022380Z env:
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.4022740Z   PROJECT_ID: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.4023357Z   REGION: us-central1
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.4023749Z   SERVICE_NAME: situation-room-mcp
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.4024435Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.4025307Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.4025922Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5342999Z Synced feeds.json to 3 targets.
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5519970Z ##[group]Run google-github-actions/auth@v2
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5520499Z with:
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5531400Z   credentials_json: ***
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5531817Z   create_credentials_file: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5532242Z   export_environment_variables: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5532673Z   universe: googleapis.com
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5533284Z   cleanup_credentials: true
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5533689Z   access_token_lifetime: 3600s
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5534229Z   access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5534785Z   id_token_include_email: false
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5535168Z env:
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5535513Z   PROJECT_ID: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5535939Z   REGION: us-central1
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5536327Z   SERVICE_NAME: situation-room-mcp
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5536965Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5537836Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.5538437Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6532513Z Created credentials file at "/home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json"
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6698663Z ##[group]Run google-github-actions/setup-gcloud@v2
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6699246Z with:
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6699642Z   project_id: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6700098Z   version: latest
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6700484Z   skip_install: false
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6700881Z   skip_tool_cache: false
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6701279Z env:
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6701655Z   PROJECT_ID: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6702114Z   REGION: us-central1
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6702545Z   SERVICE_NAME: situation-room-mcp
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6703544Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6704449Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6705461Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6706675Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6707735Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6708528Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6709065Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6709570Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6710060Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6710568Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:53:56.6711039Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:54:00.6063030Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/82d90c78-0b0a-4a48-892a-56dad9ae0ab8 -f /home/runner/work/_temp/ecfca471-67ec-420f-b316-76febd785766
+deploy	UNKNOWN STEP	2026-02-06T00:54:20.3489893Z Successfully authenticated
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6249030Z Successfully set default project
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6429752Z ##[group]Run if ! gcloud secrets describe data-gov-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6430642Z [36;1mif ! gcloud secrets describe data-gov-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6431314Z [36;1m  gcloud secrets create data-gov-key --replication-policy=automatic[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6431770Z [36;1mfi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6432209Z [36;1mif ! gcloud secrets describe eia-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6432818Z [36;1m  gcloud secrets create eia-key --replication-policy=automatic[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6433525Z [36;1mfi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6433985Z [36;1mif ! gcloud secrets describe nasa-firms-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6434633Z [36;1m  gcloud secrets create nasa-firms-key --replication-policy=automatic[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6435107Z [36;1mfi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6435575Z [36;1mif ! gcloud secrets describe openaq-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6436287Z [36;1m  gcloud secrets create openaq-key --replication-policy=automatic[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6436784Z [36;1mfi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6437242Z [36;1mif ! gcloud secrets describe earthdata-nasa-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6437919Z [36;1m  gcloud secrets create earthdata-nasa-key --replication-policy=automatic[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6438399Z [36;1mfi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6438820Z [36;1mif ! gcloud secrets describe samgov-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6439444Z [36;1m  gcloud secrets create samgov-key --replication-policy=automatic[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6439869Z [36;1mfi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6440353Z [36;1mif [ -n "$DATA_GOV" ]; then echo -n "$DATA_GOV" | gcloud secrets versions add data-gov-key --data-file=-; fi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6441111Z [36;1mif [ -n "$EIA" ]; then echo -n "$EIA" | gcloud secrets versions add eia-key --data-file=-; fi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6441852Z [36;1mif [ -n "$NASA_FIRMS" ]; then echo -n "$NASA_FIRMS" | gcloud secrets versions add nasa-firms-key --data-file=-; fi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6442637Z [36;1mif [ -n "$OPEN_AQ" ]; then echo -n "$OPEN_AQ" | gcloud secrets versions add openaq-key --data-file=-; fi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6443690Z [36;1mif [ -n "$EARTHDATA_NASA" ]; then echo -n "$EARTHDATA_NASA" | gcloud secrets versions add earthdata-nasa-key --data-file=-; fi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6444567Z [36;1mif [ -n "$SAMGOV_API_KEY" ]; then echo -n "$SAMGOV_API_KEY" | gcloud secrets versions add samgov-key --data-file=-; fi[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6478832Z shell: /usr/bin/bash -e ***0***
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6479221Z env:
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6479553Z   PROJECT_ID: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6479920Z   REGION: us-central1
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6480222Z   SERVICE_NAME: situation-room-mcp
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6480773Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6481518Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6482352Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6483839Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6484730Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6485377Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6485784Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6486165Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6486545Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6486926Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6487717Z   CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6488155Z   CLOUDSDK_METRICS_ENVIRONMENT_VERSION: 2.2.1
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6488594Z   DATA_GOV: ***
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6488860Z   EIA: 
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6489153Z   NASA_FIRMS: ***
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6489572Z   OPEN_AQ: ***
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6494726Z   EARTHDATA_NASA: ***
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6495102Z   SAMGOV_API_KEY: ***
+deploy	UNKNOWN STEP	2026-02-06T00:54:21.6495377Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:54:27.1531809Z Created version [119] of the secret [data-gov-key].
+deploy	UNKNOWN STEP	2026-02-06T00:54:28.3180469Z Created version [119] of the secret [nasa-firms-key].
+deploy	UNKNOWN STEP	2026-02-06T00:54:29.5349664Z Created version [119] of the secret [openaq-key].
+deploy	UNKNOWN STEP	2026-02-06T00:54:30.8449212Z Created version [119] of the secret [earthdata-nasa-key].
+deploy	UNKNOWN STEP	2026-02-06T00:54:31.9091082Z Created version [53] of the secret [samgov-key].
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0186934Z ##[group]Run cat > /tmp/sr-mcp-env.yaml <<EOF
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0187419Z [36;1mcat > /tmp/sr-mcp-env.yaml <<EOF[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0187836Z [36;1mALLOWED_ORIGINS: "$***ALLOWED_ORIGINS***"[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0188228Z [36;1mACLED_PROXY: "$***ACLED_PROXY***"[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0188562Z [36;1mEOF[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0188841Z [36;1mgcloud run deploy "$SERVICE_NAME" \[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0189194Z [36;1m  --region "$REGION" \[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0189529Z [36;1m  --source gcp/mcp-proxy \[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0189870Z [36;1m  --allow-unauthenticated \[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0190205Z [36;1m  --min-instances 1 \[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0191091Z [36;1m  --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest \[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0192035Z [36;1m  --env-vars-file /tmp/sr-mcp-env.yaml[0m
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0224025Z shell: /usr/bin/bash -e ***0***
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0224372Z env:
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0224655Z   PROJECT_ID: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0225019Z   REGION: us-central1
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0225321Z   SERVICE_NAME: situation-room-mcp
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0225869Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0226581Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0227416Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0228362Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0229231Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0229870Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0230274Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0230658Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0231023Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0231400Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0231850Z   CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0232274Z   CLOUDSDK_METRICS_ENVIRONMENT_VERSION: 2.2.1
+deploy	UNKNOWN STEP	2026-02-06T00:54:32.0232619Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:54:35.0691295Z Building using Buildpacks and deploying container to Cloud Run service [situation-room-mcp] in project [situationroom-ai-20260112] region [us-central1]
+deploy	UNKNOWN STEP	2026-02-06T00:54:35.0692617Z Building and deploying...
+deploy	UNKNOWN STEP	2026-02-06T00:54:35.3375929Z Validating configuration......done
+deploy	UNKNOWN STEP	2026-02-06T00:54:35.7078273Z Uploading sources........done
+deploy	UNKNOWN STEP	2026-02-06T00:55:51.3419103Z Building Container................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................done
+deploy	UNKNOWN STEP	2026-02-06T00:55:52.1861186Z Setting IAM Policy..........done
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.0718812Z Creating Revision...........................................................................................................................................................................................................................................................................................................................done
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.0723244Z Routing traffic.....done
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.2326617Z Done.
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.2331087Z Service [situation-room-mcp] revision [situation-room-mcp-00046-n2z] has been deployed and is serving 100 percent of traffic.
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.2332790Z Service URL: https://situation-room-mcp-382918878290.us-central1.run.app
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4352244Z ##[group]Run set -euo pipefail
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4352686Z [36;1mset -euo pipefail[0m
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4353571Z [36;1mSERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')[0m
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4354297Z [36;1mecho "MCP proxy URL: $***SERVICE_URL***"[0m
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4354753Z [36;1mcurl -fsS "$***SERVICE_URL***/health" >/dev/null[0m
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4355236Z [36;1mcurl -fsS "$***SERVICE_URL***/.well-known/mcp.json" >/dev/null[0m
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4387196Z shell: /usr/bin/bash -e ***0***
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4387528Z env:
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4387802Z   PROJECT_ID: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4388152Z   REGION: us-central1
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4388464Z   SERVICE_NAME: situation-room-mcp
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4389018Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4389771Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4390617Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4391585Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4392454Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4393425Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4393838Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4394212Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4394580Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4394960Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4395409Z   CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4395834Z   CLOUDSDK_METRICS_ENVIRONMENT_VERSION: 2.2.1
+deploy	UNKNOWN STEP	2026-02-06T00:56:23.4396174Z ##[endgroup]
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.4543859Z MCP proxy URL: https://situation-room-mcp-xtas2c6vka-uc.a.run.app
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.6219171Z Post job cleanup.
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.7063191Z Removed exported credentials at "/home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-42311097ff238557.json".
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.7205262Z Post job cleanup.
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8175208Z [command]/usr/bin/git version
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8214547Z git version 2.52.0
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8260251Z Temporarily overriding HOME='/home/runner/work/_temp/c1ab9fab-c842-4325-b8d7-dc80dc68ce13' before making global git config changes
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8261782Z Adding repository directory to the temporary git global config as a safe directory
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8267946Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8313053Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8347199Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8583483Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8606376Z http.https://github.com/.extraheader
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8620651Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8654192Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8883809Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.8918557Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+deploy	UNKNOWN STEP	2026-02-06T00:56:24.9259974Z Cleaning up orphan processes

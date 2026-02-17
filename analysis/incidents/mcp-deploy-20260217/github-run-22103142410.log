@@ -1,0 +1,573 @@
+preflight	Set up job	﻿2026-02-17T14:50:26.4947941Z Current runner version: '2.331.0'
+preflight	Set up job	2026-02-17T14:50:26.4972876Z ##[group]Runner Image Provisioner
+preflight	Set up job	2026-02-17T14:50:26.4973713Z Hosted Compute Agent
+preflight	Set up job	2026-02-17T14:50:26.4974314Z Version: 20260123.484
+preflight	Set up job	2026-02-17T14:50:26.4974935Z Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d
+preflight	Set up job	2026-02-17T14:50:26.4975641Z Build Date: 2026-01-23T19:41:17Z
+preflight	Set up job	2026-02-17T14:50:26.4976366Z Worker ID: {13e48452-2a1e-4a0e-a637-c5c397f2ead4}
+preflight	Set up job	2026-02-17T14:50:26.4977009Z Azure Region: eastus
+preflight	Set up job	2026-02-17T14:50:26.4977594Z ##[endgroup]
+preflight	Set up job	2026-02-17T14:50:26.4979674Z ##[group]Operating System
+preflight	Set up job	2026-02-17T14:50:26.4980428Z Ubuntu
+preflight	Set up job	2026-02-17T14:50:26.4980952Z 24.04.3
+preflight	Set up job	2026-02-17T14:50:26.4981478Z LTS
+preflight	Set up job	2026-02-17T14:50:26.4981945Z ##[endgroup]
+preflight	Set up job	2026-02-17T14:50:26.4982450Z ##[group]Runner Image
+preflight	Set up job	2026-02-17T14:50:26.4983033Z Image: ubuntu-24.04
+preflight	Set up job	2026-02-17T14:50:26.4983505Z Version: 20260209.23.1
+preflight	Set up job	2026-02-17T14:50:26.4984546Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260209.23/images/ubuntu/Ubuntu2404-Readme.md
+preflight	Set up job	2026-02-17T14:50:26.4986238Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260209.23
+preflight	Set up job	2026-02-17T14:50:26.4987254Z ##[endgroup]
+preflight	Set up job	2026-02-17T14:50:26.4988181Z ##[group]GITHUB_TOKEN Permissions
+preflight	Set up job	2026-02-17T14:50:26.4990435Z Contents: read
+preflight	Set up job	2026-02-17T14:50:26.4991061Z Metadata: read
+preflight	Set up job	2026-02-17T14:50:26.4991574Z ##[endgroup]
+preflight	Set up job	2026-02-17T14:50:26.4993557Z Secret source: Actions
+preflight	Set up job	2026-02-17T14:50:26.4994647Z Prepare workflow directory
+preflight	Set up job	2026-02-17T14:50:26.5308384Z Prepare all required actions
+preflight	Set up job	2026-02-17T14:50:26.5345389Z Getting action download info
+preflight	Set up job	2026-02-17T14:50:26.8183798Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+preflight	Set up job	2026-02-17T14:50:26.9536338Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+preflight	Set up job	2026-02-17T14:50:27.1501849Z Complete job name: preflight
+preflight	Run actions/checkout@v4	﻿2026-02-17T14:50:27.2188504Z ##[group]Run actions/checkout@v4
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2189501Z with:
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2190002Z   repository: CongressionalInsights/TheSituationRoomAI
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2190761Z   token: ***
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2191138Z   ssh-strict: true
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2191515Z   ssh-user: git
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2191908Z   persist-credentials: true
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2192343Z   clean: true
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2192744Z   sparse-checkout-cone-mode: true
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2193221Z   fetch-depth: 1
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2193608Z   fetch-tags: false
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2194003Z   show-progress: true
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2194405Z   lfs: false
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2194775Z   submodules: false
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2195169Z   set-safe-directory: true
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.2195844Z ##[endgroup]
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3268856Z Syncing repository: CongressionalInsights/TheSituationRoomAI
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3271061Z ##[group]Getting Git version info
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3271861Z Working directory is '/home/runner/work/TheSituationRoomAI/TheSituationRoomAI'
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3272962Z [command]/usr/bin/git version
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3282876Z git version 2.52.0
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3307949Z ##[endgroup]
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3322561Z Temporarily overriding HOME='/home/runner/work/_temp/dd9cfd24-c83e-41cd-b006-b662998aa419' before making global git config changes
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3324790Z Adding repository directory to the temporary git global config as a safe directory
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3335161Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3375734Z Deleting the contents of '/home/runner/work/TheSituationRoomAI/TheSituationRoomAI'
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3379490Z ##[group]Initializing the repository
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3383734Z [command]/usr/bin/git init /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3478584Z hint: Using 'master' as the name for the initial branch. This default branch name
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3479961Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3480919Z hint: to use in all of your new repositories, which will suppress this warning,
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3481974Z hint: call:
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3482581Z hint:
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3483581Z hint: 	git config --global init.defaultBranch <name>
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3484206Z hint:
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3484752Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3485640Z hint: 'development'. The just-created branch can be renamed via this command:
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3486354Z hint:
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3486729Z hint: 	git branch -m <name>
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3487160Z hint:
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3487967Z hint: Disable this message with "git config set advice.defaultBranchName false"
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3489077Z Initialized empty Git repository in /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/.git/
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3494319Z [command]/usr/bin/git remote add origin https://github.com/CongressionalInsights/TheSituationRoomAI
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3527294Z ##[endgroup]
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3528026Z ##[group]Disabling automatic garbage collection
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3531646Z [command]/usr/bin/git config --local gc.auto 0
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3559547Z ##[endgroup]
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3560236Z ##[group]Setting up auth
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3566481Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3599204Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3931786Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.3964741Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.4197287Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.4229153Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.4471871Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.4505861Z ##[endgroup]
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.4506792Z ##[group]Fetching the repository
+preflight	Run actions/checkout@v4	2026-02-17T14:50:27.4514472Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +faab1d9b4fe701cbb243caa2a9ccecc3d23aea57:refs/remotes/origin/codex/mcp-rca-deploy-hardening
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7122869Z From https://github.com/CongressionalInsights/TheSituationRoomAI
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7125267Z  * [new ref]         faab1d9b4fe701cbb243caa2a9ccecc3d23aea57 -> origin/codex/mcp-rca-deploy-hardening
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7158936Z ##[endgroup]
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7160789Z ##[group]Determining the checkout info
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7162249Z ##[endgroup]
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7166402Z [command]/usr/bin/git sparse-checkout disable
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7210945Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7241598Z ##[group]Checking out the ref
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.7245738Z [command]/usr/bin/git checkout --progress --force -B codex/mcp-rca-deploy-hardening refs/remotes/origin/codex/mcp-rca-deploy-hardening
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.8306583Z Switched to a new branch 'codex/mcp-rca-deploy-hardening'
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.8309688Z branch 'codex/mcp-rca-deploy-hardening' set up to track 'origin/codex/mcp-rca-deploy-hardening'.
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.8323766Z ##[endgroup]
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.8362211Z [command]/usr/bin/git log -1 --format=%H
+preflight	Run actions/checkout@v4	2026-02-17T14:50:28.8386075Z faab1d9b4fe701cbb243caa2a9ccecc3d23aea57
+preflight	Sync feed registry	﻿2026-02-17T14:50:28.8602185Z ##[group]Run node scripts/sync-feeds.mjs
+preflight	Sync feed registry	2026-02-17T14:50:28.8603665Z [36;1mnode scripts/sync-feeds.mjs[0m
+preflight	Sync feed registry	2026-02-17T14:50:28.8658154Z shell: /usr/bin/bash -e {0}
+preflight	Sync feed registry	2026-02-17T14:50:28.8659578Z ##[endgroup]
+preflight	Sync feed registry	2026-02-17T14:50:30.8923308Z Synced feeds.json to 3 targets.
+preflight	Verify MCP deploy source files	﻿2026-02-17T14:50:30.9175250Z ##[group]Run set -euo pipefail
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9175624Z [36;1mset -euo pipefail[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9175884Z [36;1mrequired_files=([0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9176159Z [36;1m  "gcp/mcp-proxy/server.js"[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9176495Z [36;1m  "gcp/mcp-proxy/state-signals.js"[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9176819Z [36;1m  "gcp/mcp-proxy/feeds.json"[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9177111Z [36;1m  "gcp/mcp-proxy/package.json"[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9177427Z [36;1m  "gcp/mcp-proxy/package-lock.json"[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9177718Z [36;1m)[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9177916Z [36;1m[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9178167Z [36;1mfor file in "${required_files[@]}"; do[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9178507Z [36;1m  if [ ! -f "$file" ]; then[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9179064Z [36;1m    echo "Missing required deploy source file: $file"[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9179991Z [36;1m    exit 1[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9180482Z [36;1m  fi[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9180754Z [36;1mdone[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9180956Z [36;1m[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9181242Z [36;1mfind gcp/mcp-proxy -maxdepth 2 -type f | sort[0m
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9232405Z shell: /usr/bin/bash -e {0}
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9232694Z ##[endgroup]
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9322115Z gcp/mcp-proxy/feeds.json
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9322495Z gcp/mcp-proxy/package-lock.json
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9322802Z gcp/mcp-proxy/package.json
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9323080Z gcp/mcp-proxy/server.js
+preflight	Verify MCP deploy source files	2026-02-17T14:50:30.9323335Z gcp/mcp-proxy/state-signals.js
+preflight	Run actions/setup-node@v4	﻿2026-02-17T14:50:30.9412879Z ##[group]Run actions/setup-node@v4
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:30.9413215Z with:
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:30.9413421Z   node-version: 20
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:30.9413646Z   always-auth: false
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:30.9413867Z   check-latest: false
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:30.9414227Z   token: ***
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:30.9414432Z ##[endgroup]
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:31.1175456Z Found in cache @ /opt/hostedtoolcache/node/20.20.0/x64
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:31.1176516Z ##[group]Environment details
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:31.4594627Z node: v20.20.0
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:31.4595151Z npm: 10.8.2
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:31.4595434Z yarn: 1.22.22
+preflight	Run actions/setup-node@v4	2026-02-17T14:50:31.4596194Z ##[endgroup]
+preflight	Dependency preflight	﻿2026-02-17T14:50:31.4691584Z ##[group]Run npm ci --prefix gcp/mcp-proxy
+preflight	Dependency preflight	2026-02-17T14:50:31.4691933Z [36;1mnpm ci --prefix gcp/mcp-proxy[0m
+preflight	Dependency preflight	2026-02-17T14:50:31.4748964Z shell: /usr/bin/bash -e {0}
+preflight	Dependency preflight	2026-02-17T14:50:31.4749231Z ##[endgroup]
+preflight	Dependency preflight	2026-02-17T14:50:33.3862949Z 
+preflight	Dependency preflight	2026-02-17T14:50:33.3870009Z added 93 packages, and audited 94 packages in 2s
+preflight	Dependency preflight	2026-02-17T14:50:33.3870432Z 
+preflight	Dependency preflight	2026-02-17T14:50:33.3870628Z 30 packages are looking for funding
+preflight	Dependency preflight	2026-02-17T14:50:33.3870969Z   run `npm fund` for details
+preflight	Dependency preflight	2026-02-17T14:50:33.3872983Z 
+preflight	Dependency preflight	2026-02-17T14:50:33.3873211Z found 0 vulnerabilities
+preflight	Syntax preflight	﻿2026-02-17T14:50:33.4019731Z ##[group]Run set -euo pipefail
+preflight	Syntax preflight	2026-02-17T14:50:33.4020120Z [36;1mset -euo pipefail[0m
+preflight	Syntax preflight	2026-02-17T14:50:33.4020400Z [36;1mnode --check gcp/mcp-proxy/server.js[0m
+preflight	Syntax preflight	2026-02-17T14:50:33.4020729Z [36;1mnode --check gcp/mcp-proxy/state-signals.js[0m
+preflight	Syntax preflight	2026-02-17T14:50:33.4073473Z shell: /usr/bin/bash -e {0}
+preflight	Syntax preflight	2026-02-17T14:50:33.4073729Z ##[endgroup]
+preflight	Post Run actions/setup-node@v4	﻿2026-02-17T14:50:33.4634531Z Post job cleanup.
+preflight	Post Run actions/checkout@v4	﻿2026-02-17T14:50:33.6319523Z Post job cleanup.
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7263696Z [command]/usr/bin/git version
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7300203Z git version 2.52.0
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7343380Z Temporarily overriding HOME='/home/runner/work/_temp/3ef7e6f9-3ef6-4ef9-a76a-198d1c6c75ff' before making global git config changes
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7344382Z Adding repository directory to the temporary git global config as a safe directory
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7349009Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7387130Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7421179Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7660257Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7681731Z http.https://github.com/.extraheader
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7694116Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7725649Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7959056Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+preflight	Post Run actions/checkout@v4	2026-02-17T14:50:33.7989129Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+preflight	Complete job	﻿2026-02-17T14:50:33.8324599Z Cleaning up orphan processes
+deploy	Set up job	﻿2026-02-17T14:50:39.9604005Z Current runner version: '2.331.0'
+deploy	Set up job	2026-02-17T14:50:39.9630372Z ##[group]Runner Image Provisioner
+deploy	Set up job	2026-02-17T14:50:39.9631552Z Hosted Compute Agent
+deploy	Set up job	2026-02-17T14:50:39.9632339Z Version: 20260123.484
+deploy	Set up job	2026-02-17T14:50:39.9633365Z Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d
+deploy	Set up job	2026-02-17T14:50:39.9634330Z Build Date: 2026-01-23T19:41:17Z
+deploy	Set up job	2026-02-17T14:50:39.9635323Z Worker ID: ***50a43e68-bd84-4821-9294-f2769427ed8d***
+deploy	Set up job	2026-02-17T14:50:39.9636408Z Azure Region: westus3
+deploy	Set up job	2026-02-17T14:50:39.9637656Z ##[endgroup]
+deploy	Set up job	2026-02-17T14:50:39.9639430Z ##[group]Operating System
+deploy	Set up job	2026-02-17T14:50:39.9640332Z Ubuntu
+deploy	Set up job	2026-02-17T14:50:39.9641147Z 24.04.3
+deploy	Set up job	2026-02-17T14:50:39.9641845Z LTS
+deploy	Set up job	2026-02-17T14:50:39.9642700Z ##[endgroup]
+deploy	Set up job	2026-02-17T14:50:39.9643421Z ##[group]Runner Image
+deploy	Set up job	2026-02-17T14:50:39.9644339Z Image: ubuntu-24.04
+deploy	Set up job	2026-02-17T14:50:39.9645161Z Version: 20260209.23.1
+deploy	Set up job	2026-02-17T14:50:39.9646426Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260209.23/images/ubuntu/Ubuntu2404-Readme.md
+deploy	Set up job	2026-02-17T14:50:39.9648680Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260209.23
+deploy	Set up job	2026-02-17T14:50:39.9649844Z ##[endgroup]
+deploy	Set up job	2026-02-17T14:50:39.9651303Z ##[group]GITHUB_TOKEN Permissions
+deploy	Set up job	2026-02-17T14:50:39.9653459Z Contents: read
+deploy	Set up job	2026-02-17T14:50:39.9654299Z Metadata: read
+deploy	Set up job	2026-02-17T14:50:39.9655031Z ##[endgroup]
+deploy	Set up job	2026-02-17T14:50:39.9657750Z Secret source: Actions
+deploy	Set up job	2026-02-17T14:50:39.9658707Z Prepare workflow directory
+deploy	Set up job	2026-02-17T14:50:40.0113784Z Prepare all required actions
+deploy	Set up job	2026-02-17T14:50:40.0151216Z Getting action download info
+deploy	Set up job	2026-02-17T14:50:40.5365884Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+deploy	Set up job	2026-02-17T14:50:40.6817373Z Download action repository 'google-github-actions/auth@v2' (SHA:c200f3691d83b41bf9bbd8638997a462592937ed)
+deploy	Set up job	2026-02-17T14:50:41.5665769Z Download action repository 'google-github-actions/setup-gcloud@v2' (SHA:e427ad8a34f8676edf47cf7d7925499adf3eb74f)
+deploy	Set up job	2026-02-17T14:50:42.3411573Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+deploy	Set up job	2026-02-17T14:50:42.6295494Z Complete job name: deploy
+deploy	Run actions/checkout@v4	﻿2026-02-17T14:50:42.7226082Z ##[group]Run actions/checkout@v4
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7228016Z with:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7291358Z   repository: CongressionalInsights/TheSituationRoomAI
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7293454Z   token: ***
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7294478Z   ssh-strict: true
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7295511Z   ssh-user: git
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7296957Z   persist-credentials: true
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7298156Z   clean: true
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7299235Z   sparse-checkout-cone-mode: true
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7300493Z   fetch-depth: 1
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7301533Z   fetch-tags: false
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7302593Z   show-progress: true
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7303690Z   lfs: false
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7304694Z   submodules: false
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7305781Z   set-safe-directory: true
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7307776Z env:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7308845Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7310166Z   REGION: us-central1
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7311312Z   SERVICE_NAME: situation-room-mcp
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7313270Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7315882Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.7318107Z ##[endgroup]
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8439556Z Syncing repository: CongressionalInsights/TheSituationRoomAI
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8444330Z ##[group]Getting Git version info
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8446735Z Working directory is '/home/runner/work/TheSituationRoomAI/TheSituationRoomAI'
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8449360Z [command]/usr/bin/git version
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8450644Z git version 2.52.0
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8469607Z ##[endgroup]
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8491966Z Temporarily overriding HOME='/home/runner/work/_temp/68fe7b56-950a-420a-990d-8742f642ffb2' before making global git config changes
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8496488Z Adding repository directory to the temporary git global config as a safe directory
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8500646Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8536116Z Deleting the contents of '/home/runner/work/TheSituationRoomAI/TheSituationRoomAI'
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8539808Z ##[group]Initializing the repository
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8544242Z [command]/usr/bin/git init /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8643832Z hint: Using 'master' as the name for the initial branch. This default branch name
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8646496Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8650260Z hint: to use in all of your new repositories, which will suppress this warning,
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8652331Z hint: call:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8653342Z hint:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8654542Z hint: 	git config --global init.defaultBranch <name>
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8656013Z hint:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8658063Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8660451Z hint: 'development'. The just-created branch can be renamed via this command:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8662256Z hint:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8663299Z hint: 	git branch -m <name>
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8664609Z hint:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8666076Z hint: Disable this message with "git config set advice.defaultBranchName false"
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8668953Z Initialized empty Git repository in /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/.git/
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8673246Z [command]/usr/bin/git remote add origin https://github.com/CongressionalInsights/TheSituationRoomAI
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8698299Z ##[endgroup]
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8701379Z ##[group]Disabling automatic garbage collection
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8703977Z [command]/usr/bin/git config --local gc.auto 0
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8736132Z ##[endgroup]
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8738190Z ##[group]Setting up auth
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8741198Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.8772990Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.9104634Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.9135776Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.9380104Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.9422112Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.9657950Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.9693949Z ##[endgroup]
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.9695800Z ##[group]Fetching the repository
+deploy	Run actions/checkout@v4	2026-02-17T14:50:42.9702979Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +faab1d9b4fe701cbb243caa2a9ccecc3d23aea57:refs/remotes/origin/codex/mcp-rca-deploy-hardening
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5463920Z From https://github.com/CongressionalInsights/TheSituationRoomAI
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5465259Z  * [new ref]         faab1d9b4fe701cbb243caa2a9ccecc3d23aea57 -> origin/codex/mcp-rca-deploy-hardening
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5497645Z ##[endgroup]
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5498521Z ##[group]Determining the checkout info
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5504159Z ##[endgroup]
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5506890Z [command]/usr/bin/git sparse-checkout disable
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5550936Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5578005Z ##[group]Checking out the ref
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.5583875Z [command]/usr/bin/git checkout --progress --force -B codex/mcp-rca-deploy-hardening refs/remotes/origin/codex/mcp-rca-deploy-hardening
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.6637615Z Switched to a new branch 'codex/mcp-rca-deploy-hardening'
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.6639715Z branch 'codex/mcp-rca-deploy-hardening' set up to track 'origin/codex/mcp-rca-deploy-hardening'.
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.6656678Z ##[endgroup]
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.6696889Z [command]/usr/bin/git log -1 --format=%H
+deploy	Run actions/checkout@v4	2026-02-17T14:50:44.6720942Z faab1d9b4fe701cbb243caa2a9ccecc3d23aea57
+deploy	Sync feed registry	﻿2026-02-17T14:50:44.6907318Z ##[group]Run node scripts/sync-feeds.mjs
+deploy	Sync feed registry	2026-02-17T14:50:44.6907831Z [36;1mnode scripts/sync-feeds.mjs[0m
+deploy	Sync feed registry	2026-02-17T14:50:44.6958217Z shell: /usr/bin/bash -e ***0***
+deploy	Sync feed registry	2026-02-17T14:50:44.6958563Z env:
+deploy	Sync feed registry	2026-02-17T14:50:44.6958844Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Sync feed registry	2026-02-17T14:50:44.6959187Z   REGION: us-central1
+deploy	Sync feed registry	2026-02-17T14:50:44.6959477Z   SERVICE_NAME: situation-room-mcp
+deploy	Sync feed registry	2026-02-17T14:50:44.6960105Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Sync feed registry	2026-02-17T14:50:44.6960838Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Sync feed registry	2026-02-17T14:50:44.6961336Z ##[endgroup]
+deploy	Sync feed registry	2026-02-17T14:50:45.9634429Z Synced feeds.json to 3 targets.
+deploy	Run google-github-actions/auth@v2	﻿2026-02-17T14:50:45.9821592Z ##[group]Run google-github-actions/auth@v2
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9821998Z with:
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9831621Z   credentials_json: ***
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9831931Z   create_credentials_file: true
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9832287Z   export_environment_variables: true
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9832656Z   universe: googleapis.com
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9832950Z   cleanup_credentials: true
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9833247Z   access_token_lifetime: 3600s
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9833663Z   access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9834097Z   id_token_include_email: false
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9834400Z env:
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9834665Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9834993Z   REGION: us-central1
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9835278Z   SERVICE_NAME: situation-room-mcp
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9835817Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9836505Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:45.9837241Z ##[endgroup]
+deploy	Run google-github-actions/auth@v2	2026-02-17T14:50:46.0728882Z Created credentials file at "/home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json"
+deploy	Run google-github-actions/setup-gcloud@v2	﻿2026-02-17T14:50:46.0872259Z ##[group]Run google-github-actions/setup-gcloud@v2
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0872661Z with:
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0872935Z   project_id: situationroom-ai-20260112
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0873270Z   version: latest
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0873535Z   skip_install: false
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0873810Z   skip_tool_cache: false
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0874081Z env:
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0874331Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0874659Z   REGION: us-central1
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0874940Z   SERVICE_NAME: situation-room-mcp
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0875494Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0876199Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0877262Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0878188Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0879078Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0879696Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0880092Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0880455Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0880811Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0881175Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:46.0881703Z ##[endgroup]
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:50:49.6907499Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/3580260b-7655-4e40-a0c7-6a188a3bd127 -f /home/runner/work/_temp/9eb1e5fc-8462-42bd-923c-40d30c038a86
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:51:09.4212719Z Successfully authenticated
+deploy	Run google-github-actions/setup-gcloud@v2	2026-02-17T14:51:11.0344253Z Successfully set default project
+deploy	Ensure MCP proxy secrets	﻿2026-02-17T14:51:11.0510515Z ##[group]Run if ! gcloud secrets describe data-gov-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0511401Z [36;1mif ! gcloud secrets describe data-gov-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0512028Z [36;1m  gcloud secrets create data-gov-key --replication-policy=automatic[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0512467Z [36;1mfi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0512888Z [36;1mif ! gcloud secrets describe eia-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0513499Z [36;1m  gcloud secrets create eia-key --replication-policy=automatic[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0513961Z [36;1mfi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0514394Z [36;1mif ! gcloud secrets describe nasa-firms-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0515033Z [36;1m  gcloud secrets create nasa-firms-key --replication-policy=automatic[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0515465Z [36;1mfi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0515937Z [36;1mif ! gcloud secrets describe openaq-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0517212Z [36;1m  gcloud secrets create openaq-key --replication-policy=automatic[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0517668Z [36;1mfi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0518135Z [36;1mif ! gcloud secrets describe earthdata-nasa-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0518792Z [36;1m  gcloud secrets create earthdata-nasa-key --replication-policy=automatic[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0519260Z [36;1mfi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0519669Z [36;1mif ! gcloud secrets describe samgov-key --project "$PROJECT_ID" >/dev/null 2>&1; then[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0520314Z [36;1m  gcloud secrets create samgov-key --replication-policy=automatic[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0520887Z [36;1mfi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0521360Z [36;1mif [ -n "$DATA_GOV" ]; then echo -n "$DATA_GOV" | gcloud secrets versions add data-gov-key --data-file=-; fi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0522054Z [36;1mif [ -n "$EIA" ]; then echo -n "$EIA" | gcloud secrets versions add eia-key --data-file=-; fi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0522763Z [36;1mif [ -n "$NASA_FIRMS" ]; then echo -n "$NASA_FIRMS" | gcloud secrets versions add nasa-firms-key --data-file=-; fi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0523529Z [36;1mif [ -n "$OPEN_AQ" ]; then echo -n "$OPEN_AQ" | gcloud secrets versions add openaq-key --data-file=-; fi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0524317Z [36;1mif [ -n "$EARTHDATA_NASA" ]; then echo -n "$EARTHDATA_NASA" | gcloud secrets versions add earthdata-nasa-key --data-file=-; fi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0525160Z [36;1mif [ -n "$SAMGOV_API_KEY" ]; then echo -n "$SAMGOV_API_KEY" | gcloud secrets versions add samgov-key --data-file=-; fi[0m
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0576402Z shell: /usr/bin/bash -e ***0***
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0577057Z env:
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0577334Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0577676Z   REGION: us-central1
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0577962Z   SERVICE_NAME: situation-room-mcp
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0578481Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0579194Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0580017Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0580936Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0581783Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0582392Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0582970Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0583328Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0583683Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0584043Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0584472Z   CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0585049Z   CLOUDSDK_METRICS_ENVIRONMENT_VERSION: 2.2.1
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0585458Z   DATA_GOV: ***
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0585698Z   EIA: 
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0585987Z   NASA_FIRMS: ***
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0586395Z   OPEN_AQ: ***
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0591439Z   EARTHDATA_NASA: ***
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0591820Z   SAMGOV_API_KEY: ***
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:11.0592076Z ##[endgroup]
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:16.9526052Z Created version [123] of the secret [data-gov-key].
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:18.5432802Z Created version [123] of the secret [nasa-firms-key].
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:19.8331207Z Created version [123] of the secret [openaq-key].
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:21.2302178Z Created version [123] of the secret [earthdata-nasa-key].
+deploy	Ensure MCP proxy secrets	2026-02-17T14:51:22.5064343Z Created version [57] of the secret [samgov-key].
+deploy	Deploy MCP proxy service	﻿2026-02-17T14:51:22.6257409Z ##[group]Run set -euo pipefail
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6258044Z [36;1mset -euo pipefail[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6258573Z [36;1mDIAG_DIR=/tmp/mcp-diagnostics[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6259139Z [36;1mmkdir -p "$DIAG_DIR"[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6259670Z [36;1mcat > /tmp/sr-mcp-env.yaml <<EOF[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6260329Z [36;1mALLOWED_ORIGINS: "$***ALLOWED_ORIGINS***"[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6260825Z [36;1mACLED_PROXY: "$***ACLED_PROXY***"[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6261171Z [36;1mEOF[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6261408Z [36;1m[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6261633Z [36;1mset +e[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6261925Z [36;1mgcloud run deploy "$SERVICE_NAME" \[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6262269Z [36;1m  --region "$REGION" \[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6262590Z [36;1m  --source gcp/mcp-proxy \[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6262942Z [36;1m  --allow-unauthenticated \[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6263272Z [36;1m  --min-instances 1 \[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6264140Z [36;1m  --set-secrets DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest \[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6265189Z [36;1m  --env-vars-file /tmp/sr-mcp-env.yaml 2>&1 | tee "$DIAG_DIR/deploy-output.log"[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6265696Z [36;1mDEPLOY_EXIT=$***PIPESTATUS[0]***[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6266014Z [36;1mset -e[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6266259Z [36;1m[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6266843Z [36;1mecho "deploy_exit=$***DEPLOY_EXIT***" >> "$GITHUB_OUTPUT"[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6267337Z [36;1mif [ "$DEPLOY_EXIT" -eq 0 ]; then[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6267742Z [36;1m  echo "deploy_succeeded=true" >> "$GITHUB_OUTPUT"[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6268099Z [36;1melse[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6268415Z [36;1m  echo "deploy_succeeded=false" >> "$GITHUB_OUTPUT"[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6268775Z [36;1mfi[0m
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6317180Z shell: /usr/bin/bash -e ***0***
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6317509Z env:
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6317776Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6318129Z   REGION: us-central1
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6318423Z   SERVICE_NAME: situation-room-mcp
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6318956Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6319648Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6320460Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6321392Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6322245Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6323036Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6323426Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6323799Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6324153Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6324515Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6324946Z   CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6325362Z   CLOUDSDK_METRICS_ENVIRONMENT_VERSION: 2.2.1
+deploy	Deploy MCP proxy service	2026-02-17T14:51:22.6325696Z ##[endgroup]
+deploy	Deploy MCP proxy service	2026-02-17T14:51:27.6501080Z Building using Buildpacks and deploying container to Cloud Run service [situation-room-mcp] in project [situationroom-ai-20260112] region [us-central1]
+deploy	Deploy MCP proxy service	2026-02-17T14:51:27.6502422Z Building and deploying...
+deploy	Deploy MCP proxy service	2026-02-17T14:51:28.1825047Z Validating configuration.........done
+deploy	Deploy MCP proxy service	2026-02-17T14:51:28.9103779Z Uploading sources...........done
+deploy	Deploy MCP proxy service	2026-02-17T14:51:54.8510039Z Building Container.............................................................................................................................................................................................................................................................failed
+deploy	Deploy MCP proxy service	2026-02-17T14:51:54.8513429Z Deployment failed
+deploy	Deploy MCP proxy service	2026-02-17T14:51:54.8602703Z ERROR: (gcloud.run.deploy) Build failed; check build logs for details
+deploy	Collect Cloud Build diagnostics	﻿2026-02-17T14:51:55.0218315Z ##[group]Run set +e
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0218660Z [36;1mset +e[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0218953Z [36;1mDIAG_DIR=/tmp/mcp-diagnostics[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0219326Z [36;1mmkdir -p "$DIAG_DIR"[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0219623Z [36;1m[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0219871Z [36;1mgcloud builds list \[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0220186Z [36;1m  --project "$PROJECT_ID" \[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0220521Z [36;1m  --sort-by=~createTime \[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0220835Z [36;1m  --limit=10 \[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0221203Z [36;1m  --format=json > "$DIAG_DIR/cloudbuild-latest.json" 2>&1[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0221588Z [36;1m[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0221848Z [36;1mgcloud builds list \[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0222146Z [36;1m  --project "$PROJECT_ID" \[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0222461Z [36;1m  --sort-by=~createTime \[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0222760Z [36;1m  --limit=10 \[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0223288Z [36;1m  --format='table(id,status,createTime,finishTime,logUrl)' > "$DIAG_DIR/cloudbuild-latest.table.txt" 2>&1[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0223872Z [36;1m[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0224360Z [36;1mBUILD_ID=$(gcloud builds list --project "$PROJECT_ID" --sort-by=~createTime --limit=1 --format='value(id)')[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0224934Z [36;1mif [ -n "$BUILD_ID" ]; then[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0225410Z [36;1m  echo "Latest Cloud Build ID: $BUILD_ID" | tee "$DIAG_DIR/cloudbuild-summary.txt"[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0226089Z [36;1m  LOG_URL=$(gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --format='value(logUrl)')[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0226792Z [36;1m  if [ -n "$LOG_URL" ]; then[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0227286Z [36;1m    echo "Cloud Build log URL: $LOG_URL" | tee -a "$DIAG_DIR/cloudbuild-summary.txt"[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0227745Z [36;1m  fi[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0228345Z [36;1m  gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --format=json > "$DIAG_DIR/cloudbuild-$***BUILD_ID***-describe.json" 2>&1[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0229227Z [36;1m  gcloud builds log "$BUILD_ID" --project "$PROJECT_ID" > "$DIAG_DIR/cloudbuild-$***BUILD_ID***.log" 2>&1[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0229763Z [36;1melse[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0230217Z [36;1m  echo "No Cloud Build ID found from gcloud builds list." | tee "$DIAG_DIR/cloudbuild-summary.txt"[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0230730Z [36;1mfi[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0230965Z [36;1mset -e[0m
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0279463Z shell: /usr/bin/bash -e ***0***
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0279806Z env:
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0280083Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0280444Z   REGION: us-central1
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0280750Z   SERVICE_NAME: situation-room-mcp
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0281463Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0282172Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0282988Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0283915Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0284784Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0285396Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0285789Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0286154Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0286731Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0287141Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0287587Z   CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0288016Z   CLOUDSDK_METRICS_ENVIRONMENT_VERSION: 2.2.1
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:55.0288346Z ##[endgroup]
+deploy	Collect Cloud Build diagnostics	2026-02-17T14:51:57.8665697Z No Cloud Build ID found from gcloud builds list.
+deploy	Upload MCP deploy diagnostics	﻿2026-02-17T14:51:57.8786801Z ##[group]Run actions/upload-artifact@v4
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8787200Z with:
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8787483Z   name: mcp-deploy-diagnostics-22103142410
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8787841Z   path: /tmp/mcp-diagnostics
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8788152Z   if-no-files-found: warn
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8788430Z   compression-level: 6
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8788694Z   overwrite: false
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8788956Z   include-hidden-files: false
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8789244Z env:
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8789493Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8789809Z   REGION: us-central1
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8790090Z   SERVICE_NAME: situation-room-mcp
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8790614Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8791329Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8792140Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8793092Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8793938Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8794549Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8794938Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8795297Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8795638Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8795994Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8796412Z   CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8797205Z   CLOUDSDK_METRICS_ENVIRONMENT_VERSION: 2.2.1
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:57.8797626Z ##[endgroup]
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.0977288Z With the provided path, there will be 4 files uploaded
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.0982531Z Artifact name is valid!
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.0984816Z Root directory input is valid!
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.3592850Z Beginning upload of artifact content to blob storage
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.6222273Z Uploaded bytes 847
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.6908143Z Finished uploading artifact content to blob storage!
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.6911650Z SHA256 digest of uploaded artifact zip is 916f1000b3a5e61938331b78bd502723f8cc248480d4c4d85e0fcbd983fabb25
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.6913988Z Finalizing artifact upload
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.8352403Z Artifact mcp-deploy-diagnostics-22103142410.zip successfully finalized. Artifact ID 5540576399
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.8353920Z Artifact mcp-deploy-diagnostics-22103142410 has been successfully uploaded! Final size is 847 bytes. Artifact ID is 5540576399
+deploy	Upload MCP deploy diagnostics	2026-02-17T14:51:58.8361025Z Artifact download URL: https://github.com/CongressionalInsights/TheSituationRoomAI/actions/runs/22103142410/artifacts/5540576399
+deploy	Fail deploy job when deploy command fails	﻿2026-02-17T14:51:58.8479554Z ##[group]Run echo "Deploy failed. Review the mcp-deploy-diagnostics artifact for Cloud Build IDs and logs."
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8480396Z [36;1mecho "Deploy failed. Review the mcp-deploy-diagnostics artifact for Cloud Build IDs and logs."[0m
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8480936Z [36;1mexit 1[0m
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8529441Z shell: /usr/bin/bash -e ***0***
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8529766Z env:
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8530079Z   PROJECT_ID: situationroom-ai-20260112
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8530418Z   REGION: us-central1
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8530717Z   SERVICE_NAME: situation-room-mcp
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8531256Z   ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8531966Z   ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8532822Z   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8533761Z   GOOGLE_APPLICATION_CREDENTIALS: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8534667Z   GOOGLE_GHA_CREDS_PATH: /home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8535297Z   CLOUDSDK_CORE_PROJECT: situationroom-ai-20260112
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8535691Z   CLOUDSDK_PROJECT: situationroom-ai-20260112
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8536065Z   GCLOUD_PROJECT: situationroom-ai-20260112
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8536427Z   GCP_PROJECT: situationroom-ai-20260112
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8537090Z   GOOGLE_CLOUD_PROJECT: situationroom-ai-20260112
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8537534Z   CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8537953Z   CLOUDSDK_METRICS_ENVIRONMENT_VERSION: 2.2.1
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8538292Z ##[endgroup]
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8605799Z Deploy failed. Review the mcp-deploy-diagnostics artifact for Cloud Build IDs and logs.
+deploy	Fail deploy job when deploy command fails	2026-02-17T14:51:58.8617078Z ##[error]Process completed with exit code 1.
+deploy	Post Run google-github-actions/auth@v2	﻿2026-02-17T14:51:58.8709722Z Post job cleanup.
+deploy	Post Run google-github-actions/auth@v2	2026-02-17T14:51:58.9543571Z Removed exported credentials at "/home/runner/work/TheSituationRoomAI/TheSituationRoomAI/gha-creds-900ac0cb53c4e3e2.json".
+deploy	Post Run actions/checkout@v4	﻿2026-02-17T14:51:58.9650180Z Post job cleanup.
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.0607234Z [command]/usr/bin/git version
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.0650785Z git version 2.52.0
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.0699743Z Temporarily overriding HOME='/home/runner/work/_temp/8c4a9e03-24ca-4c15-a96d-0152c2f451b1' before making global git config changes
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.0701250Z Adding repository directory to the temporary git global config as a safe directory
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.0715503Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/TheSituationRoomAI/TheSituationRoomAI
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.0753918Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.0791514Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.1058825Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.1084184Z http.https://github.com/.extraheader
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.1163381Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.1167507Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.1380954Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+deploy	Post Run actions/checkout@v4	2026-02-17T14:51:59.1412801Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+deploy	Complete job	﻿2026-02-17T14:51:59.1752842Z Cleaning up orphan processes
