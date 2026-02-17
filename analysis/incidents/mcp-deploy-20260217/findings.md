@@ -44,6 +44,7 @@
 - Deploy output capture via `tee`.
 - Automatic Cloud Build diagnostics capture (`builds list`, build ID, log URL, `builds describe`, `builds log`).
 - Cloud Build diagnostics now explicitly scoped to deploy region (`--region "$REGION"`).
+- Workflow now decodes and prints Cloud Build build-step structured error payload from `buildStepOutputs` for self-explanatory failures.
 - Diagnostics artifact upload on every deploy run.
 - Runtime fix applied: MCP engine updated from `20.x` to `22.x` and preflight Node version aligned to `22`.
 

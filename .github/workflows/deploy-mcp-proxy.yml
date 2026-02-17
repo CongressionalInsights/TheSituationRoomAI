@@ -163,6 +163,14 @@ jobs:
               echo "Cloud Build log URL: $LOG_URL" | tee -a "$DIAG_DIR/cloudbuild-summary.txt"
             fi
             gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --region "$REGION" --format=json > "$DIAG_DIR/cloudbuild-${BUILD_ID}-describe.json" 2>&1
+            BUILD_OUTPUT_B64=$(jq -r '.results.buildStepOutputs[]? | select(length > 0) | .' "$DIAG_DIR/cloudbuild-${BUILD_ID}-describe.json" | head -n 1)
+            if [ -n "$BUILD_OUTPUT_B64" ]; then
+              echo "$BUILD_OUTPUT_B64" | base64 --decode > "$DIAG_DIR/cloudbuild-${BUILD_ID}-buildstep-output.json" 2>/dev/null
+              BUILD_ERROR=$(jq -r '.error.errorMessage // empty' "$DIAG_DIR/cloudbuild-${BUILD_ID}-buildstep-output.json" 2>/dev/null)
+              if [ -n "$BUILD_ERROR" ]; then
+                echo "Cloud Build decoded error: $BUILD_ERROR" | tee -a "$DIAG_DIR/cloudbuild-summary.txt"
+              fi
+            fi
             gcloud builds log "$BUILD_ID" --project "$PROJECT_ID" --region "$REGION" > "$DIAG_DIR/cloudbuild-${BUILD_ID}.log" 2>&1
           else
             echo "No Cloud Build ID found from gcloud builds list." | tee "$DIAG_DIR/cloudbuild-summary.txt"
