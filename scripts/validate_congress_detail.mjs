@@ -146,7 +146,7 @@ const normalizeItem = (raw, feed) => {
     amendmentType: isAmendment ? (raw.amendmentType || raw.type) : '',
     amendmentNumber: isAmendment ? (raw.amendmentNumber || raw.number) : '',
     voteSession: isVote ? (raw.session || raw.sessionNumber) : '',
-    voteNumber: isVote ? (raw.voteNumber || raw.rollCall || raw.number) : '',
+    voteNumber: isVote ? (raw.voteNumber || raw.rollCall || raw.rollCallNumber || raw.number) : '',
     committeeCode: isCommittee ? (raw.committeeCode || raw.systemCode || raw.committee?.systemCode) : '',
     committeeChamber: (isCommittee || isCommitteePrint || isCommitteeMeeting)
       ? (raw.committeeChamber || raw.chamber || raw.committee?.chamber)
@@ -196,6 +196,7 @@ for (const feed of congressFeeds) {
     || pickArray(body?.amendments)
     || pickArray(body?.committeeReports)
     || pickArray(body?.committeeReport)
+    || pickArray(body?.reports)
     || pickArray(body?.nominations)
     || pickArray(body?.treaties)
     || pickArray(body?.hearings)
@@ -206,6 +207,7 @@ for (const feed of congressFeeds) {
     || pickArray(body?.committeePrint)
     || pickArray(body?.houseVotes)
     || pickArray(body?.houseVote)
+    || pickArray(body?.houseRollCallVotes)
     || pickArray(body?.houseCommunications)
     || pickArray(body?.houseCommunication)
     || pickArray(body?.senateCommunications)

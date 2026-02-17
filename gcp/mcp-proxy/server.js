@@ -661,8 +661,12 @@ function parseGenericJsonFeed(data, feed) {
                 ? data.amendments
                 : Array.isArray(data?.committeeReports)
                   ? data.committeeReports
-                  : Array.isArray(data?.committeeReports ?? data?.reports)
-                    ? (data.committeeReports ?? data.reports)
+                  : Array.isArray(data?.committeeReport)
+                    ? data.committeeReport
+                    : Array.isArray(data?.reports)
+                      ? data.reports
+                      : Array.isArray(data?.houseRollCallVotes)
+                        ? data.houseRollCallVotes
                     : Array.isArray(data?.hearings)
                       ? data.hearings
                       : Array.isArray(data?.nominations)
@@ -684,10 +688,39 @@ function parseGenericJsonFeed(data, feed) {
         category: feed.category
       };
     }
-    const title = entry.title || entry.name || entry.headline || entry.label || 'Untitled';
-    const url = entry.url || entry.link || entry.permalink || entry.webUrl || '';
-    const summary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || '');
-    const published = entry.publishedAt || entry.pubDate || entry.date || entry.updatedAt || entry.updated;
+    const voteNumber = entry.voteNumber || entry.rollCall || entry.rollCallNumber || entry.number || '';
+    const voteSession = entry.session || entry.sessionNumber || '';
+    const isCongressHouseVote = feed?.id === 'congress-house-votes'
+      || entry.rollCallNumber !== undefined
+      || entry.voteQuestion !== undefined
+      || entry.voteType !== undefined;
+    const voteTitle = voteNumber
+      ? (voteSession ? `Roll Call ${voteNumber} • Session ${voteSession}` : `Roll Call ${voteNumber}`)
+      : 'House Vote';
+    const congressVoteUrl = (entry.congress && voteSession && voteNumber)
+      ? `https://www.congress.gov/roll-call-vote/${entry.congress}th-congress/house-session-${voteSession}/${voteNumber}`
+      : '';
+    const title = isCongressHouseVote
+      ? voteTitle
+      : (entry.title || entry.name || entry.headline || entry.label || 'Untitled');
+    const url = congressVoteUrl || entry.url || entry.link || entry.permalink || entry.webUrl || '';
+    const defaultSummary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || '');
+    const voteSummary = normalizeSummary(
+      [
+        entry.voteQuestion || entry.question || '',
+        entry.result || entry.voteResult || '',
+        entry.voteType || ''
+      ].filter(Boolean).join(' • ')
+    );
+    const summary = isCongressHouseVote ? (voteSummary || defaultSummary) : defaultSummary;
+    const published = entry.publishedAt
+      || entry.pubDate
+      || entry.date
+      || entry.updateDate
+      || entry.startDate
+      || entry.updatedAt
+      || entry.updated;
+    const publishedAt = published ? Date.parse(published) : Date.now();
     const geo = entry.geo || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null);
     const stateMeta = extractStateMetadata(entry, feed);
     const hasStateMeta = Object.values(stateMeta).some((value) => value !== null && value !== '');
@@ -695,7 +728,7 @@ function parseGenericJsonFeed(data, feed) {
       title,
       url,
       summary,
-      publishedAt: published ? Date.parse(published) : Date.now(),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
       source: entry.source || feed.name,
       category: feed.category,
       geo,
