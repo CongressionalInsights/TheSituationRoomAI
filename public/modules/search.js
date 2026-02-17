@@ -1,5 +1,52 @@
 import { applyStateSignalFilter, getStateSignalFilterCode } from './state-signals.js';
 
+function normalizeSearchField(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeSearchField(entry))
+      .filter(Boolean)
+      .join(' ');
+  }
+  return String(value).trim();
+}
+
+function buildStateSignalSearchHaystack(item) {
+  const fields = [
+    item?.title,
+    item?.summary,
+    item?.jurisdictionName,
+    item?.jurisdictionCode,
+    item?.agency,
+    item?.signalType,
+    item?.status,
+    item?.docId,
+    item?.tags
+  ];
+  return fields
+    .map((field) => normalizeSearchField(field))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function buildSearchHaystack(item) {
+  const isStateSignal = String(item?.jurisdictionLevel || '').toLowerCase() === 'state';
+  if (isStateSignal) {
+    return buildStateSignalSearchHaystack(item);
+  }
+  return [item?.title, item?.summary]
+    .map((field) => normalizeSearchField(field))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function matchesSearchQuery(item, normalizedQuery) {
+  if (!normalizedQuery) return true;
+  return buildSearchHaystack(item).includes(normalizedQuery);
+}
+
 export function initSearchUI({ state, elements, helpers }) {
   if (!elements || !helpers) return { handleSearch: null };
   const {
@@ -57,17 +104,15 @@ export function initSearchUI({ state, elements, helpers }) {
 
       if (state.searchCategories.length) {
         const selected = state.searchCategories;
-        const filtered = state.scopedItems.filter((item) => selected.includes(item.category)).filter((item) => {
-          const text = `${item.title} ${item.summary || ''}`.toLowerCase();
-          return text.includes(normalizedQuery);
-        });
+        const filtered = state.scopedItems.filter((item) => selected.includes(item.category));
         const liveFeeds = liveSearchFeeds.filter((feed) => selected.includes(feed.category));
         if (liveFeeds.length) {
           elements.searchHint.textContent = 'Searching live sources...';
         }
         const liveItems = await runLiveSearch(liveFeeds);
         const combined = [...filtered, ...liveItems];
-        const freshFiltered = applySearchFilters(combined);
+        const freshFiltered = applySearchFilters(combined)
+          .filter((item) => matchesSearchQuery(item, normalizedQuery));
         const scopedFiltered = applyScopedStateFilter(freshFiltered, selected.includes('gov'));
         showSearchResults(scopedFiltered, `${scopedFiltered.length} matches in ${selected.map((cat) => CATEGORY_LABELS[cat] || cat).join(', ')}`);
         elements.searchHint.textContent = liveFeeds.length
@@ -77,16 +122,14 @@ export function initSearchUI({ state, elements, helpers }) {
       }
 
       if (scope === 'all') {
-        const filtered = state.scopedItems.filter((item) => {
-          const text = `${item.title} ${item.summary || ''}`.toLowerCase();
-          return text.includes(normalizedQuery);
-        });
+        const filtered = [...state.scopedItems];
         if (liveSearchFeeds.length) {
           elements.searchHint.textContent = 'Searching live sources...';
         }
         const liveItems = await runLiveSearch(liveSearchFeeds);
         const combined = [...filtered, ...liveItems];
-        const freshFiltered = applySearchFilters(combined);
+        const freshFiltered = applySearchFilters(combined)
+          .filter((item) => matchesSearchQuery(item, normalizedQuery));
         const scopedFiltered = applyScopedStateFilter(freshFiltered, false);
         showSearchResults(scopedFiltered, `${scopedFiltered.length} matches across all feeds`);
         elements.searchHint.textContent = liveSearchFeeds.length
@@ -97,17 +140,15 @@ export function initSearchUI({ state, elements, helpers }) {
 
       if (scope.startsWith('cat:')) {
         const category = scope.replace('cat:', '');
-        const filtered = state.scopedItems.filter((item) => item.category === category).filter((item) => {
-          const text = `${item.title} ${item.summary || ''}`.toLowerCase();
-          return text.includes(normalizedQuery);
-        });
+        const filtered = state.scopedItems.filter((item) => item.category === category);
         const liveFeeds = liveSearchFeeds.filter((feed) => feed.category === category);
         if (liveFeeds.length) {
           elements.searchHint.textContent = 'Searching live sources...';
         }
         const liveItems = await runLiveSearch(liveFeeds);
         const combined = [...filtered, ...liveItems];
-        const freshFiltered = applySearchFilters(combined);
+        const freshFiltered = applySearchFilters(combined)
+          .filter((item) => matchesSearchQuery(item, normalizedQuery));
         const scopedFiltered = applyScopedStateFilter(freshFiltered, category === 'gov');
         showSearchResults(scopedFiltered, `${scopedFiltered.length} matches in ${CATEGORY_LABELS[category] || category}`);
         elements.searchHint.textContent = liveFeeds.length
@@ -129,13 +170,15 @@ export function initSearchUI({ state, elements, helpers }) {
       try {
         if (liveSearchFeeds.find((entry) => entry.id === feed.id)) {
           const result = await fetchCustomFeedDirect(feed, translated);
-          const items = applySearchFilters(result.items || []);
+          const items = applySearchFilters(result.items || [])
+            .filter((item) => matchesSearchQuery(item, normalizedQuery));
           const scopedItems = applyScopedStateFilter(items, feed.category === 'gov');
           showSearchResults(scopedItems, `${scopedItems.length} live results from ${feed.name}`);
           elements.searchHint.textContent = `Live search results from ${feed.name}.`;
         } else {
           const result = await fetchFeed(feed, translated, true);
-          const items = applySearchFilters(result.items || []);
+          const items = applySearchFilters(result.items || [])
+            .filter((item) => matchesSearchQuery(item, normalizedQuery));
           const scopedItems = applyScopedStateFilter(items, feed.category === 'gov');
           showSearchResults(scopedItems, `${scopedItems.length} results from ${feed.name}`);
           elements.searchHint.textContent = `Search results from ${feed.name}.`;

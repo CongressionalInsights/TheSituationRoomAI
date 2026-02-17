@@ -266,6 +266,52 @@ function matchesQuery(query, ...fields) {
   return fields.some((field) => String(field || '').toLowerCase().includes(needle));
 }
 
+function normalizeSearchField(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeSearchField(entry))
+      .filter(Boolean)
+      .join(' ');
+  }
+  return String(value).trim();
+}
+
+function isStateSignal(item, feed) {
+  const itemLevel = String(item?.jurisdictionLevel || '').toLowerCase();
+  if (itemLevel === 'state') return true;
+  return String(feed?.jurisdictionLevel || '').toLowerCase() === 'state';
+}
+
+function buildStateSignalSearchHaystack(item, feed) {
+  const jurisdictionCode = normalizeJurisdictionCode(item?.jurisdictionCode) || item?.jurisdictionCode;
+  return [
+    item?.title,
+    item?.summary,
+    item?.jurisdictionName,
+    jurisdictionCode,
+    item?.agency,
+    item?.signalType,
+    item?.status,
+    item?.docId,
+    item?.tags,
+    feed?.tags
+  ]
+    .map((field) => normalizeSearchField(field))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function matchesStateAwareSignalQuery(item, normalizedQuery, feed) {
+  if (!normalizedQuery) return true;
+  if (isStateSignal(item, feed)) {
+    return buildStateSignalSearchHaystack(item, feed).includes(normalizedQuery);
+  }
+  // Preserve existing non-state behavior by avoiding additional local filtering.
+  return true;
+}
+
 function scoreMoneyItem(item) {
   let score = 0;
   const amount = Number.isFinite(item.amount) ? item.amount : 0;
@@ -1421,6 +1467,7 @@ server.registerTool(
       };
     }
 
+    const normalizedQuery = String(query || '').trim().toLowerCase();
     const result = await fetchRaw(feed, { query, start, end, params });
     if (result.error) {
       return {
@@ -1435,7 +1482,10 @@ server.registerTool(
       sourceId,
       source: item.source || feed.name
     }));
-    const sliced = Number.isFinite(limit) ? items.slice(0, Math.max(1, limit)) : items;
+    const filtered = normalizedQuery
+      ? items.filter((item) => matchesStateAwareSignalQuery(item, normalizedQuery, feed))
+      : items;
+    const sliced = Number.isFinite(limit) ? filtered.slice(0, Math.max(1, limit)) : filtered;
 
     const warning = result.fallbackUsed
       ? `Fetched via proxy (${result.proxyUsed || 'unknown'}).`
@@ -1528,6 +1578,7 @@ server.registerTool(
   async ({ query, categories, sources, start, end, params, maxSources, perSourceLimit, totalLimit }) => {
     const selectedFeeds = selectSmartFeeds({ query, categories, sources, maxSources });
     const perLimit = Math.max(1, Number(perSourceLimit) || 25);
+    const normalizedQuery = String(query || '').trim().toLowerCase();
 
     const signals = [];
     const sourcesChecked = [];
@@ -1559,6 +1610,9 @@ server.registerTool(
         sourceName: feed.name,
         tags: feed.tags || []
       }));
+      const filtered = normalizedQuery
+        ? items.filter((item) => matchesStateAwareSignalQuery(item, normalizedQuery, feed))
+        : items;
 
       if (result.fallbackUsed) {
         warnings.push(`Fetched ${feed.name} via proxy (${result.proxyUsed || 'unknown'}).`);
@@ -1568,13 +1622,13 @@ server.registerTool(
         sourceId: feed.id,
         sourceName: feed.name,
         ok: true,
-        count: items.length,
+        count: filtered.length,
         fetchedUrl: result.fetchedUrl || null,
         proxyUsed: result.proxyUsed || null,
         fallbackUsed: Boolean(result.fallbackUsed)
       });
 
-      signals.push(...items.slice(0, perLimit));
+      signals.push(...filtered.slice(0, perLimit));
     }
 
     const deduped = dedupeSignals(signals);
