@@ -17,6 +17,7 @@ const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-
 let openSkyToken = null;
 let openSkyTokenExpiresAt = 0;
 const seededFeedFallbacks = new Map();
+const SEEDED_JSON_FALLBACK_IDS = new Set(['eonet-events', 'nasa-firms']);
 
 const feedsConfig = JSON.parse(await readFile(FEEDS_PATH, 'utf8'));
 const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
@@ -463,13 +464,30 @@ function isUsableRssSnapshot(payload) {
   return isLikelyRssPayload(payload.contentType || '', payload.body);
 }
 
+function isUsableJsonSnapshot(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (payload.error) return false;
+  if (!payload.body) return false;
+  try {
+    JSON.parse(payload.body);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadSeedFeedFallbacks() {
   for (const feed of feedsConfig.feeds) {
-    if (feed.format !== 'rss') continue;
+    const shouldSeedRss = feed.format === 'rss';
+    const shouldSeedJson = SEEDED_JSON_FALLBACK_IDS.has(feed.id);
+    if (!shouldSeedRss && !shouldSeedJson) continue;
     const filePath = join(FEED_DIR, `${feed.id}.json`);
     try {
       const payload = JSON.parse(await readFile(filePath, 'utf8'));
-      if (isUsableRssSnapshot(payload)) {
+      const usable = shouldSeedRss
+        ? isUsableRssSnapshot(payload)
+        : isUsableJsonSnapshot(payload);
+      if (usable) {
         seededFeedFallbacks.set(feed.id, payload);
       }
     } catch {
@@ -605,6 +623,10 @@ async function buildFeedPayload(feed) {
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
       return { ...fallback, fallback: fallback.fallback || 'live-cache' };
+    }
+    const seeded = seededFeedFallbacks.get(feed.id);
+    if (seeded && isUsableJsonSnapshot(seeded)) {
+      return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
     }
   }
 

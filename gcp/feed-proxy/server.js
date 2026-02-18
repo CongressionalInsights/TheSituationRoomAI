@@ -689,6 +689,28 @@ async function fetchLiveFallback(feedId) {
   }
 }
 
+function canUseLiveFeedFallback(feed, isRssFeed) {
+  return Boolean(isRssFeed || feed?.id === 'eonet-events');
+}
+
+function isUsableStaleFeedPayload(feed, payload) {
+  if (!payload || payload.error) return false;
+  if (!payload.httpStatus || payload.httpStatus < 200 || payload.httpStatus >= 300) return false;
+  if (!payload.body) return false;
+  if (feed?.format === 'rss') {
+    return isLikelyRssPayload(payload.contentType || '', payload.body);
+  }
+  if (feed?.id === 'eonet-events') {
+    try {
+      JSON.parse(payload.body);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 function buildAcledProxyUrl(feed) {
   const { start, end } = getAcledWindow();
   const params = new URLSearchParams();
@@ -766,6 +788,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   const isRssFeed = feed.format === 'rss';
+  const allowLiveFallback = canUseLiveFeedFallback(feed, isRssFeed);
   let response;
   let responseOk = false;
   let contentType = 'text/plain';
@@ -810,18 +833,15 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     }
   } catch (error) {
     if (!isEiaSeries) {
-      const hasUsableStale = isRssFeed
-        && staleCache
-        && staleCache.httpStatus
-        && staleCache.httpStatus >= 200
-        && staleCache.httpStatus < 300;
-      if (hasUsableStale) {
+      if (isUsableStaleFeedPayload(feed, staleCache)) {
         return { ...staleCache, stale: true, fetchedAt: Date.now() };
       }
-      if (isRssFeed) {
+      if (allowLiveFallback) {
         const fallback = await fetchLiveFallback(feed.id);
         if (fallback) {
-          return { ...fallback, fallback: 'live-cache' };
+          const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+          cache.set(cacheKey, fallbackPayload);
+          return fallbackPayload;
         }
       }
       throw error;
@@ -892,21 +912,20 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
   const shouldCache = isEiaSeries
     ? responseOk
-    : !(isRssFeed && payload.error === 'invalid_rss');
+    : !(isRssFeed && payload.error === 'invalid_rss')
+      && !(feed.id === 'eonet-events' && payload.error);
   if (shouldCache) {
     cache.set(cacheKey, payload);
   }
-  if (payload.error && isRssFeed) {
-    const hasUsableStale = staleCache
-      && staleCache.httpStatus
-      && staleCache.httpStatus >= 200
-      && staleCache.httpStatus < 300;
-    if (hasUsableStale) {
+  if (payload.error && allowLiveFallback) {
+    if (isUsableStaleFeedPayload(feed, staleCache)) {
       return { ...staleCache, stale: true, fetchedAt: Date.now() };
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
-      return { ...fallback, fallback: 'live-cache' };
+      const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+      cache.set(cacheKey, fallbackPayload);
+      return fallbackPayload;
     }
   }
   return payload;
