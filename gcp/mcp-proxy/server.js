@@ -644,6 +644,62 @@ function extractStateMetadata(entry, feed) {
   };
 }
 
+const COMMITTEE_REPORT_TYPE_MAP = {
+  HRPT: 'H. Rept.',
+  SRPT: 'S. Rept.',
+  ERPT: 'E. Rept.'
+};
+
+function normalizeCongressReportType(value) {
+  if (!value) return '';
+  return String(value).toUpperCase().replace(/[^A-Z]/g, '');
+}
+
+function formatCongressReportTypeNumber(entry) {
+  const reportType = normalizeCongressReportType(entry.reportType || entry.type || '');
+  const reportNumber = entry.reportNumber || entry.number || '';
+  if (!reportType || !reportNumber) return '';
+  const label = COMMITTEE_REPORT_TYPE_MAP[reportType] || reportType;
+  return `${label} ${reportNumber}`;
+}
+
+function isCommitteeReportEntry(entry, feed) {
+  if (feed?.id === 'congress-reports') return true;
+  return Boolean(
+    entry?.citation
+    || entry?.cmte_rpt_id
+    || entry?.reportType
+    || entry?.reportNumber
+    || (typeof entry?.type === 'string' && normalizeCongressReportType(entry.type).endsWith('RPT'))
+  );
+}
+
+function formatCongressChamber(value) {
+  const chamber = String(value || '').trim().toLowerCase();
+  if (!chamber) return '';
+  if (chamber === 'house') return 'House';
+  if (chamber === 'senate') return 'Senate';
+  if (chamber === 'joint') return 'Joint';
+  return String(value).trim();
+}
+
+function buildCommitteeReportTitle(entry, fallbackTitle) {
+  const citation = String(entry?.citation || '').trim();
+  if (citation) return citation;
+  const typeNumber = formatCongressReportTypeNumber(entry);
+  if (typeNumber) return typeNumber;
+  return fallbackTitle;
+}
+
+function buildCommitteeReportSummary(entry, fallbackSummary) {
+  if (fallbackSummary) return fallbackSummary;
+  const chamber = formatCongressChamber(entry?.chamber);
+  const reportMarker = String(entry?.citation || '').trim() || formatCongressReportTypeNumber(entry);
+  const updateDate = String(entry?.updateDate || entry?.updatedAt || entry?.updated || '').trim();
+  const parts = [chamber, reportMarker, updateDate].filter(Boolean);
+  return normalizeSummary(parts.join(' • '));
+}
+
 function parseGenericJsonFeed(data, feed) {
   const list = Array.isArray(data?.items)
     ? data.items
@@ -700,9 +756,11 @@ function parseGenericJsonFeed(data, feed) {
     const congressVoteUrl = (entry.congress && voteSession && voteNumber)
       ? `https://www.congress.gov/roll-call-vote/${entry.congress}th-congress/house-session-${voteSession}/${voteNumber}`
       : '';
+    const fallbackTitle = entry.title || entry.name || entry.headline || entry.label || 'Untitled';
+    const isCommitteeReport = !isCongressHouseVote && isCommitteeReportEntry(entry, feed);
     const title = isCongressHouseVote
       ? voteTitle
-      : (entry.title || entry.name || entry.headline || entry.label || 'Untitled');
+      : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
     const url = congressVoteUrl || entry.url || entry.link || entry.permalink || entry.webUrl || '';
     const defaultSummary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || '');
     const voteSummary = normalizeSummary(
@@ -712,7 +770,9 @@ function parseGenericJsonFeed(data, feed) {
         entry.voteType || ''
       ].filter(Boolean).join(' • ')
     );
-    const summary = isCongressHouseVote ? (voteSummary || defaultSummary) : defaultSummary;
+    const summary = isCongressHouseVote
+      ? (voteSummary || defaultSummary)
+      : (isCommitteeReport ? buildCommitteeReportSummary(entry, defaultSummary) : defaultSummary);
     const published = entry.publishedAt
       || entry.pubDate
       || entry.date
