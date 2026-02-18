@@ -52,6 +52,7 @@ done
 node server.mjs
 node scripts/validate_congress_detail.mjs
 ```
+- The Congress detail validator intentionally targets `congress-*` JSON feeds (it does not validate `govinfo-*` RSS feeds).
 - Or run against a deployed proxy:
 ```bash
 node scripts/validate_congress_detail.mjs --base https://situation-room-feed-382918878290.us-central1.run.app

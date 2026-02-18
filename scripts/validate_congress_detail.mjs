@@ -10,9 +10,11 @@ const baseOrigin = baseArgValue
   || process.env.SR_BASE
   || 'http://127.0.0.1:5173';
 const feedsConfig = JSON.parse(fs.readFileSync(path.join(root, 'data', 'feeds.json'), 'utf8'));
+const FETCH_TIMEOUT_MS = 15000;
+const startedAt = Date.now();
 
 const congressFeeds = (feedsConfig.feeds || []).filter((feed) => (
-  feed.id?.startsWith('congress-') || (feed.tags || []).includes('congress')
+  feed.id?.startsWith('congress-') && feed.format === 'json'
 ));
 
 const pickArray = (value) => {
@@ -163,19 +165,59 @@ const normalizeItem = (raw, feed) => {
 };
 
 const fetchJson = async (url) => {
-  const response = await fetch(url, { headers: { 'accept': 'application/json' } });
-  const data = await response.json();
-  return { ok: response.ok, status: response.status, data };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { 'accept': 'application/json' },
+      signal: controller.signal
+    });
+    const text = await response.text();
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        return {
+          ok: false,
+          status: response.status,
+          data: null,
+          error: `json_parse_error: ${error.message}`
+        };
+      }
+    }
+    return { ok: response.ok, status: response.status, data };
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      return { ok: false, status: null, data: null, error: 'timeout', timeoutMs: FETCH_TIMEOUT_MS };
+    }
+    return { ok: false, status: null, data: null, error: error?.message || 'fetch_failed' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
 
 const failures = [];
 const ignored = [];
 const summaries = [];
 
+console.log(`[validator] base=${baseOrigin}`);
+console.log(`[validator] selectedFeeds=${congressFeeds.length}`);
+
 for (const feed of congressFeeds) {
-  const { ok, status, data } = await fetchJson(`${baseOrigin}/api/feed?id=${feed.id}&force=1`);
+  const feedUrl = `${baseOrigin}/api/feed?id=${feed.id}&force=1`;
+  console.log(`[feed] start id=${feed.id}`);
+  const { ok, status, data, error, timeoutMs } = await fetchJson(feedUrl);
+  console.log(`[feed] finish id=${feed.id} ok=${ok} status=${status ?? 'timeout'}`);
   if (!ok) {
-    failures.push({ feedId: feed.id, stage: 'feed', status });
+    failures.push({
+      feedId: feed.id,
+      stage: 'feed',
+      url: feedUrl,
+      status,
+      error: error || 'fetch_failed',
+      ...(timeoutMs ? { timeoutMs } : {})
+    });
     continue;
   }
   let payload = data;
@@ -221,6 +263,7 @@ for (const feed of congressFeeds) {
     || [];
 
   const sample = list.slice(0, 20).map((item) => normalizeItem(item, feed));
+  const queue = [];
   for (const item of sample) {
     const targets = getCongressDetailTargets(item);
     const itemKey = [
@@ -231,32 +274,45 @@ for (const feed of congressFeeds) {
     ].filter(Boolean).join(':');
     summaries.push({ feedId: feed.id, itemKey, targetCount: targets.length });
     for (const target of targets) {
-      const result = await fetchJson(`${baseOrigin}/api/congress-detail?url=${encodeURIComponent(target.url)}`);
-      if (!result.ok || result.data?.error) {
-        const upstreamStatus = result.data?.status || null;
-        const isExpected404 = upstreamStatus === 404
-          && ['communication-detail', 'committee-communications-house', 'committee-communications-senate'].includes(target.type);
-        if (isExpected404) {
-          ignored.push({
-            feedId: feed.id,
-            itemKey,
-            targetType: target.type,
-            url: target.url,
-            status: result.status,
-            error: result.data?.error || 'fetch_failed',
-            upstreamStatus
-          });
-        } else {
-          failures.push({
-            feedId: feed.id,
-            itemKey,
-            targetType: target.type,
-            url: target.url,
-            status: result.status,
-            error: result.data?.error || 'fetch_failed',
-            upstreamStatus
-          });
-        }
+      queue.push({ itemKey, target });
+    }
+  }
+
+  const totalTargets = queue.length;
+  let processedTargets = 0;
+  console.log(`[targets] feed=${feed.id} planned=${totalTargets}`);
+  for (const { itemKey, target } of queue) {
+    const detailUrl = `${baseOrigin}/api/congress-detail?url=${encodeURIComponent(target.url)}`;
+    const result = await fetchJson(detailUrl);
+    processedTargets += 1;
+    if (processedTargets === totalTargets || processedTargets % 25 === 0) {
+      console.log(`[targets] feed=${feed.id} progress=${processedTargets}/${totalTargets}`);
+    }
+    if (!result.ok || result.data?.error) {
+      const upstreamStatus = result.data?.status || null;
+      const isExpected404 = upstreamStatus === 404
+        && ['communication-detail', 'committee-communications-house', 'committee-communications-senate'].includes(target.type);
+      if (isExpected404) {
+        ignored.push({
+          feedId: feed.id,
+          itemKey,
+          targetType: target.type,
+          url: target.url,
+          status: result.status,
+          error: result.data?.error || result.error || 'fetch_failed',
+          upstreamStatus
+        });
+      } else {
+        failures.push({
+          feedId: feed.id,
+          itemKey,
+          targetType: target.type,
+          url: target.url,
+          status: result.status,
+          error: result.data?.error || result.error || 'fetch_failed',
+          upstreamStatus,
+          ...(result.timeoutMs ? { timeoutMs: result.timeoutMs } : {})
+        });
       }
     }
   }
@@ -267,5 +323,6 @@ fs.mkdirSync(outputDir, { recursive: true });
 const outputPath = path.join(outputDir, 'congress-detail-404.json');
 fs.writeFileSync(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), failures, ignored, summaries }, null, 2));
 
-console.log(`Congress detail validation complete. Failures: ${failures.length}`);
+const elapsedMs = Date.now() - startedAt;
+console.log(`Congress detail validation complete. Failures: ${failures.length}; Ignored: ${ignored.length}; Summaries: ${summaries.length}; ElapsedMs: ${elapsedMs}`);
 console.log(`Report written to ${outputPath}`);
