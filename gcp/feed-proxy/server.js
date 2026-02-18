@@ -22,6 +22,8 @@ const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
 const cache = new Map();
 const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
+const DEFAULT_LIVE_BASE = 'https://congressionalinsights.github.io/TheSituationRoomAI';
+const LIVE_BASE = process.env.SR_LIVE_BASE || DEFAULT_LIVE_BASE;
 const GPSJAM_ID = 'gpsjam';
 const GPSJAM_CACHE_KEY = 'gpsjam:data';
 const EIA_RETRY_ATTEMPTS = 5;
@@ -667,6 +669,20 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
   throw new Error('fetch_failed');
 }
 
+async function fetchLiveFallback(feedId) {
+  if (!feedId) return null;
+  const url = `${LIVE_BASE}/data/feeds/${feedId}.json?ts=${Date.now()}`;
+  try {
+    const response = await fetchWithTimeout(url, { headers: { 'User-Agent': appConfig.userAgent } }, FETCH_TIMEOUT_MS);
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (!payload || payload.error || !payload.body) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 function buildAcledProxyUrl(feed) {
   const { start, end } = getAcledWindow();
   const params = new URLSearchParams();
@@ -796,6 +812,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       if (hasUsableStale) {
         return { ...staleCache, stale: true, fetchedAt: Date.now() };
       }
+      if (isRssFeed) {
+        const fallback = await fetchLiveFallback(feed.id);
+        if (fallback) {
+          return { ...fallback, fallback: 'live-cache' };
+        }
+      }
       throw error;
     }
   }
@@ -867,6 +889,19 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     : !(isRssFeed && payload.error === 'invalid_rss');
   if (shouldCache) {
     cache.set(cacheKey, payload);
+  }
+  if (payload.error && isRssFeed) {
+    const hasUsableStale = staleCache
+      && staleCache.httpStatus
+      && staleCache.httpStatus >= 200
+      && staleCache.httpStatus < 300;
+    if (hasUsableStale) {
+      return { ...staleCache, stale: true, fetchedAt: Date.now() };
+    }
+    const fallback = await fetchLiveFallback(feed.id);
+    if (fallback) {
+      return { ...fallback, fallback: 'live-cache' };
+    }
   }
   return payload;
 }

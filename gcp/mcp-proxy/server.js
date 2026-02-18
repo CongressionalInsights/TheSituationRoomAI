@@ -22,6 +22,8 @@ const FALLBACK_PROXIES = (process.env.FALLBACK_PROXIES || 'allorigins,jina')
   .split(',')
   .map((proxy) => proxy.trim())
   .filter(Boolean);
+const DEFAULT_LIVE_BASE = 'https://congressionalinsights.github.io/TheSituationRoomAI';
+const LIVE_BASE = process.env.SR_LIVE_BASE || DEFAULT_LIVE_BASE;
 
 const ACLED_PROXY = process.env.ACLED_PROXY || '';
 const DEFAULT_LOOKBACK_DAYS = Number(process.env.DEFAULT_LOOKBACK_DAYS || 30);
@@ -577,6 +579,25 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT
   return { response, data, text };
 }
 
+async function fetchLiveFallback(feedId) {
+  if (!feedId) return null;
+  const url = `${LIVE_BASE}/data/feeds/${feedId}.json?ts=${Date.now()}`;
+  try {
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0',
+        'Accept': 'application/json, text/plain, */*'
+      }
+    }, FETCH_TIMEOUT_MS);
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (!payload || payload.error || !payload.body) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 function ensureArray(value) {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
@@ -986,6 +1007,7 @@ async function fetchRaw(feed, options) {
   let body = null;
   let usedProxy = null;
   let fetchedUrl = null;
+  let succeeded = false;
   const totalTimeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
   const perAttemptTimeoutMs = isRssFeed
     ? Math.max(3000, Math.floor(totalTimeoutMs / Math.max(1, attempts.length)))
@@ -1017,6 +1039,7 @@ async function fetchRaw(feed, options) {
           continue;
         }
         usedProxy = proxy || null;
+        succeeded = true;
         break;
       }
       lastError = {
@@ -1034,7 +1057,26 @@ async function fetchRaw(feed, options) {
     }
   }
 
-  if (!response || !response.ok) {
+  if (!succeeded) {
+    const fallback = await fetchLiveFallback(feed.id);
+    if (fallback) {
+      console.log(JSON.stringify({
+        event: 'mcp_raw_fetch',
+        feedId: feed.id,
+        ok: true,
+        httpStatus: fallback.httpStatus || 200,
+        elapsedMs: Date.now() - startedAt,
+        proxyUsed: 'live-cache'
+      }));
+      return {
+        body: fallback.body,
+        httpStatus: fallback.httpStatus || 200,
+        contentType: fallback.contentType || 'application/json',
+        fetchedUrl: `${LIVE_BASE}/data/feeds/${encodeURIComponent(feed.id)}.json`,
+        proxyUsed: 'live-cache',
+        fallbackUsed: true
+      };
+    }
     console.log(JSON.stringify({
       event: 'mcp_raw_fetch',
       feedId: feed.id,
