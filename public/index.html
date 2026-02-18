@@ -286,6 +286,7 @@
             <button class="nav-link" data-panel-target="security"><svg class="icon" aria-hidden="true"><use href="#icon-security"></use></svg>Conflict & Security</button>
             <button class="nav-link" data-panel-target="local"><svg class="icon" aria-hidden="true"><use href="#icon-local"></use></svg>Local Lens</button>
             <button class="nav-link" data-panel-target="policy"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg>Policy & Government</button>
+            <button class="nav-link" data-panel-target="state-gov"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg>State Government</button>
             <button class="nav-link" data-panel-target="congress"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg>Congressional Insights</button>
             <button class="nav-link" data-panel-target="cyber"><svg class="icon" aria-hidden="true"><use href="#icon-cyber"></use></svg>Cyber Pulse</button>
             <button class="nav-link" data-panel-target="health"><svg class="icon" aria-hidden="true"><use href="#icon-health"></use></svg>Health</button>
@@ -1269,11 +1270,32 @@
         <div class="panel-header">
           <div>
             <div class="panel-title"><span class="panel-icon tone-policy"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg></span>Policy & Government</div>
-            <div class="panel-sub">Disclosures, regs, public intel</div>
+            <div class="panel-sub">Federal disclosures, regs, public intel</div>
           </div>
         </div>
         <div class="panel-body">
           <div class="list" id="policyList"></div>
+        </div>
+      </section>
+
+      <section class="panel feed-panel state-gov-panel" data-panel="state-gov" data-category="gov">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title"><span class="panel-icon tone-policy"><svg class="icon" aria-hidden="true"><use href="#icon-policy"></use></svg></span>State Government</div>
+            <div class="panel-sub">Legislation, rulemaking, executive orders</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="panel-tabs" id="stateGovTabs">
+            <button class="tab active" data-tab="all">All</button>
+            <button class="tab" data-tab="legislation">Legislation</button>
+            <button class="tab" data-tab="rulemaking">Rulemaking</button>
+            <button class="tab" data-tab="executive">Executive Orders</button>
+          </div>
+          <div class="list tab-panel active" id="stateGovAllList"></div>
+          <div class="list tab-panel" id="stateGovLegislationList"></div>
+          <div class="list tab-panel" id="stateGovRulemakingList"></div>
+          <div class="list tab-panel" id="stateGovExecutiveOrdersList"></div>
         </div>
       </section>
 

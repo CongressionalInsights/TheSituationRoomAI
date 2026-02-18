@@ -132,6 +132,10 @@
   box-sizing: border-box;
 }
 
+.is-hidden {
+  display: none !important;
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
@@ -649,6 +653,40 @@ body::before {
   box-shadow: var(--shadow-soft);
 }
 
+.summary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.summary-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.summary-sub {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.summary-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.summary-actions .signal-health-detail {
+  max-width: 420px;
+  text-align: right;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -994,6 +1032,23 @@ a:focus-visible {
   gap: 8px;
 }
 
+.state-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.state-filter-row label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.state-filter-row .select {
+  min-width: 220px;
+  max-width: 100%;
+}
+
 .search-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1179,6 +1234,26 @@ a:focus-visible {
 
 .feed-panel {
   height: clamp(320px, 46vh, 520px);
+}
+
+.briefing-panel {
+  height: clamp(320px, 42vh, 520px);
+}
+
+.briefing-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.briefing-panel .analysis-body {
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 .feed-panel .list,
@@ -3696,8 +3771,10 @@ a.list-title:hover {
   background: var(--surface-2);
   border-radius: var(--radius-md);
   padding: 12px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+  min-height: 0;
 }
 
 .denario-title {
@@ -3716,6 +3793,9 @@ a.list-title:hover {
 .denario-list {
   display: grid;
   gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .denario-item {
@@ -4773,6 +4853,31 @@ a.list-title:hover {
   transform: translateY(12px) scale(0.98);
   transition: transform 0.2s ease, opacity 0.2s ease;
   color: var(--text);
+}
+
+.modal.detail-modal {
+  max-height: 86vh;
+}
+
+.modal.detail-modal .modal-body {
+  overflow: auto;
+  min-height: 0;
+}
+
+.modal.detail-modal .detail-grid {
+  min-height: 0;
+}
+
+.modal.detail-modal .denario-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.modal.detail-modal .denario-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .modal.list-modal {

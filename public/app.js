@@ -434,6 +434,10 @@ const elements = {
   localList: document.getElementById('localList'),
   predictionList: document.getElementById('predictionList'),
   policyList: document.getElementById('policyList'),
+  stateGovAllList: document.getElementById('stateGovAllList'),
+  stateGovLegislationList: document.getElementById('stateGovLegislationList'),
+  stateGovRulemakingList: document.getElementById('stateGovRulemakingList'),
+  stateGovExecutiveOrdersList: document.getElementById('stateGovExecutiveOrdersList'),
   congressList: document.getElementById('congressList'),
   cyberList: document.getElementById('cyberList'),
   agricultureList: document.getElementById('agricultureList'),
@@ -546,6 +550,7 @@ const elements = {
   financeMarketsList: document.getElementById('financeMarketsList'),
   financePolicyList: document.getElementById('financePolicyList'),
   financeTabs: document.getElementById('financeTabs'),
+  stateGovTabs: document.getElementById('stateGovTabs'),
   moneyFlowsQuery: document.getElementById('moneyFlowsQuery'),
   moneyFlowsRange: document.getElementById('moneyFlowsRange'),
   moneyFlowsRun: document.getElementById('moneyFlowsRun'),
@@ -608,6 +613,7 @@ const DEFAULT_PANEL_SIZE_CONFIG = [
   { id: 'local', cols: 6 },
   { id: 'community', cols: 6 },
   { id: 'policy', cols: 4 },
+  { id: 'state-gov', cols: 4 },
   { id: 'congress', cols: 4 },
   { id: 'cyber', cols: 4 },
   { id: 'agriculture', cols: 4 },
@@ -684,7 +690,11 @@ const LIST_CONFIG = [
   { id: 'predictionList', title: 'Prediction Markets', defaultLimit: 20, getItems: () => getPredictionItems() },
   { id: 'disasterList', title: 'Hazards & Weather', defaultLimit: 20, getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
   { id: 'localList', title: 'Local Lens', defaultLimit: 20, getItems: () => getLocalItemsForPanel() },
-  { id: 'policyList', title: 'Policy & Government', defaultLimit: 20, getItems: () => getCategoryItems('gov').items },
+  { id: 'policyList', title: 'Policy & Government', defaultLimit: 20, getItems: () => getFederalPolicyItems() },
+  { id: 'stateGovAllList', title: 'State Government: All', defaultLimit: 20, getItems: () => getStateGovernmentItems() },
+  { id: 'stateGovLegislationList', title: 'State Government: Legislation', defaultLimit: 20, getItems: () => getStateGovernmentItems('legislation') },
+  { id: 'stateGovRulemakingList', title: 'State Government: Rulemaking', defaultLimit: 20, getItems: () => getStateGovernmentItems('rulemaking') },
+  { id: 'stateGovExecutiveOrdersList', title: 'State Government: Executive Orders', defaultLimit: 20, getItems: () => getStateGovernmentItems('executive_order') },
   { id: 'congressList', title: 'Congressional Insights', defaultLimit: 30, getItems: () => getCongressItems() },
   { id: 'cyberList', title: 'Cyber Pulse', defaultLimit: 20, getItems: () => getCategoryItems('cyber').items },
   { id: 'agricultureList', title: 'Agriculture', defaultLimit: 20, getItems: () => getCategoryItems('agriculture').items },
@@ -3834,6 +3844,34 @@ function parseRss(text, feed) {
   });
 }
 
+function looksLikeHtmlDocument(text = '') {
+  const sample = String(text || '').slice(0, 2048).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<!doctype html')
+    || sample.startsWith('<html')
+    || sample.includes('<html')
+    || sample.includes('<body');
+}
+
+function looksLikeXmlFeed(text = '') {
+  const sample = String(text || '').slice(0, 4096).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<?xml')
+    || sample.includes('<rss')
+    || sample.includes('<feed')
+    || sample.includes('<rdf:rdf');
+}
+
+function isLikelyRssPayload(contentType = '', body = '') {
+  const normalizedType = String(contentType || '').toLowerCase();
+  const xmlType = normalizedType.includes('rss')
+    || normalizedType.includes('atom')
+    || normalizedType.includes('xml');
+  if (looksLikeXmlFeed(body)) return true;
+  if (xmlType && !looksLikeHtmlDocument(body)) return true;
+  return false;
+}
+
 function parseJson(text, feed) {
   try {
     if (feed.format === 'csv') {
@@ -6901,6 +6939,8 @@ async function fetchCustomFeedDirect(feed, query) {
     const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
     const candidates = [url, ...proxyList.map((proxy) => applyCustomProxy(url, proxy))];
     let lastResponse = null;
+    let lastBody = '';
+    let lastRssInvalid = false;
     for (const candidate of candidates) {
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -6909,6 +6949,12 @@ async function fetchCustomFeedDirect(feed, query) {
         if (!response.ok) continue;
         // eslint-disable-next-line no-await-in-loop
         const body = await response.text();
+        lastBody = body;
+        if (feed.format === 'rss' && !isLikelyRssPayload(response.headers.get('content-type') || '', body)) {
+          lastRssInvalid = true;
+          continue;
+        }
+        lastRssInvalid = false;
         const items = feed.format === 'rss' ? parseRss(body, feed) : parseJson(body, feed);
         const enriched = items.map((item) => ({
           ...item,
@@ -6928,9 +6974,9 @@ async function fetchCustomFeedDirect(feed, query) {
         // try next candidate
       }
     }
-    const body = lastResponse ? await lastResponse.text() : '';
-    const items = lastResponse && lastResponse.ok
-      ? (feed.format === 'rss' ? parseRss(body, feed) : parseJson(body, feed))
+    const invalidRss = feed.format === 'rss' && lastResponse?.ok && lastRssInvalid;
+    const items = lastResponse && lastResponse.ok && !invalidRss
+      ? (feed.format === 'rss' ? parseRss(lastBody, feed) : parseJson(lastBody, feed))
       : [];
     const enriched = items.map((item) => ({
       ...item,
@@ -6941,8 +6987,12 @@ async function fetchCustomFeedDirect(feed, query) {
     return {
       feed,
       items: enriched,
-      error: lastResponse?.ok ? null : (lastResponse ? `http_${lastResponse.status}` : 'fetch_failed'),
-      errorMessage: lastResponse?.ok ? null : (lastResponse ? `HTTP ${lastResponse.status}` : 'fetch failed'),
+      error: invalidRss
+        ? 'invalid_rss'
+        : (lastResponse?.ok ? null : (lastResponse ? `http_${lastResponse.status}` : 'fetch_failed')),
+      errorMessage: invalidRss
+        ? 'Upstream response was not valid RSS/Atom XML.'
+        : (lastResponse?.ok ? null : (lastResponse ? `HTTP ${lastResponse.status}` : 'fetch failed')),
       httpStatus: lastResponse?.status || 0,
       fetchedAt: Date.now()
     };
@@ -7049,6 +7099,36 @@ function getLatestFeedTimestamp(categories) {
   return Math.max(...stamps);
 }
 
+function getLatestFeedTimestampByIds(feedIds) {
+  if (!Array.isArray(feedIds) || !feedIds.length) return null;
+  const stamps = feedIds.map((id) => state.feedStatus[id]?.fetchedAt).filter(Boolean);
+  if (!stamps.length) return null;
+  return Math.max(...stamps);
+}
+
+function getStateGovernmentFeedIds() {
+  return state.feeds
+    .filter((feed) => String(feed?.category || '').toLowerCase() === 'gov')
+    .filter((feed) => String(feed?.jurisdictionLevel || '').toLowerCase() === 'state')
+    .map((feed) => feed.id);
+}
+
+function getFederalPolicyFeedIds() {
+  return state.feeds
+    .filter((feed) => String(feed?.category || '').toLowerCase() === 'gov')
+    .filter((feed) => String(feed?.jurisdictionLevel || '').toLowerCase() !== 'state')
+    .filter((feed) => {
+      const feedId = String(feed?.id || '').toLowerCase();
+      if (feedId.startsWith('congress-')) return false;
+      const tags = Array.isArray(feed?.tags)
+        ? feed.tags.map((tag) => String(tag || '').toLowerCase())
+        : [];
+      if (tags.includes('congress')) return false;
+      return true;
+    })
+    .map((feed) => feed.id);
+}
+
 const PANEL_ERROR_CATEGORY_MAP = {
   map: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local', 'security', 'infrastructure'],
   ticker: ['finance', 'crypto', 'energy'],
@@ -7061,6 +7141,7 @@ const PANEL_ERROR_CATEGORY_MAP = {
   'critical-alerts': ['news', 'disaster', 'weather', 'space', 'security', 'cyber', 'health', 'gov', 'travel', 'transport'],
   local: ['news', 'gov', 'disaster', 'weather'],
   policy: ['gov'],
+  'state-gov': ['gov'],
   cyber: ['cyber'],
   agriculture: ['agriculture'],
   research: ['research'],
@@ -7110,8 +7191,16 @@ function getPanelTimestamp(panelId) {
       return latestFromCategories(['news', 'disaster', 'weather', 'space', 'security', 'cyber', 'health', 'gov', 'travel', 'transport']);
     case 'local':
       return getLatestTimestamp(getLocalItems()) || state.lastFetch || null;
-    case 'policy':
-      return latestFromCategories(['gov']);
+    case 'policy': {
+      const policyStamp = getLatestTimestamp(getFederalPolicyItems());
+      if (policyStamp) return policyStamp;
+      return getLatestFeedTimestampByIds(getFederalPolicyFeedIds()) || state.lastFetch || null;
+    }
+    case 'state-gov': {
+      const stateStamp = getLatestTimestamp(getStateGovernmentItems());
+      if (stateStamp) return stateStamp;
+      return getLatestFeedTimestampByIds(getStateGovernmentFeedIds()) || state.lastFetch || null;
+    }
     case 'cyber':
       return latestFromCategories(['cyber']);
     case 'agriculture':
@@ -7138,6 +7227,12 @@ function getPanelFeedIds(panelId) {
     return state.feeds
       .filter((feed) => feed.mapOnly || PANEL_ERROR_CATEGORY_MAP.map.includes(feed.category))
       .map((feed) => feed.id);
+  }
+  if (panelId === 'policy') {
+    return getFederalPolicyFeedIds();
+  }
+  if (panelId === 'state-gov') {
+    return getStateGovernmentFeedIds();
   }
   const categories = PANEL_ERROR_CATEGORY_MAP[panelId];
   if (!categories) return [];
@@ -7647,6 +7742,10 @@ function resolveBadgeContext(contextId, item) {
     financeMarketsList: 'financeMarkets',
     financePolicyList: 'financePolicy',
     policyList: 'policy',
+    stateGovAllList: 'policy',
+    stateGovLegislationList: 'policy',
+    stateGovRulemakingList: 'policy',
+    stateGovExecutiveOrdersList: 'policy',
     congressList: 'policy',
     cryptoList: 'crypto',
     disasterList: 'disaster',
@@ -8878,10 +8977,42 @@ function getCategoryItems(category) {
   if (category === 'security') {
     items = dedupeConflictItems(items);
   }
-  if (category === 'gov') {
-    items = applyStateSignalFilter(items, { includeFederal: false });
-  }
   return { items, mapOnlyNotice: false };
+}
+
+function normalizeStateSignalType(item) {
+  const raw = String(item?.signalType || '').trim().toLowerCase();
+  if (!raw) return 'other';
+  if (raw === 'executive_order' || raw === 'executive-order' || raw === 'executive order') return 'executive_order';
+  if (raw.includes('executive')) return 'executive_order';
+  if (raw === 'rulemaking' || raw === 'rule' || raw === 'rules') return 'rulemaking';
+  if (raw.includes('rule')) return 'rulemaking';
+  if (raw === 'legislation' || raw === 'legislative' || raw === 'bill' || raw === 'bills') return 'legislation';
+  if (raw.includes('legis') || raw.includes('bill')) return 'legislation';
+  return 'other';
+}
+
+function getStateGovernmentItems(signalType = null) {
+  let items = state.scopedItems.filter((item) => (
+    item?.category === 'gov'
+    && String(item?.jurisdictionLevel || '').toLowerCase() === 'state'
+    && !item?.mapOnly
+  ));
+  items = applyStateSignalFilter(items, { includeFederal: false });
+  if (signalType) {
+    items = items.filter((item) => normalizeStateSignalType(item) === signalType);
+  }
+  return [...items].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+}
+
+function getFederalPolicyItems() {
+  const items = state.scopedItems.filter((item) => (
+    item?.category === 'gov'
+    && String(item?.jurisdictionLevel || '').toLowerCase() !== 'state'
+    && !item?.mapOnly
+    && !isCongressItem(item)
+  ));
+  return [...items].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
 }
 
 function normalizeCongressBillType(value) {
@@ -10368,6 +10499,47 @@ function renderCategory(category, container) {
   renderListWithLimit(container, items);
 }
 
+function renderFederalPolicy() {
+  if (!elements.policyList) return;
+  const items = getFederalPolicyItems();
+  renderListWithLimit(elements.policyList, items);
+}
+
+function renderStateGovernment() {
+  const allItems = getStateGovernmentItems();
+  const legislationItems = getStateGovernmentItems('legislation');
+  const rulemakingItems = getStateGovernmentItems('rulemaking');
+  const executiveOrderItems = getStateGovernmentItems('executive_order');
+
+  if (elements.stateGovAllList) {
+    renderListWithLimit(elements.stateGovAllList, allItems);
+  }
+  if (elements.stateGovLegislationList) {
+    renderListWithLimit(elements.stateGovLegislationList, legislationItems);
+  }
+
+  const rulemakingFeed = state.feeds.find((feed) => feed.id === 'state-rulemaking');
+  const executiveOrderFeed = state.feeds.find((feed) => feed.id === 'state-executive-orders');
+  const rulemakingNeedsConfig = Boolean(rulemakingFeed?.requiresConfig && !rulemakingFeed?.url);
+  const executiveOrdersNeedsConfig = Boolean(executiveOrderFeed?.requiresConfig && !executiveOrderFeed?.url);
+  const connectorHint = '<div class="list-item"><div class="list-title">Rulemaking/Executive Order connectors are not configured yet; legislation remains live.</div></div>';
+
+  if (elements.stateGovRulemakingList) {
+    if (!rulemakingItems.length && rulemakingNeedsConfig) {
+      elements.stateGovRulemakingList.innerHTML = connectorHint;
+    } else {
+      renderListWithLimit(elements.stateGovRulemakingList, rulemakingItems);
+    }
+  }
+  if (elements.stateGovExecutiveOrdersList) {
+    if (!executiveOrderItems.length && executiveOrdersNeedsConfig) {
+      elements.stateGovExecutiveOrdersList.innerHTML = connectorHint;
+    } else {
+      renderListWithLimit(elements.stateGovExecutiveOrdersList, executiveOrderItems);
+    }
+  }
+}
+
 function renderCongress() {
   if (!elements.congressList) return;
   const items = getCongressItems();
@@ -10728,7 +10900,8 @@ function renderAllPanels() {
   renderCombined(['disaster', 'weather', 'space'], elements.disasterList);
   renderCriticalAlerts();
   renderCategory('security', elements.securityList);
-  renderCategory('gov', elements.policyList);
+  renderFederalPolicy();
+  renderStateGovernment();
   renderCongress();
   renderCategory('cyber', elements.cyberList);
   renderCategory('agriculture', elements.agricultureList);
@@ -13105,7 +13278,8 @@ function initEvents() {
       state.settings.stateSignalFilter = selected;
       state.lastSearchState = selected;
       saveSettings();
-      renderCategory('gov', elements.policyList);
+      renderFederalPolicy();
+      renderStateGovernment();
       renderSignals();
       updateSearchHint();
       refreshAll(true).catch(() => {});
@@ -13121,6 +13295,26 @@ function initEvents() {
       });
       document.querySelectorAll('.finance-panel .tab-panel').forEach((panel) => {
         panel.classList.toggle('active', panel.id === (tab === 'markets' ? 'financeMarketsList' : 'financePolicyList'));
+      });
+    });
+  }
+  if (elements.stateGovTabs) {
+    elements.stateGovTabs.addEventListener('click', (event) => {
+      const btn = event.target.closest('.tab');
+      if (!btn) return;
+      const tab = btn.dataset.tab;
+      const tabToListId = {
+        all: 'stateGovAllList',
+        legislation: 'stateGovLegislationList',
+        rulemaking: 'stateGovRulemakingList',
+        executive: 'stateGovExecutiveOrdersList'
+      };
+      const activeListId = tabToListId[tab] || 'stateGovAllList';
+      elements.stateGovTabs.querySelectorAll('.tab').forEach((el) => {
+        el.classList.toggle('active', el === btn);
+      });
+      document.querySelectorAll('.state-gov-panel .tab-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === activeListId);
       });
     });
   }
@@ -13763,6 +13957,8 @@ async function init() {
       buildNewsItems,
       getCombinedItems,
       getCategoryItems,
+      getFederalPolicyItems,
+      getStateGovernmentItems,
       getPredictionItems,
       getLocalItemsForPanel,
       getCongressItems,
@@ -13779,6 +13975,8 @@ async function init() {
       buildNewsItems,
       getCombinedItems,
       getCategoryItems,
+      getFederalPolicyItems,
+      getStateGovernmentItems,
       getPredictionItems,
       getLocalItemsForPanel,
       getCongressItems,

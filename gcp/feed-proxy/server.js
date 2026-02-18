@@ -472,6 +472,57 @@ function applyProxy(url, proxy) {
   return url;
 }
 
+function normalizeContentType(contentType = '') {
+  return String(contentType || '').toLowerCase();
+}
+
+function looksLikeHtmlDocument(text = '') {
+  const sample = String(text || '').slice(0, 2048).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<!doctype html')
+    || sample.startsWith('<html')
+    || sample.includes('<html')
+    || sample.includes('<body');
+}
+
+function looksLikeXmlFeed(text = '') {
+  const sample = String(text || '').slice(0, 4096).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<?xml')
+    || sample.includes('<rss')
+    || sample.includes('<feed')
+    || sample.includes('<rdf:rdf');
+}
+
+function isLikelyRssPayload(contentType = '', body = '') {
+  const normalizedType = normalizeContentType(contentType);
+  const xmlType = normalizedType.includes('rss')
+    || normalizedType.includes('atom')
+    || normalizedType.includes('xml');
+  if (looksLikeXmlFeed(body)) return true;
+  if (xmlType && !looksLikeHtmlDocument(body)) return true;
+  return false;
+}
+
+function buildFetchCandidates(url, proxies = [], { includeHttpFallback = true } = {}) {
+  const candidates = [];
+  const seen = new Set();
+  const push = (candidate) => {
+    if (!candidate || seen.has(candidate)) return;
+    seen.add(candidate);
+    candidates.push(candidate);
+  };
+
+  push(url);
+  if (includeHttpFallback && url.startsWith('https://')) {
+    push(`http://${url.slice('https://'.length)}`);
+  }
+  proxies.forEach((proxy) => {
+    push(applyProxy(url, proxy));
+  });
+  return candidates;
+}
+
 function decodeMaybeGzip(buffer) {
   if (!buffer || buffer.length < 2) return Buffer.from(buffer || []);
   const signature = buffer[0] === 0x1f && buffer[1] === 0x8b;
@@ -560,34 +611,59 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 }
 
 async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS) {
-  let primaryResponse = null;
-  try {
-    primaryResponse = await fetchWithTimeout(url, { headers }, timeoutMs);
-    if (primaryResponse.ok) return primaryResponse;
-  } catch {
-    primaryResponse = null;
-  }
-
-  const fallbackUrls = [];
-  if (url.startsWith('https://')) {
-    fallbackUrls.push(`http://${url.slice('https://'.length)}`);
-  }
-  proxies.forEach((proxy) => {
-    fallbackUrls.push(applyProxy(url, proxy));
-  });
-
-  let lastResponse = primaryResponse;
-  for (const fallbackUrl of fallbackUrls) {
+  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: true });
+  let lastResponse = null;
+  for (const candidate of candidates) {
     try {
-      const response = await fetchWithTimeout(fallbackUrl, { headers }, timeoutMs);
+      const response = await fetchWithTimeout(candidate, { headers }, timeoutMs);
       if (response.ok) return response;
-      lastResponse = lastResponse || response;
+      lastResponse = response;
     } catch {
       // ignore
     }
   }
 
   if (lastResponse) return lastResponse;
+  throw new Error('fetch_failed');
+}
+
+async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS) {
+  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: false });
+  const perAttemptTimeout = Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)));
+
+  let lastResponse = null;
+  let lastBody = '';
+  let lastContentType = 'text/plain';
+  for (const candidate of candidates) {
+    try {
+      const response = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout);
+      const contentType = response.headers.get('content-type') || 'text/plain';
+      const body = await response.text();
+      lastResponse = response;
+      lastBody = body;
+      lastContentType = contentType;
+      if (!response.ok) continue;
+      if (isLikelyRssPayload(contentType, body)) {
+        return {
+          response,
+          body,
+          contentType,
+          valid: true
+        };
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (lastResponse) {
+    return {
+      response: lastResponse,
+      body: lastBody,
+      contentType: lastContentType,
+      valid: false
+    };
+  }
   throw new Error('fetch_failed');
 }
 
@@ -667,6 +743,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   };
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
+  const isRssFeed = feed.format === 'rss';
   let response;
   let responseOk = false;
   let contentType = 'text/plain';
@@ -681,12 +758,22 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
           await sleep(EIA_RETRY_DELAY_MS);
         }
       }
+      contentType = response.headers.get('content-type') || 'text/plain';
+      body = await response.text();
     } else {
-      response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs);
-      responseOk = response.ok;
+      if (isRssFeed) {
+        const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, timeoutMs);
+        response = rssResult.response;
+        contentType = rssResult.contentType;
+        body = rssResult.body;
+        responseOk = response.ok && rssResult.valid;
+      } else {
+        response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs);
+        responseOk = response.ok;
+        contentType = response.headers.get('content-type') || 'text/plain';
+        body = await response.text();
+      }
     }
-    contentType = response.headers.get('content-type') || 'text/plain';
-    body = await response.text();
     if (isEiaSeries && typeof body === 'string' && body.trim().startsWith('{')) {
       try {
         const parsed = JSON.parse(body);
@@ -700,7 +787,17 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       responseOk = false;
     }
   } catch (error) {
-    if (!isEiaSeries) throw error;
+    if (!isEiaSeries) {
+      const hasUsableStale = isRssFeed
+        && staleCache
+        && staleCache.httpStatus
+        && staleCache.httpStatus >= 200
+        && staleCache.httpStatus < 300;
+      if (hasUsableStale) {
+        return { ...staleCache, stale: true, fetchedAt: Date.now() };
+      }
+      throw error;
+    }
   }
 
   if (isEiaSeries && (!response || !responseOk)) {
@@ -758,7 +855,17 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     body,
     httpStatus: response.status
   };
-  if (!isEiaSeries || responseOk) {
+  if (!response.ok) {
+    payload.error = `http_${response.status}`;
+    payload.message = `HTTP ${response.status}`;
+  } else if (isRssFeed && !responseOk) {
+    payload.error = 'invalid_rss';
+    payload.message = 'Upstream response was not valid RSS/Atom XML.';
+  }
+  const shouldCache = isEiaSeries
+    ? responseOk
+    : !(isRssFeed && payload.error === 'invalid_rss');
+  if (shouldCache) {
     cache.set(cacheKey, payload);
   }
   return payload;

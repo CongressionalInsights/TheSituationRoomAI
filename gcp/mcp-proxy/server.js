@@ -200,6 +200,38 @@ function applyProxy(url, proxy) {
   return url;
 }
 
+function normalizeContentType(contentType = '') {
+  return String(contentType || '').toLowerCase();
+}
+
+function looksLikeHtmlDocument(text = '') {
+  const sample = String(text || '').slice(0, 2048).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<!doctype html')
+    || sample.startsWith('<html')
+    || sample.includes('<html')
+    || sample.includes('<body');
+}
+
+function looksLikeXmlFeed(text = '') {
+  const sample = String(text || '').slice(0, 4096).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<?xml')
+    || sample.includes('<rss')
+    || sample.includes('<feed')
+    || sample.includes('<rdf:rdf');
+}
+
+function isLikelyRssPayload(contentType = '', body = '') {
+  const normalizedType = normalizeContentType(contentType);
+  const xmlType = normalizedType.includes('rss')
+    || normalizedType.includes('atom')
+    || normalizedType.includes('xml');
+  if (looksLikeXmlFeed(body)) return true;
+  if (xmlType && !looksLikeHtmlDocument(body)) return true;
+  return false;
+}
+
 function applyKey(url, feed, key, keyParam, keyHeader) {
   if (!key) return { url, headers: {} };
   const header = keyHeader || feed.keyHeader;
@@ -476,7 +508,9 @@ function buildUrl(template, params = {}) {
 }
 
 function buildFeedUrl(feed, options) {
-  const query = options.query || '';
+  const query = feed.supportsQuery
+    ? (options.query || feed.defaultQuery || '')
+    : (options.query || '');
   const start = options.start || '';
   const end = options.end || '';
   const timespan = computeTimespan(start, end);
@@ -938,6 +972,7 @@ async function fetchRaw(feed, options) {
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
   const primaryProxy = feed.proxy || options.proxy || null;
   const attemptList = [null, primaryProxy, ...FALLBACK_PROXIES];
+  const isRssFeed = feed.format === 'rss';
   const seen = new Set();
   const attempts = attemptList.filter((proxy) => {
     const key = proxy || 'direct';
@@ -951,6 +986,10 @@ async function fetchRaw(feed, options) {
   let body = null;
   let usedProxy = null;
   let fetchedUrl = null;
+  const totalTimeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
+  const perAttemptTimeoutMs = isRssFeed
+    ? Math.max(3000, Math.floor(totalTimeoutMs / Math.max(1, attempts.length)))
+    : totalTimeoutMs;
 
   for (const proxy of attempts) {
     const proxiedUrl = proxy ? applyProxy(keyedUrl, proxy) : keyedUrl;
@@ -959,12 +998,24 @@ async function fetchRaw(feed, options) {
       response = await fetchWithTimeout(proxiedUrl, {
         headers: {
           ...headers,
-          'Accept': 'application/json, text/plain, */*',
+          'Accept': isRssFeed
+            ? 'application/rss+xml, application/atom+xml, application/xml, text/xml, text/plain, */*'
+            : 'application/json, text/plain, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
           'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0'
         }
-      }, feed.timeoutMs || FETCH_TIMEOUT_MS);
+      }, perAttemptTimeoutMs);
       body = await response.text();
       if (response.ok) {
+        if (isRssFeed && !isLikelyRssPayload(response.headers.get('content-type') || '', body)) {
+          lastError = {
+            error: 'invalid_rss',
+            httpStatus: response.status,
+            message: 'Upstream response was not valid RSS/Atom XML.',
+            body
+          };
+          continue;
+        }
         usedProxy = proxy || null;
         break;
       }
@@ -975,7 +1026,7 @@ async function fetchRaw(feed, options) {
         body
       };
       // Client-side upstream errors are not recoverable via proxy fallback.
-      if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+      if (!isRssFeed && response.status >= 400 && response.status < 500 && response.status !== 429) {
         break;
       }
     } catch (error) {
