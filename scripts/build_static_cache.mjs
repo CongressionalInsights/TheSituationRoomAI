@@ -16,6 +16,7 @@ const OPENSKY_CLIENTSECRET = process.env.OPENSKY_CLIENTSECRET;
 const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 let openSkyToken = null;
 let openSkyTokenExpiresAt = 0;
+const seededFeedFallbacks = new Map();
 
 const feedsConfig = JSON.parse(await readFile(FEEDS_PATH, 'utf8'));
 const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
@@ -371,13 +372,19 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOU
 
 async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: false });
-  const perAttemptTimeout = Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)));
+  const effectiveTimeout = Math.max(8000, timeoutMs);
+  const directTimeout = Math.max(15000, Math.floor(effectiveTimeout * 0.75));
+  const fallbackTimeout = candidates.length > 1
+    ? Math.max(4000, Math.floor((effectiveTimeout * 0.25) / (candidates.length - 1)))
+    : directTimeout;
   let lastResponse = null;
   let lastError = null;
   let lastBody = '';
   let lastContentType = 'text/plain';
 
-  for (const candidate of candidates) {
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const perAttemptTimeout = index === 0 ? directTimeout : fallbackTimeout;
     try {
       const response = await fetchWithTimeout(candidate, headers, perAttemptTimeout);
       const contentType = response.headers.get('content-type') || 'text/plain';
@@ -446,6 +453,28 @@ async function fetchLiveFallback(feedId) {
     return payload;
   } catch {
     return null;
+  }
+}
+
+function isUsableRssSnapshot(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (payload.error) return false;
+  if (!payload.body) return false;
+  return isLikelyRssPayload(payload.contentType || '', payload.body);
+}
+
+async function loadSeedFeedFallbacks() {
+  for (const feed of feedsConfig.feeds) {
+    if (feed.format !== 'rss') continue;
+    const filePath = join(FEED_DIR, `${feed.id}.json`);
+    try {
+      const payload = JSON.parse(await readFile(filePath, 'utf8'));
+      if (isUsableRssSnapshot(payload)) {
+        seededFeedFallbacks.set(feed.id, payload);
+      }
+    } catch {
+      // ignore missing or invalid seed snapshot files
+    }
   }
 }
 
@@ -576,6 +605,17 @@ async function buildFeedPayload(feed) {
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
       return { ...fallback, fallback: fallback.fallback || 'live-cache' };
+    }
+  }
+
+  if (payload.error && isRssFeed) {
+    const fallback = await fetchLiveFallback(feed.id);
+    if (fallback && isUsableRssSnapshot(fallback)) {
+      return { ...fallback, fetchedAt: Date.now(), fallback: 'live-cache' };
+    }
+    const seeded = seededFeedFallbacks.get(feed.id);
+    if (seeded && isUsableRssSnapshot(seeded)) {
+      return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
     }
   }
 
@@ -785,6 +825,7 @@ async function buildEnergyMarket() {
 }
 
 async function main() {
+  await loadSeedFeedFallbacks();
   await rm(OUT_DIR, { recursive: true, force: true });
   await mkdir(FEED_DIR, { recursive: true });
 
