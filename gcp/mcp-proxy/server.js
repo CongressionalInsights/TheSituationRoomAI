@@ -776,8 +776,10 @@ function parseGenericJsonFeed(data, feed) {
                     ? data.committeeReport
                     : Array.isArray(data?.reports)
                       ? data.reports
-                      : Array.isArray(data?.houseRollCallVotes)
+                    : Array.isArray(data?.houseRollCallVotes)
                         ? data.houseRollCallVotes
+                    : Array.isArray(data?.events)
+                      ? data.events
                     : Array.isArray(data?.hearings)
                       ? data.hearings
                       : Array.isArray(data?.nominations)
@@ -813,6 +815,19 @@ function parseGenericJsonFeed(data, feed) {
       : '';
     const fallbackTitle = entry.title || entry.name || entry.headline || entry.label || 'Untitled';
     const isCommitteeReport = !isCongressHouseVote && isCommitteeReportEntry(entry, feed);
+    const isEonetEvent = feed?.id === 'eonet-events';
+    const eonetCategories = Array.isArray(entry?.categories)
+      ? entry.categories.map((cat) => cat?.title || cat?.id).filter(Boolean)
+      : [];
+    const eonetGeometry = Array.isArray(entry?.geometry) ? entry.geometry : [];
+    const latestEonetGeometry = eonetGeometry.reduce((latest, point) => {
+      if (!latest) return point;
+      const latestMs = Date.parse(latest?.date || '');
+      const pointMs = Date.parse(point?.date || '');
+      if (Number.isNaN(pointMs)) return latest;
+      if (Number.isNaN(latestMs) || pointMs > latestMs) return point;
+      return latest;
+    }, null);
     const title = isCongressHouseVote
       ? voteTitle
       : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
@@ -828,21 +843,34 @@ function parseGenericJsonFeed(data, feed) {
     const summary = isCongressHouseVote
       ? (voteSummary || defaultSummary)
       : (isCommitteeReport ? buildCommitteeReportSummary(entry, defaultSummary) : defaultSummary);
+    const eonetSummary = normalizeSummary(
+      [
+        eonetCategories.join(', '),
+        latestEonetGeometry?.magnitudeValue && latestEonetGeometry?.magnitudeUnit
+          ? `Magnitude ${latestEonetGeometry.magnitudeValue} ${latestEonetGeometry.magnitudeUnit}`
+          : ''
+      ].filter(Boolean).join(' • ')
+    );
+    const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
     const published = entry.publishedAt
       || entry.pubDate
       || entry.date
       || entry.updateDate
       || entry.startDate
       || entry.updatedAt
-      || entry.updated;
+      || entry.updated
+      || (latestEonetGeometry?.date || '');
     const publishedAt = published ? Date.parse(published) : Date.now();
-    const geo = entry.geo || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null);
+    const eventCoords = Array.isArray(latestEonetGeometry?.coordinates) ? latestEonetGeometry.coordinates : [];
+    const geo = entry.geo
+      || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null)
+      || (eventCoords.length >= 2 ? { lat: Number(eventCoords[1]), lon: Number(eventCoords[0]) } : null);
     const stateMeta = extractStateMetadata(entry, feed);
     const hasStateMeta = Object.values(stateMeta).some((value) => value !== null && value !== '');
     return {
       title,
       url,
-      summary,
+      summary: finalSummary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
       source: entry.source || feed.name,
       category: feed.category,
@@ -1009,11 +1037,17 @@ async function fetchRaw(feed, options) {
   let fetchedUrl = null;
   let succeeded = false;
   const totalTimeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
+  const isEonetFeed = feed?.id === 'eonet-events';
   const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
   const rssDirectTimeoutMs = Math.max(15000, Math.floor(rssEffectiveTimeout * 0.75));
   const rssFallbackTimeoutMs = attempts.length > 1
     ? Math.max(4000, Math.floor((rssEffectiveTimeout * 0.25) / (attempts.length - 1)))
     : rssDirectTimeoutMs;
+  const eonetEffectiveTimeout = Math.max(10000, Math.min(totalTimeoutMs, 18000));
+  const eonetDirectTimeoutMs = Math.max(6000, Math.floor(eonetEffectiveTimeout * 0.6));
+  const eonetFallbackTimeoutMs = attempts.length > 1
+    ? Math.max(2500, Math.floor((eonetEffectiveTimeout * 0.4) / (attempts.length - 1)))
+    : eonetDirectTimeoutMs;
 
   for (let index = 0; index < attempts.length; index += 1) {
     const proxy = attempts[index];
@@ -1021,6 +1055,8 @@ async function fetchRaw(feed, options) {
     fetchedUrl = proxiedUrl;
     const perAttemptTimeoutMs = isRssFeed
       ? (index === 0 ? rssDirectTimeoutMs : rssFallbackTimeoutMs)
+      : isEonetFeed
+        ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
       : totalTimeoutMs;
     try {
       response = await fetchWithTimeout(proxiedUrl, {
