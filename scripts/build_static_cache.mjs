@@ -579,16 +579,37 @@ async function buildFeedPayload(feed) {
   let contentType = 'text/plain';
   let body = '';
   let rssValid = true;
-  if (isRssFeed) {
-    const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
-    response = rssResult.response;
-    contentType = rssResult.contentType;
-    body = rssResult.body;
-    rssValid = rssResult.valid;
-  } else {
-    response = await fetchWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
-    contentType = response.headers.get('content-type') || 'text/plain';
-    body = await response.text();
+  try {
+    if (isRssFeed) {
+      const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
+      response = rssResult.response;
+      contentType = rssResult.contentType;
+      body = rssResult.body;
+      rssValid = rssResult.valid;
+    } else {
+      response = await fetchWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
+      contentType = response.headers.get('content-type') || 'text/plain';
+      body = await response.text();
+    }
+  } catch (error) {
+    const supportsSeededJsonFallback = SEEDED_JSON_FALLBACK_IDS.has(feed.id);
+    if (isRssFeed || supportsSeededJsonFallback) {
+      const liveFallback = await fetchLiveFallback(feed.id);
+      const liveUsable = isRssFeed
+        ? isUsableRssSnapshot(liveFallback)
+        : isUsableJsonSnapshot(liveFallback);
+      if (liveUsable) {
+        return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache' };
+      }
+      const seeded = seededFeedFallbacks.get(feed.id);
+      const seededUsable = isRssFeed
+        ? isUsableRssSnapshot(seeded)
+        : isUsableJsonSnapshot(seeded);
+      if (seededUsable) {
+        return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
+      }
+    }
+    throw error;
   }
   let payload = {
     id: feed.id,
