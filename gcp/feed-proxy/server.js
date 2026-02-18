@@ -631,12 +631,18 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_
 
 async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: false });
-  const perAttemptTimeout = Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)));
+  const effectiveTimeout = Math.max(8000, timeoutMs);
+  const directTimeout = Math.max(15000, Math.floor(effectiveTimeout * 0.75));
+  const fallbackTimeout = candidates.length > 1
+    ? Math.max(4000, Math.floor((effectiveTimeout * 0.25) / (candidates.length - 1)))
+    : directTimeout;
 
   let lastResponse = null;
   let lastBody = '';
   let lastContentType = 'text/plain';
-  for (const candidate of candidates) {
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const perAttemptTimeout = index === 0 ? directTimeout : fallbackTimeout;
     try {
       const response = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout);
       const contentType = response.headers.get('content-type') || 'text/plain';

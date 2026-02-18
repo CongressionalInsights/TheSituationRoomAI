@@ -1009,13 +1009,19 @@ async function fetchRaw(feed, options) {
   let fetchedUrl = null;
   let succeeded = false;
   const totalTimeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
-  const perAttemptTimeoutMs = isRssFeed
-    ? Math.max(3000, Math.floor(totalTimeoutMs / Math.max(1, attempts.length)))
-    : totalTimeoutMs;
+  const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
+  const rssDirectTimeoutMs = Math.max(15000, Math.floor(rssEffectiveTimeout * 0.75));
+  const rssFallbackTimeoutMs = attempts.length > 1
+    ? Math.max(4000, Math.floor((rssEffectiveTimeout * 0.25) / (attempts.length - 1)))
+    : rssDirectTimeoutMs;
 
-  for (const proxy of attempts) {
+  for (let index = 0; index < attempts.length; index += 1) {
+    const proxy = attempts[index];
     const proxiedUrl = proxy ? applyProxy(keyedUrl, proxy) : keyedUrl;
     fetchedUrl = proxiedUrl;
+    const perAttemptTimeoutMs = isRssFeed
+      ? (index === 0 ? rssDirectTimeoutMs : rssFallbackTimeoutMs)
+      : totalTimeoutMs;
     try {
       response = await fetchWithTimeout(proxiedUrl, {
         headers: {
