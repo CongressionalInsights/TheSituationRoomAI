@@ -612,12 +612,15 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: true });
+  const perAttemptTimeout = budgetAttempts
+    ? Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)))
+    : timeoutMs;
   let lastResponse = null;
   for (const candidate of candidates) {
     try {
-      const response = await fetchWithTimeout(candidate, { headers }, timeoutMs);
+      const response = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout);
       if (response.ok) return response;
       lastResponse = response;
     } catch {
@@ -813,7 +816,8 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         body = rssResult.body;
         responseOk = response.ok && rssResult.valid;
       } else {
-        response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs);
+        const budgetAttempts = feed.id === 'eonet-events';
+        response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, { budgetAttempts });
         responseOk = response.ok;
         contentType = response.headers.get('content-type') || 'text/plain';
         body = await response.text();
