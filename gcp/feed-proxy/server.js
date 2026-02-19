@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { gunzipSync } from 'zlib';
-import { mergeFeedParams, sanitizeParamsObject } from './state-signals.js';
+import { mergeFeedParams, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,6 +35,9 @@ const SAM_RETRY_ATTEMPTS = 3;
 const SAM_RETRY_BASE_DELAY_MS = 900;
 const SAM_CACHE_TTL_MS = 10 * 60 * 1000;
 const SAM_CACHE_ERROR_TTL_MS = 2 * 60 * 1000;
+const STATE_LEGISLATION_ALL_STATES_CONCURRENCY = 10;
+const STATE_LEGISLATION_ALL_STATES_TIMEOUT_MS = 4500;
+const STATE_LEGISLATION_ALL_STATES_PER_STATE = 1;
 
 const samCache = new Map();
 
@@ -447,6 +450,142 @@ function applyUrlParams(url, params = {}) {
   return parsed.toString();
 }
 
+function isStateLegislationAllStatesRequest(feed, params = {}) {
+  if (!feed || feed.id !== 'state-legislation') return false;
+  if (feed.paramStrategy !== 'openstates-jurisdiction') return false;
+  return !params.jurisdiction && !params.q;
+}
+
+function toPositiveInt(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.round(parsed);
+}
+
+function getStateBillSortTimestamp(entry) {
+  const candidates = [
+    entry?.updated_at,
+    entry?.latest_action_date,
+    entry?.latest_action_at,
+    entry?.created_at,
+    entry?.first_action_date
+  ];
+  for (const value of candidates) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+async function fetchAllStatesLegislation(feed, url, headers, timeoutMs = FETCH_TIMEOUT_MS) {
+  const template = new URL(url);
+  const requestedPerPage = Math.max(1, Math.min(100, toPositiveInt(template.searchParams.get('per_page'), 20)));
+  template.searchParams.delete('jurisdiction');
+  template.searchParams.delete('q');
+  template.searchParams.delete('page');
+  template.searchParams.set('per_page', String(STATE_LEGISLATION_ALL_STATES_PER_STATE));
+
+  const queue = [...US_STATE_CODES];
+  const collected = [];
+  const failedStates = [];
+  const perStateTimeoutMs = Math.max(2500, Math.min(timeoutMs, STATE_LEGISLATION_ALL_STATES_TIMEOUT_MS));
+  const workerCount = Math.min(STATE_LEGISLATION_ALL_STATES_CONCURRENCY, queue.length);
+
+  const worker = async () => {
+    while (queue.length) {
+      const code = queue.shift();
+      if (!code) break;
+      const jurisdiction = `ocd-jurisdiction/country:us/state:${code.toLowerCase()}/government`;
+      const requestUrl = new URL(template.toString());
+      requestUrl.searchParams.set('jurisdiction', jurisdiction);
+      try {
+        const response = await fetchWithTimeout(requestUrl.toString(), { headers }, perStateTimeoutMs);
+        if (!response.ok) {
+          failedStates.push({ code, status: response.status });
+          continue;
+        }
+        const text = await response.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          failedStates.push({ code, status: 'invalid_json' });
+          continue;
+        }
+        const rows = Array.isArray(parsed?.results) ? parsed.results : [];
+        rows.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return;
+          const normalized = { ...entry };
+          if (!normalized.jurisdictionCode) normalized.jurisdictionCode = code;
+          collected.push(normalized);
+        });
+      } catch {
+        failedStates.push({ code, status: 'fetch_failed' });
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  const deduped = [];
+  const seen = new Set();
+  collected
+    .sort((a, b) => getStateBillSortTimestamp(b) - getStateBillSortTimestamp(a))
+    .forEach((entry) => {
+      const key = entry.id
+        || entry.identifier
+        || entry.openstates_url
+        || `${entry.jurisdictionCode || ''}:${entry.title || ''}:${entry.updated_at || ''}`;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      deduped.push(entry);
+    });
+
+  const limited = deduped.slice(0, requestedPerPage);
+  const aggregateMeta = {
+    mode: 'state-legislation-all-states',
+    requestedStates: US_STATE_CODES.length,
+    succeededStates: US_STATE_CODES.length - failedStates.length,
+    failedStates: failedStates.map((entry) => entry.code),
+    partial: failedStates.length > 0
+  };
+
+  if (!limited.length) {
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      httpStatus: 502,
+      error: 'fetch_failed',
+      message: 'Unable to fetch state legislation for all states.',
+      body: JSON.stringify({
+        error: 'fetch_failed',
+        message: 'Unable to fetch state legislation for all states.',
+        results: [],
+        pagination: { page: 1, per_page: requestedPerPage, max_page: 1, total_items: 0 },
+        aggregate: aggregateMeta
+      })
+    };
+  }
+
+  return {
+    id: feed.id,
+    fetchedAt: Date.now(),
+    contentType: 'application/json',
+    httpStatus: 200,
+    body: JSON.stringify({
+      results: limited,
+      pagination: {
+        page: 1,
+        per_page: requestedPerPage,
+        max_page: Math.max(1, Math.ceil(deduped.length / requestedPerPage)),
+        total_items: deduped.length
+      },
+      aggregate: aggregateMeta
+    })
+  };
+}
+
 function applyKey(url, feed, key, keyParam, keyHeader) {
   if (!key) return { url, headers: {} };
   const header = keyHeader || feed.keyHeader;
@@ -804,6 +943,18 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   const isRssFeed = feed.format === 'rss';
   const allowLiveFallback = canUseLiveFeedFallback(feed, isRssFeed);
+  if (isStateLegislationAllStatesRequest(feed, mergedParams)) {
+    const aggregatePayload = await fetchAllStatesLegislation(
+      feed,
+      applied.url,
+      { ...headers, ...applied.headers },
+      timeoutMs
+    );
+    if (!aggregatePayload.error) {
+      cache.set(cacheKey, aggregatePayload);
+    }
+    return aggregatePayload;
+  }
   let response;
   let responseOk = false;
   let contentType = 'text/plain';
