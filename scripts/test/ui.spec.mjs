@@ -86,3 +86,65 @@ test('dashboard renders downstream panels without summary-type crash', async ({ 
   });
   expect(snapshot.healthValue).not.toBe('Initializing');
 });
+
+test('state filters are context-local and tab panels respect active state', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => window.__SR_READY__ === true);
+
+  const searchStateFilter = page.locator('#stateSignalFilter');
+  const panelStateFilter = page.locator('#statePanelSignalFilter');
+
+  const searchToggle = page.locator('[data-command-toggle="search"]');
+  if ((await searchToggle.getAttribute('aria-expanded')) !== 'true') {
+    await searchToggle.click();
+  }
+
+  await expect(searchStateFilter).toBeVisible();
+  await expect(panelStateFilter).toBeVisible();
+
+  await searchStateFilter.selectOption('NY');
+  await panelStateFilter.selectOption('CA');
+
+  await expect(searchStateFilter).toHaveValue('NY');
+  await expect(panelStateFilter).toHaveValue('CA');
+  await expect(page.locator('#statePanelFilterChip')).toContainText('California');
+
+  const tabDisplays = await page.evaluate(() => {
+    const clickTab = (tabsId, tab) => {
+      const button = document.querySelector(`#${tabsId} .tab[data-tab="${tab}"]`);
+      if (button) button.click();
+    };
+    clickTab('stateGovTabs', 'executive');
+    clickTab('financeTabs', 'markets');
+    const ids = [
+      'stateGovAllList',
+      'stateGovLegislationList',
+      'stateGovRulemakingList',
+      'stateGovExecutiveOrdersList',
+      'financeMarketsList',
+      'financePolicyList'
+    ];
+    return Object.fromEntries(
+      ids.map((id) => [id, window.getComputedStyle(document.getElementById(id)).display])
+    );
+  });
+
+  expect(tabDisplays.stateGovAllList).toBe('none');
+  expect(tabDisplays.stateGovLegislationList).toBe('none');
+  expect(tabDisplays.stateGovRulemakingList).toBe('none');
+  expect(tabDisplays.stateGovExecutiveOrdersList).not.toBe('none');
+  expect(tabDisplays.financeMarketsList).not.toBe('none');
+  expect(tabDisplays.financePolicyList).toBe('none');
+
+  await page.locator('.panel[data-panel="state-gov"] .panel-focus-btn').click();
+  await expect(page.locator('#focusOverlay')).toHaveClass(/open/);
+  await expect(page.locator('#statePanelSignalFilter')).toBeVisible();
+  await expect(page.locator('#statePanelSignalFilter')).toHaveValue('CA');
+  await page.locator('#focusClose').click();
+  await expect(page.locator('#focusOverlay')).not.toHaveClass(/open/);
+
+  await page.reload();
+  await page.waitForFunction(() => window.__SR_READY__ === true);
+  await expect(page.locator('#stateSignalFilter')).toHaveValue('ALL');
+  await expect(page.locator('#statePanelSignalFilter')).toHaveValue('ALL');
+});

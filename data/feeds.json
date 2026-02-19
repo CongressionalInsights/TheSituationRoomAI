@@ -1126,7 +1126,6 @@
       "supportsParams": true,
       "paramStrategy": "openstates-jurisdiction",
       "defaultParams": {
-        "jurisdiction": "ocd-jurisdiction/country:us/government",
         "classification": "",
         "per_page": 20
       },

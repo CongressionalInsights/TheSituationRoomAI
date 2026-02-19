@@ -1,4 +1,4 @@
-import { applyStateSignalFilter, getStateSignalFilterCode } from './state-signals.js';
+import { applyStateSignalFilter, buildStateFeedRequestParams, getStateSignalFilterCode } from './state-signals.js';
 
 function normalizeSearchField(value) {
   if (value === null || value === undefined) return '';
@@ -59,6 +59,7 @@ export function initSearchUI({ state, elements, helpers }) {
     applySearchFilters,
     CATEGORY_LABELS,
     fetchFeed,
+    getSearchStateFilter,
     hasAssistantAccess,
     updateCategoryFilters
   } = helpers;
@@ -76,7 +77,23 @@ export function initSearchUI({ state, elements, helpers }) {
     state.lastSearchQuery = query;
     state.lastSearchScope = scope;
     state.lastSearchCategories = [...state.searchCategories];
-    const selectedState = getStateSignalFilterCode(state.settings.stateSignalFilter);
+    const selectedState = getStateSignalFilterCode(
+      typeof getSearchStateFilter === 'function'
+        ? getSearchStateFilter()
+        : state.uiFilters?.searchState
+    );
+    const buildSearchStateParams = (feed) => {
+      if (String(feed?.jurisdictionLevel || '').toLowerCase() !== 'state') {
+        return {};
+      }
+      if (selectedState !== 'ALL') {
+        return buildStateFeedRequestParams(feed, selectedState);
+      }
+      if ((feed.paramStrategy || '') === 'openstates-jurisdiction') {
+        return { jurisdiction: null };
+      }
+      return { state: null, jurisdictionCode: null };
+    };
     const applyScopedStateFilter = (items, isGovContext = false) => (
       applyStateSignalFilter(items, selectedState, { includeFederal: !isGovContext })
     );
@@ -176,7 +193,8 @@ export function initSearchUI({ state, elements, helpers }) {
           showSearchResults(scopedItems, `${scopedItems.length} live results from ${feed.name}`);
           elements.searchHint.textContent = `Live search results from ${feed.name}.`;
         } else {
-          const result = await fetchFeed(feed, translated, true);
+          const requestParams = buildSearchStateParams(feed);
+          const result = await fetchFeed(feed, translated, true, requestParams);
           const items = applySearchFilters(result.items || [])
             .filter((item) => matchesSearchQuery(item, normalizedQuery));
           const scopedItems = applyScopedStateFilter(items, feed.category === 'gov');
