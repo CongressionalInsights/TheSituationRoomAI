@@ -28,7 +28,8 @@ const GPSJAM_ID = 'gpsjam';
 const GPSJAM_CACHE_KEY = 'gpsjam:data';
 const STATE_LEGISLATION_ALL_STATES_CONCURRENCY = 3;
 const STATE_LEGISLATION_ALL_STATES_TIMEOUT_MS = 4500;
-const STATE_LEGISLATION_ALL_STATES_PER_STATE = 1;
+const STATE_LEGISLATION_ALL_STATES_PER_STATE = 2;
+const STATE_LEGISLATION_ALL_STATES_MAX_ATTEMPTS = 15;
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -214,6 +215,10 @@ async function fetchAllStatesLegislation(feed, url, headers, timeoutMs = FETCH_T
 
   const worker = async () => {
     while (!stop && queue.length) {
+      if (attemptedStates >= STATE_LEGISLATION_ALL_STATES_MAX_ATTEMPTS) {
+        stop = true;
+        break;
+      }
       const code = queue.shift();
       if (!code) break;
       attemptedStates += 1;

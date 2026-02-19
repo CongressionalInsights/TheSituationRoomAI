@@ -37,7 +37,8 @@ const SAM_CACHE_TTL_MS = 10 * 60 * 1000;
 const SAM_CACHE_ERROR_TTL_MS = 2 * 60 * 1000;
 const STATE_LEGISLATION_ALL_STATES_CONCURRENCY = 3;
 const STATE_LEGISLATION_ALL_STATES_TIMEOUT_MS = 4500;
-const STATE_LEGISLATION_ALL_STATES_PER_STATE = 1;
+const STATE_LEGISLATION_ALL_STATES_PER_STATE = 2;
+const STATE_LEGISLATION_ALL_STATES_MAX_ATTEMPTS = 15;
 
 const samCache = new Map();
 
@@ -629,6 +630,10 @@ async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, time
 
   const worker = async () => {
     while (!stop && queue.length) {
+      if (attemptedStates >= STATE_LEGISLATION_ALL_STATES_MAX_ATTEMPTS) {
+        stop = true;
+        break;
+      }
       const code = queue.shift();
       if (!code) break;
       attemptedStates += 1;
