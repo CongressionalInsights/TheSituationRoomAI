@@ -52,6 +52,10 @@ const US_STATE_OPTIONS = [
   { code: 'WY', name: 'Wyoming' }
 ];
 
+export const US_STATE_CODES = US_STATE_OPTIONS
+  .map((entry) => entry.code)
+  .filter((code) => code !== 'DC');
+
 const US_STATE_CODE_SET = new Set(US_STATE_OPTIONS.map((entry) => entry.code));
 const US_STATE_CODE_BY_NAME = Object.fromEntries(
   US_STATE_OPTIONS.map((entry) => [entry.name.toLowerCase(), entry.code])
