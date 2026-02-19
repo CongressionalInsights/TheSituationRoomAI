@@ -194,21 +194,29 @@ function getStateBillSortTimestamp(entry) {
 async function fetchAllStatesLegislation(feed, url, headers, timeoutMs = FETCH_TIMEOUT_MS) {
   const template = new URL(url);
   const requestedPerPage = Math.max(1, Math.min(100, toPositiveInt(template.searchParams.get('per_page'), 20)));
+  const targetItems = Math.min(requestedPerPage, US_STATE_CODES.length * STATE_LEGISLATION_ALL_STATES_PER_STATE);
   template.searchParams.delete('jurisdiction');
   template.searchParams.delete('q');
   template.searchParams.delete('page');
   template.searchParams.set('per_page', String(STATE_LEGISLATION_ALL_STATES_PER_STATE));
 
-  const queue = [...US_STATE_CODES];
+  const rotationOffset = Math.floor(Date.now() / (15 * 60 * 1000)) % US_STATE_CODES.length;
+  const queue = [
+    ...US_STATE_CODES.slice(rotationOffset),
+    ...US_STATE_CODES.slice(0, rotationOffset)
+  ];
   const collected = [];
   const failedStates = [];
   const perStateTimeoutMs = Math.max(2500, Math.min(timeoutMs, STATE_LEGISLATION_ALL_STATES_TIMEOUT_MS));
   const workerCount = Math.min(STATE_LEGISLATION_ALL_STATES_CONCURRENCY, queue.length);
+  let attemptedStates = 0;
+  let stop = false;
 
   const worker = async () => {
-    while (queue.length) {
+    while (!stop && queue.length) {
       const code = queue.shift();
       if (!code) break;
+      attemptedStates += 1;
       const jurisdiction = `ocd-jurisdiction/country:us/state:${code.toLowerCase()}/government`;
       const requestUrl = new URL(template.toString());
       requestUrl.searchParams.set('jurisdiction', jurisdiction);
@@ -232,6 +240,9 @@ async function fetchAllStatesLegislation(feed, url, headers, timeoutMs = FETCH_T
           const normalized = { ...entry };
           if (!normalized.jurisdictionCode) normalized.jurisdictionCode = code;
           collected.push(normalized);
+          if (collected.length >= targetItems) {
+            stop = true;
+          }
         });
       } catch {
         failedStates.push({ code, status: 'fetch_failed' });
@@ -259,9 +270,10 @@ async function fetchAllStatesLegislation(feed, url, headers, timeoutMs = FETCH_T
   const aggregateMeta = {
     mode: 'state-legislation-all-states',
     requestedStates: US_STATE_CODES.length,
-    succeededStates: US_STATE_CODES.length - failedStates.length,
+    attemptedStates,
+    succeededStates: Math.max(0, attemptedStates - failedStates.length),
     failedStates: failedStates.map((entry) => entry.code),
-    partial: failedStates.length > 0
+    partial: failedStates.length > 0 || attemptedStates < US_STATE_CODES.length
   };
 
   if (!limited.length) {
