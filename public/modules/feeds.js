@@ -32,71 +32,121 @@ export function createFeedManager({ state, elements, helpers }) {
     updatePanelErrors
   } = helpers;
 
+  const runUiStep = async (label, task) => {
+    try {
+      await task();
+    } catch (err) {
+      console.error(`[refresh] ${label} failed`, err);
+    }
+  };
+
+  const fetchFeedBatch = async (feeds, force = false) => {
+    const liveOverride = force && isStaticMode();
+    return Promise.all((feeds || []).map(async (feed) => {
+      const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
+      if (liveOverride || shouldFetchLiveInStatic(feed)) {
+        try {
+          const live = await fetchCustomFeedDirect(feed, query);
+          if (!live.error) return live;
+          const fallback = await fetchFeed(feed, query, force);
+          return fallback;
+        } catch {
+          // fall through to static cache
+        }
+      }
+      return fetchFeed(feed, query, force).catch(() => ({
+        feed,
+        items: [],
+        error: 'fetch_failed',
+        httpStatus: 0,
+        fetchedAt: Date.now()
+      }));
+    }));
+  };
+
+  const updateFeedStatusFromResults = (results) => {
+    results.forEach((result) => {
+      const stale = !result.error && isFeedStale(result.feed, result);
+      state.feedStatus[result.feed.id] = {
+        httpStatus: result.httpStatus,
+        error: result.error,
+        errorMessage: result.errorMessage,
+        fetchedAt: result.fetchedAt,
+        count: result.items.length,
+        stale
+      };
+    });
+  };
+
+  const normalizeItemsForState = (items = []) => items.map((item) => enrichItem({
+    ...item,
+    url: canonicalUrl(item.url),
+    isNonEnglish: isNonEnglish(`${item.title || ''} ${item.summary || ''}`),
+    feedId: item.feedId || null
+  }));
+
+  const refreshFeeds = async (feedIds = [], options = {}) => {
+    const requestedIds = Array.isArray(feedIds) ? feedIds : [feedIds];
+    const idSet = new Set(requestedIds.filter(Boolean));
+    if (!idSet.size) return [];
+    const targetFeeds = state.feeds.filter((feed) => idSet.has(feed.id));
+    if (!targetFeeds.length) return [];
+    const force = Boolean(options.force);
+    const rerender = options.rerender !== false;
+    setRefreshing(true);
+    try {
+      const results = await fetchFeedBatch(targetFeeds, force);
+      updateFeedStatusFromResults(results);
+
+      const targetFeedIds = new Set(targetFeeds.map((feed) => feed.id));
+      const preservedItems = state.items.filter((item) => !targetFeedIds.has(item.feedId));
+      const refreshedItems = normalizeItemsForState(results.flatMap((result) => result.items || []));
+      state.items = [...preservedItems, ...refreshedItems];
+      state.scopedItems = applyScope(state.items);
+      state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+      state.lastFetch = Date.now();
+      updateDataFreshBadge();
+
+      const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
+        feed,
+        ...state.feedStatus[feed.id]
+      })));
+      setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
+
+      if (rerender) {
+        await runUiStep('renderAllPanels', () => renderAllPanels());
+        await runUiStep('renderSignals', () => renderSignals());
+        await runUiStep('renderFeedHealth', () => renderFeedHealth());
+        await runUiStep('drawMap', () => drawMap());
+        await runUiStep('updatePanelErrors', () => updatePanelErrors());
+      } else {
+        await runUiStep('renderFeedHealth', () => renderFeedHealth());
+      }
+      return results;
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const refreshAll = async (force = false) => {
     setRefreshing(true);
     setHealth('Fetching feeds');
     updateProxyHealth();
-    const liveOverride = force && isStaticMode();
     try {
       if (isStaticMode()) {
         await loadStaticAnalysis();
         await loadStaticBuild();
       }
-      const results = await Promise.all(state.feeds.map(async (feed) => {
-        const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
-        if (liveOverride || shouldFetchLiveInStatic(feed)) {
-          try {
-            const live = await fetchCustomFeedDirect(feed, query);
-            if (!live.error) return live;
-            const fallback = await fetchFeed(feed, query, force);
-            return fallback;
-          } catch {
-            // fall through to static cache
-          }
-        }
-        return fetchFeed(feed, query, force).catch(() => ({
-          feed,
-          items: [],
-          error: 'fetch_failed',
-          httpStatus: 0,
-          fetchedAt: Date.now()
-        }));
-      }));
+      const results = await fetchFeedBatch(state.feeds, force);
+      updateFeedStatusFromResults(results);
 
-      results.forEach((result) => {
-        const stale = !result.error && isFeedStale(result.feed, result);
-        state.feedStatus[result.feed.id] = {
-          httpStatus: result.httpStatus,
-          error: result.error,
-          errorMessage: result.errorMessage,
-          fetchedAt: result.fetchedAt,
-          count: result.items.length,
-          stale
-        };
-      });
-
-      const items = results.flatMap((result) => result.items || []);
-      state.items = items.map((item) => enrichItem({
-        ...item,
-        url: canonicalUrl(item.url),
-        isNonEnglish: isNonEnglish(`${item.title || ''} ${item.summary || ''}`),
-        feedId: item.feedId || null
-      }));
-
+      state.items = normalizeItemsForState(results.flatMap((result) => result.items || []));
       state.scopedItems = applyScope(state.items);
       state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
       state.lastFetch = Date.now();
       updateDataFreshBadge();
       const issueCount = countCriticalIssues(results);
       setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
-
-      const runUiStep = async (label, task) => {
-        try {
-          await task();
-        } catch (err) {
-          console.error(`[refreshAll] ${label} failed`, err);
-        }
-      };
 
       await runUiStep('renderAllPanels', () => renderAllPanels());
       await runUiStep('renderSignals', () => renderSignals());
@@ -261,6 +311,7 @@ export function createFeedManager({ state, elements, helpers }) {
 
   return {
     refreshAll,
+    refreshFeeds,
     retryFailedFeeds,
     retryStaleFeeds,
     startAutoRefresh

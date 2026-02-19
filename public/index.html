@@ -1035,7 +1035,7 @@
                   <button class="chip" data-query="Travel health notice">Travel</button>
                 </div>
                 <div class="state-filter-row">
-                  <label for="stateSignalFilter">State Filter</label>
+                  <label for="stateSignalFilter">Search State Filter</label>
                   <select id="stateSignalFilter" name="stateSignalFilter" class="select" aria-label="State signal filter"></select>
                 </div>
                 <div class="search-filters" id="categoryFilters"></div>
@@ -1286,6 +1286,13 @@
           </div>
         </div>
         <div class="panel-body">
+          <div class="state-panel-toolbar">
+            <div class="state-filter-row state-panel-filter-row">
+              <label for="statePanelSignalFilter">State Panel Filter</label>
+              <select id="statePanelSignalFilter" name="statePanelSignalFilter" class="select" aria-label="State panel filter"></select>
+            </div>
+            <span class="chip chip-static state-filter-chip" id="statePanelFilterChip">All states</span>
+          </div>
           <div class="panel-tabs" id="stateGovTabs">
             <button class="tab active" data-tab="all">All</button>
             <button class="tab" data-tab="legislation">Legislation</button>

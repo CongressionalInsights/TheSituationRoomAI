@@ -234,6 +234,10 @@ const state = {
   countries: [],
   countryIndex: {},
   settings: cloneDefaultSettings(),
+  uiFilters: {
+    searchState: 'ALL',
+    statePanelState: 'ALL'
+  },
   location: {
     lat: 35.5951,
     lon: -82.5515,
@@ -413,6 +417,8 @@ const elements = {
   searchBtn: document.getElementById('searchBtn'),
   searchHint: document.getElementById('searchHint'),
   stateSignalFilter: document.getElementById('stateSignalFilter'),
+  statePanelSignalFilter: document.getElementById('statePanelSignalFilter'),
+  statePanelFilterChip: document.getElementById('statePanelFilterChip'),
   liveSearchToggle: document.getElementById('liveSearchToggle'),
   scopeToggle: document.getElementById('scopeToggle'),
   countrySelect: document.getElementById('countrySelect'),
@@ -1411,20 +1417,61 @@ function normalizeText(value) {
   return (value || '').toString().toLowerCase();
 }
 
+function getSearchStateFilter() {
+  return getStateSignalFilterCode(state.uiFilters?.searchState);
+}
+
+function getStatePanelFilter() {
+  return getStateSignalFilterCode(state.uiFilters?.statePanelState);
+}
+
+function setSearchStateFilter(code) {
+  const next = getStateSignalFilterCode(code);
+  if (!state.uiFilters) {
+    state.uiFilters = { searchState: 'ALL', statePanelState: 'ALL' };
+  }
+  state.uiFilters.searchState = next;
+  state.lastSearchState = next;
+  if (elements.stateSignalFilter && elements.stateSignalFilter.value !== next) {
+    elements.stateSignalFilter.value = next;
+  }
+  return next;
+}
+
+function setStatePanelFilter(code) {
+  const next = getStateSignalFilterCode(code);
+  if (!state.uiFilters) {
+    state.uiFilters = { searchState: 'ALL', statePanelState: 'ALL' };
+  }
+  state.uiFilters.statePanelState = next;
+  if (elements.statePanelSignalFilter && elements.statePanelSignalFilter.value !== next) {
+    elements.statePanelSignalFilter.value = next;
+  }
+  updateStatePanelFilterChip();
+  return next;
+}
+
 function getSelectedStateSignalFilter() {
-  return getStateSignalFilterCode(state.settings.stateSignalFilter);
+  return getStatePanelFilter();
 }
 
 function getSelectedStateSignalName() {
-  return getStateSignalFilterName(getSelectedStateSignalFilter());
+  return getStateSignalFilterName(getStatePanelFilter());
 }
 
 function applyStateSignalFilter(items, { includeFederal = true } = {}) {
-  return applyStateSignalFilterBySelection(items, getSelectedStateSignalFilter(), { includeFederal });
+  return applyStateSignalFilterBySelection(items, getStatePanelFilter(), { includeFederal });
+}
+
+function updateStatePanelFilterChip() {
+  if (!elements.statePanelFilterChip) return;
+  elements.statePanelFilterChip.textContent = `State: ${getSelectedStateSignalName()}`;
 }
 
 function updateStateSignalFilterOptions() {
-  renderStateSignalFilterOptions(elements.stateSignalFilter, getSelectedStateSignalFilter());
+  renderStateSignalFilterOptions(elements.stateSignalFilter, getSearchStateFilter());
+  renderStateSignalFilterOptions(elements.statePanelSignalFilter, getStatePanelFilter());
+  updateStatePanelFilterChip();
 }
 
 function sampleByStep(list, max) {
@@ -4398,6 +4445,28 @@ function extractJurisdictionName(entry, code) {
   return '';
 }
 
+function extractJurisdictionLevel(entry, jurisdictionCode) {
+  if (jurisdictionCode) return 'state';
+  const rawSignals = [
+    entry?.jurisdictionLevel,
+    entry?.jurisdiction?.classification,
+    entry?.jurisdiction?.id,
+    entry?.jurisdiction?.name,
+    entry?.from_organization?.id,
+    entry?.organization?.id,
+    entry?.organizationClassification
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .filter(Boolean);
+  if (rawSignals.some((value) => value.includes('state:'))) {
+    return 'state';
+  }
+  if (rawSignals.some((value) => value.includes('country:us/government') || value === 'united states')) {
+    return 'federal';
+  }
+  return 'federal';
+}
+
 function parseStateGovernmentItems(data, feed, signalType) {
   const list = Array.isArray(data?.results)
     ? data.results
@@ -4411,6 +4480,7 @@ function parseStateGovernmentItems(data, feed, signalType) {
   return list.slice(0, 100).map((entry) => {
     const jurisdictionCode = extractJurisdictionCode(entry);
     const jurisdictionName = extractJurisdictionName(entry, jurisdictionCode);
+    const jurisdictionLevel = extractJurisdictionLevel(entry, jurisdictionCode);
     const title = entry.title
       || entry.identifier
       || entry.name
@@ -4438,7 +4508,7 @@ function parseStateGovernmentItems(data, feed, signalType) {
       : Array.isArray(entry.tags)
         ? entry.tags
         : (entry.classification ? [entry.classification] : []);
-    const tags = ['us', 'gov', 'state', signalType, ...(feed.tags || []), ...rawTags]
+    const tags = ['us', 'gov', jurisdictionLevel === 'state' ? 'state' : 'federal', signalType, ...(feed.tags || []), ...rawTags]
       .map((tag) => String(tag || '').trim().toLowerCase())
       .filter(Boolean);
     const dedupedTags = Array.from(new Set(tags));
@@ -4450,7 +4520,7 @@ function parseStateGovernmentItems(data, feed, signalType) {
       publishedAt: Number.isNaN(parsedPublished) ? Date.now() : parsedPublished,
       source: entry.source || feed.name,
       category: feed.category,
-      jurisdictionLevel: 'state',
+      jurisdictionLevel,
       jurisdictionCode,
       jurisdictionName,
       signalType,
@@ -8465,7 +8535,7 @@ function buildChatContext() {
       query: state.lastSearchQuery || null,
       scope: state.lastSearchScope,
       categories: state.lastSearchCategories,
-      state: state.lastSearchState || selectedStateCode
+      state: state.lastSearchState || getSearchStateFilter()
     },
     themes: getTopThemes(5),
     focusCluster: focusCluster ? {
@@ -13177,6 +13247,11 @@ async function refreshAll(force = false) {
   return feedManager.refreshAll(force);
 }
 
+async function refreshFeeds(feedIds, options = {}) {
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.refreshFeeds(feedIds, options);
+}
+
 async function retryFailedFeeds() {
   if (!feedManager) throw new Error('Feed manager not initialized.');
   return feedManager.retryFailedFeeds();
@@ -13323,15 +13398,26 @@ function initEvents() {
   }
   if (elements.stateSignalFilter) {
     elements.stateSignalFilter.addEventListener('change', () => {
-      const selected = normalizeJurisdictionCode(elements.stateSignalFilter.value) || 'ALL';
-      state.settings.stateSignalFilter = selected;
-      state.lastSearchState = selected;
-      saveSettings();
-      renderFederalPolicy();
+      setSearchStateFilter(elements.stateSignalFilter.value);
+      updateSearchHint();
+      if (elements.searchResults?.classList.contains('open') && searchController?.handleSearch) {
+        searchController.handleSearch();
+      }
+    });
+  }
+  if (elements.statePanelSignalFilter) {
+    elements.statePanelSignalFilter.addEventListener('change', () => {
+      setStatePanelFilter(elements.statePanelSignalFilter.value);
       renderStateGovernment();
       renderSignals();
-      updateSearchHint();
-      refreshAll(true).catch(() => {});
+      refreshFeeds(['state-legislation'], { force: true, rerender: false })
+        .then(() => {
+          renderStateGovernment();
+          renderSignals();
+          renderFeedHealth();
+          updatePanelErrors();
+        })
+        .catch(() => {});
     });
   }
   if (elements.financeTabs) {
@@ -13875,6 +13961,7 @@ async function init() {
       applySearchFilters,
       CATEGORY_LABELS,
       fetchFeed,
+      getSearchStateFilter,
       hasAssistantAccess,
       updateCategoryFilters
     }
