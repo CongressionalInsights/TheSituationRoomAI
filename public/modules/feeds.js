@@ -90,29 +90,39 @@ export function createFeedManager({ state, elements, helpers }) {
       const issueCount = countCriticalIssues(results);
       setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
 
-      renderAllPanels();
-      renderSignals();
-      renderFeedHealth();
-      drawMap();
-      generateAnalysis(false);
-      maybeAutoRunAnalysis();
-      await refreshCustomTickers();
-      renderTicker();
-      renderFinanceSpotlight();
+      const runUiStep = async (label, task) => {
+        try {
+          await task();
+        } catch (err) {
+          console.error(`[refreshAll] ${label} failed`, err);
+        }
+      };
 
-      geocodeItems(state.items).then((geocodeUpdated) => {
+      await runUiStep('renderAllPanels', () => renderAllPanels());
+      await runUiStep('renderSignals', () => renderSignals());
+      await runUiStep('renderFeedHealth', () => renderFeedHealth());
+      await runUiStep('drawMap', () => drawMap());
+      await runUiStep('generateAnalysis', () => generateAnalysis(false));
+      await runUiStep('maybeAutoRunAnalysis', () => maybeAutoRunAnalysis());
+      await runUiStep('refreshCustomTickers', () => refreshCustomTickers());
+      await runUiStep('renderTicker', () => renderTicker());
+      await runUiStep('renderFinanceSpotlight', () => renderFinanceSpotlight());
+      await runUiStep('updatePanelErrors', () => updatePanelErrors());
+
+      geocodeItems(state.items).then(async (geocodeUpdated) => {
         if (!geocodeUpdated) return;
         state.scopedItems = applyScope(state.items);
         if (state.settings.scope === 'local') {
           state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-          renderAllPanels();
+          await runUiStep('renderAllPanels (geocode)', () => renderAllPanels());
         } else {
-          renderLocal();
+          await runUiStep('renderLocal (geocode)', () => renderLocal());
         }
-        renderSignals();
-        renderFeedHealth();
-        drawMap();
-        renderTicker();
+        await runUiStep('renderSignals (geocode)', () => renderSignals());
+        await runUiStep('renderFeedHealth (geocode)', () => renderFeedHealth());
+        await runUiStep('drawMap (geocode)', () => drawMap());
+        await runUiStep('renderTicker (geocode)', () => renderTicker());
+        await runUiStep('updatePanelErrors (geocode)', () => updatePanelErrors());
       }).catch(() => {});
       if (issueCount) {
         await retryFailedFeeds();

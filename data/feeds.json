@@ -177,7 +177,7 @@
       "name": "NASA EONET Events",
       "category": "disaster",
       "format": "json",
-      "url": "https://eonet.gsfc.nasa.gov/api/v3/events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
       "ttlMinutes": 60,
       "timeoutMs": 20000,
       "tags": [

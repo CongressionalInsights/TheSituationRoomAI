@@ -3971,7 +3971,7 @@ function parseArcGisGeoJson(data, feed) {
   ]) || feed.name;
   const inferSummary = (props) => pickFirst(props, [
     'summary', 'description', 'details',
-    'Notes', 'notes', 'comments', 'status', 'headline'
+    'Notes', 'notes', 'comments', 'status_text', 'status_desc', 'headline'
   ]) || '';
   const inferAlertType = (props) => pickFirst(props, [
     'alert_type', 'event', 'type', 'category', 'hazard', 'incident_type',
@@ -3989,8 +3989,8 @@ function parseArcGisGeoJson(data, feed) {
   const sliced = limit > 0 ? features.slice(0, limit) : features;
   return sliced.map((feature) => {
     const props = feature?.properties || feature?.attributes || {};
-    const title = inferTitle(props);
-    const summary = inferSummary(props);
+    const title = coerceTextValue(inferTitle(props)) || feed.name;
+    const summary = coerceTextValue(inferSummary(props));
     const publishedAt = inferDate(props) || Date.now();
     const alertType = inferAlertType(props);
     const severity = inferSeverity(props);
@@ -4010,7 +4010,7 @@ function parseArcGisGeoJson(data, feed) {
     }
     return {
       title,
-      url: props.url || props.link || '',
+      url: coerceTextValue(props.url || props.link || ''),
       summary,
       publishedAt,
       source: feed.name,
@@ -5529,23 +5529,30 @@ const feedParsers = {
     });
   },
   'foia-api': (data, feed) => {
+    const resolveDescription = (value) => {
+      if (!value) return '';
+      if (typeof value === 'object') {
+        return coerceTextValue(value.processed ?? value.value ?? value);
+      }
+      return coerceTextValue(value);
+    };
     const ckanResults = Array.isArray(data?.result?.results) ? data.result.results : null;
     if (ckanResults) {
       return ckanResults.slice(0, 12).map((entry) => ({
-        title: entry.title || entry.name || 'FOIA Dataset',
-        url: entry.url || (entry.name ? `https://catalog.data.gov/dataset/${entry.name}` : ''),
-        summary: entry.notes || '',
+        title: coerceTextValue(entry.title || entry.name || 'FOIA Dataset') || 'FOIA Dataset',
+        url: coerceTextValue(entry.url || (entry.name ? `https://catalog.data.gov/dataset/${entry.name}` : '')),
+        summary: resolveDescription(entry.notes),
         publishedAt: entry.metadata_modified ? Date.parse(entry.metadata_modified) : Date.now(),
-        source: entry.organization?.title || 'Data.gov',
+        source: coerceTextValue(entry.organization?.title || 'Data.gov') || 'Data.gov',
         category: feed.category
       }));
     }
     const foiaRows = Array.isArray(data?.data) ? data.data : [];
     if (!foiaRows.length) return [];
     return foiaRows.slice(0, 12).map((entry) => ({
-      title: entry.attributes?.name || entry.attributes?.title || 'FOIA Component',
-      url: entry.links?.self || 'https://www.foia.gov/developer/',
-      summary: entry.attributes?.description || '',
+      title: coerceTextValue(entry.attributes?.name || entry.attributes?.title || 'FOIA Component') || 'FOIA Component',
+      url: coerceTextValue(entry.links?.self || 'https://www.foia.gov/developer/'),
+      summary: resolveDescription(entry.attributes?.description),
       publishedAt: Date.parse(entry.attributes?.updated_at || entry.attributes?.created_at) || Date.now(),
       source: 'FOIA.gov',
       category: feed.category
@@ -5666,15 +5673,50 @@ function formatShortDate(value) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function coerceTextValue(value, depth = 0) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (depth > 3) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => coerceTextValue(entry, depth + 1).trim())
+      .filter(Boolean)
+      .join(' • ');
+  }
+  if (typeof value === 'object') {
+    const preferredKeys = [
+      'processed', 'value', 'text', 'summary', 'description', 'details',
+      'title', 'name', 'label', 'headline', 'status_text', 'status_desc',
+      'message', 'content', 'html'
+    ];
+    for (const key of preferredKeys) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      const resolved = coerceTextValue(value[key], depth + 1);
+      if (resolved) return resolved;
+    }
+    if (typeof value.toString === 'function' && value.toString !== Object.prototype.toString) {
+      const rendered = String(value.toString());
+      if (rendered && rendered !== '[object Object]') return rendered;
+    }
+    return '';
+  }
+  return String(value);
+}
+
 function decodeHtmlEntities(input) {
-  if (!input) return '';
-  const doc = new DOMParser().parseFromString(input, 'text/html');
+  const safeInput = coerceTextValue(input);
+  if (!safeInput) return '';
+  const doc = new DOMParser().parseFromString(safeInput, 'text/html');
   return doc.documentElement.textContent || '';
 }
 
 function stripHtml(input) {
-  if (!input) return '';
-  let safe = input;
+  const safeInput = coerceTextValue(input);
+  if (!safeInput) return '';
+  let safe = safeInput;
   if (safe.includes('&lt;') || safe.includes('&gt;')) {
     safe = decodeHtmlEntities(safe);
   }
@@ -5691,8 +5733,10 @@ function truncateText(text, maxChars) {
 }
 
 function normalizeSummary(rawDesc, rawHtml) {
-  const raw = rawHtml && rawHtml !== rawDesc ? rawHtml : rawDesc;
-  if (!raw) return { summary: rawDesc || '', summaryHtml: '' };
+  const safeDesc = coerceTextValue(rawDesc);
+  const safeHtml = coerceTextValue(rawHtml);
+  const raw = safeHtml && safeHtml !== safeDesc ? safeHtml : safeDesc;
+  if (!raw) return { summary: safeDesc || '', summaryHtml: '' };
   let decoded = raw;
   if (raw.includes('&lt;') || raw.includes('&gt;')) {
     decoded = decodeHtmlEntities(raw);
@@ -5701,11 +5745,11 @@ function normalizeSummary(rawDesc, rawHtml) {
   if (hasTags) {
     const text = stripHtml(decoded).replace(/\s+/g, ' ').trim();
     return {
-      summary: text || rawDesc || '',
+      summary: text || safeDesc || '',
       summaryHtml: decoded
     };
   }
-  return { summary: rawDesc || decoded, summaryHtml: '' };
+  return { summary: safeDesc || decoded, summaryHtml: '' };
 }
 
 function getListLimit(id) {
@@ -5725,8 +5769,8 @@ function bumpListLimit(id, total) {
 }
 
 function sanitizeHtml(input) {
-  if (!input) return '';
-  let safeInput = input;
+  let safeInput = coerceTextValue(input);
+  if (!safeInput) return '';
   if (safeInput.includes('&lt;') || safeInput.includes('&gt;')) {
     safeInput = decodeHtmlEntities(safeInput);
   }
@@ -6647,6 +6691,9 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
   };
   const hasFeedParams = Object.keys(feedParams).some((key) => feedParams[key] !== undefined && feedParams[key] !== null && String(feedParams[key]) !== '');
   const keyConfig = getKeyConfig(feed);
+  const feedTimeoutMs = Number(feed?.timeoutMs);
+  const baseTimeoutMs = Number.isFinite(feedTimeoutMs) && feedTimeoutMs > 0 ? feedTimeoutMs : 12000;
+  const requestTimeoutMs = Math.max(15000, Math.min(30000, baseTimeoutMs + 5000));
   try {
     let payload;
     let res;
@@ -6660,7 +6707,7 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
           queryParams.set(`param.${key}`, String(value));
         });
       }
-      res = await apiFetch(`/api/feed?${queryParams.toString()}`);
+      res = await apiFetch(`/api/feed?${queryParams.toString()}`, {}, requestTimeoutMs);
       payload = await res.json();
     } else {
       res = await apiFetch('/api/feed', {
@@ -6675,7 +6722,7 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
           keyHeader: keyConfig.keyHeader || undefined,
           params: hasFeedParams ? feedParams : undefined
         })
-      });
+      }, requestTimeoutMs);
       payload = await res.json();
     }
     const httpStatus = payload.httpStatus || res.status || 0;
@@ -7938,14 +7985,16 @@ function renderList(container, items, { withCoverage = false, append = false } =
     const summary = document.createElement('div');
     summary.className = 'list-summary';
     const isNewsList = contextId === 'newsList';
-    const rawSummaryText = stripHtml(item.summaryHtml || item.summary || '').trim();
+    const translatedSummary = coerceTextValue(item.translatedSummary).trim();
+    const rawSummaryText = stripHtml(item.summaryHtml ?? item.summary ?? '').trim();
+    const safeSummaryHtml = sanitizeHtml(item.summaryHtml);
     if (isNewsList) {
-      const baseText = item.translatedSummary || rawSummaryText;
+      const baseText = translatedSummary || rawSummaryText;
       summary.textContent = truncateText(baseText, 240);
-    } else if (item.summaryHtml) {
-      summary.innerHTML = sanitizeHtml(item.summaryHtml);
+    } else if (safeSummaryHtml) {
+      summary.innerHTML = safeSummaryHtml;
     } else {
-      summary.textContent = item.translatedSummary || rawSummaryText;
+      summary.textContent = translatedSummary || rawSummaryText;
     }
 
     div.appendChild(title);
@@ -7953,7 +8002,7 @@ function renderList(container, items, { withCoverage = false, append = false } =
     if (predictionOdds) {
       div.appendChild(predictionOdds);
     }
-    const shouldShowSummary = Boolean(item.summary || item.summaryHtml)
+    const shouldShowSummary = Boolean(rawSummaryText || safeSummaryHtml)
       && !(state.settings.languageMode === 'translate' && item.isNonEnglish);
     if (shouldShowSummary) div.appendChild(summary);
     container.appendChild(div);

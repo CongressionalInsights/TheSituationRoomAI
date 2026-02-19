@@ -116,7 +116,9 @@ export async function apiJson(path, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS
     const staticUrl = mapStatic(`/api/feed?id=${encodeURIComponent(feedId)}`);
     try {
       const response = await fetch(`${staticUrl}?_ts=${Date.now()}`);
+      if (!response.ok) return null;
       const data = await response.json();
+      if (!data || !data.body) return null;
       return { response, data, error: null };
     } catch (err) {
       return null;

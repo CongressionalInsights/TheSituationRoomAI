@@ -742,23 +742,35 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const serverKey = resolveServerKey(feed);
   const effectiveKey = key || serverKey;
   if (feed.requiresKey && !effectiveKey) {
+    const error = feed.keySource === 'server' ? 'missing_server_key' : 'requires_key';
+    const message = feed.keySource === 'server'
+      ? 'Server API key required for this feed.'
+      : 'API key required for this feed.';
     return {
       id: feed.id,
       fetchedAt: Date.now(),
       contentType: 'application/json',
+      httpStatus: 200,
+      error,
+      message,
       body: JSON.stringify({
-        error: feed.keySource === 'server' ? 'missing_server_key' : 'requires_key',
-        message: feed.keySource === 'server' ? 'Server API key required for this feed.' : 'API key required for this feed.'
+        error,
+        message
       })
     };
   }
 
   if (feed.requiresConfig && !feed.url) {
+    const error = 'requires_config';
+    const message = 'Feed URL not configured.';
     return {
       id: feed.id,
       fetchedAt: Date.now(),
       contentType: 'application/json',
-      body: JSON.stringify({ error: 'requires_config', message: 'Feed URL not configured.' })
+      httpStatus: 200,
+      error,
+      message,
+      body: JSON.stringify({ error, message })
     };
   }
 
