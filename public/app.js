@@ -13410,7 +13410,7 @@ function initEvents() {
       setStatePanelFilter(elements.statePanelSignalFilter.value);
       renderStateGovernment();
       renderSignals();
-      refreshFeeds(['state-legislation'], { force: true, rerender: false })
+      refreshFeeds(['state-legislation'], { rerender: false })
         .then(() => {
           renderStateGovernment();
           renderSignals();

@@ -99,13 +99,36 @@ export function createFeedManager({ state, elements, helpers }) {
       updateFeedStatusFromResults(results);
 
       const targetFeedIds = new Set(targetFeeds.map((feed) => feed.id));
+      const priorItemsByFeed = new Map();
+      state.items.forEach((item) => {
+        if (!item?.feedId) return;
+        if (!priorItemsByFeed.has(item.feedId)) {
+          priorItemsByFeed.set(item.feedId, []);
+        }
+        priorItemsByFeed.get(item.feedId).push(item);
+      });
       const preservedItems = state.items.filter((item) => !targetFeedIds.has(item.feedId));
-      const refreshedItems = normalizeItemsForState(results.flatMap((result) => result.items || []));
+      const refreshedItems = [];
+      results.forEach((result) => {
+        const feedId = result?.feed?.id;
+        if (!feedId) return;
+        if (result.error) {
+          const priorItems = priorItemsByFeed.get(feedId) || [];
+          if (priorItems.length && state.feedStatus[feedId]) {
+            state.feedStatus[feedId].count = priorItems.length;
+          }
+          refreshedItems.push(...priorItems);
+          return;
+        }
+        refreshedItems.push(...normalizeItemsForState(result.items || []));
+      });
       state.items = [...preservedItems, ...refreshedItems];
       state.scopedItems = applyScope(state.items);
       state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
-      state.lastFetch = Date.now();
-      updateDataFreshBadge();
+      if (results.some((result) => !result.error)) {
+        state.lastFetch = Date.now();
+        updateDataFreshBadge();
+      }
 
       const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
         feed,
