@@ -109,6 +109,75 @@ test('state filters are context-local and tab panels respect active state', asyn
   await expect(panelStateFilter).toHaveValue('CA');
   await expect(page.locator('#statePanelFilterChip')).toContainText('California');
 
+  const rulemakingTab = page.locator('#stateGovTabs .tab[data-tab="rulemaking"]');
+  const executiveTab = page.locator('#stateGovTabs .tab[data-tab="executive"]');
+  await page.waitForFunction(() => {
+    const rule = document.querySelector('#stateGovTabs .tab[data-tab="rulemaking"]');
+    const exec = document.querySelector('#stateGovTabs .tab[data-tab="executive"]');
+    return Boolean(rule && exec && rule.hidden && exec.hidden);
+  }, null, { timeout: 60_000 });
+  await expect(rulemakingTab).toBeHidden();
+  await expect(executiveTab).toBeHidden();
+
+  await page.route('**/api/feed', async (route, request) => {
+    const requestUrl = new URL(request.url());
+    let id = requestUrl.searchParams.get('id');
+    if (!id && request.method() === 'POST') {
+      let payload = {};
+      try {
+        payload = request.postDataJSON() || {};
+      } catch {
+        payload = {};
+      }
+      id = payload.id;
+    }
+    if (id !== 'state-rulemaking' && id !== 'state-executive-orders') {
+      await route.continue();
+      return;
+    }
+    const signalType = id === 'state-rulemaking' ? 'rulemaking' : 'executive_order';
+    const response = {
+      id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      httpStatus: 200,
+      body: JSON.stringify({
+        results: [
+          {
+            id: `${id}-tx-1`,
+            title: `${signalType} test signal`,
+            summary: 'Connector test item',
+            url: 'https://example.com',
+            updated_at: new Date().toISOString(),
+            jurisdictionCode: 'TX',
+            jurisdictionName: 'Texas',
+            jurisdictionLevel: 'state',
+            signalType,
+            agency: 'Test Agency',
+            status: 'Open',
+            effective_date: '',
+            source: 'Test Connector'
+          }
+        ],
+        meta: { provider: 'test-connector' }
+      })
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(response)
+    });
+  });
+
+  await page.locator('#refreshNow').click();
+  await page.waitForFunction(() => {
+    const rule = document.querySelector('#stateGovTabs .tab[data-tab="rulemaking"]');
+    const exec = document.querySelector('#stateGovTabs .tab[data-tab="executive"]');
+    return Boolean(rule && exec && !rule.hidden && !exec.hidden);
+  }, null, { timeout: 60_000 });
+  await expect(rulemakingTab).toBeVisible();
+  await expect(executiveTab).toBeVisible();
+
   const tabDisplays = await page.evaluate(() => {
     const clickTab = (tabsId, tab) => {
       const button = document.querySelector(`#${tabsId} .tab[data-tab="${tab}"]`);

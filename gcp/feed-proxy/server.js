@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { gunzipSync } from 'zlib';
-import { mergeFeedParams, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
+import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -39,6 +39,11 @@ const STATE_LEGISLATION_ALL_STATES_CONCURRENCY = 2;
 const STATE_LEGISLATION_ALL_STATES_TIMEOUT_MS = 4500;
 const STATE_LEGISLATION_ALL_STATES_PER_STATE = 3;
 const STATE_LEGISLATION_ALL_STATES_MAX_ATTEMPTS = 8;
+const STATE_CONNECTOR_BASE_URL = String(process.env.STATE_CONNECTOR_BASE_URL || '').trim().replace(/\/+$/, '');
+const STATE_CONNECTOR_API_KEY = String(process.env.STATE_CONNECTOR_API_KEY || '').trim();
+const STATE_CONNECTOR_KEY_HEADER = String(process.env.STATE_CONNECTOR_KEY_HEADER || 'X-API-Key').trim() || 'X-API-Key';
+const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
+const STATE_CONNECTOR_MAX_LIMIT = 100;
 
 const samCache = new Map();
 
@@ -884,6 +889,171 @@ function buildAcledProxyUrl(feed) {
   return `${base}/${endpoint}?${params.toString()}`;
 }
 
+function isStateConnectorFeed(feed) {
+  return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
+}
+
+function normalizeStateConnectorSignalType(value, fallback = '') {
+  const raw = String(value || fallback || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'executive_order' || raw === 'executive-order' || raw === 'executive order' || raw.includes('executive')) {
+    return 'executive_order';
+  }
+  if (raw === 'rulemaking' || raw === 'rule' || raw === 'rules' || raw.includes('rule')) {
+    return 'rulemaking';
+  }
+  return raw.replace(/\s+/g, '_');
+}
+
+function buildStateConnectorConfigPayload(feed, message) {
+  return {
+    id: feed.id,
+    fetchedAt: Date.now(),
+    contentType: 'application/json',
+    httpStatus: 200,
+    error: 'requires_config',
+    message,
+    body: JSON.stringify({ error: 'requires_config', message })
+  };
+}
+
+function normalizeStateConnectorResult(entry, signalType, fallbackStateCode = '') {
+  if (!entry || typeof entry !== 'object') return null;
+  const title = String(entry.title || entry.name || entry.id || '').trim();
+  if (!title) return null;
+  const stateCode = normalizeJurisdictionCode(
+    entry.state
+    || entry.stateCode
+    || entry.jurisdictionCode
+    || entry.jurisdiction?.id
+    || fallbackStateCode
+  );
+  const normalizedSignalType = normalizeStateConnectorSignalType(entry.signalType || entry.type, signalType);
+  return {
+    id: String(entry.id || entry.docId || entry.identifier || ''),
+    title,
+    summary: String(entry.summary || entry.description || entry.status || ''),
+    url: String(entry.url || entry.link || ''),
+    updated_at: String(
+      entry.updatedAt
+      || entry.updated_at
+      || entry.updated
+      || entry.publishedAt
+      || entry.published_at
+      || entry.date
+      || entry.effectiveDate
+      || entry.effective_date
+      || ''
+    ),
+    jurisdictionCode: stateCode,
+    jurisdictionName: String(entry.stateName || entry.jurisdictionName || entry.jurisdiction?.name || stateCode || ''),
+    jurisdictionLevel: 'state',
+    signalType: normalizedSignalType,
+    agency: String(entry.agency || entry.department || ''),
+    status: String(entry.status || ''),
+    effective_date: String(entry.effectiveDate || entry.effective_date || ''),
+    source: String(entry.source || entry.provider || 'State Connector')
+  };
+}
+
+async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
+    return buildStateConnectorConfigPayload(feed, 'State connector provider is not configured.');
+  }
+
+  const signalType = normalizeStateConnectorSignalType(
+    mergedParams.signalType,
+    Array.isArray(feed?.capabilities) && feed.capabilities.length ? feed.capabilities[0] : ''
+  );
+  const stateCode = normalizeJurisdictionCode(
+    mergedParams.state
+    || mergedParams.jurisdictionCode
+    || mergedParams.jurisdiction
+  );
+  const requestedLimit = toPositiveInt(
+    mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
+    STATE_CONNECTOR_DEFAULT_LIMIT
+  );
+  const limit = Math.max(1, Math.min(STATE_CONNECTOR_MAX_LIMIT, requestedLimit));
+  const requestUrl = new URL(`${STATE_CONNECTOR_BASE_URL}/signals`);
+  requestUrl.searchParams.set('signalType', signalType || 'rulemaking');
+  requestUrl.searchParams.set('limit', String(limit));
+  requestUrl.searchParams.set('sort', 'updated_desc');
+  if (stateCode) {
+    requestUrl.searchParams.set('state', stateCode);
+  }
+
+  const requestHeaders = {
+    'User-Agent': appConfig.userAgent,
+    'Accept': 'application/json, text/plain, */*',
+    [STATE_CONNECTOR_KEY_HEADER]: STATE_CONNECTOR_API_KEY
+  };
+
+  try {
+    const response = await fetchWithTimeout(requestUrl.toString(), { headers: requestHeaders }, timeoutMs);
+    const text = await response.text();
+    if (!response.ok) {
+      const message = `HTTP ${response.status}`;
+      return {
+        id: feed.id,
+        fetchedAt: Date.now(),
+        contentType: response.headers.get('content-type') || 'application/json',
+        httpStatus: response.status,
+        error: `http_${response.status}`,
+        message,
+        body: JSON.stringify({ error: `http_${response.status}`, message, detail: text.slice(0, 500) })
+      };
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text || '{}');
+    } catch {
+      return {
+        id: feed.id,
+        fetchedAt: Date.now(),
+        contentType: 'application/json',
+        httpStatus: 502,
+        error: 'invalid_json',
+        message: 'State connector returned invalid JSON.',
+        body: JSON.stringify({ error: 'invalid_json', message: 'State connector returned invalid JSON.' })
+      };
+    }
+
+    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    const normalizedResults = results
+      .map((entry) => normalizeStateConnectorResult(entry, signalType, stateCode))
+      .filter(Boolean)
+      .slice(0, limit);
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      httpStatus: 200,
+      body: JSON.stringify({
+        results: normalizedResults,
+        meta: {
+          ...(parsed?.meta && typeof parsed.meta === 'object' ? parsed.meta : {}),
+          provider: 'state-connector',
+          signalType: signalType || null,
+          state: stateCode || null,
+          count: normalizedResults.length
+        }
+      })
+    };
+  } catch (error) {
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      httpStatus: 502,
+      error: 'fetch_failed',
+      message: error?.message || 'State connector fetch failed.',
+      body: JSON.stringify({ error: 'fetch_failed', message: error?.message || 'State connector fetch failed.' })
+    };
+  }
+}
+
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
   const mergedParams = mergeFeedParams(feed, params);
   const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}`;
@@ -914,6 +1084,14 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         message
       })
     };
+  }
+
+  if (isStateConnectorFeed(feed)) {
+    const connectorPayload = await fetchStateConnectorFeed(feed, mergedParams, timeoutMs);
+    if (!connectorPayload.error) {
+      cache.set(cacheKey, connectorPayload);
+    }
+    return connectorPayload;
   }
 
   if (feed.requiresConfig && !feed.url) {

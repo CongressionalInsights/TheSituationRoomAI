@@ -20,6 +20,8 @@ jobs:
       SERVICE_NAME: situation-room-feed
       ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
       ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
+      STATE_CONNECTOR_BASE_URL: ${{ secrets.STATE_CONNECTOR_BASE_URL }}
+      STATE_CONNECTOR_KEY_HEADER: ${{ secrets.STATE_CONNECTOR_KEY_HEADER }}
     steps:
       - uses: actions/checkout@v4
       - name: Sync feed registry
@@ -39,6 +41,7 @@ jobs:
           OPENSTATES: ${{ secrets.OPENSTATES }}
           EARTHDATA_NASA: ${{ secrets.EARTHDATA_NASA }}
           SAMGOV_API_KEY: ${{ secrets.SAMGOV_API_KEY }}
+          STATE_CONNECTOR_API_KEY: ${{ secrets.STATE_CONNECTOR_API_KEY }}
         run: |
           if ! gcloud secrets describe data-gov-key --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create data-gov-key --replication-policy=automatic
@@ -61,6 +64,9 @@ jobs:
           if ! gcloud secrets describe samgov-key --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create samgov-key --replication-policy=automatic
           fi
+          if ! gcloud secrets describe state-connector-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create state-connector-key --replication-policy=automatic
+          fi
           if [ -n "$DATA_GOV" ]; then echo -n "$DATA_GOV" | gcloud secrets versions add data-gov-key --data-file=-; fi
           if [ -n "$EIA" ]; then echo -n "$EIA" | gcloud secrets versions add eia-key --data-file=-; fi
           if [ -n "$NASA_FIRMS" ]; then echo -n "$NASA_FIRMS" | gcloud secrets versions add nasa-firms-key --data-file=-; fi
@@ -68,11 +74,14 @@ jobs:
           if [ -n "$OPENSTATES" ]; then echo -n "$OPENSTATES" | gcloud secrets versions add openstates-key --data-file=-; fi
           if [ -n "$EARTHDATA_NASA" ]; then echo -n "$EARTHDATA_NASA" | gcloud secrets versions add earthdata-nasa-key --data-file=-; fi
           if [ -n "$SAMGOV_API_KEY" ]; then echo -n "$SAMGOV_API_KEY" | gcloud secrets versions add samgov-key --data-file=-; fi
+          if [ -n "$STATE_CONNECTOR_API_KEY" ]; then echo -n "$STATE_CONNECTOR_API_KEY" | gcloud secrets versions add state-connector-key --data-file=-; fi
       - name: Deploy feed proxy service
         run: |
           cat > /tmp/sr-feed-env.yaml <<EOF
           ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
           ACLED_PROXY: "${ACLED_PROXY}"
+          STATE_CONNECTOR_BASE_URL: "${STATE_CONNECTOR_BASE_URL}"
+          STATE_CONNECTOR_KEY_HEADER: "${STATE_CONNECTOR_KEY_HEADER}"
           EOF
           SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest"
           OPENSTATES_VERSION=$(gcloud secrets versions list openstates-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
@@ -80,6 +89,12 @@ jobs:
             SECRET_BINDINGS="${SECRET_BINDINGS},OPENSTATES=openstates-key:latest"
           else
             echo "OPENSTATES not configured (no enabled versions); deploying feed proxy without OPENSTATES."
+          fi
+          STATE_CONNECTOR_VERSION=$(gcloud secrets versions list state-connector-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
+          if [ -n "$STATE_CONNECTOR_VERSION" ]; then
+            SECRET_BINDINGS="${SECRET_BINDINGS},STATE_CONNECTOR_API_KEY=state-connector-key:latest"
+          else
+            echo "STATE_CONNECTOR_API_KEY not configured; deploying feed proxy without state connector key."
           fi
           gcloud run deploy "$SERVICE_NAME" \
             --region "$REGION" \

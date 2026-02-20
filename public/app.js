@@ -10624,6 +10624,74 @@ function renderFederalPolicy() {
   renderListWithLimit(elements.policyList, items);
 }
 
+const STATE_GOV_TAB_TO_LIST_ID = {
+  all: 'stateGovAllList',
+  legislation: 'stateGovLegislationList',
+  rulemaking: 'stateGovRulemakingList',
+  executive: 'stateGovExecutiveOrdersList'
+};
+
+const STATE_CONNECTOR_GATING_ERRORS = new Set(['requires_config', 'requires_key', 'missing_server_key']);
+
+function setStateGovernmentActiveTab(tab = 'all') {
+  if (!elements.stateGovTabs) return;
+  const buttons = Array.from(elements.stateGovTabs.querySelectorAll('.tab'));
+  const requested = buttons.find((button) => button.dataset.tab === tab && !button.hidden)
+    || buttons.find((button) => button.dataset.tab === 'all' && !button.hidden)
+    || buttons.find((button) => !button.hidden);
+  if (!requested) return;
+
+  buttons.forEach((button) => {
+    button.classList.toggle('active', button === requested);
+  });
+  const activeListId = STATE_GOV_TAB_TO_LIST_ID[requested.dataset.tab] || 'stateGovAllList';
+  document.querySelectorAll('.state-gov-panel .tab-panel').forEach((panel) => {
+    if (panel.hidden) {
+      panel.classList.remove('active');
+      return;
+    }
+    panel.classList.toggle('active', panel.id === activeListId);
+  });
+}
+
+function shouldHideStateConnectorTab(feedId, items = []) {
+  if (items.length) return false;
+  const status = state.feedStatus?.[feedId];
+  const error = status?.error || '';
+  if (STATE_CONNECTOR_GATING_ERRORS.has(error)) return true;
+  if (!status) {
+    const feed = state.feeds.find((entry) => entry.id === feedId);
+    if (feed?.requiresConfig && !feed?.url) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function updateStateGovernmentTabVisibility({ rulemakingItems = [], executiveOrderItems = [] } = {}) {
+  const tabSpecs = [
+    { tab: 'rulemaking', listId: 'stateGovRulemakingList', hidden: shouldHideStateConnectorTab('state-rulemaking', rulemakingItems) },
+    { tab: 'executive', listId: 'stateGovExecutiveOrdersList', hidden: shouldHideStateConnectorTab('state-executive-orders', executiveOrderItems) }
+  ];
+
+  tabSpecs.forEach(({ tab, listId, hidden }) => {
+    const button = elements.stateGovTabs?.querySelector(`.tab[data-tab="${tab}"]`);
+    const panel = elements[listId];
+    if (button) {
+      button.hidden = hidden;
+    }
+    if (panel) {
+      panel.hidden = hidden;
+      if (hidden) {
+        panel.classList.remove('active');
+      }
+    }
+  });
+
+  const activeTab = elements.stateGovTabs?.querySelector('.tab.active:not([hidden])')?.dataset.tab || 'all';
+  setStateGovernmentActiveTab(activeTab);
+}
+
 function renderStateGovernment() {
   const allItems = getStateGovernmentItems();
   const legislationItems = getStateGovernmentItems('legislation');
@@ -10637,26 +10705,13 @@ function renderStateGovernment() {
     renderListWithLimit(elements.stateGovLegislationList, legislationItems);
   }
 
-  const rulemakingFeed = state.feeds.find((feed) => feed.id === 'state-rulemaking');
-  const executiveOrderFeed = state.feeds.find((feed) => feed.id === 'state-executive-orders');
-  const rulemakingNeedsConfig = Boolean(rulemakingFeed?.requiresConfig && !rulemakingFeed?.url);
-  const executiveOrdersNeedsConfig = Boolean(executiveOrderFeed?.requiresConfig && !executiveOrderFeed?.url);
-  const connectorHint = '<div class="list-item"><div class="list-title">Rulemaking/Executive Order connectors are not configured yet; legislation remains live.</div></div>';
-
   if (elements.stateGovRulemakingList) {
-    if (!rulemakingItems.length && rulemakingNeedsConfig) {
-      elements.stateGovRulemakingList.innerHTML = connectorHint;
-    } else {
-      renderListWithLimit(elements.stateGovRulemakingList, rulemakingItems);
-    }
+    renderListWithLimit(elements.stateGovRulemakingList, rulemakingItems);
   }
   if (elements.stateGovExecutiveOrdersList) {
-    if (!executiveOrderItems.length && executiveOrdersNeedsConfig) {
-      elements.stateGovExecutiveOrdersList.innerHTML = connectorHint;
-    } else {
-      renderListWithLimit(elements.stateGovExecutiveOrdersList, executiveOrderItems);
-    }
+    renderListWithLimit(elements.stateGovExecutiveOrdersList, executiveOrderItems);
   }
+  updateStateGovernmentTabVisibility({ rulemakingItems, executiveOrderItems });
 }
 
 function renderCongress() {
@@ -13410,7 +13465,7 @@ function initEvents() {
       setStatePanelFilter(elements.statePanelSignalFilter.value);
       renderStateGovernment();
       renderSignals();
-      refreshFeeds(['state-legislation'], { rerender: false })
+      refreshFeeds(['state-legislation', 'state-rulemaking', 'state-executive-orders'], { rerender: false })
         .then(() => {
           renderStateGovernment();
           renderSignals();
@@ -13437,20 +13492,8 @@ function initEvents() {
     elements.stateGovTabs.addEventListener('click', (event) => {
       const btn = event.target.closest('.tab');
       if (!btn) return;
-      const tab = btn.dataset.tab;
-      const tabToListId = {
-        all: 'stateGovAllList',
-        legislation: 'stateGovLegislationList',
-        rulemaking: 'stateGovRulemakingList',
-        executive: 'stateGovExecutiveOrdersList'
-      };
-      const activeListId = tabToListId[tab] || 'stateGovAllList';
-      elements.stateGovTabs.querySelectorAll('.tab').forEach((el) => {
-        el.classList.toggle('active', el === btn);
-      });
-      document.querySelectorAll('.state-gov-panel .tab-panel').forEach((panel) => {
-        panel.classList.toggle('active', panel.id === activeListId);
-      });
+      if (btn.hidden) return;
+      setStateGovernmentActiveTab(btn.dataset.tab);
     });
   }
   document.querySelectorAll('.ticker-builder-toggle').forEach((btn) => {
