@@ -1096,8 +1096,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
   const shouldCache = isEiaSeries
     ? responseOk
-    : !(isRssFeed && payload.error === 'invalid_rss')
-      && !(feed.id === 'eonet-events' && payload.error);
+    : !payload.error;
   if (shouldCache) {
     cache.set(cacheKey, payload);
   }

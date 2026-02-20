@@ -1184,7 +1184,13 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     body,
     httpStatus: response.status
   };
-  cache.set(cacheKey, payload);
+  if (!response.ok) {
+    payload.error = `http_${response.status}`;
+    payload.message = `HTTP ${response.status}`;
+  }
+  if (!payload.error) {
+    cache.set(cacheKey, payload);
+  }
   return payload;
 }
 
