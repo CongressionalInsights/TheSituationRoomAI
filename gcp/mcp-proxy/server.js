@@ -39,6 +39,11 @@ const STATE_LEGISLATION_ALL_STATES_CONCURRENCY = 2;
 const STATE_LEGISLATION_ALL_STATES_TIMEOUT_MS = 4500;
 const STATE_LEGISLATION_ALL_STATES_PER_STATE = 3;
 const STATE_LEGISLATION_ALL_STATES_MAX_ATTEMPTS = 8;
+const STATE_CONNECTOR_BASE_URL = String(process.env.STATE_CONNECTOR_BASE_URL || '').trim().replace(/\/+$/, '');
+const STATE_CONNECTOR_API_KEY = String(process.env.STATE_CONNECTOR_API_KEY || '').trim();
+const STATE_CONNECTOR_KEY_HEADER = String(process.env.STATE_CONNECTOR_KEY_HEADER || 'X-API-Key').trim() || 'X-API-Key';
+const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
+const STATE_CONNECTOR_MAX_LIMIT = 100;
 
 const samCache = new Map();
 
@@ -567,6 +572,61 @@ function isStateLegislationAllStatesRequest(feed, params = {}) {
   return !params.jurisdiction && !params.q;
 }
 
+function isStateConnectorFeed(feed) {
+  return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
+}
+
+function normalizeStateConnectorSignalType(value, fallback = '') {
+  const raw = String(value || fallback || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'executive_order' || raw === 'executive-order' || raw === 'executive order' || raw.includes('executive')) {
+    return 'executive_order';
+  }
+  if (raw === 'rulemaking' || raw === 'rule' || raw === 'rules' || raw.includes('rule')) {
+    return 'rulemaking';
+  }
+  return raw.replace(/\s+/g, '_');
+}
+
+function normalizeStateConnectorResult(entry, signalType, fallbackStateCode = '') {
+  if (!entry || typeof entry !== 'object') return null;
+  const title = String(entry.title || entry.name || entry.id || '').trim();
+  if (!title) return null;
+  const stateCode = normalizeJurisdictionCode(
+    entry.state
+    || entry.stateCode
+    || entry.jurisdictionCode
+    || entry.jurisdiction?.id
+    || fallbackStateCode
+  );
+  const normalizedSignalType = normalizeStateConnectorSignalType(entry.signalType || entry.type, signalType);
+  return {
+    id: String(entry.id || entry.docId || entry.identifier || ''),
+    title,
+    summary: String(entry.summary || entry.description || entry.status || ''),
+    url: String(entry.url || entry.link || ''),
+    updated_at: String(
+      entry.updatedAt
+      || entry.updated_at
+      || entry.updated
+      || entry.publishedAt
+      || entry.published_at
+      || entry.date
+      || entry.effectiveDate
+      || entry.effective_date
+      || ''
+    ),
+    jurisdictionCode: stateCode,
+    jurisdictionName: String(entry.stateName || entry.jurisdictionName || entry.jurisdiction?.name || stateCode || ''),
+    jurisdictionLevel: 'state',
+    signalType: normalizedSignalType,
+    agency: String(entry.agency || entry.department || ''),
+    status: String(entry.status || ''),
+    effective_date: String(entry.effectiveDate || entry.effective_date || ''),
+    source: String(entry.source || entry.provider || 'State Connector')
+  };
+}
+
 function toPositiveInt(value, fallback) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -723,6 +783,103 @@ async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, time
     proxyUsed: null,
     fallbackUsed: false
   };
+}
+
+async function fetchStateConnectorRaw(feed, options = {}) {
+  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
+    return { error: 'config_required', message: 'State connector provider is not configured.' };
+  }
+  const mergedParams = feed.supportsParams
+    ? mergeFeedParams(feed, options.params)
+    : sanitizeParamsObject(options.params);
+  const signalType = normalizeStateConnectorSignalType(
+    mergedParams.signalType,
+    Array.isArray(feed?.capabilities) && feed.capabilities.length ? feed.capabilities[0] : ''
+  );
+  const stateCode = normalizeJurisdictionCode(
+    mergedParams.state
+    || mergedParams.jurisdictionCode
+    || mergedParams.jurisdiction
+  );
+  const requestedLimit = toPositiveInt(
+    mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
+    STATE_CONNECTOR_DEFAULT_LIMIT
+  );
+  const limit = Math.max(1, Math.min(STATE_CONNECTOR_MAX_LIMIT, requestedLimit));
+  const requestUrl = new URL(`${STATE_CONNECTOR_BASE_URL}/signals`);
+  requestUrl.searchParams.set('signalType', signalType || 'rulemaking');
+  requestUrl.searchParams.set('limit', String(limit));
+  requestUrl.searchParams.set('sort', 'updated_desc');
+  if (stateCode) {
+    requestUrl.searchParams.set('state', stateCode);
+  }
+  const requestHeaders = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0',
+    [STATE_CONNECTOR_KEY_HEADER]: STATE_CONNECTOR_API_KEY
+  };
+  const timeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
+  try {
+    const response = await fetchWithTimeout(requestUrl.toString(), { headers: requestHeaders }, timeoutMs);
+    const text = await response.text();
+    if (!response.ok) {
+      return {
+        error: 'fetch_failed',
+        httpStatus: response.status,
+        message: `HTTP ${response.status}`,
+        body: text,
+        fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
+        proxyUsed: null,
+        fallbackUsed: false
+      };
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text || '{}');
+    } catch {
+      return {
+        error: 'invalid_response',
+        httpStatus: 502,
+        message: 'State connector returned invalid JSON.',
+        fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
+        proxyUsed: null,
+        fallbackUsed: false
+      };
+    }
+
+    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    const normalizedResults = results
+      .map((entry) => normalizeStateConnectorResult(entry, signalType, stateCode))
+      .filter(Boolean)
+      .slice(0, limit);
+    return {
+      body: JSON.stringify({
+        results: normalizedResults,
+        meta: {
+          ...(parsed?.meta && typeof parsed.meta === 'object' ? parsed.meta : {}),
+          provider: 'state-connector',
+          signalType: signalType || null,
+          state: stateCode || null,
+          count: normalizedResults.length
+        }
+      }),
+      httpStatus: 200,
+      contentType: 'application/json',
+      fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
+      proxyUsed: null,
+      fallbackUsed: false
+    };
+  } catch (error) {
+    return {
+      error: 'fetch_failed',
+      message: error?.message || 'State connector fetch failed.',
+      fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
+      proxyUsed: null,
+      fallbackUsed: false
+    };
+  }
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
@@ -1170,6 +1327,9 @@ function createItemId(item) {
 }
 
 async function fetchRaw(feed, options) {
+  if (isStateConnectorFeed(feed)) {
+    return fetchStateConnectorRaw(feed, options);
+  }
   if (feed?.requiresConfig && !feed?.url) {
     return { error: 'config_required', message: 'Feed requires configuration and has no url.' };
   }

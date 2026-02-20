@@ -71,7 +71,7 @@ export function sanitizeParamsObject(raw) {
   return cleaned;
 }
 
-function normalizeJurisdictionCode(value) {
+export function normalizeJurisdictionCode(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
   const upper = raw.toUpperCase();
