@@ -1,0 +1,6 @@
+{
+  "id": "energy-eia",
+  "fetchedAt": 1771776530495,
+  "error": "missing_server_key",
+  "message": "Server API key required for this feed."
+}

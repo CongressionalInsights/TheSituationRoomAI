@@ -1,0 +1,14211 @@
+import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy, getAcledProxy, getMcpProxy } from './services/api.js';
+import { createFocusController } from './modules/focus.js';
+import { createMcpClient } from './modules/mcp.js';
+import { initMcpTrendsController } from './modules/mcp_trends.js';
+import { isAlertItem } from './modules/alerts.js';
+import { initSearchUI } from './modules/search.js';
+import { initPanelScroll, initListAutoSizing } from './modules/panels.js';
+import { initSettingsUI } from './modules/settings.js';
+import { createFeedManager } from './modules/feeds.js';
+import {
+  applyStateSignalFilter as applyStateSignalFilterBySelection,
+  buildStateFeedRequestParams as buildStateFeedRequestParamsForSelection,
+  getStateNameByCode,
+  getStateSignalFilterCode,
+  getStateSignalFilterName,
+  normalizeJurisdictionCode,
+  renderStateSignalFilterOptions
+} from './modules/state-signals.js';
+
+const LAYOUT_VERSION = 4;
+const CUSTOM_FEEDS_KEY = 'situationRoomCustomFeeds';
+const CLIENT_FETCH_TIMEOUT_MS = 12000;
+const MONEY_FLOW_DEFAULT_DAYS = 180;
+const MONEY_FLOW_MAX_LIMIT = 120;
+
+const DEFAULT_MAP_RASTER_OVERLAYS = {
+  hillshade: false,
+  sar: false,
+  aerosol: false,
+  lidar: false,
+  lidarPoints: false,
+  thermal: false,
+  fire: false
+};
+
+const DEFAULT_MAP_OVERLAY_OPACITY = {
+  hillshade: 0.45,
+  sar: 0.55,
+  aerosol: 0.45,
+  lidar: 0.25,
+  lidarPoints: 0.65,
+  thermal: 0.45,
+  fire: 0.45
+};
+
+const DEFAULT_LIDAR_POINT_LIMITS = {
+  useCustom: false,
+  pointCap: 150000,
+  radiusKm: 5,
+  maxTilesDesktop: 16,
+  maxTilesMobile: 8
+};
+
+const DEFAULT_MAP_CONFLICT_TYPES = {
+  battle: true,
+  explosion: true,
+  violence: true,
+  protest: true,
+  riot: true,
+  other: true
+};
+
+const DEFAULT_MAP_LAYERS = {
+  weather: true,
+  disaster: true,
+  space: true,
+  news: true,
+  spill: true,
+  health: true,
+  travel: true,
+  transport: true,
+  security: true,
+  securityLagged: true,
+  military: true,
+  gpsjam: true,
+  infrastructure: true,
+  outage: true,
+  local: true
+};
+
+const DEFAULT_SETTINGS = {
+  refreshMinutes: 60,
+  theme: 'system',
+  maxAgeDays: 30,
+  languageMode: 'en',
+  radiusKm: 150,
+  scope: 'global',
+  country: 'US',
+  countryAuto: true,
+  stateSignalFilter: 'ALL',
+  aiTranslate: true,
+  superMonitor: false,
+  showStatus: true,
+  showTravelTicker: true,
+  showKeys: true,
+  showMcp: true,
+  liveSearch: true,
+  tickerWatchlist: [],
+  useClientOpenAI: false,
+  mapBasemap: 'osm',
+  mapRasterOverlays: DEFAULT_MAP_RASTER_OVERLAYS,
+  mapImageryDate: '',
+  mapSarDate: '',
+  lastImageryDate: '',
+  lastSarDate: '',
+  mapOverlayOpacity: DEFAULT_MAP_OVERLAY_OPACITY,
+  lidarPointLimits: DEFAULT_LIDAR_POINT_LIMITS,
+  lidarEnabled: false,
+  mapConflictTypes: DEFAULT_MAP_CONFLICT_TYPES,
+  mapLayers: DEFAULT_MAP_LAYERS,
+  mapFlightDensity: 'medium'
+};
+
+function cloneDefaultSettings() {
+  return {
+    ...DEFAULT_SETTINGS,
+    tickerWatchlist: [...DEFAULT_SETTINGS.tickerWatchlist],
+    mapRasterOverlays: { ...DEFAULT_SETTINGS.mapRasterOverlays },
+    mapOverlayOpacity: { ...DEFAULT_SETTINGS.mapOverlayOpacity },
+    lidarPointLimits: { ...DEFAULT_SETTINGS.lidarPointLimits },
+    mapConflictTypes: { ...DEFAULT_SETTINGS.mapConflictTypes },
+    mapLayers: { ...DEFAULT_SETTINGS.mapLayers }
+  };
+}
+
+function normalizeSettings(parsed = {}) {
+  const defaults = cloneDefaultSettings();
+  const merged = { ...defaults, ...parsed };
+
+  merged.mapLayers = { ...defaults.mapLayers, ...(parsed.mapLayers || {}) };
+  merged.mapRasterOverlays = { ...defaults.mapRasterOverlays, ...(parsed.mapRasterOverlays || {}) };
+  merged.mapOverlayOpacity = { ...defaults.mapOverlayOpacity, ...(parsed.mapOverlayOpacity || {}) };
+  merged.lidarPointLimits = normalizeLidarPointLimits({
+    ...defaults.lidarPointLimits,
+    ...(parsed.lidarPointLimits || {})
+  });
+
+  if (!merged.mapBasemap) {
+    merged.mapBasemap = defaults.mapBasemap;
+  }
+  if (merged.mapBasemap === 'gibs') {
+    merged.mapBasemap = 'gibs-viirs';
+  }
+  if (!merged.mapImageryDate) {
+    merged.mapImageryDate = '';
+  }
+  if (!merged.mapSarDate) {
+    merged.mapSarDate = '';
+  }
+  if (!merged.lastImageryDate) {
+    merged.lastImageryDate = '';
+  }
+  if (!merged.lastSarDate) {
+    merged.lastSarDate = '';
+  }
+  if (!merged.mapFlightDensity) {
+    merged.mapFlightDensity = defaults.mapFlightDensity;
+  }
+  if (!merged.mapConflictTypes || typeof merged.mapConflictTypes !== 'object') {
+    merged.mapConflictTypes = { ...defaults.mapConflictTypes };
+  }
+  if (typeof merged.lidarEnabled !== 'boolean') {
+    merged.lidarEnabled = defaults.lidarEnabled;
+  }
+
+  merged.aiTranslate = typeof merged.aiTranslate === 'boolean' ? merged.aiTranslate : defaults.aiTranslate;
+  merged.showStatus = typeof merged.showStatus === 'boolean' ? merged.showStatus : defaults.showStatus;
+  merged.showTravelTicker = typeof merged.showTravelTicker === 'boolean'
+    ? merged.showTravelTicker
+    : defaults.showTravelTicker;
+  merged.showKeys = typeof merged.showKeys === 'boolean' ? merged.showKeys : defaults.showKeys;
+  merged.showMcp = typeof merged.showMcp === 'boolean' ? merged.showMcp : defaults.showMcp;
+  merged.liveSearch = typeof merged.liveSearch === 'boolean' ? merged.liveSearch : defaults.liveSearch;
+  const hasSuperMonitor = Object.prototype.hasOwnProperty.call(parsed, 'superMonitor')
+    && typeof parsed.superMonitor === 'boolean';
+  merged.superMonitor = hasSuperMonitor ? parsed.superMonitor : isStaticMode();
+
+  if (!Array.isArray(merged.tickerWatchlist)) {
+    merged.tickerWatchlist = [];
+  }
+  if (!merged.country) {
+    merged.country = defaults.country;
+  }
+  if (typeof merged.countryAuto !== 'boolean') {
+    merged.countryAuto = defaults.countryAuto;
+  }
+  const stateFilter = normalizeJurisdictionCode(merged.stateSignalFilter);
+  merged.stateSignalFilter = stateFilter || 'ALL';
+
+  return merged;
+}
+
+const state = {
+  feeds: [],
+  baseFeeds: [],
+  customFeeds: [],
+  items: [],
+  scopedItems: [],
+  clusters: [],
+  panels: {
+    defaultOrder: [],
+    order: [],
+    visibility: {},
+    sizes: {}
+  },
+  keys: {},
+  keyStatus: {},
+  keyFilter: null,
+  feedStatus: {},
+  keyGroups: {},
+  searchCategories: [],
+  lastSearchQuery: '',
+  lastSearchScope: 'all',
+  lastSearchCategories: [],
+  lastSearchState: 'ALL',
+  translationCache: {},
+  translationInFlight: new Set(),
+  congressAmendmentCache: new Map(),
+  congressBillAmendments: new Map(),
+  congressAmendmentsLoading: false,
+  congressHearingCache: new Map(),
+  congressDetailCache: new Map(),
+  congressDetailLoading: new Map(),
+  govinfoDetailCache: new Map(),
+  govinfoDetailLoading: new Map(),
+  federalRegisterDetailCache: new Map(),
+  federalRegisterDetailLoading: new Map(),
+  regulationsCommentDetailCache: new Map(),
+  regulationsCommentDetailLoading: new Map(),
+  staticAnalysis: null,
+  customTickers: [],
+  energyMarket: {},
+  listLimits: {},
+  countries: [],
+  countryIndex: {},
+  settings: cloneDefaultSettings(),
+  uiFilters: {
+    searchState: 'ALL',
+    statePanelState: 'ALL'
+  },
+  location: {
+    lat: 35.5951,
+    lon: -82.5515,
+    source: 'fallback'
+  },
+  geoCache: {},
+  chatHistory: [],
+  mapPoints: [],
+  mapPointsReady: false,
+  mapLastNonEmptyAt: 0,
+  mapLastNonEmptyCount: 0,
+  map: null,
+  mapBaseLayers: {},
+  mapOverlayLayers: {},
+  activeBaseLayer: null,
+  lidarMap: null,
+  lidarControl: null,
+  lidarModules: null,
+  imageryDate: null,
+  sarDate: null,
+  imageryDateManual: false,
+  sarDateManual: false,
+  imageryResolveInFlight: false,
+  sarResolveInFlight: false,
+  sarCapabilitiesChecked: false,
+  sarCapabilitiesDate: null,
+  sarCoverageTimer: null,
+  sarCoverageCache: {},
+  overlayStatus: {
+    imagery: { state: 'idle', message: '' },
+    sar: { state: 'idle', message: '' },
+    lidar: { state: 'idle', message: '' },
+    lidarPoints: { state: 'idle', message: '' }
+  },
+  energyMap: null,
+  energyMapLayer: null,
+  energyGeo: null,
+  energyMapData: null,
+  energyMapError: null,
+  energyMapFetchedAt: 0,
+  moneyFlowsData: null,
+  moneyFlowsItems: [],
+  moneyFlowsFetchedAt: 0,
+  moneyFlowsLoading: false,
+  moneyFlowsError: null,
+  moneyFlowsQuery: '',
+  moneyFlowsRangeDays: MONEY_FLOW_DEFAULT_DAYS,
+  lastBuildAt: null,
+  refreshTimer: null,
+  lastFetch: null,
+  refreshing: false,
+  retryingFeeds: false,
+  staleRetrying: false,
+  lastStaleRetry: 0,
+  health: 'Initializing',
+  previousSignals: null,
+  analysisSignature: null,
+  analysisRunning: false,
+  searching: false,
+  mcpTrends: {
+    loading: false,
+    query: '',
+    summary: null,
+    signals: [],
+    sources: [],
+    error: null,
+    errorDetail: null,
+    updatedAt: null,
+    lastSuccessAt: null,
+    lastAttemptAt: null,
+    retryAt: null,
+    retryInMs: 0,
+    lastGood: { signals: [], sources: [], summary: null },
+    inFlight: false
+  },
+  denario: {
+    loading: false,
+    available: false,
+    summary: null,
+    generatedAt: null,
+    items: [],
+    error: null
+  },
+  predictionFallback: {
+    items: [],
+    loading: false,
+    loaded: false
+  },
+  flightFocus: null,
+  flightTrack: null,
+  flightTrackLayer: null,
+  flightTrackLoading: false,
+  flightTrackFetchedAt: 0,
+  lidarCoverageLayer: null,
+  lidarCoverageLoading: false,
+  lidarPointLayer: null,
+  lidarPointData: null,
+  lidarPointLoading: false,
+  lidarPointAnchor: null,
+  lidarPointProject: null,
+  lidarPointEptUrl: null,
+  lidarPointTelemetry: [],
+  lidarPointEptAvailable: false,
+  lidarPointEptMeta: null,
+  lidarPointSource: null,
+  lidarSelectedLayer: null,
+  lidarSelectedBounds: null
+};
+
+const elements = {
+  app: document.querySelector('.app'),
+  sidebar: document.getElementById('sidebar'),
+  sidebarScrim: document.getElementById('sidebarScrim'),
+  navToggle: document.getElementById('navToggle'),
+  sidebarSettings: document.getElementById('sidebarSettings'),
+  sidebarAbout: document.getElementById('sidebarAbout'),
+  communityConnect: document.getElementById('communityConnect'),
+  communityFrame: document.querySelector('.chat-frame'),
+  lidarMap: document.getElementById('lidarMap'),
+  lidarLoad: document.getElementById('lidarLoad'),
+  lidarLoadInline: document.getElementById('lidarLoadInline'),
+  lidarReload: document.getElementById('lidarReload'),
+  lidarOpen: document.getElementById('lidarOpen'),
+  lidarClose: document.getElementById('lidarClose'),
+  lidarOverlayOpen: document.getElementById('lidarOverlayOpen'),
+  lidarScrim: document.getElementById('lidarScrim'),
+  lidarEmpty: document.getElementById('lidarEmpty'),
+  lidarEmptyTitle: document.getElementById('lidarEmptyTitle'),
+  lidarEmptySub: document.getElementById('lidarEmptySub'),
+  panelGrid: document.getElementById('panelGrid'),
+  exportSnapshot: document.getElementById('exportSnapshot'),
+  refreshNow: document.getElementById('refreshNow'),
+  statusText: document.getElementById('statusText'),
+  dataFresh: document.getElementById('dataFresh'),
+  proxyHealth: document.getElementById('proxyHealth'),
+  refreshValue: document.getElementById('refreshValue'),
+  refreshRange: document.getElementById('refreshRange'),
+  refreshRangeValue: document.getElementById('refreshRangeValue'),
+  maxAgeRange: document.getElementById('maxAgeRange'),
+  maxAgeValue: document.getElementById('maxAgeValue'),
+  languageToggle: document.getElementById('languageToggle'),
+  radiusRange: document.getElementById('radiusRange'),
+  radiusRangeValue: document.getElementById('radiusRangeValue'),
+  themeToggle: document.getElementById('themeToggle'),
+  ageToggle: document.getElementById('ageToggle'),
+  settingsPanel: document.getElementById('settingsPanel'),
+  settingsToggle: document.getElementById('settingsToggle'),
+  settingsScrim: document.getElementById('settingsScrim'),
+  panelToggles: document.getElementById('panelToggles'),
+  resetLayout: document.getElementById('resetLayout'),
+  aiTranslateToggle: document.getElementById('aiTranslateToggle'),
+  superMonitorToggle: document.getElementById('superMonitorToggle'),
+  keyManager: document.getElementById('keyManager'),
+  feedHealth: document.getElementById('feedHealth'),
+  aboutOverlay: document.getElementById('aboutOverlay'),
+  aboutOpen: document.getElementById('aboutOpen'),
+  aboutOpenSettings: document.getElementById('aboutOpenSettings'),
+  aboutClose: document.getElementById('aboutClose'),
+  listOverlay: document.getElementById('listOverlay'),
+  listModalTitle: document.getElementById('listModalTitle'),
+  listModalMeta: document.getElementById('listModalMeta'),
+  listModalList: document.getElementById('listModalList'),
+  listModalClose: document.getElementById('listModalClose'),
+  detailOverlay: document.getElementById('detailOverlay'),
+  detailTitle: document.getElementById('detailTitle'),
+  detailMeta: document.getElementById('detailMeta'),
+  detailBody: document.getElementById('detailBody'),
+  detailClose: document.getElementById('detailClose'),
+  focusOverlay: document.getElementById('focusOverlay'),
+  focusTitle: document.getElementById('focusTitle'),
+  focusMeta: document.getElementById('focusMeta'),
+  focusBody: document.getElementById('focusBody'),
+  focusSearch: document.getElementById('focusSearch'),
+  focusClose: document.getElementById('focusClose'),
+  feedScope: document.getElementById('feedScope'),
+  searchInput: document.getElementById('searchInput'),
+  searchBtn: document.getElementById('searchBtn'),
+  searchHint: document.getElementById('searchHint'),
+  stateSignalFilter: document.getElementById('stateSignalFilter'),
+  statePanelSignalFilter: document.getElementById('statePanelSignalFilter'),
+  statePanelFilterChip: document.getElementById('statePanelFilterChip'),
+  liveSearchToggle: document.getElementById('liveSearchToggle'),
+  scopeToggle: document.getElementById('scopeToggle'),
+  countrySelect: document.getElementById('countrySelect'),
+  countrySelectLabel: document.getElementById('countrySelectLabel'),
+  geoLocateBtn: document.getElementById('geoLocateBtn'),
+  geoValue: document.getElementById('geoValue'),
+  healthValue: document.getElementById('healthValue'),
+  statusCompact: document.getElementById('statusCompact'),
+  statusToggle: document.getElementById('statusToggle'),
+  keySection: document.getElementById('keySection'),
+  keyCompactBody: document.getElementById('keyCompactBody'),
+  keyToggle: document.getElementById('keyToggle'),
+  mcpSection: document.getElementById('mcpSection'),
+  mcpToggle: document.getElementById('mcpToggle'),
+  newsList: document.getElementById('newsList'),
+  securityList: document.getElementById('securityList'),
+  cryptoList: document.getElementById('cryptoList'),
+  disasterList: document.getElementById('disasterList'),
+  localList: document.getElementById('localList'),
+  predictionList: document.getElementById('predictionList'),
+  policyList: document.getElementById('policyList'),
+  stateGovAllList: document.getElementById('stateGovAllList'),
+  stateGovLegislationList: document.getElementById('stateGovLegislationList'),
+  stateGovRulemakingList: document.getElementById('stateGovRulemakingList'),
+  stateGovExecutiveOrdersList: document.getElementById('stateGovExecutiveOrdersList'),
+  congressList: document.getElementById('congressList'),
+  cyberList: document.getElementById('cyberList'),
+  agricultureList: document.getElementById('agricultureList'),
+  researchList: document.getElementById('researchList'),
+  spaceList: document.getElementById('spaceList'),
+  energyList: document.getElementById('energyList'),
+  energyMap: document.getElementById('energyMap'),
+  energyMapLegend: document.getElementById('energyMapLegend'),
+  energyMapEmpty: document.getElementById('energyMapEmpty'),
+  healthList: document.getElementById('healthList'),
+  transportList: document.getElementById('transportList'),
+  criticalAlertsList: document.getElementById('criticalAlertsList'),
+  analysisOutput: document.getElementById('analysisOutput'),
+  analysisMeta: document.getElementById('analysisMeta'),
+  analysisStory: document.getElementById('analysisStory'),
+  analysisBody: document.querySelector('#analysisOutput .analysis-body'),
+  analysisRun: document.getElementById('analysisRun'),
+  mcpTrendsPanel: document.getElementById('mcpTrendsPanel'),
+  mcpTrendsQuery: document.getElementById('mcpTrendsQuery'),
+  mcpTrendsRun: document.getElementById('mcpTrendsRun'),
+  mcpTrendsSummary: document.getElementById('mcpTrendsSummary'),
+  mcpTrendsList: document.getElementById('mcpTrendsList'),
+  mcpTrendsMeta: document.getElementById('mcpTrendsMeta'),
+  denarioPanel: document.getElementById('denarioPanel'),
+  denarioMeta: document.getElementById('denarioMeta'),
+  denarioList: document.getElementById('denarioList'),
+  signalDeckAnchor: document.getElementById('signalDeckAnchor'),
+  summaryGlobalActivity: document.getElementById('summaryGlobalActivity'),
+  summaryGlobalActivityMeta: document.getElementById('summaryGlobalActivityMeta'),
+  summaryNewsSaturation: document.getElementById('summaryNewsSaturation'),
+  summaryNewsSaturationMeta: document.getElementById('summaryNewsSaturationMeta'),
+  summaryLocalEvents: document.getElementById('summaryLocalEvents'),
+  summaryLocalEventsMeta: document.getElementById('summaryLocalEventsMeta'),
+  summaryMarketPulse: document.getElementById('summaryMarketPulse'),
+  summaryMarketPulseMeta: document.getElementById('summaryMarketPulseMeta'),
+  globalActivity: document.getElementById('globalActivity'),
+  globalActivityMeta: document.getElementById('globalActivityMeta'),
+  newsSaturation: document.getElementById('newsSaturation'),
+  newsSaturationMeta: document.getElementById('newsSaturationMeta'),
+  localEvents: document.getElementById('localEvents'),
+  localEventsMeta: document.getElementById('localEventsMeta'),
+  marketPulse: document.getElementById('marketPulse'),
+  marketPulseMeta: document.getElementById('marketPulseMeta'),
+  signalHealthChip: document.getElementById('signalHealthChip'),
+  signalHealthDetail: document.getElementById('signalHealthDetail'),
+  mapCanvas: document.getElementById('mapCanvas'),
+  mapBase: document.getElementById('mapBase'),
+  mapEmpty: document.getElementById('mapEmpty'),
+  mapTooltip: document.getElementById('mapTooltip'),
+  mapLegendBtn: document.getElementById('mapLegendBtn'),
+  mapLegend: document.getElementById('mapLegend'),
+  legendOutages: document.getElementById('legendOutages'),
+  imageryDateInput: document.getElementById('imageryDateInput'),
+  sarDateInput: document.getElementById('sarDateInput'),
+  imageryDatePanel: document.getElementById('imageryDatePanel'),
+  sarDatePanel: document.getElementById('sarDatePanel'),
+  imageryAutoBtn: document.getElementById('imageryAutoBtn'),
+  sarAutoBtn: document.getElementById('sarAutoBtn'),
+  imageryPanelAutoBtn: document.getElementById('imageryPanelAutoBtn'),
+  sarPanelAutoBtn: document.getElementById('sarPanelAutoBtn'),
+  imageryResetBtn: document.getElementById('imageryResetBtn'),
+  imageryResetPanelBtn: document.getElementById('imageryResetPanelBtn'),
+  imageryStatus: document.getElementById('imageryStatus'),
+  lidarPointMeta: document.getElementById('lidarPointMeta'),
+  lidarPointProject: document.getElementById('lidarPointProject'),
+  lidarPointEpt: document.getElementById('lidarPointEpt'),
+  lidarPointTelemetry: document.getElementById('lidarPointTelemetry'),
+  lidarPointPerfNote: document.getElementById('lidarPointPerfNote'),
+  lidarPointCustomize: document.getElementById('lidarPointCustomize'),
+  lidarPointCap: document.getElementById('lidarPointCap'),
+  lidarPointRadius: document.getElementById('lidarPointRadius'),
+  lidarPointTilesDesktop: document.getElementById('lidarPointTilesDesktop'),
+  lidarPointTilesMobile: document.getElementById('lidarPointTilesMobile'),
+  lidarPointLimitGrid: document.getElementById('lidarPointLimitGrid'),
+  lidarPointCenter: document.getElementById('lidarPointCenter'),
+  lidarPointRefresh: document.getElementById('lidarPointRefresh'),
+  lidarPointLoad: document.getElementById('lidarPointLoad'),
+  mapDetail: document.getElementById('mapDetail'),
+  mapDetailList: document.getElementById('mapDetailList'),
+  mapDetailMeta: document.getElementById('mapDetailMeta'),
+  mapDetailClose: document.getElementById('mapDetailClose'),
+  flightFocus: document.getElementById('flightFocus'),
+  flightFocusMeta: document.getElementById('flightFocusMeta'),
+  flightFocusBody: document.getElementById('flightFocusBody'),
+  flightFocusTrack: document.getElementById('flightFocusTrack'),
+  flightFocusOpen: document.getElementById('flightFocusOpen'),
+  flightFocusClear: document.getElementById('flightFocusClear'),
+  mapWrap: document.querySelector('.map-wrap'),
+  travelTicker: document.getElementById('travelTicker'),
+  travelTickerTrack: document.getElementById('travelTickerTrack'),
+  travelTickerBtn: document.getElementById('travelTickerBtn'),
+  tickerBar: document.getElementById('tickerBar'),
+  tickerTrack: document.getElementById('tickerTrack'),
+  financeSpotlight: document.getElementById('financeSpotlight'),
+  searchResults: document.getElementById('searchResults'),
+  searchResultsList: document.getElementById('searchResultsList'),
+  searchResultsMeta: document.getElementById('searchResultsMeta'),
+  searchResultsClose: document.getElementById('searchResultsClose'),
+  aboutSources: document.getElementById('aboutSources'),
+  attributionOverlay: document.getElementById('attributionOverlay'),
+  attributionTitle: document.getElementById('attributionTitle'),
+  attributionMeta: document.getElementById('attributionMeta'),
+  attributionBody: document.getElementById('attributionBody'),
+  attributionClose: document.getElementById('attributionClose'),
+  categoryFilters: document.getElementById('categoryFilters'),
+  savedSearches: document.getElementById('savedSearches'),
+  chatLog: document.getElementById('chatLog'),
+  chatInput: document.getElementById('chatInput'),
+  chatSend: document.getElementById('chatSend'),
+  financeMarketsList: document.getElementById('financeMarketsList'),
+  financePolicyList: document.getElementById('financePolicyList'),
+  financeTabs: document.getElementById('financeTabs'),
+  stateGovTabs: document.getElementById('stateGovTabs'),
+  moneyFlowsQuery: document.getElementById('moneyFlowsQuery'),
+  moneyFlowsRange: document.getElementById('moneyFlowsRange'),
+  moneyFlowsRun: document.getElementById('moneyFlowsRun'),
+  moneyFlowsSummary: document.getElementById('moneyFlowsSummary'),
+  moneyFlowsList: document.getElementById('moneyFlowsList'),
+  moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
+  moneyFlowsRateNotice: document.getElementById('moneyFlowsRateNotice'),
+  moneyInMeta: document.getElementById('moneyInMeta'),
+  moneyInBody: document.getElementById('moneyInBody'),
+  moneyOutMeta: document.getElementById('moneyOutMeta'),
+  moneyOutBody: document.getElementById('moneyOutBody'),
+  moneyLobbyMeta: document.getElementById('moneyLobbyMeta'),
+  moneyLobbyBody: document.getElementById('moneyLobbyBody'),
+  moneyRegistryMeta: document.getElementById('moneyRegistryMeta'),
+  moneyRegistryBody: document.getElementById('moneyRegistryBody'),
+  customFeedToggle: document.getElementById('customFeedToggle'),
+  customFeedExport: document.getElementById('customFeedExport'),
+  customFeedImportToggle: document.getElementById('customFeedImportToggle'),
+  customFeedDownload: document.getElementById('customFeedDownload'),
+  customFeedOpen: document.getElementById('customFeedOpen'),
+  customFeedJsonPanel: document.getElementById('customFeedJsonPanel'),
+  customFeedJson: document.getElementById('customFeedJson'),
+  customFeedJsonCopy: document.getElementById('customFeedJsonCopy'),
+  customFeedJsonApply: document.getElementById('customFeedJsonApply'),
+  customFeedJsonStatus: document.getElementById('customFeedJsonStatus'),
+  customFeedList: document.getElementById('customFeedList'),
+  customFeedForm: document.getElementById('customFeedForm'),
+  customFeedName: document.getElementById('customFeedName'),
+  customFeedUrl: document.getElementById('customFeedUrl'),
+  customFeedCategory: document.getElementById('customFeedCategory'),
+  customFeedFormat: document.getElementById('customFeedFormat'),
+  customFeedProxy: document.getElementById('customFeedProxy'),
+  customFeedTags: document.getElementById('customFeedTags'),
+  customFeedSupportsQuery: document.getElementById('customFeedSupportsQuery'),
+  customFeedDefaultQuery: document.getElementById('customFeedDefaultQuery'),
+  customFeedRequiresKey: document.getElementById('customFeedRequiresKey'),
+  customFeedKeyParam: document.getElementById('customFeedKeyParam'),
+  customFeedKeyHeader: document.getElementById('customFeedKeyHeader'),
+  customFeedTtl: document.getElementById('customFeedTtl'),
+  customFeedSave: document.getElementById('customFeedSave'),
+  customFeedCancel: document.getElementById('customFeedCancel'),
+  customFeedStatus: document.getElementById('customFeedStatus')
+};
+
+const DEFAULT_PANEL_SIZE_CONFIG = [
+  { id: 'briefing', cols: 12 },
+  { id: 'map', cols: 12 },
+  { id: 'ticker', cols: 12 },
+  { id: 'finance-spotlight', cols: 12 },
+  { id: 'imagery', cols: 12 },
+  { id: 'command', cols: 12 },
+  { id: 'news', cols: 6 },
+  { id: 'finance', cols: 4 },
+  { id: 'money-flows', cols: 12 },
+  { id: 'crypto', cols: 4 },
+  { id: 'prediction', cols: 4 },
+  { id: 'mcp-trends', cols: 12 },
+  { id: 'hazards', cols: 4 },
+  { id: 'security', cols: 4 },
+  { id: 'local', cols: 6 },
+  { id: 'community', cols: 6 },
+  { id: 'policy', cols: 4 },
+  { id: 'state-gov', cols: 4 },
+  { id: 'congress', cols: 4 },
+  { id: 'cyber', cols: 4 },
+  { id: 'agriculture', cols: 4 },
+  { id: 'research', cols: 4 },
+  { id: 'space', cols: 4 },
+  { id: 'energy-map', cols: 6 },
+  { id: 'energy', cols: 6 },
+  { id: 'health', cols: 4 },
+  { id: 'transport', cols: 6 }
+];
+const DEFAULT_PANEL_SIZES = Object.fromEntries(
+  DEFAULT_PANEL_SIZE_CONFIG.map((entry) => [entry.id, { cols: entry.cols }])
+);
+
+let editingCustomFeedId = null;
+
+const STOPWORD_LIST = ['the', 'a', 'an', 'and', 'or', 'to', 'in', 'of', 'for', 'on', 'with', 'at', 'from', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'has', 'have'];
+const STOPWORDS = new Set(STOPWORD_LIST);
+const SUMMARY_TAGS_ALLOWED = ['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'span', 'a', 'font'];
+const ALLOWED_SUMMARY_TAGS = new Set(SUMMARY_TAGS_ALLOWED);
+const DOCS_CONFIG = [
+  { id: 'openai', url: 'https://platform.openai.com/api-keys' }
+];
+const DOCS_MAP = Object.fromEntries(DOCS_CONFIG.map((entry) => [entry.id, entry.url]));
+const KEY_GROUP_CONFIG = [
+  { id: 'api.data.gov', label: 'Data.gov (FOIA + GovInfo)' },
+  { id: 'eia', label: 'EIA (Energy)' },
+  { id: 'openstates', label: 'OpenStates (State Legislation)' }
+];
+const KEY_GROUP_LABELS = Object.fromEntries(KEY_GROUP_CONFIG.map((group) => [group.id, group.label]));
+const PANEL_KEY_FILTER_CONFIG = [
+  { id: 'hazards', filters: ['weather', 'disaster', 'space'] },
+  { id: 'finance', filters: ['finance', 'gov', 'cyber', 'agriculture'] },
+  { id: 'map', filters: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'] },
+  { id: 'geo', filters: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local'] },
+  { id: 'local', filters: ['news', 'gov', 'disaster', 'weather'] },
+  { id: 'assistant', filters: ['assistant'] }
+];
+const PANEL_KEY_FILTERS = Object.fromEntries(
+  PANEL_KEY_FILTER_CONFIG.map((entry) => [entry.id, entry.filters])
+);
+const CATEGORY_CONFIG = [
+  { id: 'news', label: 'News' },
+  { id: 'finance', label: 'Finance' },
+  { id: 'gov', label: 'Government' },
+  { id: 'crypto', label: 'Crypto / Web3' },
+  { id: 'prediction', label: 'Prediction Markets' },
+  { id: 'spill', label: 'Oil Spills' },
+  { id: 'disaster', label: 'Disasters' },
+  { id: 'weather', label: 'Weather' },
+  { id: 'space', label: 'Space' },
+  { id: 'cyber', label: 'Cyber' },
+  { id: 'agriculture', label: 'Agriculture' },
+  { id: 'research', label: 'Research' },
+  { id: 'energy', label: 'Energy' },
+  { id: 'health', label: 'Health' },
+  { id: 'travel', label: 'Travel' },
+  { id: 'transport', label: 'Transport' },
+  { id: 'security', label: 'Conflict & Security' },
+  { id: 'infrastructure', label: 'Infrastructure' },
+  { id: 'local', label: 'Local' }
+];
+const CATEGORY_LABELS = Object.fromEntries(CATEGORY_CONFIG.map((entry) => [entry.id, entry.label]));
+const CATEGORY_ORDER = CATEGORY_CONFIG.map((entry) => entry.id);
+const GLOBAL_FALLBACK_CATEGORIES = new Set(['crypto', 'research', 'space', 'travel', 'health', 'security']);
+const LIST_PAGE_SIZE = 8;
+const LIST_CONFIG = [
+  { id: 'newsList', title: 'News Layer', withCoverage: true, defaultLimit: 30, getItems: () => buildNewsItems(state.clusters) },
+  { id: 'securityList', title: 'Conflict & Security', defaultLimit: 20, getItems: () => getCategoryItems('security').items },
+  { id: 'financeMarketsList', title: 'Finance: Markets', defaultLimit: 20, getItems: () => getCombinedItems(['finance', 'energy']) },
+  { id: 'financePolicyList', title: 'Finance: Regulatory', defaultLimit: 20, getItems: () => getCombinedItems(['gov', 'cyber', 'agriculture']) },
+  { id: 'moneyFlowsList', title: 'Money Flows', defaultLimit: 20, getItems: () => state.moneyFlowsItems || [] },
+  { id: 'cryptoList', title: 'Crypto / Web3', defaultLimit: 20, getItems: () => getCategoryItems('crypto').items },
+  { id: 'predictionList', title: 'Prediction Markets', defaultLimit: 20, getItems: () => getPredictionItems() },
+  { id: 'disasterList', title: 'Hazards & Weather', defaultLimit: 20, getItems: () => getCombinedItems(['disaster', 'weather', 'space']) },
+  { id: 'localList', title: 'Local Lens', defaultLimit: 20, getItems: () => getLocalItemsForPanel() },
+  { id: 'policyList', title: 'Policy & Government', defaultLimit: 20, getItems: () => getFederalPolicyItems() },
+  { id: 'stateGovAllList', title: 'State Government: All', defaultLimit: 20, getItems: () => getStateGovernmentItems() },
+  { id: 'stateGovLegislationList', title: 'State Government: Legislation', defaultLimit: 20, getItems: () => getStateGovernmentItems('legislation') },
+  { id: 'stateGovRulemakingList', title: 'State Government: Rulemaking', defaultLimit: 20, getItems: () => getStateGovernmentItems('rulemaking') },
+  { id: 'stateGovExecutiveOrdersList', title: 'State Government: Executive Orders', defaultLimit: 20, getItems: () => getStateGovernmentItems('executive_order') },
+  { id: 'congressList', title: 'Congressional Insights', defaultLimit: 30, getItems: () => getCongressItems() },
+  { id: 'cyberList', title: 'Cyber Pulse', defaultLimit: 20, getItems: () => getCategoryItems('cyber').items },
+  { id: 'agricultureList', title: 'Agriculture', defaultLimit: 20, getItems: () => getCategoryItems('agriculture').items },
+  { id: 'researchList', title: 'Research Watch', defaultLimit: 20, getItems: () => getCategoryItems('research').items },
+  { id: 'spaceList', title: 'Space Weather', defaultLimit: 20, getItems: () => getCategoryItems('space').items },
+  { id: 'energyList', title: 'Energy', defaultLimit: 20, getItems: () => getEnergyNewsItems() },
+  { id: 'healthList', title: 'Health', defaultLimit: 20, getItems: () => getCategoryItems('health').items },
+  { id: 'transportList', title: 'Transport & Logistics', defaultLimit: 20, getItems: () => getCategoryItems('transport').items }
+];
+const LIST_DEFAULTS = Object.fromEntries(
+  LIST_CONFIG.filter((config) => typeof config.defaultLimit === 'number')
+    .map((config) => [config.id, config.defaultLimit])
+);
+const LIST_MODAL_CONFIGS = LIST_CONFIG.map(({ defaultLimit, ...config }) => config);
+const LIST_MODAL_CONFIG_MAP = Object.fromEntries(LIST_MODAL_CONFIGS.map((config) => [config.id, config]));
+const FOCUS_PANEL_EXCLUDE = new Set(['ticker', 'crypto', 'energy-map']);
+const FOCUS_GEO_TARGET = 'geo';
+const focusController = createFocusController({
+  elements,
+  state,
+  focusPanelExclude: FOCUS_PANEL_EXCLUDE,
+  focusGeoTarget: FOCUS_GEO_TARGET
+});
+const mcpClient = createMcpClient(getMcpProxy());
+let mcpTrendsController = null;
+let feedManager = null;
+let searchController = null;
+const DATA_ATTRIBUTIONS = [
+  {
+    id: 'openstreetmap',
+    name: 'OpenStreetMap',
+    short: 'Basemap + geocoding',
+    url: 'https://www.openstreetmap.org/copyright',
+    attribution: '© OpenStreetMap contributors. Open Data Commons Open Database License (ODbL).',
+    termsUrl: 'https://osmfoundation.org/wiki/Licence/Attribution_Guidelines',
+    notes: 'OpenStreetMap data used for basemaps and geocoding.'
+  },
+  {
+    id: 'esri',
+    name: 'Esri Basemaps',
+    short: 'Imagery tiles',
+    url: 'https://www.esri.com/en-us/arcgis/products/arcgis-online',
+    attribution: 'Sources: Esri, DigitalGlobe, GeoEye, i-cubed, USDA FSA, USGS, AEX, Getmapping, Aerogrid, IGN, IGP, swisstopo, and the GIS User Community.',
+    termsUrl: 'https://support.esri.com/en-us/knowledge-base/what-is-the-correct-way-to-cite-an-arcgis-online-basema-000012040',
+    notes: 'Satellite basemaps and ArcGIS Online services.'
+  },
+  {
+    id: 'arcgis-online',
+    name: 'ArcGIS Online (Esri)',
+    short: 'ArcGIS datasets',
+    url: 'https://www.arcgis.com',
+    attribution: '© Esri. Data provided via ArcGIS Online services.',
+    termsUrl: 'https://www.esri.com/en-us/legal/terms/full-master-agreement',
+    notes: 'ArcGIS-hosted feature layers referenced by the map overlays.'
+  },
+  {
+    id: 's2-underground',
+    name: 'S2 Underground',
+    short: 'Kinetic events',
+    url: 'https://nexus-s2underground.hub.arcgis.com/',
+    attribution: 'Source: S2 Underground (Common Intelligence Picture). Please credit S2 Underground.',
+    termsUrl: 'https://nexus-s2underground.hub.arcgis.com/',
+    notes: 'Kinetic Activity Tracker layers sourced from the S2 Underground public ArcGIS Hub.'
+  },
+  {
+    id: 'nasa-gibs',
+    name: 'NASA EOSDIS GIBS',
+    short: 'Global imagery',
+    url: 'https://earthdata.nasa.gov/eosdis/science-system-description/eosdis-components/gibs',
+    attribution: "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS).",
+    termsUrl: 'https://earthdata.nasa.gov/eosdis/science-system-description/eosdis-components/gibs',
+    notes: 'Global imagery layers (VIIRS/MODIS/Day-Night).'
+  },
+  {
+    id: 'nasa-firms',
+    name: 'NASA FIRMS',
+    short: 'Fire data',
+    url: 'https://firms.modaps.eosdis.nasa.gov',
+    attribution: "We acknowledge the use of data and/or imagery from NASA's Land, Atmosphere Near real-time Capability for Earth observations (LANCE) (https://earthdata.nasa.gov/lance), part of NASA's Earth Science Data and Information System (ESDIS).",
+    termsUrl: 'https://www.earthdata.nasa.gov/data/projects/lance#ed-firms-citation',
+    notes: 'Global fire detections.'
+  },
+  {
+    id: 'nasa-eonet',
+    name: 'NASA EONET',
+    short: 'Natural events',
+    url: 'https://eonet.gsfc.nasa.gov',
+    attribution: 'NASA EONET (Earth Observatory Natural Event Tracker). Source: NASA/GSFC.',
+    termsUrl: 'https://eonet.gsfc.nasa.gov/docs/v3',
+    notes: 'Natural events and hazards.'
+  },
+  {
+    id: 'noaa-nws',
+    name: 'NOAA/NWS',
+    short: 'Alerts + warnings',
+    url: 'https://www.weather.gov/documentation/services-web-api',
+    attribution: 'Source: National Weather Service (NOAA). Data are public domain; credit NOAA/NWS.',
+    termsUrl: 'https://www.weather.gov/documentation/services-web-api',
+    notes: 'US weather alerts and short-term warnings.'
+  },
+  {
+    id: 'noaa-nhc',
+    name: 'NOAA NHC',
+    short: 'Hurricane outlooks',
+    url: 'https://www.nhc.noaa.gov',
+    attribution: 'Source: NOAA National Hurricane Center. Data are public domain; credit NOAA/NHC.',
+    termsUrl: 'https://www.nhc.noaa.gov',
+    notes: 'Atlantic basin outlooks and advisories.'
+  },
+  {
+    id: 'noaa-swpc',
+    name: 'NOAA SWPC',
+    short: 'Space weather',
+    url: 'https://www.swpc.noaa.gov',
+    attribution: 'Source: NOAA Space Weather Prediction Center. Data are public domain; credit NOAA/SWPC.',
+    termsUrl: 'https://www.swpc.noaa.gov',
+    notes: 'Kp index and solar wind conditions.'
+  },
+  {
+    id: 'noaa-hms',
+    name: 'NOAA HMS',
+    short: 'Fire detections',
+    url: 'https://hms.smfc.nasa.gov',
+    attribution: 'Source: NOAA/NESDIS Hazard Mapping System (HMS).',
+    termsUrl: 'https://hms.smfc.nasa.gov',
+    notes: 'Satellite fire detection overlays.'
+  },
+  {
+    id: 'noaa-incidentnews',
+    name: 'NOAA IncidentNews',
+    short: 'Spill reports',
+    url: 'https://incidentnews.noaa.gov',
+    attribution: 'Source: NOAA Office of Response and Restoration IncidentNews.',
+    termsUrl: 'https://incidentnews.noaa.gov',
+    notes: 'Oil spill and incident reports.'
+  },
+  {
+    id: 'usgs-earthquakes',
+    name: 'USGS Earthquakes',
+    short: 'Seismic events',
+    url: 'https://earthquake.usgs.gov',
+    attribution: 'USGS Earthquake Hazards Program. Data courtesy of the U.S. Geological Survey.',
+    termsUrl: 'https://www.usgs.gov/information-policies-and-instructions/acknowledging-or-crediting-usgs',
+    notes: 'Recent seismic activity feeds.'
+  },
+  {
+    id: 'cdc-travel',
+    name: 'CDC Travel Notices',
+    short: 'Travel alerts',
+    url: 'https://www.cdc.gov/travel',
+    attribution: 'Source: Centers for Disease Control and Prevention (CDC). Data are public domain; credit CDC.',
+    termsUrl: 'https://www.cdc.gov/other/policies.html',
+    notes: 'Travel health notices.'
+  },
+  {
+    id: 'state-travel',
+    name: 'U.S. State Department Travel Advisories',
+    short: 'Travel advisories',
+    url: 'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html',
+    attribution: 'Source: U.S. Department of State Travel Advisories.',
+    termsUrl: 'https://travel.state.gov/content/travel/en/legal.html',
+    notes: 'Travel advisory RSS feed.'
+  },
+  {
+    id: 'eia',
+    name: 'U.S. EIA',
+    short: 'Energy data',
+    url: 'https://www.eia.gov',
+    attribution: 'Source: U.S. Energy Information Administration (EIA). Data are public domain; credit EIA.',
+    termsUrl: 'https://www.eia.gov/about/copyrights_reuse.php',
+    notes: 'Energy market data and Today in Energy.'
+  },
+  {
+    id: 'bls',
+    name: 'U.S. BLS',
+    short: 'Economic data',
+    url: 'https://www.bls.gov',
+    attribution: 'Source: U.S. Bureau of Labor Statistics (BLS). Data are public domain; credit BLS.',
+    termsUrl: 'https://www.bls.gov/bls/linksite.htm',
+    notes: 'CPI and macroeconomic releases.'
+  },
+  {
+    id: 'treasury',
+    name: 'U.S. Treasury Fiscal Data',
+    short: 'Debt & fiscal',
+    url: 'https://fiscaldata.treasury.gov',
+    attribution: 'Source: U.S. Department of the Treasury, Fiscal Service. Data are public domain; credit Treasury Fiscal Service.',
+    termsUrl: 'https://fiscaldata.treasury.gov/developer/api-documentation/',
+    notes: 'Debt to the Penny and fiscal releases.'
+  },
+  {
+    id: 'usaspending',
+    name: 'USAspending.gov',
+    short: 'Federal spending',
+    url: 'https://www.usaspending.gov',
+    attribution: 'Source: USAspending.gov (U.S. Department of the Treasury).',
+    termsUrl: 'https://www.usaspending.gov/about',
+    notes: 'Award and transaction data from USAspending.gov.'
+  },
+  {
+    id: 'lda',
+    name: 'U.S. Senate LDA',
+    short: 'Lobbying disclosure',
+    url: 'https://lda.senate.gov',
+    attribution: 'Source: U.S. Senate Office of Public Records (Lobbying Disclosure Act).',
+    termsUrl: 'https://lda.senate.gov/about/',
+    notes: 'LDA filings and contribution reports.'
+  },
+  {
+    id: 'fec',
+    name: 'FEC (OpenFEC)',
+    short: 'Campaign contributions',
+    url: 'https://api.open.fec.gov',
+    attribution: 'Source: Federal Election Commission (OpenFEC API).',
+    termsUrl: 'https://api.open.fec.gov/developers/#/about/terms',
+    notes: 'Campaign finance data from the FEC.'
+  },
+  {
+    id: 'sam',
+    name: 'SAM.gov',
+    short: 'Entity registrations',
+    url: 'https://sam.gov',
+    attribution: 'Source: SAM.gov (U.S. General Services Administration).',
+    termsUrl: 'https://sam.gov/content/home',
+    notes: 'Entity registration data from SAM.gov.'
+  },
+  {
+    id: 'cisa-kev',
+    name: 'CISA KEV',
+    short: 'Cyber advisories',
+    url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+    attribution: 'Source: Cybersecurity and Infrastructure Security Agency (CISA). Data are public domain; credit CISA.',
+    termsUrl: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+    notes: 'Known Exploited Vulnerabilities catalog.'
+  },
+  {
+    id: 'openaq',
+    name: 'OpenAQ',
+    short: 'Air quality',
+    url: 'https://openaq.org',
+    attribution: 'Source: OpenAQ air quality data. Please credit OpenAQ.',
+    termsUrl: 'https://openaq.org/terms/',
+    notes: 'Air quality alerts and station readings.'
+  },
+  {
+    id: 'opensky',
+    name: 'OpenSky Network',
+    short: 'Flight data',
+    url: 'https://opensky-network.org',
+    attribution: 'The OpenSky Network (https://opensky-network.org). Cite: “Bringing up OpenSky: A large-scale ADS-B sensor network for research” (Schäfer et al., ACM/IEEE IPSN 2014).',
+    termsUrl: 'https://opensky-network.org/about/terms-of-use',
+    notes: 'Live aviation data and aircraft tracking.'
+  },
+  {
+    id: 'coinpaprika',
+    name: 'CoinPaprika',
+    short: 'Crypto markets',
+    url: 'https://coinpaprika.com',
+    attribution: 'Source: CoinPaprika API data. Please credit CoinPaprika.',
+    termsUrl: 'https://coinpaprika.com/terms-of-use/',
+    notes: 'Crypto prices and market caps.'
+  },
+  {
+    id: 'polymarket',
+    name: 'Polymarket (Gamma)',
+    short: 'Prediction markets',
+    url: 'https://polymarket.com',
+    attribution: 'Source: Polymarket market data via Gamma API. Please credit Polymarket/Gamma.',
+    termsUrl: 'https://docs.polymarket.com',
+    notes: 'Prediction market prices and volumes.'
+  },
+  {
+    id: 'gdelt',
+    name: 'GDELT Project',
+    short: 'Global news',
+    url: 'https://www.gdeltproject.org',
+    attribution: 'The GDELT Project (https://www.gdeltproject.org). Any use or redistribution must cite the GDELT Project and link to the website.',
+    termsUrl: 'https://www.gdeltproject.org/about.html#termsofuse',
+    notes: 'Global news and conflict signals.'
+  },
+  {
+    id: 'acled',
+    name: 'ACLED',
+    short: 'Conflict events',
+    url: 'https://acleddata.com',
+    attribution: 'ACLED (Armed Conflict Location & Event Data). Cite ACLED as the source and include a link to https://acleddata.com.',
+    termsUrl: 'https://acleddata.com/attributionpolicy',
+    notes: 'Conflict and security event data.'
+  },
+  {
+    id: 'ucdp',
+    name: 'UCDP',
+    short: 'Conflict data',
+    url: 'https://ucdp.uu.se',
+    attribution: 'Uppsala Conflict Data Program (UCDP) Candidate Events Dataset. Please cite the UCDP Georeferenced Event Dataset (GED); datasets are licensed CC BY 4.0.',
+    termsUrl: 'https://ucdp.uu.se/downloads/',
+    notes: 'Candidate conflict events.'
+  },
+  {
+    id: 'gpsjam',
+    name: 'GPSJAM',
+    short: 'GPS jamming',
+    url: 'https://gpsjam.org',
+    attribution: 'Source: GPSJAM.org. Please credit GPSJAM.org.',
+    termsUrl: 'https://gpsjam.org',
+    notes: 'GPS jamming risk overlays.'
+  },
+  {
+    id: 'warspotting',
+    name: 'Warspotting',
+    short: 'Loss tracking',
+    url: 'https://warspotting.net',
+    attribution: 'Source: Warspotting.net. Please credit Warspotting.',
+    termsUrl: 'https://warspotting.net',
+    notes: 'Conflict equipment loss tracking.'
+  },
+  {
+    id: 'gdacs',
+    name: 'GDACS',
+    short: 'Disaster alerts',
+    url: 'https://www.gdacs.org',
+    attribution: 'GDACS (Global Disaster Alert and Coordination System), a cooperation framework between the United Nations and the European Commission.',
+    termsUrl: 'https://www.gdacs.org/About',
+    notes: 'Global disaster alerts and coordination.'
+  },
+  {
+    id: 'govinfo',
+    name: 'GovInfo',
+    short: 'Gov publications',
+    url: 'https://www.govinfo.gov',
+    attribution: 'Source: U.S. Government Publishing Office (govinfo.gov). Data are public domain; credit GPO.',
+    termsUrl: 'https://www.govinfo.gov/help',
+    notes: 'Federal publications and documents.'
+  },
+  {
+    id: 'foia',
+    name: 'FOIA.gov',
+    short: 'FOIA logs',
+    url: 'https://www.foia.gov',
+    attribution: 'Source: FOIA.gov (U.S. Department of Justice). Data are public domain; credit DOJ/FOIA.gov.',
+    termsUrl: 'https://www.foia.gov/about.html',
+    notes: 'FOIA request data.'
+  },
+  {
+    id: 'federal-register',
+    name: 'Federal Register',
+    short: 'Regulatory updates',
+    url: 'https://www.federalregister.gov',
+    attribution: 'Source: Federal Register (Office of the Federal Register, NARA). Public domain; credit Federal Register/NARA.',
+    termsUrl: 'https://www.federalregister.gov/reader-aids/using-federalregister-gov',
+    notes: 'Regulations, rules, and notices.'
+  },
+  {
+    id: 'regulations-gov',
+    name: 'Regulations.gov',
+    short: 'Public comments',
+    url: 'https://www.regulations.gov',
+    attribution: 'Source: Regulations.gov (U.S. eRulemaking Program). Public comments and docket metadata; credit Regulations.gov.',
+    termsUrl: 'https://www.regulations.gov/about',
+    notes: 'Public comments and docket activity for proposed rules.'
+  },
+  {
+    id: 'congress-gov',
+    name: 'Congress.gov',
+    short: 'Legislative data',
+    url: 'https://www.congress.gov',
+    attribution: 'Source: Congress.gov (Library of Congress). Data are public domain; credit Congress.gov.',
+    termsUrl: 'https://www.congress.gov/help/legislative-resources',
+    notes: 'Bills, nominations, hearings, treaties, and record.'
+  },
+  {
+    id: 'openstates',
+    name: 'OpenStates',
+    short: 'State legislation',
+    url: 'https://openstates.org',
+    attribution: 'Source: OpenStates by Plural. Credit OpenStates/Plural for legislative data.',
+    termsUrl: 'https://docs.openstates.org/api-v3/',
+    notes: 'Multi-state legislative data (bills, actions, committees).'
+  },
+  {
+    id: 'state-open-data',
+    name: 'State Open Data Portals',
+    short: 'State rulemaking + EO',
+    url: 'https://s3-us-gov-west-1.amazonaws.com/cg-0817d6e3-93c4-4de8-8b32-da6919464e61/open_data_us.csv',
+    attribution: 'Source: official state government websites and state open data portals. Credit each state source when displayed.',
+    termsUrl: 'https://data.gov/open-gov/',
+    notes: 'State-level rulemaking and executive-order connectors are sourced from official state portals.'
+  },
+  {
+    id: 'follow-the-money',
+    name: 'FollowTheMoney',
+    short: 'State-level reference',
+    url: 'https://www.followthemoney.org',
+    attribution: 'Reference source for state-level public-data API landscape and money-in-politics context.',
+    termsUrl: 'https://www.followthemoney.org/research/institute-reports/apis-for-state-level-data',
+    notes: 'Used as a source reference for state-level data coverage planning.'
+  },
+  {
+    id: 'fda',
+    name: 'FDA MedWatch',
+    short: 'Health alerts',
+    url: 'https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program',
+    attribution: 'Source: U.S. Food and Drug Administration (FDA). Data are public domain; credit FDA.',
+    termsUrl: 'https://www.fda.gov/about-fda/website-policies',
+    notes: 'MedWatch safety alerts and recalls.'
+  },
+  {
+    id: 'usda-nass',
+    name: 'USDA NASS',
+    short: 'Ag reports',
+    url: 'https://www.nass.usda.gov',
+    attribution: 'USDA-NASS data are in the public domain; USDA-NASS requests appropriate acknowledgment.',
+    termsUrl: 'https://www.nass.usda.gov/Data_and_Statistics/Citation_Request/index.php',
+    notes: 'Agricultural reports and price summaries.'
+  },
+  {
+    id: 'stooq',
+    name: 'Stooq',
+    short: 'Market data',
+    url: 'https://stooq.com',
+    attribution: 'Stooq market data.',
+    termsUrl: 'https://stooq.com/terms.html',
+    notes: 'Equities and index snapshots.'
+  },
+  {
+    id: 'google-news',
+    name: 'Google News',
+    short: 'News headlines',
+    url: 'https://news.google.com',
+    attribution: 'Google News. © Google.',
+    termsUrl: 'https://policies.google.com/terms',
+    notes: 'News aggregation results.'
+  },
+  {
+    id: 'bbc',
+    name: 'BBC News',
+    short: 'RSS source',
+    url: 'https://www.bbc.com/news',
+    attribution: '© BBC News.',
+    termsUrl: 'https://www.bbc.co.uk/usingthebbc/terms/',
+    notes: 'Headlines via RSS.'
+  },
+  {
+    id: 'guardian',
+    name: 'The Guardian',
+    short: 'RSS source',
+    url: 'https://www.theguardian.com/world',
+    attribution: '© The Guardian.',
+    termsUrl: 'https://www.theguardian.com/help/terms-of-service',
+    notes: 'Headlines via RSS.'
+  },
+  {
+    id: 'pbs',
+    name: 'PBS NewsHour',
+    short: 'RSS source',
+    url: 'https://www.pbs.org/newshour',
+    attribution: '© PBS NewsHour.',
+    termsUrl: 'https://www.pbs.org/about/policies/',
+    notes: 'Headlines via RSS.'
+  },
+  {
+    id: 'dw',
+    name: 'Deutsche Welle (DW)',
+    short: 'RSS source',
+    url: 'https://www.dw.com',
+    attribution: '© Deutsche Welle (DW).',
+    termsUrl: 'https://www.dw.com/en/legal-information/a-18265275',
+    notes: 'Headlines via RSS.'
+  },
+  {
+    id: 'arxiv',
+    name: 'arXiv',
+    short: 'Research preprints',
+    url: 'https://arxiv.org',
+    attribution: 'arXiv.org e-print archive.',
+    termsUrl: 'https://arxiv.org/help/license',
+    notes: 'Research preprints and metadata.'
+  },
+  {
+    id: 'blockstream',
+    name: 'mempool.space',
+    short: 'Bitcoin mempool',
+    url: 'https://mempool.space',
+    attribution: 'Source: mempool.space (Blockstream). Please credit mempool.space.',
+    termsUrl: 'https://mempool.space/docs/api',
+    notes: 'Bitcoin mempool and fee data.'
+  }
+];
+
+const GIBS_LAYERS = {
+  'gibs-viirs': {
+    id: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',
+    label: 'NASA VIIRS True Color',
+    format: 'jpg',
+    maxZoom: 9,
+    matrixSet: 'GoogleMapsCompatible_Level9'
+  },
+  'gibs-modis-terra': {
+    id: 'MODIS_Terra_CorrectedReflectance_TrueColor',
+    label: 'MODIS Terra True Color',
+    format: 'jpg',
+    maxZoom: 9,
+    matrixSet: 'GoogleMapsCompatible_Level9'
+  },
+  'gibs-modis-aqua': {
+    id: 'MODIS_Aqua_CorrectedReflectance_TrueColor',
+    label: 'MODIS Aqua True Color',
+    format: 'jpg',
+    maxZoom: 9,
+    matrixSet: 'GoogleMapsCompatible_Level9'
+  },
+  'gibs-nightlights': {
+    id: 'VIIRS_Black_Marble',
+    label: 'VIIRS Black Marble',
+    format: 'png',
+    maxZoom: 8,
+    matrixSet: 'GoogleMapsCompatible_Level8',
+    defaultDate: '2016-01-01'
+  },
+  'gibs-daynight': {
+    id: 'VIIRS_SNPP_DayNightBand_At_Sensor_Radiance',
+    label: 'VIIRS Day/Night Band',
+    format: 'png',
+    maxZoom: 8,
+    matrixSet: 'GoogleMapsCompatible_Level8'
+  }
+};
+
+const GIBS_OVERLAYS = {
+  aerosol: {
+    id: 'OMPS_Aerosol_Index',
+    label: 'Aerosol Index',
+    format: 'png',
+    maxZoom: 6,
+    matrixSet: 'GoogleMapsCompatible_Level6',
+    opacity: 0.45
+  },
+  thermal: {
+    id: 'VIIRS_NOAA20_Brightness_Temp_BandI5_Night',
+    label: 'Thermal Brightness (VIIRS)',
+    format: 'png',
+    maxZoom: 9,
+    matrixSet: 'GoogleMapsCompatible_Level9',
+    opacity: 0.45
+  },
+  'fire-east': {
+    id: 'GOES-East_ABI_FireTemp',
+    label: 'GOES East Fire Temp',
+    format: 'png',
+    maxZoom: 7,
+    matrixSet: 'GoogleMapsCompatible_Level7',
+    opacity: 0.45
+  },
+  'fire-west': {
+    id: 'GOES-West_ABI_FireTemp',
+    label: 'GOES West Fire Temp',
+    format: 'png',
+    maxZoom: 7,
+    matrixSet: 'GoogleMapsCompatible_Level7',
+    opacity: 0.45
+  }
+};
+const LIDAR_BOUNDARY_URL = 'https://raw.githubusercontent.com/hobuinc/usgs-lidar/master/boundaries/boundaries.topojson';
+const LIDAR_CACHE_KEY = 'lidarCoverageCache';
+const LIDAR_POINT_SAMPLE_URL = 'https://raw.githubusercontent.com/visgl/loaders.gl/master/modules/las/test/data/indoor.laz';
+const LIDAR_POINT_TARGET_COUNT = 45000;
+const LIDAR_POINT_TELEMETRY_KEY = 'lidarPointTelemetry';
+const severityLabels = [
+  { min: 8, label: 'Great' },
+  { min: 7, label: 'Major' },
+  { min: 6, label: 'Strong' },
+  { min: 5, label: 'Moderate' },
+  { min: 4, label: 'Light' },
+  { min: 3, label: 'Minor' },
+  { min: 0, label: 'Micro' }
+];
+const criticalFeedIds = [
+  'google-news-us',
+  'bbc-world',
+  'guardian-world',
+  'pbs-headlines',
+  'usgs-quakes-hour',
+  'nws-alerts',
+  'eonet-events',
+  'cdc-travel-notices',
+  'coinpaprika-global',
+  'coinpaprika-tickers',
+  'treasury-debt',
+  'bls-cpi',
+  'energy-eia',
+  'energy-eia-brent',
+  'energy-eia-ng',
+  'eia-today'
+];
+const ANALYSIS_NOISE_TOKENS = new Set([
+  'llc', 'inc', 'corp', 'news', 'update', 'report', 'alert', 'press', 'group'
+]);
+
+function countCriticalIssues(results) {
+  return results.filter((result) => {
+    if (!result?.feed?.id || !criticalFeedIds.includes(result.feed.id)) return false;
+    if (result.error === 'requires_key' || result.error === 'requires_config' || result.error === 'missing_server_key') return false;
+    return result.error || result.stale || (result.httpStatus && result.httpStatus >= 400);
+  }).length;
+}
+
+function isFeedStale(feed, status) {
+  if (!status?.fetchedAt) return false;
+  const ttl = Number(feed?.ttlMinutes) || state.settings.refreshMinutes;
+  const buffer = Math.max(5, Math.min(15, Math.round(ttl * 0.2)));
+  const maxAgeMs = (ttl + buffer) * 60 * 1000;
+  return Date.now() - status.fetchedAt > maxAgeMs;
+}
+const usStateCodes = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+  'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+  'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+  'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
+  'DC'
+]);
+const COUNTRY_CACHE_KEY = 'situationRoomCountryIndex';
+const COUNTRY_SOURCE_URL = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+
+function walkCoordinates(coords, visitor) {
+  if (!coords) return;
+  if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+    visitor(coords);
+    return;
+  }
+  coords.forEach((entry) => walkCoordinates(entry, visitor));
+}
+
+function computeBBox(geometry) {
+  const bbox = { minLat: 90, maxLat: -90, minLon: 180, maxLon: -180 };
+  walkCoordinates(geometry?.coordinates || [], (coord) => {
+    const [lon, lat] = coord;
+    if (Number.isNaN(lat) || Number.isNaN(lon)) return;
+    bbox.minLat = Math.min(bbox.minLat, lat);
+    bbox.maxLat = Math.max(bbox.maxLat, lat);
+    bbox.minLon = Math.min(bbox.minLon, lon);
+    bbox.maxLon = Math.max(bbox.maxLon, lon);
+  });
+  if (bbox.minLat === 90 || bbox.maxLat === -90) return null;
+  return bbox;
+}
+
+function buildCountryIndex(list) {
+  const index = {};
+  list.forEach((entry) => {
+    if (!entry.code) return;
+    index[entry.code.toUpperCase()] = entry;
+  });
+  return index;
+}
+
+async function loadCountryIndex() {
+  if (state.countries.length) return state.countries;
+  try {
+    const cachedRaw = localStorage.getItem(COUNTRY_CACHE_KEY);
+    if (cachedRaw) {
+      const cached = JSON.parse(cachedRaw);
+      if (Array.isArray(cached?.list) && cached.list.length) {
+        state.countries = cached.list;
+        state.countryIndex = buildCountryIndex(cached.list);
+        return state.countries;
+      }
+    }
+  } catch (err) {
+    // ignore cache errors
+  }
+
+  try {
+    const response = await fetch(COUNTRY_SOURCE_URL, { cache: 'force-cache' });
+    if (!response.ok) throw new Error('Country source fetch failed');
+    const geo = await response.json();
+    const list = (geo.features || []).map((feature) => {
+      const props = feature.properties || {};
+      const code = props['ISO3166-1-Alpha-2'];
+      const name = props.name;
+      if (!code || !name) return null;
+      const bbox = computeBBox(feature.geometry);
+      if (!bbox) return null;
+      return {
+        code: code.toUpperCase(),
+        name,
+        bbox
+      };
+    }).filter(Boolean);
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    state.countries = list;
+    state.countryIndex = buildCountryIndex(list);
+    try {
+      localStorage.setItem(COUNTRY_CACHE_KEY, JSON.stringify({ list }));
+    } catch (err) {
+      // ignore storage errors
+    }
+    return list;
+  } catch (err) {
+    const fallback = [{ code: 'US', name: 'United States', bbox: { minLat: 24, maxLat: 49, minLon: -125, maxLon: -66 } }];
+    state.countries = fallback;
+    state.countryIndex = buildCountryIndex(fallback);
+    return fallback;
+  }
+}
+
+function getSelectedCountry() {
+  const code = (state.settings.country || 'US').toUpperCase();
+  const fallback = { code: 'US', name: 'United States', bbox: { minLat: 24, maxLat: 49, minLon: -125, maxLon: -66 } };
+  return state.countryIndex?.[code] || (code === 'US' ? fallback : null);
+}
+
+function normalizeText(value) {
+  return (value || '').toString().toLowerCase();
+}
+
+function getSearchStateFilter() {
+  return getStateSignalFilterCode(state.uiFilters?.searchState);
+}
+
+function getStatePanelFilter() {
+  return getStateSignalFilterCode(state.uiFilters?.statePanelState);
+}
+
+function setSearchStateFilter(code) {
+  const next = getStateSignalFilterCode(code);
+  if (!state.uiFilters) {
+    state.uiFilters = { searchState: 'ALL', statePanelState: 'ALL' };
+  }
+  state.uiFilters.searchState = next;
+  state.lastSearchState = next;
+  if (elements.stateSignalFilter && elements.stateSignalFilter.value !== next) {
+    elements.stateSignalFilter.value = next;
+  }
+  return next;
+}
+
+function setStatePanelFilter(code) {
+  const next = getStateSignalFilterCode(code);
+  if (!state.uiFilters) {
+    state.uiFilters = { searchState: 'ALL', statePanelState: 'ALL' };
+  }
+  state.uiFilters.statePanelState = next;
+  if (elements.statePanelSignalFilter && elements.statePanelSignalFilter.value !== next) {
+    elements.statePanelSignalFilter.value = next;
+  }
+  updateStatePanelFilterChip();
+  return next;
+}
+
+function getSelectedStateSignalFilter() {
+  return getStatePanelFilter();
+}
+
+function getSelectedStateSignalName() {
+  return getStateSignalFilterName(getStatePanelFilter());
+}
+
+function applyStateSignalFilter(items, { includeFederal = true } = {}) {
+  return applyStateSignalFilterBySelection(items, getStatePanelFilter(), { includeFederal });
+}
+
+function updateStatePanelFilterChip() {
+  if (!elements.statePanelFilterChip) return;
+  elements.statePanelFilterChip.textContent = `State: ${getSelectedStateSignalName()}`;
+}
+
+function updateStateSignalFilterOptions() {
+  renderStateSignalFilterOptions(elements.stateSignalFilter, getSearchStateFilter());
+  renderStateSignalFilterOptions(elements.statePanelSignalFilter, getStatePanelFilter());
+  updateStatePanelFilterChip();
+}
+
+function sampleByStep(list, max) {
+  if (!Array.isArray(list)) return [];
+  if (!Number.isFinite(max) || max <= 0) return [];
+  if (list.length <= max) return list;
+  const step = Math.max(1, Math.floor(list.length / max));
+  const sampled = [];
+  for (let i = 0; i < list.length; i += step) {
+    sampled.push(list[i]);
+    if (sampled.length >= max) break;
+  }
+  return sampled;
+}
+
+function matchesCountry(item, country) {
+  if (!country) return false;
+  const code = country.code.toUpperCase();
+  if (code === 'US') {
+    if (item.tags?.includes('us')) return true;
+    if (item.geo) return isInCountryBounds(item.geo.lat, item.geo.lon, country);
+    return false;
+  }
+  const regionTag = normalizeText(item.regionTag);
+  const location = normalizeText(item.location || item.geoLabel || '');
+  const title = normalizeText(item.title || '');
+  const summary = normalizeText(item.summary || '');
+  const name = normalizeText(country.name);
+  const codeLower = code.toLowerCase();
+  if (item.tags?.some((tag) => normalizeText(tag) === codeLower)) return true;
+  if (regionTag && (regionTag === codeLower || regionTag.includes(name))) return true;
+  if (location && location.includes(name)) return true;
+  if (title.includes(name) || summary.includes(name)) return true;
+  if (item.geo && isInCountryBounds(item.geo.lat, item.geo.lon, country)) return true;
+  return false;
+}
+
+function isInCountryBounds(lat, lon, country) {
+  if (!country?.bbox) return false;
+  const { minLat, maxLat, minLon, maxLon } = country.bbox;
+  return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
+}
+
+function getCountryByCoords(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const list = state.countries || [];
+  return list.find((country) => isInCountryBounds(lat, lon, country)) || null;
+}
+
+function applyCountryFromLocation() {
+  if (!state.settings.countryAuto) return;
+  const match = getCountryByCoords(state.location.lat, state.location.lon);
+  if (!match) return;
+  if (match.code !== state.settings.country) {
+    state.settings.country = match.code;
+    saveSettings();
+  }
+  updateCountryUI();
+}
+
+async function initCountrySelect() {
+  if (!elements.countrySelect) return;
+  const list = await loadCountryIndex();
+  elements.countrySelect.innerHTML = '';
+  list.forEach((country) => {
+    const option = document.createElement('option');
+    option.value = country.code;
+    option.textContent = country.name;
+    elements.countrySelect.appendChild(option);
+  });
+  updateCountryUI();
+  elements.countrySelect.addEventListener('change', () => {
+    const next = elements.countrySelect.value || 'US';
+    state.settings.scope = 'us';
+    state.settings.country = next.toUpperCase();
+    state.settings.countryAuto = false;
+    saveSettings();
+    updateScopeButtons();
+    updateCountryUI();
+    state.scopedItems = applyScope(state.items);
+    state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+    renderAllPanels();
+    renderSignals();
+    renderFeedHealth();
+    updateMapViewForScope();
+    drawMap();
+  });
+}
+
+function updateCountryUI() {
+  const code = (state.settings.country || 'US').toUpperCase();
+  const country = getSelectedCountry();
+  if (elements.countrySelect && elements.countrySelect.value !== code) {
+    elements.countrySelect.value = code;
+  }
+  if (elements.countrySelect) {
+    elements.countrySelect.disabled = false;
+  }
+  const scopeButton = elements.scopeToggle?.querySelector('[data-scope="us"]');
+  if (scopeButton) {
+    scopeButton.textContent = code;
+    scopeButton.title = country?.name || 'Country';
+  }
+  if (elements.countrySelectLabel) {
+    elements.countrySelectLabel.textContent = country?.name || 'Country';
+  }
+}
+
+function applyOpenSkyProxyOverride() {
+  const proxy = getOpenSkyProxy();
+  const feed = state.feeds.find((entry) => entry.id === 'transport-opensky');
+  if (!feed) return;
+  if (proxy) {
+    const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
+    feed.url = `${base}/states?extended=1`;
+    feed.proxy = null;
+    feed.requiresKey = false;
+    feed.keySource = null;
+    feed.keyGroup = null;
+    feed.keyParam = null;
+    feed.keyHeader = null;
+  } else if (feed.url && !feed.url.includes('extended=1')) {
+    const parsed = new URL(feed.url);
+    parsed.searchParams.set('extended', '1');
+    feed.url = parsed.toString();
+  }
+}
+
+function applyAcledProxyOverride() {
+  const proxy = getAcledProxy();
+  const feeds = state.feeds.filter((entry) => entry.id === 'acled-events' || entry.acledMode);
+  if (!feeds.length) return;
+  feeds.forEach((feed) => {
+    if (!proxy) return;
+    const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
+    const endpoint = feed.acledMode === 'aggregated' ? 'aggregated' : 'events';
+    feed.url = `${base}/${endpoint}`;
+    feed.proxy = null;
+    feed.requiresKey = false;
+    feed.keySource = null;
+    feed.keyParam = null;
+    feed.keyHeader = null;
+    feed.requiresConfig = false;
+  });
+}
+
+function loadSettings() {
+  const saved = localStorage.getItem('situationRoomSettings');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      state.settings = normalizeSettings(parsed);
+      try {
+        const telemetry = localStorage.getItem(LIDAR_POINT_TELEMETRY_KEY);
+        if (telemetry) {
+          state.lidarPointTelemetry = JSON.parse(telemetry);
+        }
+      } catch (err) {
+        console.warn('LiDAR telemetry read failed', err);
+      }
+    } catch (err) {
+      state.settings = normalizeSettings();
+    }
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem('situationRoomSettings', JSON.stringify(state.settings));
+}
+
+function loadKeys() {
+  const saved = localStorage.getItem('situationRoomKeys');
+  if (saved) {
+    try {
+      state.keys = JSON.parse(saved);
+      if (state.keys?.openai?.key) {
+        state.keys.openai.key = state.keys.openai.key.trim();
+      }
+    } catch (err) {
+      state.keys = {};
+    }
+  }
+}
+
+function saveKeys() {
+  localStorage.setItem('situationRoomKeys', JSON.stringify(state.keys));
+}
+
+function loadKeyGroups() {
+  const saved = localStorage.getItem('situationRoomKeyGroups');
+  if (saved) {
+    try {
+      state.keyGroups = JSON.parse(saved);
+    } catch (err) {
+      state.keyGroups = {};
+    }
+  }
+}
+
+function saveKeyGroups() {
+  localStorage.setItem('situationRoomKeyGroups', JSON.stringify(state.keyGroups));
+}
+
+function loadKeyStatus() {
+  const saved = localStorage.getItem('situationRoomKeyStatus');
+  if (saved) {
+    try {
+      state.keyStatus = JSON.parse(saved);
+    } catch (err) {
+      state.keyStatus = {};
+    }
+  }
+}
+
+function saveKeyStatus() {
+  localStorage.setItem('situationRoomKeyStatus', JSON.stringify(state.keyStatus));
+}
+
+function loadGeoCache() {
+  const saved = localStorage.getItem('situationRoomGeoCache');
+  if (saved) {
+    try {
+      state.geoCache = JSON.parse(saved);
+    } catch (err) {
+      state.geoCache = {};
+    }
+  }
+}
+
+function saveGeoCache() {
+  localStorage.setItem('situationRoomGeoCache', JSON.stringify(state.geoCache));
+}
+
+function loadCustomFeeds() {
+  const saved = localStorage.getItem(CUSTOM_FEEDS_KEY);
+  if (!saved) return [];
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((feed) => ({
+      ...feed,
+      tags: Array.isArray(feed.tags) ? feed.tags : [],
+      supportsQuery: Boolean(feed.supportsQuery),
+      requiresKey: Boolean(feed.requiresKey),
+      format: feed.format || 'rss',
+      category: feed.category || 'news',
+      ttlMinutes: Number(feed.ttlMinutes || 60),
+      isCustom: true,
+      keySource: 'client'
+    }));
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveCustomFeeds() {
+  localStorage.setItem(CUSTOM_FEEDS_KEY, JSON.stringify(state.customFeeds));
+}
+
+function hashString(value) {
+  let hash = 0;
+  const str = String(value || '');
+  for (let i = 0; i < str.length; i += 1) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function mergeCustomFeeds(baseFeeds, customFeeds) {
+  const merged = [...baseFeeds];
+  const existing = new Set(baseFeeds.map((feed) => feed.id));
+  let mutated = false;
+  customFeeds.forEach((feed) => {
+    let id = feed.id;
+    if (!id) {
+      id = `custom-${hashString(feed.url || feed.name)}`;
+      feed.id = id;
+      mutated = true;
+    }
+    if (existing.has(id)) {
+      const nextId = `${id}-${Math.random().toString(36).slice(2, 6)}`;
+      feed.id = nextId;
+      id = nextId;
+      mutated = true;
+    }
+    feed.isCustom = true;
+    feed.keySource = 'client';
+    existing.add(id);
+    merged.push(feed);
+  });
+  if (mutated) saveCustomFeeds();
+  return merged;
+}
+
+async function loadStaticAnalysis() {
+  if (!isStaticMode()) return null;
+  try {
+    const url = getAssetUrl(`/data/analysis.json?ts=${Date.now()}`);
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error('analysis_fetch_failed');
+    const payload = await response.json();
+    if (!payload || !payload.text) {
+      state.staticAnalysis = null;
+      return null;
+    }
+    state.staticAnalysis = payload;
+    return payload;
+  } catch (err) {
+    state.staticAnalysis = null;
+    return null;
+  }
+}
+
+async function loadStaticBuild() {
+  if (!isStaticMode()) return null;
+  try {
+    const url = getAssetUrl(`/data/build.json?ts=${Date.now()}`);
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error('build_fetch_failed');
+    const payload = await response.json();
+    if (payload?.generatedAt) {
+      state.lastBuildAt = Date.parse(payload.generatedAt);
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function updateDataFreshBadge() {
+  if (!elements.dataFresh) return;
+  let stamp = state.lastFetch;
+  if (isStaticMode()) {
+    stamp = state.settings.superMonitor ? state.lastFetch : (state.lastBuildAt || state.lastFetch);
+  }
+  if (!stamp) {
+    elements.dataFresh.textContent = 'Data fresh';
+    elements.dataFresh.removeAttribute('title');
+    return;
+  }
+  const relative = toRelativeTime(stamp);
+  elements.dataFresh.textContent = isStaticMode()
+    ? (state.settings.superMonitor ? `Live ${relative}` : `Cache ${relative}`)
+    : `Data ${relative}`;
+  const exact = new Date(stamp).toLocaleString();
+  elements.dataFresh.title = isStaticMode()
+    ? (state.settings.superMonitor ? `Live fetch ${exact}` : `Cache built ${exact}`)
+    : `Last fetch ${exact}`;
+}
+
+function loadPanelState() {
+  const saved = localStorage.getItem('situationRoomPanels');
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    if (parsed.version === LAYOUT_VERSION) {
+      state.panels.order = Array.isArray(parsed.order) ? parsed.order : [];
+      state.panels.visibility = parsed.visibility && typeof parsed.visibility === 'object' ? parsed.visibility : {};
+      state.panels.sizes = parsed.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {};
+
+      // Layout migration: Signal Deck is now the top summary section (not a grid panel).
+      state.panels.order = state.panels.order.filter((id) => id !== 'signals');
+      if (state.panels.visibility && 'signals' in state.panels.visibility) delete state.panels.visibility.signals;
+      if (state.panels.sizes && 'signals' in state.panels.sizes) delete state.panels.sizes.signals;
+    } else {
+      state.panels.order = [];
+      state.panels.visibility = {};
+      state.panels.sizes = {};
+    }
+  }
+}
+
+function savePanelState() {
+  localStorage.setItem('situationRoomPanels', JSON.stringify({
+    order: state.panels.order,
+    visibility: state.panels.visibility,
+    sizes: state.panels.sizes,
+    version: LAYOUT_VERSION
+  }));
+}
+
+function getPanelRegistry() {
+  return [...document.querySelectorAll('.panel[data-panel]')].map((panel) => ({
+    id: panel.dataset.panel,
+    title: panel.querySelector('.panel-title')?.textContent || panel.dataset.panel,
+    element: panel
+  }));
+}
+
+function applyPanelVisibility() {
+  getPanelRegistry().forEach((panel) => {
+    const visible = state.panels.visibility[panel.id] !== false;
+    panel.element.classList.toggle('panel-hidden', !visible);
+  });
+}
+
+function applyPanelOrder() {
+  if (!state.panels.order.length) return;
+  const registry = getPanelRegistry();
+  const map = new Map(registry.map((panel) => [panel.id, panel.element]));
+  state.panels.order.forEach((id) => {
+    const el = map.get(id);
+    if (el) elements.panelGrid.appendChild(el);
+  });
+  registry.forEach((panel) => {
+    if (!state.panels.order.includes(panel.id)) {
+      elements.panelGrid.appendChild(panel.element);
+    }
+  });
+}
+
+function applyPanelSizes() {
+  getPanelRegistry().forEach((panel) => {
+    const size = state.panels.sizes[panel.id] || DEFAULT_PANEL_SIZES[panel.id];
+    if (!size) {
+      panel.element.style.gridColumnEnd = '';
+      panel.element.style.height = '';
+      return;
+    }
+    if (size.cols) {
+      panel.element.style.gridColumnEnd = `span ${size.cols}`;
+    } else {
+      panel.element.style.gridColumnEnd = '';
+    }
+    if (size.height) {
+      panel.element.style.height = `${size.height}px`;
+    } else if (!state.panels.sizes[panel.id]?.height) {
+      panel.element.style.height = '';
+    }
+  });
+}
+
+function buildPanelToggles() {
+  const registry = getPanelRegistry();
+  elements.panelToggles.innerHTML = '';
+  registry.forEach((panel) => {
+    const row = document.createElement('div');
+    row.className = 'panel-toggle';
+    const label = document.createElement('label');
+    const safeId = `panel-toggle-${String(panel.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+    label.className = 'panel-toggle-label';
+    label.setAttribute('for', safeId);
+    label.textContent = panel.title;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = safeId;
+    checkbox.name = safeId;
+    checkbox.checked = state.panels.visibility[panel.id] !== false;
+    checkbox.addEventListener('change', () => {
+      state.panels.visibility[panel.id] = checkbox.checked;
+      savePanelState();
+      applyPanelVisibility();
+    });
+    row.appendChild(label);
+    row.appendChild(checkbox);
+    elements.panelToggles.appendChild(row);
+  });
+}
+
+function updatePanelOrderFromDOM() {
+  state.panels.order = [...document.querySelectorAll('.panel[data-panel]')].map((panel) => panel.dataset.panel);
+  savePanelState();
+}
+
+function initPanelDrag() {
+  let draggedId = null;
+  getPanelRegistry().forEach((panel) => {
+    panel.element.setAttribute('draggable', 'true');
+    panel.element.addEventListener('dragstart', (event) => {
+      draggedId = panel.id;
+      panel.element.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+    });
+    panel.element.addEventListener('dragend', () => {
+      panel.element.classList.remove('dragging');
+      document.querySelectorAll('.panel.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    });
+    panel.element.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      panel.element.classList.add('drag-over');
+    });
+    panel.element.addEventListener('dragleave', () => {
+      panel.element.classList.remove('drag-over');
+    });
+    panel.element.addEventListener('drop', (event) => {
+      event.preventDefault();
+      panel.element.classList.remove('drag-over');
+      const dragged = document.querySelector(`.panel[data-panel=\"${draggedId}\"]`);
+      if (!dragged || dragged === panel.element) return;
+      const rect = panel.element.getBoundingClientRect();
+      const insertBefore = event.clientY < rect.top + rect.height / 2;
+      elements.panelGrid.insertBefore(dragged, insertBefore ? panel.element : panel.element.nextSibling);
+      updatePanelOrderFromDOM();
+    });
+  });
+}
+
+function initPanelResize() {
+  const grid = elements.panelGrid;
+  if (!grid) return;
+  const gridStyle = window.getComputedStyle(grid);
+  const gapValue = parseFloat(gridStyle.columnGap || gridStyle.gap || '0');
+
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+  const getColumnWidth = () => {
+    const gridRect = grid.getBoundingClientRect();
+    return (gridRect.width - gapValue * 11) / 12;
+  };
+
+  const startResize = (panel, mode, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = panel.element.getBoundingClientRect();
+    const startWidth = rect.width;
+    const startHeight = rect.height;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const computed = window.getComputedStyle(panel.element);
+    const colEnd = computed.gridColumnEnd || 'span 12';
+    const match = colEnd.match(/span\s+(\d+)/);
+    const startCols = match ? Number(match[1]) : Math.round(startWidth / (getColumnWidth() + gapValue));
+    const originalDraggable = panel.element.getAttribute('draggable');
+    panel.element.setAttribute('draggable', 'false');
+
+    const onMove = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+      if (mode !== 'y') {
+        const columnWidth = getColumnWidth();
+        const newWidth = startWidth + deltaX;
+        const newCols = clamp(Math.round((newWidth + gapValue) / (columnWidth + gapValue)), 2, 12);
+        panel.element.style.gridColumnEnd = `span ${newCols}`;
+        state.panels.sizes[panel.id] = {
+          ...state.panels.sizes[panel.id],
+          cols: newCols,
+          height: state.panels.sizes[panel.id]?.height || Math.round(startHeight)
+        };
+      }
+      if (mode !== 'x') {
+        const newHeight = Math.max(180, startHeight + deltaY);
+        panel.element.style.height = `${newHeight}px`;
+        state.panels.sizes[panel.id] = {
+          ...state.panels.sizes[panel.id],
+          cols: state.panels.sizes[panel.id]?.cols || startCols,
+          height: Math.round(newHeight)
+        };
+      }
+      savePanelState();
+    };
+
+  const onUp = () => {
+    if (originalDraggable !== null) {
+      panel.element.setAttribute('draggable', originalDraggable);
+    } else {
+      panel.element.removeAttribute('draggable');
+    }
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    if (state.map) {
+      setTimeout(() => state.map.invalidateSize(), 120);
+    }
+    if (state.energyMap) {
+      setTimeout(() => state.energyMap.invalidateSize(), 120);
+    }
+  };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  getPanelRegistry().forEach((panel) => {
+    if (panel.element.querySelector('.panel-resize-handle')) return;
+    const handle = document.createElement('div');
+    handle.className = 'panel-resize-handle';
+    panel.element.appendChild(handle);
+    handle.addEventListener('mousedown', (event) => startResize(panel, 'both', event));
+
+    const handleX = document.createElement('div');
+    handleX.className = 'panel-resize-handle-x';
+    panel.element.appendChild(handleX);
+    handleX.addEventListener('mousedown', (event) => startResize(panel, 'x', event));
+
+    const handleY = document.createElement('div');
+    handleY.className = 'panel-resize-handle-y';
+    panel.element.appendChild(handleY);
+    handleY.addEventListener('mousedown', (event) => startResize(panel, 'y', event));
+  });
+}
+
+function resetLayout() {
+  state.panels.order = [...state.panels.defaultOrder];
+  state.panels.visibility = {};
+  state.panels.sizes = {};
+  savePanelState();
+  applyPanelOrder();
+  applyPanelVisibility();
+  applyPanelSizes();
+  buildPanelToggles();
+}
+
+function applyTheme(mode) {
+  state.settings.theme = mode;
+  const resolved = mode === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : mode;
+  elements.app.dataset.theme = resolved;
+  document.documentElement.dataset.theme = resolved;
+  document.body.dataset.theme = resolved;
+  document.querySelectorAll('.modal-overlay').forEach((overlay) => {
+    overlay.dataset.theme = resolved;
+  });
+  renderEnergyMap();
+}
+
+function updateThemeButtons() {
+  [...elements.themeToggle.querySelectorAll('.seg')].forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.theme === state.settings.theme);
+  });
+}
+
+function updateAgeButtons() {
+  if (!elements.ageToggle) return;
+  [...elements.ageToggle.querySelectorAll('.seg')].forEach((btn) => {
+    const age = Number(btn.dataset.age);
+    btn.classList.toggle('active', age === state.settings.maxAgeDays);
+  });
+}
+
+function updateLanguageButtons() {
+  if (!elements.languageToggle) return;
+  [...elements.languageToggle.querySelectorAll('.seg')].forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.language === state.settings.languageMode);
+  });
+}
+
+function updateScopeButtons() {
+  [...elements.scopeToggle.querySelectorAll('.seg')].forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.scope === state.settings.scope);
+  });
+  updateCountryUI();
+}
+
+function updateSettingsUI() {
+  elements.refreshValue.textContent = `${state.settings.refreshMinutes} min`;
+  elements.refreshRange.value = state.settings.refreshMinutes;
+  elements.refreshRangeValue.textContent = state.settings.refreshMinutes;
+  if (elements.maxAgeRange) {
+    elements.maxAgeRange.value = state.settings.maxAgeDays;
+    elements.maxAgeValue.textContent = `${state.settings.maxAgeDays} days`;
+  }
+  elements.radiusRange.value = state.settings.radiusKm;
+  elements.radiusRangeValue.textContent = state.settings.radiusKm;
+  elements.geoValue.textContent = state.location.source === 'geo' ? 'Geolocated' : 'Fallback (Asheville)';
+  if (elements.aiTranslateToggle) {
+    elements.aiTranslateToggle.checked = state.settings.aiTranslate;
+  }
+  if (elements.superMonitorToggle) {
+    elements.superMonitorToggle.checked = state.settings.superMonitor;
+  }
+  if (elements.statusCompact) {
+    elements.statusCompact.classList.toggle('collapsed', !state.settings.showStatus);
+  }
+  if (elements.statusToggle) {
+    elements.statusToggle.textContent = state.settings.showStatus ? 'Hide' : 'Show';
+  }
+  if (elements.keySection) {
+    elements.keySection.classList.toggle('collapsed', !state.settings.showKeys);
+  }
+  if (elements.keyToggle) {
+    elements.keyToggle.textContent = state.settings.showKeys ? 'Hide' : 'Show';
+  }
+  if (elements.mcpSection) {
+    elements.mcpSection.classList.toggle('collapsed', !state.settings.showMcp);
+  }
+  if (elements.mcpToggle) {
+    elements.mcpToggle.textContent = state.settings.showMcp ? 'Hide' : 'Show';
+  }
+  if (elements.travelTickerBtn) {
+    elements.travelTickerBtn.classList.toggle('active', state.settings.showTravelTicker);
+    elements.travelTickerBtn.textContent = state.settings.showTravelTicker ? 'Travel Ticker' : 'Travel Ticker Off';
+  }
+  if (elements.travelTicker) {
+    elements.travelTicker.classList.toggle('hidden', !state.settings.showTravelTicker);
+  }
+  updateThemeButtons();
+  updateScopeButtons();
+  updateAgeButtons();
+  updateLanguageButtons();
+  updateMapLegendUI();
+  updateMapDateUI();
+  updateCountryUI();
+  if (elements.liveSearchToggle) {
+    elements.liveSearchToggle.classList.toggle('active', state.settings.liveSearch);
+    elements.liveSearchToggle.textContent = state.settings.liveSearch ? 'Live Search On' : 'Live Search Off';
+  }
+  updateSearchHint();
+}
+
+function getSearchHintBase() {
+  if (!state.settings.aiTranslate) {
+    return 'AI query translation is off. Searches use the exact text you enter.';
+  }
+  if (!hasAssistantAccess()) {
+    return 'AI translation is on, but AI is offline. Using default feed queries.';
+  }
+  return 'AI query translation is on. Search adapts to each source.';
+}
+
+function updateSearchHint() {
+  if (!elements.searchHint) return;
+  if (state.searching) return;
+  if (elements.searchResults?.classList.contains('open')) return;
+  elements.searchHint.textContent = getSearchHintBase();
+}
+
+function toggleSettings(open) {
+  elements.settingsPanel.classList.toggle('open', open);
+  if (elements.settingsScrim) {
+    elements.settingsScrim.classList.toggle('open', open);
+  }
+  elements.settingsPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.settingsPanel.inert = !open;
+}
+
+function toggleAbout(open) {
+  if (!elements.aboutOverlay) return;
+  elements.aboutOverlay.classList.toggle('open', open);
+  elements.aboutOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.aboutOverlay.inert = !open;
+}
+
+function toggleAttribution(open) {
+  if (!elements.attributionOverlay) return;
+  elements.attributionOverlay.classList.toggle('open', open);
+  elements.attributionOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.attributionOverlay.inert = !open;
+}
+
+function renderAboutSources() {
+  if (!elements.aboutSources) return;
+  elements.aboutSources.innerHTML = '';
+  DATA_ATTRIBUTIONS.forEach((source) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'about-source';
+    button.dataset.attributionId = source.id;
+    button.setAttribute('role', 'listitem');
+    button.title = `${source.name}${source.short ? ` — ${source.short}` : ''}`;
+    const name = document.createElement('div');
+    name.textContent = source.name;
+    const meta = document.createElement('span');
+    meta.className = 'about-source-meta';
+    meta.textContent = source.short || 'Details';
+    button.appendChild(name);
+    button.appendChild(meta);
+    button.addEventListener('click', () => openAttribution(source.id));
+    elements.aboutSources.appendChild(button);
+  });
+}
+
+function openAttribution(sourceId) {
+  const source = DATA_ATTRIBUTIONS.find((entry) => entry.id === sourceId);
+  if (!source || !elements.attributionBody) return;
+  if (elements.attributionTitle) {
+    elements.attributionTitle.textContent = source.name;
+  }
+  if (elements.attributionMeta) {
+    elements.attributionMeta.textContent = source.short || 'Attribution requirements';
+  }
+  elements.attributionBody.innerHTML = '';
+
+  if (source.notes) {
+    const summary = document.createElement('div');
+    summary.className = 'detail-summary';
+    const p = document.createElement('p');
+    p.textContent = source.notes;
+    summary.appendChild(p);
+    elements.attributionBody.appendChild(summary);
+  }
+
+  const rows = [
+    { label: 'Attribution', value: source.attribution },
+    { label: 'Source', value: source.url }
+  ];
+  if (source.termsUrl) {
+    rows.push({ label: 'Terms', value: source.termsUrl });
+  }
+
+  rows.forEach((row) => {
+    if (!row.value) return;
+    const detail = document.createElement('div');
+    detail.className = 'detail-row';
+    const label = document.createElement('div');
+    label.className = 'detail-label';
+    label.textContent = row.label;
+    const value = document.createElement('div');
+    value.className = 'detail-value';
+    if (typeof row.value === 'string' && row.value.startsWith('http')) {
+      const link = document.createElement('a');
+      link.href = row.value;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = row.value;
+      value.appendChild(link);
+    } else {
+      value.textContent = row.value;
+    }
+    detail.appendChild(label);
+    detail.appendChild(value);
+    elements.attributionBody.appendChild(detail);
+  });
+
+  toggleAttribution(true);
+}
+
+function toggleListModal(open) {
+  if (!elements.listOverlay) return;
+  elements.listOverlay.classList.toggle('open', open);
+  elements.listOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.listOverlay.inert = !open;
+  if (!open && elements.listModalList) {
+    elements.listModalList.innerHTML = '';
+    elements.listModalList.dataset.listContext = '';
+  }
+}
+
+function toggleDetailModal(open) {
+  if (!elements.detailOverlay) return;
+  elements.detailOverlay.classList.toggle('open', open);
+  elements.detailOverlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  elements.detailOverlay.inert = !open;
+  if (!open && elements.detailBody) {
+    elements.detailBody.innerHTML = '';
+  }
+}
+
+function buildRelatedSignalsSection(item) {
+  const section = document.createElement('div');
+  section.className = 'detail-section detail-related';
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = 'Related signals';
+  section.appendChild(heading);
+
+  const status = document.createElement('div');
+  status.className = 'detail-related-status';
+  section.appendChild(status);
+
+  const list = document.createElement('div');
+  list.className = 'detail-related-list';
+  section.appendChild(list);
+
+  if (!mcpClient) {
+    status.textContent = 'Related signals are temporarily unavailable.';
+    return section;
+  }
+
+  status.textContent = 'Searching related signals…';
+  const primaryTitle = (item.detailTitle || item.title || '').trim();
+  const primaryUrl = item.externalUrl || item.fallbackUrl || '';
+  const summaryText = item.summaryHtml
+    ? stripHtml(item.summaryHtml)
+    : (item.translatedSummary || item.summary || item.detailSummary || item.description || '');
+  const category = item.category || item.feedCategory || '';
+
+  mcpClient
+    .searchRelated({
+      title: primaryTitle,
+      summary: summaryText,
+      category
+    })
+    .then((result) => {
+      if (!section.isConnected) return;
+      if (result?.error) {
+        status.textContent = 'Related signals unavailable right now.';
+        return;
+      }
+      const data = result?.data || {};
+      const items = Array.isArray(data.items)
+        ? data.items
+        : (Array.isArray(data.results) ? data.results : (Array.isArray(data.signals) ? data.signals : []));
+      const filtered = items.filter((entry) => {
+        if (!entry) return false;
+        const entryTitle = String(entry.title || entry.name || entry.label || '').trim();
+        if (!entryTitle) return false;
+        if (primaryTitle && entryTitle.toLowerCase() === primaryTitle.toLowerCase()) return false;
+        const entryUrl = entry.url || entry.externalUrl || '';
+        if (primaryUrl && entryUrl && entryUrl === primaryUrl) return false;
+        return true;
+      });
+      if (!filtered.length) {
+        status.textContent = 'No related signals found.';
+        return;
+      }
+      status.textContent = `Showing ${Math.min(filtered.length, 6)} related signals`;
+      filtered.slice(0, 6).forEach((entry) => {
+        const row = document.createElement('div');
+        row.className = 'detail-related-item';
+        const title = document.createElement(entry.url || entry.externalUrl ? 'a' : 'div');
+        title.className = 'detail-related-title';
+        title.textContent = entry.title || entry.name || entry.label || 'Signal';
+        if (entry.url || entry.externalUrl) {
+          title.href = entry.url || entry.externalUrl;
+          title.target = '_blank';
+          title.rel = 'noopener noreferrer';
+        }
+        row.appendChild(title);
+        const meta = document.createElement('div');
+        meta.className = 'detail-related-meta';
+        const metaParts = [];
+        if (entry.source) metaParts.push(entry.source);
+        if (entry.category) metaParts.push(entry.category);
+        const ts = entry.publishedAt || entry.updatedAt || entry.timestamp;
+        if (ts) metaParts.push(toRelativeTime(ts));
+        meta.textContent = metaParts.filter(Boolean).join(' • ');
+        row.appendChild(meta);
+        const summary = entry.summary || entry.detailSummary || entry.description;
+        if (summary) {
+          const summaryEl = document.createElement('div');
+          summaryEl.className = 'detail-related-summary';
+          summaryEl.textContent = truncateText(stripHtml(summary), 140);
+          row.appendChild(summaryEl);
+        }
+        list.appendChild(row);
+      });
+    })
+    .catch((err) => {
+      if (!section.isConnected) return;
+      status.textContent = 'Related signals unavailable right now.';
+    });
+
+  return section;
+}
+
+function isCongressItem(item) {
+  if (!item) return false;
+  if (item.feedId && item.feedId.startsWith('congress-')) return true;
+  if (Array.isArray(item.tags) && item.tags.includes('congress')) return true;
+  return item.source === 'Congress.gov';
+}
+
+function isGovinfoItem(item) {
+  if (!item) return false;
+  if (item.feedId && item.feedId.startsWith('govinfo-')) return true;
+  if (Array.isArray(item.tags) && item.tags.includes('govinfo')) return true;
+  const url = item.externalUrl || item.url || '';
+  if (typeof url === 'string' && url.includes('govinfo.gov/app/details/')) return true;
+  return item.source === 'GovInfo';
+}
+
+function isFederalRegisterItem(item) {
+  if (!item) return false;
+  if (item.feedId === 'federal-register' || item.feedId === 'federal-register-transport') return true;
+  const url = item.externalUrl || item.url || '';
+  if (typeof url === 'string' && url.includes('federalregister.gov/documents/')) return true;
+  return item.source === 'Federal Register';
+}
+
+function openDetailModal(item) {
+  if (!elements.detailOverlay || !item) return;
+  if (elements.detailTitle) {
+    elements.detailTitle.textContent = item.detailTitle || item.title || 'Details';
+  }
+  if (elements.detailMeta) {
+    const metaParts = [
+      item.source || item.feedName || '',
+      toRelativeTime(item.publishedAt || Date.now())
+    ].filter(Boolean);
+    elements.detailMeta.textContent = metaParts.join(' • ');
+  }
+  if (elements.detailBody) {
+    elements.detailBody.innerHTML = '';
+    const summaryText = item.summaryHtml
+      ? sanitizeHtml(item.summaryHtml)
+      : (item.translatedSummary || item.summary || '');
+    if (summaryText) {
+      const summary = document.createElement('div');
+      summary.className = 'detail-summary';
+      if (item.summaryHtml) {
+        summary.innerHTML = sanitizeHtml(item.summaryHtml);
+      } else {
+        const p = document.createElement('p');
+        p.textContent = summaryText;
+        summary.appendChild(p);
+      }
+      elements.detailBody.appendChild(summary);
+    }
+    if (Array.isArray(item.detailFields)) {
+      item.detailFields
+        .filter((field) => field && field.label && field.value)
+        .forEach((field) => {
+          const row = document.createElement('div');
+          row.className = 'detail-row';
+          const label = document.createElement('div');
+          label.className = 'detail-label';
+          label.textContent = field.label;
+          const value = document.createElement('div');
+          value.className = 'detail-value';
+          value.textContent = field.value;
+          row.appendChild(label);
+          row.appendChild(value);
+          elements.detailBody.appendChild(row);
+        });
+    }
+    if (Array.isArray(item.amendments) && item.amendments.length) {
+      const section = document.createElement('div');
+      section.className = 'detail-section';
+      const heading = document.createElement('div');
+      heading.className = 'detail-section-title';
+      heading.textContent = 'Amendments';
+      section.appendChild(heading);
+      const list = document.createElement('div');
+      list.className = 'detail-list';
+      const ordered = [...item.amendments].sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
+      ordered.forEach((amendment) => {
+        const row = document.createElement('div');
+        row.className = 'detail-item';
+        const title = document.createElement('div');
+        title.className = 'detail-item-title';
+        if (amendment.externalUrl) {
+          const link = document.createElement('a');
+          link.href = amendment.externalUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = amendment.title || 'Amendment';
+          title.appendChild(link);
+        } else {
+          title.textContent = amendment.title || 'Amendment';
+        }
+        row.appendChild(title);
+        const meta = document.createElement('div');
+        meta.className = 'detail-item-meta';
+        const parts = [
+          amendment.type && amendment.number ? `${amendment.type} ${amendment.number}` : '',
+          amendment.chamber,
+          amendment.publishedAt ? formatShortDate(amendment.publishedAt) : ''
+        ].filter(Boolean);
+        meta.textContent = parts.join(' • ');
+        row.appendChild(meta);
+        if (amendment.summary) {
+          const summary = document.createElement('div');
+          summary.className = 'detail-item-summary';
+          summary.textContent = amendment.summary;
+          row.appendChild(summary);
+        }
+        if (amendment.purpose) {
+          const purpose = document.createElement('div');
+          purpose.className = 'detail-item-summary';
+          purpose.textContent = amendment.purpose;
+          row.appendChild(purpose);
+        }
+        list.appendChild(row);
+      });
+      section.appendChild(list);
+      elements.detailBody.appendChild(section);
+    }
+    if (Array.isArray(item.nominationActions) && item.nominationActions.length) {
+      const section = document.createElement('div');
+      section.className = 'detail-section';
+      const heading = document.createElement('div');
+      heading.className = 'detail-section-title';
+      heading.textContent = 'Nomination Actions';
+      section.appendChild(heading);
+      const list = document.createElement('div');
+      list.className = 'detail-list';
+      const ordered = [...item.nominationActions].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+      ordered.forEach((action) => {
+        const row = document.createElement('div');
+        row.className = 'detail-item';
+        const title = document.createElement('div');
+        title.className = 'detail-item-title';
+        if (action.externalUrl) {
+          const link = document.createElement('a');
+          link.href = action.externalUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = action.title || 'Action';
+          title.appendChild(link);
+        } else {
+          title.textContent = action.title || 'Action';
+        }
+        row.appendChild(title);
+        const meta = document.createElement('div');
+        meta.className = 'detail-item-meta';
+        meta.textContent = action.publishedAt ? formatShortDate(action.publishedAt) : '';
+        row.appendChild(meta);
+        list.appendChild(row);
+      });
+      section.appendChild(list);
+      elements.detailBody.appendChild(section);
+    }
+    if (isCongressItem(item)) {
+      const congressSection = document.createElement('div');
+      congressSection.className = 'detail-section detail-congress';
+      const status = document.createElement('div');
+      status.className = 'detail-related-status';
+      status.textContent = 'Loading Congress.gov details…';
+      congressSection.appendChild(status);
+      elements.detailBody.appendChild(congressSection);
+      hydrateCongressDetails(item, congressSection);
+    }
+    if (isFederalRegisterItem(item)) {
+      const frSection = document.createElement('div');
+      frSection.className = 'detail-section detail-federal-register';
+      const status = document.createElement('div');
+      status.className = 'detail-related-status';
+      status.textContent = 'Loading public comment details…';
+      frSection.appendChild(status);
+      elements.detailBody.appendChild(frSection);
+      hydrateFederalRegisterDetails(item, frSection);
+    }
+    if (isGovinfoItem(item)) {
+      const govinfoSection = document.createElement('div');
+      govinfoSection.className = 'detail-section detail-govinfo';
+      const status = document.createElement('div');
+      status.className = 'detail-related-status';
+      status.textContent = 'Loading GovInfo details…';
+      govinfoSection.appendChild(status);
+      elements.detailBody.appendChild(govinfoSection);
+      hydrateGovinfoDetails(item, govinfoSection);
+    }
+    elements.detailBody.appendChild(buildRelatedSignalsSection(item));
+    const detailUrl = item.externalUrl || item.fallbackUrl;
+    if (detailUrl) {
+      const actions = document.createElement('div');
+      actions.className = 'detail-actions';
+      const link = document.createElement('a');
+      link.className = 'btn primary';
+      link.href = detailUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = item.detailLinkLabel || (item.source ? `Open on ${item.source}` : 'Open record');
+      actions.appendChild(link);
+      elements.detailBody.appendChild(actions);
+    }
+  }
+  toggleDetailModal(true);
+}
+
+function closeDetailModal() {
+  toggleDetailModal(false);
+}
+
+function setNavOpen(open) {
+  if (!elements.app) return;
+  elements.app.classList.toggle('nav-open', open);
+  if (elements.navToggle) {
+    elements.navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function setHealth(text) {
+  state.health = text;
+  elements.healthValue.textContent = text;
+  if (elements.statusText) {
+    elements.statusText.textContent = text === 'Healthy' ? 'Live' : text;
+  }
+}
+
+function setRefreshing(isRefreshing) {
+  if (!elements.refreshNow) return;
+  state.refreshing = isRefreshing;
+  elements.refreshNow.disabled = isRefreshing;
+  elements.refreshNow.textContent = isRefreshing ? 'Refreshing...' : 'Refresh Now';
+  if (elements.mapEmpty) {
+    elements.mapEmpty.textContent = isRefreshing ? 'Fetching geo signals…' : 'No geo signals yet.';
+  }
+}
+
+function buildFeedOptions() {
+  elements.feedScope.innerHTML = '';
+  const all = document.createElement('option');
+  all.value = 'all';
+  all.textContent = 'All Sources';
+  elements.feedScope.appendChild(all);
+
+  const categories = Array.from(new Set(state.feeds.map((feed) => feed.category).filter(Boolean)));
+  const sortedCategories = [
+    ...CATEGORY_ORDER.filter((cat) => categories.includes(cat)),
+    ...categories.filter((cat) => !CATEGORY_ORDER.includes(cat))
+  ];
+
+  if (elements.categoryFilters) {
+    elements.categoryFilters.innerHTML = '';
+    sortedCategories.forEach((category) => {
+      const chip = document.createElement('button');
+      chip.className = 'chip chip-toggle';
+      chip.type = 'button';
+      chip.dataset.category = category;
+      chip.textContent = CATEGORY_LABELS[category] || category;
+      chip.addEventListener('click', () => {
+        const selected = state.searchCategories.includes(category);
+        if (selected) {
+          state.searchCategories = state.searchCategories.filter((entry) => entry !== category);
+        } else {
+          state.searchCategories = [...state.searchCategories, category];
+        }
+        updateCategoryFilters();
+      });
+      elements.categoryFilters.appendChild(chip);
+    });
+  }
+
+  const categoryGroup = document.createElement('optgroup');
+  categoryGroup.label = 'Categories';
+  sortedCategories.forEach((category) => {
+    const option = document.createElement('option');
+    option.value = `cat:${category}`;
+    option.textContent = `All ${CATEGORY_LABELS[category] || category}`;
+    categoryGroup.appendChild(option);
+  });
+  elements.feedScope.appendChild(categoryGroup);
+
+  sortedCategories.forEach((category) => {
+    const group = document.createElement('optgroup');
+    group.label = `${CATEGORY_LABELS[category] || category} Feeds`;
+    state.feeds
+      .filter((feed) => feed.category === category)
+      .forEach((feed) => {
+        const option = document.createElement('option');
+        option.value = feed.id;
+        option.textContent = feed.name;
+        group.appendChild(option);
+      });
+    elements.feedScope.appendChild(group);
+  });
+
+  updateCategoryFilters();
+  updateStateSignalFilterOptions();
+}
+
+function updateCategoryFilters() {
+  if (!elements.categoryFilters) return;
+  const selected = new Set(state.searchCategories);
+  [...elements.categoryFilters.querySelectorAll('.chip-toggle')].forEach((chip) => {
+    chip.classList.toggle('active', selected.has(chip.dataset.category));
+  });
+  if (selected.size) {
+    elements.feedScope.value = 'all';
+  }
+}
+
+function populateCustomFeedCategories() {
+  if (!elements.customFeedCategory) return;
+  elements.customFeedCategory.innerHTML = '';
+  CATEGORY_ORDER.forEach((category) => {
+    const option = document.createElement('option');
+    option.value = category;
+    option.textContent = CATEGORY_LABELS[category] || category;
+    elements.customFeedCategory.appendChild(option);
+  });
+}
+
+function toggleCustomFeedForm(open) {
+  if (!elements.customFeedForm) return;
+  elements.customFeedForm.classList.toggle('hidden', !open);
+  elements.customFeedForm.setAttribute('aria-hidden', open ? 'false' : 'true');
+  if (!open) {
+    editingCustomFeedId = null;
+  }
+}
+
+function toggleCustomFeedJsonPanel(open) {
+  if (!elements.customFeedJsonPanel) return;
+  elements.customFeedJsonPanel.classList.toggle('hidden', !open);
+  elements.customFeedJsonPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+}
+
+function sanitizeCustomFeedObject(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const name = String(raw.name || '').trim();
+  const url = String(raw.url || '').trim();
+  if (!name || !url || !/^https?:\/\//i.test(url)) return null;
+  const category = raw.category || 'news';
+  const format = raw.format || 'rss';
+  const proxy = raw.proxy || '';
+  const tags = Array.isArray(raw.tags) ? raw.tags.filter(Boolean) : [];
+  const supportsQuery = Boolean(raw.supportsQuery);
+  const defaultQuery = supportsQuery ? String(raw.defaultQuery || '') : '';
+  const requiresKey = Boolean(raw.requiresKey);
+  const keyParam = requiresKey ? String(raw.keyParam || 'api_key') : undefined;
+  const keyHeader = requiresKey ? String(raw.keyHeader || '') : undefined;
+  const ttlMinutes = Number.isFinite(Number(raw.ttlMinutes)) ? Number(raw.ttlMinutes) : 60;
+  const id = raw.id || hashString(`${name}:${url}`);
+  return {
+    id,
+    name,
+    url,
+    category,
+    format,
+    proxy: proxy || undefined,
+    tags,
+    supportsQuery,
+    defaultQuery,
+    requiresKey,
+    keyParam,
+    keyHeader,
+    ttlMinutes,
+    isCustom: true,
+    keySource: 'client'
+  };
+}
+
+function exportCustomFeedsJson() {
+  if (!elements.customFeedJson) return;
+  const payload = state.customFeeds.map((feed) => ({
+    id: feed.id,
+    name: feed.name,
+    url: feed.url,
+    category: feed.category,
+    format: feed.format,
+    proxy: feed.proxy,
+    tags: feed.tags,
+    supportsQuery: feed.supportsQuery,
+    defaultQuery: feed.defaultQuery,
+    requiresKey: feed.requiresKey,
+    keyParam: feed.keyParam,
+    keyHeader: feed.keyHeader,
+    ttlMinutes: feed.ttlMinutes
+  }));
+  elements.customFeedJson.value = JSON.stringify(payload, null, 2);
+  toggleCustomFeedJsonPanel(true);
+  if (elements.customFeedJsonStatus) {
+    elements.customFeedJsonStatus.textContent = payload.length ? 'Exported feeds to JSON.' : 'No custom feeds to export.';
+  }
+}
+
+function getCustomFeedsExportString() {
+  const payload = state.customFeeds.map((feed) => ({
+    id: feed.id,
+    name: feed.name,
+    url: feed.url,
+    category: feed.category,
+    format: feed.format,
+    proxy: feed.proxy,
+    tags: feed.tags,
+    supportsQuery: feed.supportsQuery,
+    defaultQuery: feed.defaultQuery,
+    requiresKey: feed.requiresKey,
+    keyParam: feed.keyParam,
+    keyHeader: feed.keyHeader,
+    ttlMinutes: feed.ttlMinutes
+  }));
+  return JSON.stringify(payload, null, 2);
+}
+
+function applyCustomFeedsJson() {
+  if (!elements.customFeedJson) return;
+  const raw = elements.customFeedJson.value.trim();
+  if (!raw) {
+    if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = 'Paste JSON to import feeds.';
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = 'Invalid JSON. Please check the format.';
+    return;
+  }
+  const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed.feeds) ? parsed.feeds : [];
+  if (!list.length) {
+    if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = 'No feeds found in the JSON payload.';
+    return;
+  }
+  const sanitized = list.map(sanitizeCustomFeedObject).filter(Boolean);
+  if (!sanitized.length) {
+    if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = 'No valid feeds found. Check name and URL fields.';
+    return;
+  }
+  const byId = new Map(state.customFeeds.map((feed) => [feed.id, feed]));
+  sanitized.forEach((feed) => {
+    byId.set(feed.id, feed);
+  });
+  state.customFeeds = Array.from(byId.values());
+  saveCustomFeeds();
+  state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
+  buildCustomFeedList();
+  buildFeedOptions();
+  buildKeyManager();
+  refreshAll(true);
+  if (elements.customFeedJsonStatus) elements.customFeedJsonStatus.textContent = `Imported ${sanitized.length} feed${sanitized.length === 1 ? '' : 's'}.`;
+}
+
+function resetCustomFeedForm(feed) {
+  if (!elements.customFeedForm) return;
+  const data = feed || {};
+  elements.customFeedName.value = data.name || '';
+  elements.customFeedUrl.value = data.url || '';
+  elements.customFeedCategory.value = data.category || 'news';
+  elements.customFeedFormat.value = data.format || 'rss';
+  elements.customFeedProxy.value = data.proxy || '';
+  elements.customFeedTags.value = Array.isArray(data.tags) ? data.tags.join(', ') : '';
+  elements.customFeedSupportsQuery.checked = Boolean(data.supportsQuery);
+  elements.customFeedDefaultQuery.value = data.defaultQuery || '';
+  elements.customFeedRequiresKey.checked = Boolean(data.requiresKey);
+  elements.customFeedKeyParam.value = data.keyParam || 'api_key';
+  elements.customFeedKeyHeader.value = data.keyHeader || '';
+  elements.customFeedTtl.value = data.ttlMinutes ? String(data.ttlMinutes) : '';
+  if (elements.customFeedRequiresKey) {
+    const enabled = elements.customFeedRequiresKey.checked;
+    elements.customFeedKeyParam.disabled = !enabled;
+    elements.customFeedKeyHeader.disabled = !enabled;
+  }
+  if (elements.customFeedSupportsQuery) {
+    elements.customFeedDefaultQuery.disabled = !elements.customFeedSupportsQuery.checked;
+  }
+  if (elements.customFeedStatus) {
+    elements.customFeedStatus.textContent = feed ? 'Editing custom feed.' : 'Custom feeds are stored in this browser only.';
+  }
+}
+
+function buildCustomFeedList() {
+  if (!elements.customFeedList) return;
+  elements.customFeedList.innerHTML = '';
+  if (!state.customFeeds.length) {
+    elements.customFeedList.innerHTML = '<div class="settings-note">No custom feeds yet.</div>';
+    return;
+  }
+  state.customFeeds.forEach((feed) => {
+    const row = document.createElement('div');
+    row.className = 'custom-feed-row';
+    const info = document.createElement('div');
+    info.className = 'custom-feed-info';
+    const name = document.createElement('div');
+    name.className = 'custom-feed-name';
+    name.textContent = feed.name || feed.url;
+    const meta = document.createElement('div');
+    meta.className = 'custom-feed-meta';
+    const tags = Array.isArray(feed.tags) && feed.tags.length ? `• ${feed.tags.join(', ')}` : '';
+    meta.textContent = `${feed.category || 'news'} • ${feed.format || 'rss'} ${tags}`.trim();
+    info.appendChild(name);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'custom-feed-actions';
+    const edit = document.createElement('button');
+    edit.className = 'chip';
+    edit.type = 'button';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => {
+      editingCustomFeedId = feed.id;
+      resetCustomFeedForm(feed);
+      toggleCustomFeedForm(true);
+    });
+    const remove = document.createElement('button');
+    remove.className = 'chip';
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => {
+      state.customFeeds = state.customFeeds.filter((entry) => entry.id !== feed.id);
+      saveCustomFeeds();
+      state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
+      buildCustomFeedList();
+      buildFeedOptions();
+      buildKeyManager();
+      refreshAll(true);
+    });
+    actions.appendChild(edit);
+    actions.appendChild(remove);
+
+    row.appendChild(info);
+    row.appendChild(actions);
+    elements.customFeedList.appendChild(row);
+  });
+}
+
+function collectCustomFeedForm() {
+  const name = elements.customFeedName.value.trim();
+  const url = elements.customFeedUrl.value.trim();
+  const category = elements.customFeedCategory.value;
+  const format = elements.customFeedFormat.value;
+  const proxy = elements.customFeedProxy.value || '';
+  const tags = elements.customFeedTags.value.split(',').map((tag) => tag.trim()).filter(Boolean);
+  const supportsQuery = elements.customFeedSupportsQuery.checked;
+  const defaultQuery = elements.customFeedDefaultQuery.value.trim();
+  const requiresKey = elements.customFeedRequiresKey.checked;
+  const keyParam = elements.customFeedKeyParam.value.trim() || 'api_key';
+  const keyHeader = elements.customFeedKeyHeader.value.trim();
+  const ttlMinutes = Number(elements.customFeedTtl.value || 60);
+
+  if (!name || !url) {
+    return { error: 'Name and URL are required.' };
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    return { error: 'URL must start with http:// or https://.' };
+  }
+  const feed = {
+    id: editingCustomFeedId,
+    name,
+    url,
+    category,
+    format,
+    proxy: proxy || undefined,
+    tags,
+    supportsQuery,
+    defaultQuery: supportsQuery ? defaultQuery : '',
+    requiresKey,
+    keyParam: requiresKey ? keyParam : undefined,
+    keyHeader: requiresKey ? keyHeader : undefined,
+    ttlMinutes: Number.isFinite(ttlMinutes) ? ttlMinutes : 60,
+    isCustom: true,
+    keySource: 'client'
+  };
+  return { feed };
+}
+
+function updateMapLegendUI() {
+  if (!elements.mapLegend) return;
+  elements.mapLegend.querySelectorAll('input[data-layer]').forEach((input) => {
+    const layer = input.dataset.layer;
+    input.checked = Boolean(state.settings.mapLayers[layer]);
+  });
+  elements.mapLegend.querySelectorAll('input[data-conflict-type]').forEach((input) => {
+    const type = input.dataset.conflictType;
+    const value = state.settings.mapConflictTypes?.[type];
+    input.checked = value !== false;
+  });
+  if (elements.legendOutages) {
+    elements.legendOutages.checked = Boolean(state.settings.mapLayers.outage);
+  }
+  elements.mapLegend.querySelectorAll('input[data-basemap]').forEach((input) => {
+    const basemap = input.dataset.basemap;
+    input.checked = basemap === state.settings.mapBasemap;
+  });
+  elements.mapLegend.querySelectorAll('input[data-overlay]').forEach((input) => {
+    const overlay = input.dataset.overlay;
+    input.checked = Boolean(state.settings.mapRasterOverlays?.[overlay]);
+  });
+  elements.mapLegend.querySelectorAll('input[data-flight-density]').forEach((input) => {
+    input.checked = input.dataset.flightDensity === (state.settings.mapFlightDensity || 'medium');
+  });
+}
+
+function updateMapDateUI() {
+  const imageryDate = state.settings.mapImageryDate || state.imageryDate;
+  const sarDate = state.settings.mapSarDate || state.sarDate;
+  const maxDate = getRecentIsoDate(0);
+  const minDate = '2014-10-01';
+  if (elements.imageryDateInput && imageryDate) {
+    elements.imageryDateInput.min = minDate;
+    elements.imageryDateInput.max = maxDate;
+    elements.imageryDateInput.value = imageryDate;
+  }
+  if (elements.sarDateInput && sarDate) {
+    elements.sarDateInput.min = minDate;
+    elements.sarDateInput.max = maxDate;
+    elements.sarDateInput.value = sarDate;
+  }
+  if (elements.imageryDatePanel && imageryDate) {
+    elements.imageryDatePanel.min = minDate;
+    elements.imageryDatePanel.max = maxDate;
+    elements.imageryDatePanel.value = imageryDate;
+  }
+  if (elements.sarDatePanel && sarDate) {
+    elements.sarDatePanel.min = minDate;
+    elements.sarDatePanel.max = maxDate;
+    elements.sarDatePanel.value = sarDate;
+  }
+  updateImageryPanelUI();
+}
+
+function setOverlayStatus(key, stateValue, message = '') {
+  if (!state.overlayStatus) {
+    state.overlayStatus = {};
+  }
+  state.overlayStatus[key] = { state: stateValue, message };
+  updateOverlayStatusUI();
+}
+
+function formatOverlayStatusLabel(key, entry) {
+  const label = key === 'imagery' ? 'Imagery' : key.toUpperCase();
+  if (!entry) return `${label}: --`;
+  const base = `${label}: ${entry.state || '--'}`;
+  return entry.message ? `${base} — ${entry.message}` : base;
+}
+
+function updateOverlayStatusUI() {
+  const container = elements.imageryStatus;
+  if (!container) return;
+  container.querySelectorAll('[data-imagery-status]').forEach((item) => {
+    const key = item.dataset.imageryStatus;
+    const entry = state.overlayStatus?.[key];
+    item.textContent = formatOverlayStatusLabel(key, entry);
+    item.dataset.state = entry?.state || '';
+  });
+}
+
+function updateLidarMetaUI() {
+  if (!elements.lidarPointMeta) return;
+  const project = state.lidarPointProject || '—';
+  const eptUrl = state.lidarPointEptUrl;
+  const eptState = state.lidarPointEptAvailable ? 'available' : (eptUrl ? 'unavailable' : '—');
+  const lastTelemetry = state.lidarPointTelemetry?.[state.lidarPointTelemetry.length - 1];
+  const overlayStatus = state.overlayStatus?.lidarPoints?.message || '';
+  const telemetryLabel = lastTelemetry?.status
+    ? `${lastTelemetry.status}${lastTelemetry.loadMs ? ` • ${lastTelemetry.loadMs}ms` : ''}`
+    : (overlayStatus || '—');
+  const limits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const perfLabel = limits.useCustom
+    ? `Custom caps: ${limits.pointCap.toLocaleString()} pts • ${limits.radiusKm}km radius • ${limits.maxTilesMobile}/${limits.maxTilesDesktop} tiles`
+    : 'Defaults: 150k pts • 5km radius • 8/16 tiles';
+
+  if (elements.lidarPointProject) elements.lidarPointProject.textContent = project;
+  if (elements.lidarPointEpt) {
+    elements.lidarPointEpt.textContent = eptState;
+    if (eptUrl) {
+      elements.lidarPointEpt.href = eptUrl;
+      elements.lidarPointEpt.setAttribute('aria-disabled', 'false');
+    } else {
+      elements.lidarPointEpt.removeAttribute('href');
+      elements.lidarPointEpt.setAttribute('aria-disabled', 'true');
+    }
+  }
+  if (elements.lidarPointTelemetry) elements.lidarPointTelemetry.textContent = telemetryLabel;
+  if (elements.lidarPointPerfNote) elements.lidarPointPerfNote.textContent = perfLabel;
+  if (elements.lidarPointCustomize) elements.lidarPointCustomize.checked = limits.useCustom;
+  if (elements.lidarPointCap) elements.lidarPointCap.value = String(limits.pointCap);
+  if (elements.lidarPointRadius) elements.lidarPointRadius.value = String(limits.radiusKm);
+  if (elements.lidarPointTilesDesktop) elements.lidarPointTilesDesktop.value = String(limits.maxTilesDesktop);
+  if (elements.lidarPointTilesMobile) elements.lidarPointTilesMobile.value = String(limits.maxTilesMobile);
+  if (elements.lidarPointLimitGrid) {
+    elements.lidarPointLimitGrid.classList.toggle('is-hidden', !limits.useCustom);
+  }
+  if (elements.lidarPointCenter) {
+    elements.lidarPointCenter.disabled = !state.lidarSelectedBounds;
+  }
+  if (elements.lidarPointRefresh) {
+    elements.lidarPointRefresh.disabled = !eptUrl;
+  }
+  if (elements.lidarPointLoad) {
+    elements.lidarPointLoad.disabled = !state.lidarPointEptAvailable;
+  }
+}
+
+function readNumberInput(input, fallback) {
+  if (!input) return fallback;
+  const value = Number(input.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function applyLidarPointLimitSettings() {
+  const current = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const next = {
+    ...current,
+    useCustom: elements.lidarPointCustomize ? Boolean(elements.lidarPointCustomize.checked) : current.useCustom,
+    pointCap: readNumberInput(elements.lidarPointCap, current.pointCap),
+    radiusKm: readNumberInput(elements.lidarPointRadius, current.radiusKm),
+    maxTilesDesktop: readNumberInput(elements.lidarPointTilesDesktop, current.maxTilesDesktop),
+    maxTilesMobile: readNumberInput(elements.lidarPointTilesMobile, current.maxTilesMobile)
+  };
+  state.settings.lidarPointLimits = normalizeLidarPointLimits(next);
+  saveSettings();
+  updateLidarMetaUI();
+}
+
+function getOverlayOpacity(key, fallback = 0.5) {
+  const value = state.settings.mapOverlayOpacity?.[key];
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function updateImageryPanelUI() {
+  document.querySelectorAll('[data-imagery-basemap]').forEach((button) => {
+    const basemap = button.dataset.imageryBasemap;
+    button.classList.toggle('active', basemap === state.settings.mapBasemap);
+  });
+  document.querySelectorAll('[data-imagery-overlay]').forEach((button) => {
+    const overlay = button.dataset.imageryOverlay;
+    button.classList.toggle('active', Boolean(state.settings.mapRasterOverlays?.[overlay]));
+  });
+  document.querySelectorAll('[data-overlay-opacity]').forEach((input) => {
+    const overlay = input.dataset.overlayOpacity;
+    const value = Math.round(getOverlayOpacity(overlay, 0.5) * 100);
+    input.value = value;
+    const label = document.querySelector(`[data-overlay-opacity-value="${overlay}"]`);
+    if (label) label.textContent = `${value}%`;
+  });
+  updateOverlayStatusUI();
+  updateLidarMetaUI();
+}
+
+function isServerManagedKey(feed) {
+  return feed?.keySource === 'server';
+}
+
+function getKeyFeeds() {
+  const keyFeeds = state.feeds
+    .filter((feed) => !isServerManagedKey(feed))
+    .filter((feed) => feed.requiresKey || feed.keyParam || feed.keyHeader || (feed.tags || []).includes('key'))
+    .map((feed) => ({ ...feed, docsUrl: feed.docsUrl || DOCS_MAP[feed.id] }));
+  if (!keyFeeds.find((feed) => feed.id === 'openai')) {
+    keyFeeds.unshift({
+      id: 'openai',
+      name: 'OpenAI Assistant',
+      category: 'assistant',
+      requiresKey: true,
+      docsUrl: DOCS_MAP.openai
+    });
+  }
+  return keyFeeds;
+}
+
+function getKeyConfig(feed) {
+  if (isServerManagedKey(feed)) {
+    return { key: '', keyParam: '', keyHeader: '', groupId: feed.keyGroup || null, fromGroup: false, serverManaged: true };
+  }
+  const localConfig = state.keys[feed.id] || {};
+  const groupId = feed.keyGroup;
+  const groupConfig = groupId ? state.keyGroups[groupId] || {} : {};
+  const key = groupConfig.key || localConfig.key;
+  const keyParam = feed.lockKeyParam ? feed.keyParam : (localConfig.keyParam || feed.keyParam);
+  const keyHeader = feed.lockKeyHeader ? feed.keyHeader : (localConfig.keyHeader || feed.keyHeader);
+  return { key, keyParam, keyHeader, groupId, fromGroup: Boolean(groupConfig.key) };
+}
+
+function buildKeyManager(filterCategory) {
+  state.keyFilter = filterCategory || state.keyFilter;
+  const keyFeeds = getKeyFeeds();
+  const filter = state.keyFilter;
+  const filterList = filter ? (PANEL_KEY_FILTERS[filter] || [filter]) : null;
+  let displayFeeds = filterList ? keyFeeds.filter((feed) => filterList.includes(feed.category)) : keyFeeds;
+  if (filter && !displayFeeds.length) {
+    displayFeeds = keyFeeds;
+  }
+  const toSafeId = (value) => String(value || '').replace(/[^a-zA-Z0-9_-]/g, '-');
+
+  elements.keyManager.innerHTML = '';
+  const header = document.createElement('div');
+  header.className = 'key-manager-header';
+  const title = document.createElement('div');
+  title.textContent = filter ? `API Keys - ${filter.toUpperCase()}` : 'API Keys';
+  const actions = document.createElement('div');
+  actions.className = 'key-manager-actions';
+  if (filter) {
+    const reset = document.createElement('button');
+    reset.className = 'chip';
+    reset.textContent = 'Show All';
+    reset.addEventListener('click', () => {
+      state.keyFilter = null;
+      buildKeyManager();
+    });
+    actions.appendChild(reset);
+  }
+  header.appendChild(title);
+  header.appendChild(actions);
+  elements.keyManager.appendChild(header);
+
+  if (isStaticMode()) {
+    const note = document.createElement('div');
+    note.className = 'settings-note';
+    note.textContent = state.settings.superMonitor
+      ? 'Super Monitor Mode is active. Live fetches run for keyless feeds, plus custom feeds with browser keys. OpenAI uses the proxy by default (optional BYO key).'
+      : 'Static mode is active. Feeds load from the published cache. Optional: enable Super Monitor Mode to pull live keyless feeds (proxy required for OpenAI).';
+    elements.keyManager.appendChild(note);
+    if (!state.settings.superMonitor) {
+      displayFeeds = displayFeeds.filter((feed) => feed.id === 'openai');
+    }
+  }
+
+  const serverManaged = state.feeds.filter((feed) => isServerManagedKey(feed));
+  if (serverManaged.length) {
+    const note = document.createElement('div');
+    note.className = 'settings-note';
+    note.textContent = 'Server-managed keys: DATA_GOV, EIA, NASA_FIRMS, OPEN_AQ. Configure in the proxy.';
+    elements.keyManager.appendChild(note);
+  }
+
+  const groupIds = [...new Set(displayFeeds.map((feed) => feed.keyGroup).filter(Boolean))];
+  if (groupIds.length) {
+    const section = document.createElement('div');
+    section.className = 'key-group-section';
+    const groupTitle = document.createElement('div');
+    groupTitle.className = 'key-group-title';
+    groupTitle.textContent = 'Shared Keys';
+    section.appendChild(groupTitle);
+
+    groupIds.forEach((groupId) => {
+      const groupRow = document.createElement('div');
+      groupRow.className = 'key-row key-group-row';
+      const head = document.createElement('div');
+      head.className = 'key-row-head';
+      const name = document.createElement('div');
+      name.className = 'list-title';
+      name.textContent = KEY_GROUP_LABELS[groupId] || groupId;
+      const meta = document.createElement('div');
+      meta.className = 'key-group-meta';
+      const groupFeeds = displayFeeds.filter((feed) => feed.keyGroup === groupId);
+      const groupFeedNames = groupFeeds.map((feed) => feed.name);
+      const groupFeedIds = groupFeeds.map((feed) => feed.id);
+      meta.textContent = `Applies to: ${groupFeedNames.join(', ')}`;
+      head.appendChild(name);
+      head.appendChild(meta);
+
+      const keyLabel = document.createElement('label');
+      keyLabel.textContent = 'API Key';
+      const keyInput = document.createElement('input');
+      keyInput.type = 'password';
+      keyInput.id = `key-group-${toSafeId(groupId)}`;
+      keyInput.name = keyInput.id;
+      keyInput.autocomplete = 'new-password';
+      keyLabel.setAttribute('for', keyInput.id);
+      keyInput.placeholder = 'Paste shared key';
+      keyInput.value = state.keyGroups[groupId]?.key || '';
+      keyInput.addEventListener('input', () => {
+        const trimmed = keyInput.value.trim();
+        state.keyGroups[groupId] = { ...(state.keyGroups[groupId] || {}), key: trimmed };
+        groupFeedIds.forEach((feedId) => {
+          state.keyStatus[feedId] = 'untested';
+        });
+        saveKeyGroups();
+        saveKeyStatus();
+        state.energyMapData = null;
+        state.energyMapFetchedAt = 0;
+        renderEnergyNews();
+        renderEnergyMap();
+        document.querySelectorAll(`.key-row[data-feed]`).forEach((row) => {
+          const feedId = row.dataset.feed;
+          const feed = displayFeeds.find((candidate) => candidate.id === feedId);
+          if (feed?.keyGroup === groupId) {
+            const input = row.querySelector('input[type="password"], input[type="text"]');
+            if (input) input.value = keyInput.value;
+            const status = row.querySelector('.key-status');
+            if (status) {
+              status.className = 'key-status untested';
+              status.textContent = 'untested';
+            }
+          }
+        });
+      });
+
+      const showToggle = document.createElement('button');
+      showToggle.className = 'chip';
+      showToggle.textContent = 'Show';
+      showToggle.addEventListener('click', () => {
+        keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
+        showToggle.textContent = keyInput.type === 'password' ? 'Show' : 'Hide';
+      });
+
+      const inputRow = document.createElement('div');
+      inputRow.className = 'key-row-input';
+      const userInput = document.createElement('input');
+      userInput.type = 'text';
+      userInput.className = 'sr-only';
+      userInput.autocomplete = 'username';
+      userInput.name = `user-${keyInput.id}`;
+      userInput.id = `user-${keyInput.id}`;
+      userInput.tabIndex = -1;
+      userInput.setAttribute('aria-hidden', 'true');
+      inputRow.appendChild(userInput);
+      inputRow.appendChild(keyInput);
+      inputRow.appendChild(showToggle);
+
+      groupRow.appendChild(head);
+      groupRow.appendChild(keyLabel);
+      groupRow.appendChild(inputRow);
+      section.appendChild(groupRow);
+    });
+
+    elements.keyManager.appendChild(section);
+  }
+
+  if (!displayFeeds.length) {
+    elements.keyManager.innerHTML += '<div class="settings-note">No feeds require keys yet.</div>';
+    return;
+  }
+
+  displayFeeds.forEach((feed) => {
+    const row = document.createElement('div');
+    row.className = 'key-row';
+    row.dataset.feed = feed.id;
+
+    const head = document.createElement('div');
+    head.className = 'key-row-head';
+    const name = document.createElement('div');
+    name.textContent = feed.name;
+    name.className = 'list-title';
+
+    const status = document.createElement('span');
+    const statusValue = state.keyStatus[feed.id] || 'untested';
+    status.className = `key-status ${statusValue}`;
+    status.textContent = statusValue;
+
+    const headActions = document.createElement('div');
+    headActions.className = 'key-row-actions';
+    const testBtn = document.createElement('button');
+    testBtn.className = 'chip';
+    testBtn.textContent = 'Test';
+    testBtn.addEventListener('click', () => testFeedKey(feed, status));
+    headActions.appendChild(testBtn);
+
+    if (feed.docsUrl) {
+      const link = document.createElement('a');
+      link.className = 'chip';
+      link.href = feed.docsUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Docs';
+      headActions.appendChild(link);
+    }
+
+    head.appendChild(name);
+    head.appendChild(status);
+    head.appendChild(headActions);
+
+    const keyLabel = document.createElement('label');
+    keyLabel.textContent = 'API Key';
+    const keyInput = document.createElement('input');
+    keyInput.type = 'password';
+    keyInput.id = `key-${toSafeId(feed.id)}`;
+    keyInput.name = keyInput.id;
+    keyInput.autocomplete = 'new-password';
+    keyLabel.setAttribute('for', keyInput.id);
+    const keyConfig = getKeyConfig(feed);
+    const groupLabel = feed.keyGroup ? (KEY_GROUP_LABELS[feed.keyGroup] || feed.keyGroup) : null;
+    keyInput.placeholder = feed.keyGroup ? 'Set in Shared Keys' : 'Paste key';
+    keyInput.value = keyConfig.key || '';
+    keyInput.disabled = Boolean(feed.keyGroup);
+    if (!feed.keyGroup) {
+      keyInput.addEventListener('input', () => {
+        const trimmed = keyInput.value.trim();
+        state.keys[feed.id] = { ...(state.keys[feed.id] || {}), key: trimmed };
+        state.keyStatus[feed.id] = 'untested';
+        saveKeys();
+        saveKeyStatus();
+        status.className = 'key-status untested';
+        status.textContent = 'untested';
+        if (feed.id === 'openai') updateChatStatus();
+        state.energyMapData = null;
+        state.energyMapFetchedAt = 0;
+        renderEnergyNews();
+        renderEnergyMap();
+      });
+    }
+
+    const showToggle = document.createElement('button');
+    showToggle.className = 'chip';
+    showToggle.textContent = 'Show';
+    showToggle.addEventListener('click', () => {
+      keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
+      showToggle.textContent = keyInput.type === 'password' ? 'Show' : 'Hide';
+    });
+
+    const inputRow = document.createElement('div');
+    inputRow.className = 'key-row-input';
+    const userInput = document.createElement('input');
+    userInput.type = 'text';
+    userInput.className = 'sr-only';
+    userInput.autocomplete = 'username';
+    userInput.name = `user-${keyInput.id}`;
+    userInput.id = `user-${keyInput.id}`;
+    userInput.tabIndex = -1;
+    userInput.setAttribute('aria-hidden', 'true');
+    inputRow.appendChild(userInput);
+    inputRow.appendChild(keyInput);
+    inputRow.appendChild(showToggle);
+
+    row.appendChild(head);
+    row.appendChild(keyLabel);
+    row.appendChild(inputRow);
+
+    if (feed.id === 'openai') {
+      const advanced = document.createElement('details');
+      advanced.className = 'advanced-toggle';
+      advanced.open = false;
+      const summary = document.createElement('summary');
+      summary.textContent = 'Advanced';
+      advanced.appendChild(summary);
+
+      const useRow = document.createElement('label');
+      useRow.className = 'toggle-row';
+      const useLabel = document.createElement('span');
+      useLabel.textContent = 'Use my OpenAI key for AI requests';
+      const useInput = document.createElement('input');
+      useInput.type = 'checkbox';
+      useInput.id = 'useOpenAiKey';
+      useInput.name = 'useOpenAiKey';
+      useInput.checked = Boolean(state.settings.useClientOpenAI);
+      useInput.setAttribute('aria-label', 'Use browser OpenAI key for AI requests');
+      useInput.addEventListener('change', () => {
+        state.settings.useClientOpenAI = useInput.checked;
+        saveSettings();
+        updateChatStatus();
+        maybeAutoRunAnalysis();
+        if (useInput.checked) {
+          advanced.open = true;
+        }
+      });
+      useRow.appendChild(useLabel);
+      useRow.appendChild(useInput);
+      advanced.appendChild(useRow);
+
+      const helper = document.createElement('div');
+      helper.className = 'settings-note';
+      helper.textContent = 'When off, AI uses the server key. When on, your key is passed to the proxy.';
+      advanced.appendChild(helper);
+      row.appendChild(advanced);
+    }
+
+    if (feed.id !== 'openai') {
+      const paramLabel = document.createElement('label');
+      paramLabel.textContent = 'Key Param (query string)';
+      const paramInput = document.createElement('input');
+      paramInput.id = `key-param-${toSafeId(feed.id)}`;
+      paramInput.name = paramInput.id;
+      paramLabel.setAttribute('for', paramInput.id);
+      paramInput.placeholder = feed.keyParam || 'api_key';
+      paramInput.value = feed.lockKeyParam ? (feed.keyParam || '') : (state.keys[feed.id]?.keyParam || feed.keyParam || '');
+      if (feed.lockKeyParam) {
+        paramInput.disabled = true;
+      } else {
+        paramInput.addEventListener('input', () => {
+          state.keys[feed.id] = { ...(state.keys[feed.id] || {}), keyParam: paramInput.value };
+          saveKeys();
+        });
+      }
+
+      const headerLabel = document.createElement('label');
+      headerLabel.textContent = 'Key Header (optional)';
+      const headerInput = document.createElement('input');
+      headerInput.id = `key-header-${toSafeId(feed.id)}`;
+      headerInput.name = headerInput.id;
+      headerLabel.setAttribute('for', headerInput.id);
+      headerInput.placeholder = feed.keyHeader || 'X-API-Key';
+      headerInput.value = feed.lockKeyHeader ? (feed.keyHeader || '') : (state.keys[feed.id]?.keyHeader || feed.keyHeader || '');
+      if (feed.lockKeyHeader) {
+        headerInput.disabled = true;
+      } else {
+        headerInput.addEventListener('input', () => {
+          state.keys[feed.id] = { ...(state.keys[feed.id] || {}), keyHeader: headerInput.value };
+          saveKeys();
+        });
+      }
+
+      row.appendChild(paramLabel);
+      row.appendChild(paramInput);
+      row.appendChild(headerLabel);
+      row.appendChild(headerInput);
+      if (feed.keyGroup) {
+        const helper = document.createElement('div');
+        helper.className = 'settings-note';
+        helper.textContent = `Uses shared key: ${groupLabel}`;
+        row.appendChild(helper);
+      }
+      if (feed.lockKeyParam || feed.lockKeyHeader) {
+        const helper = document.createElement('div');
+        helper.className = 'settings-note';
+        helper.textContent = 'Key parameters are fixed for this API.';
+        row.appendChild(helper);
+      }
+    } else {
+      const helper = document.createElement('div');
+      helper.className = 'settings-note';
+      helper.textContent = 'Used for chat, AI briefings, and query translation.';
+      row.appendChild(helper);
+    }
+
+    elements.keyManager.appendChild(row);
+  });
+}
+
+function setKeyStatus(feedId, status, statusEl, message) {
+  state.keyStatus[feedId] = status;
+  saveKeyStatus();
+  if (statusEl) {
+    statusEl.className = `key-status ${status}`;
+    statusEl.textContent = status;
+    if (message) {
+      statusEl.title = message;
+    } else {
+      statusEl.removeAttribute('title');
+    }
+  }
+}
+
+function deriveKeyStatus(payload) {
+  if (!payload) return 'error';
+  if (payload.error === 'requires_key') return 'missing';
+  if (payload.httpStatus >= 200 && payload.httpStatus < 300) return 'ok';
+  if (payload.httpStatus === 401 || payload.httpStatus === 403) return 'invalid';
+  if (payload.httpStatus === 429) return 'rate_limited';
+  return 'error';
+}
+
+function getClientOpenAiKey() {
+  const key = (state.keys.openai?.key || '').trim();
+  if (!key) return '';
+  return state.settings.useClientOpenAI ? key : '';
+}
+
+function hasAssistantAccess() {
+  if (getOpenAiProxy()) return true;
+  if (isStaticMode()) return false;
+  return true;
+}
+
+function normalizeOpenAIError(err) {
+  const message = (err?.message || '').toString();
+  const lower = message.toLowerCase();
+  if (lower.includes('assistant_unavailable')) {
+    return { status: 'error', message: 'AI requires a proxy on GitHub Pages.' };
+  }
+  if (lower.includes('missing_api_key') || lower.includes('provide an openai api key')) {
+    return { status: 'missing', message: 'Add an OpenAI API key in Settings.' };
+  }
+  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('cors')) {
+    return {
+      status: 'error',
+      message: 'Browser blocked the request (CORS). Key saved; use a proxy for live chat.'
+    };
+  }
+  if ((lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) && !isStaticMode()) {
+    return { status: 'invalid', message: message || 'Invalid API key' };
+  }
+  if (lower.includes('invalid') || lower.includes('unauthorized') || lower.includes('401')) {
+    return { status: 'error', message: 'OpenAI request blocked on static hosting. Use a proxy for live chat.' };
+  }
+  if (lower.includes('rate') || lower.includes('429')) {
+    return { status: 'rate_limited', message: message || 'Rate limited' };
+  }
+  return { status: 'error', message: message || 'OpenAI error' };
+}
+
+async function testFeedKey(feed, statusEl) {
+  const keyConfig = getKeyConfig(feed);
+  if (feed.id === 'openai' && keyConfig.key) {
+    keyConfig.key = keyConfig.key.trim();
+  }
+  const proxyUrl = getOpenAiProxy();
+  if (!keyConfig.key) {
+    if (feed.id === 'openai' && proxyUrl) {
+      setKeyStatus(feed.id, 'ok', statusEl, 'Using server key');
+      return;
+    }
+    setKeyStatus(feed.id, 'missing', statusEl, 'Missing API key');
+    return;
+  }
+  setKeyStatus(feed.id, 'testing', statusEl, 'Testing key...');
+
+  if (feed.id === 'openai') {
+    if (proxyUrl && !state.settings.useClientOpenAI) {
+      setKeyStatus(feed.id, 'ok', statusEl, 'Using server key');
+      return;
+    }
+    if (isStaticMode() && !getOpenAiProxy()) {
+      if (!state.settings.superMonitor) {
+        setKeyStatus(feed.id, 'missing', statusEl, 'Enable Super Monitor Mode to test.');
+        return;
+      }
+      setKeyStatus(feed.id, 'ok', statusEl, 'Key saved. Static hosting cannot validate without a proxy.');
+      return;
+    }
+    try {
+      const result = await callAssistant({
+        messages: [{ role: 'user', content: 'ping' }],
+        context: { mode: 'key-test' },
+        temperature: 0
+      });
+      if (result) {
+        setKeyStatus(feed.id, 'ok', statusEl, 'Key valid');
+      } else {
+        setKeyStatus(feed.id, 'error', statusEl, 'No response');
+      }
+    } catch (err) {
+      const { status, message } = normalizeOpenAIError(err);
+      setKeyStatus(feed.id, status, statusEl, message);
+    }
+    return;
+  }
+
+  try {
+    let payload;
+    let error;
+    if (isStaticMode()) {
+      const params = new URLSearchParams();
+      params.set('id', feed.id);
+      params.set('force', '1');
+      if (feed.supportsQuery && feed.defaultQuery) {
+        params.set('query', feed.defaultQuery);
+      }
+      const result = await apiJson(`/api/feed?${params.toString()}`);
+      payload = result.data;
+      error = result.error;
+    } else {
+      const result = await apiJson('/api/feed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: feed.id,
+          force: true,
+          query: feed.supportsQuery ? feed.defaultQuery : undefined,
+          key: keyConfig.key || undefined,
+          keyParam: keyConfig.keyParam || undefined,
+          keyHeader: keyConfig.keyHeader || undefined
+        })
+      });
+      payload = result.data;
+      error = result.error;
+    }
+    if (error || !payload) {
+      setKeyStatus(feed.id, 'error', statusEl, 'Feed API unreachable');
+      return;
+    }
+    const derived = deriveKeyStatus(payload);
+    const detail = payload.message || payload.error || (payload.httpStatus ? `HTTP ${payload.httpStatus}` : '');
+    setKeyStatus(feed.id, derived, statusEl, detail);
+  } catch (err) {
+    setKeyStatus(feed.id, 'error', statusEl, err.message);
+  }
+}
+
+function attachKeyButtons() {
+  return;
+}
+
+function normalizeTitle(title = '') {
+  return title
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token && !STOPWORDS.has(token))
+    .join(' ')
+    .trim();
+}
+
+function canonicalUrl(url) {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach((param) => parsed.searchParams.delete(param));
+    return parsed.toString();
+  } catch (err) {
+    return url;
+  }
+}
+
+function sanitizeSensitiveParams() {
+  try {
+    const url = new URL(window.location.href);
+    const sensitiveParams = ['key', 'api_key', 'apikey', 'openai_key', 'openai', 'x-api-key', 'token', 'access_token'];
+    let changed = false;
+    sensitiveParams.forEach((param) => {
+      if (url.searchParams.has(param)) {
+        url.searchParams.delete(param);
+        changed = true;
+      }
+    });
+    if (changed) {
+      const search = url.searchParams.toString();
+      const nextUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
+      window.history.replaceState({}, document.title, nextUrl);
+    }
+  } catch (err) {
+    // ignore URL parsing errors
+  }
+}
+
+async function updateProxyHealth() {
+  if (!elements.proxyHealth) return;
+  elements.proxyHealth.textContent = 'Feed API: Checking';
+  elements.proxyHealth.classList.remove('ok', 'error');
+  try {
+    const { response, data } = await apiJson('/health', {}, 8000);
+    if (response?.ok && data?.ok) {
+      elements.proxyHealth.textContent = 'Feed API: Healthy';
+      elements.proxyHealth.classList.add('ok');
+      return;
+    }
+    elements.proxyHealth.textContent = 'Feed API: Degraded';
+    elements.proxyHealth.classList.add('error');
+  } catch (err) {
+    elements.proxyHealth.textContent = 'Feed API: Offline';
+    elements.proxyHealth.classList.add('error');
+  }
+}
+
+function dedupeItems(items) {
+  const seen = new Set();
+  const deduped = [];
+  items.forEach((item) => {
+    const key = item._dedupeKey || canonicalUrl(item.url || '') || normalizeTitle(item.title || '');
+    if (!key) {
+      deduped.push(item);
+      return;
+    }
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(item);
+  });
+  return deduped;
+}
+
+function jaccardSimilarity(aTokens, bTokens) {
+  if (!aTokens.size || !bTokens.size) return 0;
+  let intersection = 0;
+  for (const token of aTokens) {
+    if (bTokens.has(token)) intersection += 1;
+  }
+  const union = aTokens.size + bTokens.size - intersection;
+  return union ? intersection / union : 0;
+}
+
+function clusterNews(items) {
+  const clusters = [];
+  items.forEach((item) => {
+    const urlKey = canonicalUrl(item.url);
+    const tokens = new Set(normalizeTitle(item.title).split(' ').filter(Boolean));
+
+    let matched = null;
+    for (const cluster of clusters) {
+      if (urlKey && cluster.urls.has(urlKey)) {
+        matched = cluster;
+        break;
+      }
+      const sim = jaccardSimilarity(tokens, cluster.tokens);
+      if (sim > 0.72) {
+        matched = cluster;
+        break;
+      }
+    }
+
+    if (!matched) {
+      const cluster = {
+        id: `cluster-${clusters.length}-${Date.now()}`,
+        primary: item,
+        items: [item],
+        sources: new Set([item.source]),
+        urls: urlKey ? new Set([urlKey]) : new Set(),
+        tokens,
+        updatedAt: item.publishedAt || Date.now()
+      };
+      clusters.push(cluster);
+    } else {
+      matched.items.push(item);
+      matched.sources.add(item.source);
+      if (urlKey) matched.urls.add(urlKey);
+      if (item.publishedAt && item.publishedAt > matched.updatedAt) {
+        matched.updatedAt = item.publishedAt;
+        matched.primary = item;
+      }
+    }
+  });
+
+  return clusters.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function parseRss(text, feed) {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(text, 'text/xml');
+  const items = [...xml.getElementsByTagName('item')];
+  if (!items.length) {
+    const atomEntries = [...xml.getElementsByTagName('entry')];
+    const entries = atomEntries.length
+      ? atomEntries
+      : (xml.getElementsByTagNameNS ? [...xml.getElementsByTagNameNS('*', 'entry')] : []);
+    return entries.map((entry) => {
+      const title = entry.getElementsByTagName('title')?.[0]?.textContent || 'Untitled';
+      const linkEl = entry.getElementsByTagName('link')?.[0];
+      const link = linkEl?.getAttribute('href') || linkEl?.textContent || '';
+      const published = entry.getElementsByTagName('updated')?.[0]?.textContent
+        || entry.getElementsByTagName('published')?.[0]?.textContent;
+      const summaryEl = entry.getElementsByTagName('summary')?.[0];
+      const rawDesc = summaryEl?.textContent || '';
+      const rawHtml = summaryEl?.innerHTML || '';
+      const normalized = normalizeSummary(rawDesc, rawHtml);
+      return {
+        title,
+        url: link,
+        summary: normalized.summary,
+        summaryHtml: normalized.summaryHtml,
+        publishedAt: published ? Date.parse(published) : Date.now(),
+        source: feed.name,
+        category: feed.category
+      };
+    });
+  }
+  return items.map((item) => {
+    const title = item.getElementsByTagName('title')?.[0]?.textContent || 'Untitled';
+    const link = item.getElementsByTagName('link')?.[0]?.textContent
+      || item.getElementsByTagName('guid')?.[0]?.textContent
+      || '';
+    const dcDate = item.getElementsByTagName('dc:date')?.[0]?.textContent;
+    const published = item.getElementsByTagName('pubDate')?.[0]?.textContent || dcDate;
+    const source = item.getElementsByTagName('source')?.[0]?.textContent || feed.name;
+    let geo = null;
+    const geoPoint = item.getElementsByTagName('georss:point')?.[0]?.textContent;
+    if (geoPoint) {
+      const [lat, lon] = geoPoint.trim().split(/\\s+/).map(Number);
+      if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+        geo = { lat, lon };
+      }
+    } else {
+      const latText = item.getElementsByTagName('geo:lat')?.[0]?.textContent;
+      const lonText = item.getElementsByTagName('geo:long')?.[0]?.textContent;
+      if (latText && lonText) {
+        const lat = Number(latText);
+        const lon = Number(lonText);
+        if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+          geo = { lat, lon };
+        }
+      }
+    }
+    const descEl = item.querySelector('description');
+    const rawDesc = descEl?.textContent || '';
+    const rawHtml = descEl?.innerHTML || '';
+    const normalized = normalizeSummary(rawDesc, rawHtml);
+    return {
+      title,
+      url: link,
+      summary: normalized.summary,
+      summaryHtml: normalized.summaryHtml,
+      publishedAt: published ? Date.parse(published) : Date.now(),
+      source,
+      category: feed.category,
+      geo
+    };
+  });
+}
+
+function looksLikeHtmlDocument(text = '') {
+  const sample = String(text || '').slice(0, 2048).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<!doctype html')
+    || sample.startsWith('<html')
+    || sample.includes('<html')
+    || sample.includes('<body');
+}
+
+function looksLikeXmlFeed(text = '') {
+  const sample = String(text || '').slice(0, 4096).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<?xml')
+    || sample.includes('<rss')
+    || sample.includes('<feed')
+    || sample.includes('<rdf:rdf');
+}
+
+function isLikelyRssPayload(contentType = '', body = '') {
+  const normalizedType = String(contentType || '').toLowerCase();
+  const xmlType = normalizedType.includes('rss')
+    || normalizedType.includes('atom')
+    || normalizedType.includes('xml');
+  if (looksLikeXmlFeed(body)) return true;
+  if (xmlType && !looksLikeHtmlDocument(body)) return true;
+  return false;
+}
+
+function parseJson(text, feed) {
+  try {
+    if (feed.format === 'csv') {
+      if (feedParsers[feed.id]) return feedParsers[feed.id](text, feed);
+      return parseGenericCsv(text, feed);
+    }
+    const data = JSON.parse(text);
+    if (feed.format === 'arcgis') {
+      return parseArcGisGeoJson(data, feed);
+    }
+    if (feedParsers[feed.id]) return feedParsers[feed.id](data, feed);
+    if (feed.isCustom) return parseGenericJsonFeed(data, feed);
+    return [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function parseGenericJsonFeed(data, feed) {
+  const list = Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.entries)
+      ? data.entries
+      : Array.isArray(data?.articles)
+        ? data.articles
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+  return list.slice(0, 20).map((entry) => {
+    if (typeof entry === 'string') {
+      return {
+        title: entry,
+        url: '',
+        summary: '',
+        publishedAt: Date.now(),
+        source: feed.name,
+        category: feed.category
+      };
+    }
+    const title = entry.title || entry.name || entry.headline || 'Untitled';
+    const url = entry.url || entry.link || entry.permalink || '';
+    const summary = entry.summary || entry.description || entry.body || '';
+    const published = entry.publishedAt || entry.pubDate || entry.date || entry.updatedAt;
+    const geo = entry.geo || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null);
+    return {
+      title,
+      url,
+      summary,
+      publishedAt: published ? Date.parse(published) : Date.now(),
+      source: entry.source || feed.name,
+      category: feed.category,
+      geo
+    };
+  });
+}
+
+function parseArcGisGeoJson(data, feed) {
+  const features = Array.isArray(data?.features) ? data.features : [];
+  const pickFirst = (obj, keys = []) => {
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null && String(obj[key]).trim() !== '') {
+        return obj[key];
+      }
+    }
+    return null;
+  };
+  const toDate = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') {
+      if (value > 1e12) return value;
+      if (value > 1e9) return value * 1000;
+    }
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+  const inferDate = (props) => {
+    const candidates = [
+      'reported_date', 'report_date', 'reportdate', 'incident_date', 'event_date', 'date', 'datetime',
+      'timestamp', 'time', 'created_date', 'created', 'updated_date', 'updated', 'last_updated', 'last_update',
+      'edit_date', 'start_date', 'end_date'
+    ];
+    const direct = pickFirst(props, candidates);
+    if (direct) return toDate(direct);
+    for (const key of Object.keys(props || {})) {
+      const lower = key.toLowerCase();
+      if (lower.includes('date') || lower.includes('time') || lower.includes('updated')) {
+        const value = toDate(props[key]);
+        if (value) return value;
+      }
+    }
+    return null;
+  };
+  const inferTitle = (props) => pickFirst(props, [
+    'title', 'name', 'incident', 'event', 'type', 'category', 'hazard',
+    'AttackType', 'attacktype', 'attack_type',
+    'summary', 'description'
+  ]) || feed.name;
+  const inferSummary = (props) => pickFirst(props, [
+    'summary', 'description', 'details',
+    'Notes', 'notes', 'comments', 'status_text', 'status_desc', 'headline'
+  ]) || '';
+  const inferAlertType = (props) => pickFirst(props, [
+    'alert_type', 'event', 'type', 'category', 'hazard', 'incident_type',
+    'AttackType', 'attacktype', 'attack_type'
+  ]);
+  const inferSeverity = (props) => pickFirst(props, [
+    'severity', 'sig', 'significance', 'priority', 'status'
+  ]);
+  const inferLocation = (props) => pickFirst(props, [
+    'location', 'loc_desc', 'area_desc', 'place', 'city', 'county', 'state', 'country', 'region'
+  ]);
+
+  const rawLimit = Number(feed?.maxItems);
+  const limit = Number.isFinite(rawLimit) ? rawLimit : 250;
+  const sliced = limit > 0 ? features.slice(0, limit) : features;
+  return sliced.map((feature) => {
+    const props = feature?.properties || feature?.attributes || {};
+    const title = coerceTextValue(inferTitle(props)) || feed.name;
+    const summary = coerceTextValue(inferSummary(props));
+    const publishedAt = inferDate(props) || Date.now();
+    const alertType = inferAlertType(props);
+    const severity = inferSeverity(props);
+    const location = inferLocation(props);
+    const mapOnly = Boolean(feed.mapOnly || feed.tags?.includes('mapOnly'));
+    let geo = geometryToPoint(feature.geometry);
+    if (!geo) {
+      const lat = pickFirst(props, ['latitude', 'lat', 'y']);
+      const lon = pickFirst(props, ['longitude', 'lon', 'x']);
+      if (lat !== null && lon !== null) {
+        const nlat = Number(lat);
+        const nlon = Number(lon);
+        if (!Number.isNaN(nlat) && !Number.isNaN(nlon)) {
+          geo = { lat: nlat, lon: nlon };
+        }
+      }
+    }
+    return {
+      title,
+      url: coerceTextValue(props.url || props.link || ''),
+      summary,
+      publishedAt,
+      source: feed.name,
+      category: feed.category,
+      geo,
+      alertType,
+      severity,
+      location,
+      mapOnly
+    };
+  }).filter((item) => item.geo);
+}
+
+function parseAcledEvents(data, feed) {
+  const list = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data?.response?.data)
+      ? data.response.data
+      : [];
+  if (!list.length) return [];
+  const sample = list[0] || {};
+  const isEventLevel = Boolean(sample.event_id_cnty || sample.event_date || sample.latitude || sample.longitude);
+  if (isEventLevel) {
+    return list.map((event) => {
+      const lat = Number(event.latitude);
+      const lon = Number(event.longitude);
+      const fatalities = Number(event.fatalities);
+      const eventDate = event.event_date || '';
+      const publishedAt = eventDate ? Date.parse(eventDate) : Date.now();
+      const eventType = event.event_type || 'Conflict Event';
+      const subEvent = event.sub_event_type || '';
+      const location = event.location || event.admin2 || event.admin1 || event.country || '';
+      const title = `${eventType}${location ? ` — ${location}` : ''}`;
+      const summaryParts = [];
+      if (subEvent) summaryParts.push(subEvent);
+      if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${fatalities}`);
+      const actors = [event.actor1, event.actor2].filter(Boolean).join(' vs ');
+      if (actors) summaryParts.push(`Actors: ${actors}`);
+      const summary = summaryParts.join(' • ');
+      const conflictKey = (() => {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
+        const roundedLat = Math.round(lat * 5) / 5;
+        const roundedLon = Math.round(lon * 5) / 5;
+        const typeKey = normalizeTitle(eventType || '').slice(0, 24);
+        return `${eventDate || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+      })();
+      return {
+        title,
+        url: '',
+        summary,
+        summaryHtml: summary,
+        publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+        source: event.source || feed.name,
+        category: feed.category,
+        geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null,
+        alertType: eventType,
+        eventType,
+        subEventType: subEvent,
+        hazardType: event.disorder_type || '',
+        severity: Number.isNaN(fatalities) ? '' : `Fatalities ${fatalities}`,
+        location,
+        geoLabel: location,
+        conflictKey,
+        tags: ['conflict', 'security']
+      };
+    });
+  }
+
+  const pickFirst = (obj, keys) => {
+    for (const key of keys) {
+      const value = obj?.[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return value;
+      }
+    }
+    return null;
+  };
+  const pickNumber = (obj, keys) => {
+    const raw = pickFirst(obj, keys);
+    const num = raw === null ? NaN : Number(raw);
+    return Number.isFinite(num) ? num : NaN;
+  };
+  const dateField = pickFirst(sample, ['week', 'week_start', 'week_end', 'event_date', 'date']);
+  const lagWindowMs = 1000 * 60 * 60 * 24 * 30;
+  return list.map((row) => {
+    const lat = pickNumber(row, ['latitude', 'lat', 'centroid_latitude', 'admin1_latitude', 'location_latitude']);
+    const lon = pickNumber(row, ['longitude', 'lon', 'centroid_longitude', 'admin1_longitude', 'location_longitude']);
+    const eventType = pickFirst(row, ['event_type', 'event', 'type']) || pickFirst(row, ['sub_event_type', 'subevent_type']) || 'Conflict';
+    const disorder = pickFirst(row, ['disorder_type', 'disorder']) || '';
+    const subEvent = pickFirst(row, ['sub_event_type', 'subevent_type']) || '';
+    const week = pickFirst(row, ['week', 'week_start', 'week_end', 'event_date', 'date']) || '';
+    const publishedAt = week ? Date.parse(week) : Date.now();
+    const isLagged = Number.isFinite(publishedAt) ? (Date.now() - publishedAt > lagWindowMs) : false;
+    const location = pickFirst(row, ['admin1', 'admin_1', 'region', 'location', 'country']) || '';
+    const country = pickFirst(row, ['country']) || '';
+    const admin1 = pickFirst(row, ['admin1', 'admin_1']) || '';
+    const eventCount = pickNumber(row, ['event_count', 'events', 'event_cnt', 'event_number']);
+    const fatalities = pickNumber(row, ['fatalities', 'fatality', 'fatalities_count']);
+    const exposure = pickNumber(row, ['population_exposure', 'pop_exposure', 'exposure', 'population']);
+    const titleBase = disorder || eventType || 'Conflict';
+    const title = `${titleBase}${admin1 || country ? ` — ${admin1 || country}` : ''}`;
+    const summaryParts = [];
+    if (subEvent && subEvent !== eventType) summaryParts.push(subEvent);
+    if (!Number.isNaN(eventCount)) summaryParts.push(`Events: ${formatNumber(eventCount)}`);
+    if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities: ${formatNumber(fatalities)}`);
+    if (!Number.isNaN(exposure)) summaryParts.push(`Exposure: ${formatNumber(exposure)}`);
+    if (week) summaryParts.push(`Week: ${week}`);
+    const summary = summaryParts.join(' • ');
+    const conflictKey = (() => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
+      const roundedLat = Math.round(lat * 5) / 5;
+      const roundedLon = Math.round(lon * 5) / 5;
+      const typeKey = normalizeTitle(titleBase || '').slice(0, 24);
+      return `${week || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+    })();
+    return {
+      title,
+      url: '',
+      summary,
+      summaryHtml: summary,
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: feed.name,
+      category: isLagged ? 'security-lagged' : feed.category,
+      geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null,
+      alertType: titleBase,
+      eventType: titleBase,
+      subEventType: subEvent,
+      hazardType: disorder,
+      severity: !Number.isNaN(fatalities) ? `Fatalities ${formatNumber(fatalities)}` : '',
+      location: location || admin1 || country,
+      geoLabel: location || admin1 || country,
+      conflictKey,
+      tags: ['conflict', 'security', 'aggregated'].concat(isLagged ? ['lagged'] : [])
+    };
+  }).filter((item) => item.geo);
+}
+
+function parseWarspottingLosses(data, feed) {
+  const list = Array.isArray(data?.losses) ? data.losses : [];
+  const max = Number(feed.limit) || 300;
+  return list.slice(0, max).map((loss) => {
+    const geoRaw = typeof loss.geo === 'string' ? loss.geo : '';
+    let geo = null;
+    if (geoRaw && geoRaw.includes(',')) {
+      const [latRaw, lonRaw] = geoRaw.split(',');
+      const lat = Number(latRaw);
+      const lon = Number(lonRaw);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        geo = { lat, lon };
+      }
+    }
+    const location = loss.nearest_location || '';
+    const status = loss.status || 'Loss';
+    const type = loss.type || 'Equipment';
+    const model = loss.model || '';
+    const unit = loss.unit || '';
+    const tags = loss.tags || '';
+    const summaryParts = [];
+    if (type) summaryParts.push(type);
+    if (model && model !== type) summaryParts.push(model);
+    if (unit) summaryParts.push(`Unit: ${unit}`);
+    if (tags) summaryParts.push(`Tags: ${tags}`);
+    const dateStr = loss.date || '';
+    const publishedAt = dateStr ? Date.parse(dateStr) : Date.now();
+    const titleBase = model || type || 'Equipment Loss';
+    const title = `${status} — ${titleBase}${location ? ` • ${location}` : ''}`;
+    const conflictKey = (() => {
+      if (!geo) return '';
+      const roundedLat = Math.round(geo.lat * 5) / 5;
+      const roundedLon = Math.round(geo.lon * 5) / 5;
+      const typeKey = normalizeTitle(type || '').slice(0, 24);
+      return `${dateStr || ''}:${roundedLat}:${roundedLon}:${typeKey}`;
+    })();
+    return {
+      title,
+      url: 'https://ukr.warspotting.net/',
+      summary: summaryParts.join(' • '),
+      summaryHtml: summaryParts.join(' • '),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: 'Warspotting',
+      category: feed.category,
+      geo,
+      alertType: status,
+      eventType: status,
+      hazardType: type,
+      severity: status,
+      location,
+      geoLabel: location,
+      conflictKey,
+      tags: ['conflict', 'security', 'kinetic']
+    };
+  });
+}
+
+function parseGdeltConflictGeo(data, feed) {
+  const features = Array.isArray(data?.features) ? data.features : [];
+  const extractFirstLink = (html = '') => {
+    const match = html.match(/<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/i);
+    if (!match) return { url: '', text: '' };
+    const text = match[2]?.replace(/<[^>]*>/g, '').replace(/&nbsp;|&amp;|&quot;|&#39;/g, ' ').trim();
+    return { url: match[1] || '', text: text || '' };
+  };
+  const classify = (text = '') => {
+    const t = text.toLowerCase();
+    if (t.includes('battle') || t.includes('armed clash')) return 'battle';
+    if (t.includes('explosion') || t.includes('bomb') || t.includes('airstrike')) return 'explosion';
+    if (t.includes('violence') || t.includes('attack') || t.includes('killed') || t.includes('shot')) return 'violence';
+    if (t.includes('protest') || t.includes('demonstrat')) return 'protest';
+    if (t.includes('riot')) return 'riot';
+    return 'other';
+  };
+  return features.map((feature) => {
+    const props = feature?.properties || {};
+    const geo = geometryToPoint(feature?.geometry);
+    if (!geo) return null;
+    const location = props.name || '';
+    const count = Number(props.count) || 0;
+    const link = extractFirstLink(props.html || '');
+    const eventType = classify(`${location} ${props.html || ''}`);
+    const roundedLat = Math.round(geo.lat * 5) / 5;
+    const roundedLon = Math.round(geo.lon * 5) / 5;
+    const conflictKey = `${eventType}:${roundedLat}:${roundedLon}`;
+    const summaryParts = [];
+    if (count) summaryParts.push(`Mentions ${count}`);
+    if (link.text) summaryParts.push(link.text.slice(0, 120));
+    return {
+      title: `Conflict signal — ${location || 'Unknown location'}`,
+      url: link.url,
+      summary: summaryParts.join(' • '),
+      summaryHtml: summaryParts.join(' • '),
+      publishedAt: Date.now(),
+      source: 'GDELT',
+      category: feed.category,
+      geo,
+      alertType: eventType,
+      eventType,
+      location,
+      geoLabel: location,
+      conflictKey,
+      tags: ['conflict', 'security', 'live']
+    };
+  }).filter(Boolean);
+}
+
+function parseUcdpCandidateEvents(data, feed) {
+  const list = Array.isArray(data?.Result) ? data.Result : [];
+  return list.map((event) => {
+    const lat = Number(event.latitude);
+    const lon = Number(event.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const fatalities = Number(event.best);
+    const eventDate = event.date_start || event.date_end || '';
+    const publishedAt = eventDate ? Date.parse(eventDate) : Date.now();
+    const violenceType = Number(event.type_of_violence);
+    const eventType = violenceType === 1 ? 'battle' : 'violence';
+    const location = event.where_description || event.adm_2 || event.adm_1 || event.country || '';
+    const conflictName = event.conflict_name || 'Conflict Event';
+    const title = `${conflictName}${location ? ` — ${location}` : ''}`;
+    const summaryParts = [];
+    if (event.dyad_name) summaryParts.push(event.dyad_name);
+    if (!Number.isNaN(fatalities)) summaryParts.push(`Fatalities ${fatalities}`);
+    if (event.source_headline) summaryParts.push(event.source_headline);
+    const roundedLat = Math.round(lat * 5) / 5;
+    const roundedLon = Math.round(lon * 5) / 5;
+    const conflictKey = `${eventDate || ''}:${roundedLat}:${roundedLon}:${normalizeTitle(conflictName).slice(0, 24)}`;
+    return {
+      title,
+      url: '',
+      summary: summaryParts.join(' • '),
+      summaryHtml: summaryParts.join(' • '),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: 'UCDP',
+      category: feed.category,
+      geo: { lat, lon },
+      alertType: eventType,
+      eventType,
+      hazardType: event.conflict_name || '',
+      severity: Number.isNaN(fatalities) ? '' : `Fatalities ${fatalities}`,
+      location,
+      geoLabel: location,
+      conflictKey,
+      tags: ['conflict', 'security', 'curated']
+    };
+  }).filter(Boolean);
+}
+
+function parseGenericCsv(text, feed) {
+  const lines = String(text || '').trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
+  return lines.slice(1, 21).map((line) => {
+    const values = line.split(',').map((v) => v.trim());
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = values[idx];
+    });
+    const title = row.title || row.name || row.headline || values[0] || 'Untitled';
+    const url = row.url || row.link || '';
+    const summary = row.summary || row.description || '';
+    const published = row.publishedat || row.date || row.published || '';
+    return {
+      title,
+      url,
+      summary,
+      publishedAt: published ? Date.parse(published) : Date.now(),
+      source: feed.name,
+      category: feed.category
+    };
+  });
+}
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === '"') {
+      const next = text[i + 1];
+      if (inQuotes && next === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      row.push(current);
+      current = '';
+      continue;
+    }
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && text[i + 1] === '\n') {
+        i += 1;
+      }
+      row.push(current);
+      if (row.some((cell) => cell.trim() !== '')) {
+        rows.push(row);
+      }
+      row = [];
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current.length || row.length) {
+    row.push(current);
+    if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+  }
+  return rows;
+}
+
+function extractJurisdictionCode(entry) {
+  const candidates = [
+    entry?.jurisdictionCode,
+    entry?.state,
+    entry?.stateCode,
+    entry?.state_code,
+    entry?.jurisdiction?.id,
+    entry?.jurisdiction?.name,
+    entry?.from_organization?.id,
+    entry?.organization?.id
+  ];
+  for (const value of candidates) {
+    const normalized = normalizeJurisdictionCode(value);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function extractJurisdictionName(entry, code) {
+  const candidates = [
+    entry?.jurisdictionName,
+    entry?.stateName,
+    entry?.state_name,
+    entry?.jurisdiction?.name,
+    entry?.from_organization?.name
+  ];
+  for (const value of candidates) {
+    if (value) return String(value).trim();
+  }
+  if (code) return getStateNameByCode(code);
+  return '';
+}
+
+function extractJurisdictionLevel(entry, jurisdictionCode) {
+  if (jurisdictionCode) return 'state';
+  const rawSignals = [
+    entry?.jurisdictionLevel,
+    entry?.jurisdiction?.classification,
+    entry?.jurisdiction?.id,
+    entry?.jurisdiction?.name,
+    entry?.from_organization?.id,
+    entry?.organization?.id,
+    entry?.organizationClassification
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .filter(Boolean);
+  if (rawSignals.some((value) => value.includes('state:'))) {
+    return 'state';
+  }
+  if (rawSignals.some((value) => value.includes('country:us/government') || value === 'united states')) {
+    return 'federal';
+  }
+  return 'federal';
+}
+
+function parseStateGovernmentItems(data, feed, signalType) {
+  const list = Array.isArray(data?.results)
+    ? data.results
+    : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.bills)
+        ? data.bills
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+  return list.slice(0, 100).map((entry) => {
+    const jurisdictionCode = extractJurisdictionCode(entry);
+    const jurisdictionName = extractJurisdictionName(entry, jurisdictionCode);
+    const jurisdictionLevel = extractJurisdictionLevel(entry, jurisdictionCode);
+    const title = entry.title
+      || entry.identifier
+      || entry.name
+      || `${jurisdictionName || jurisdictionCode || 'State'} ${signalType || 'Signal'}`;
+    const url = entry.openstates_url || entry.url || entry.link || entry.permalink || '';
+    const summary = entry.latest_action_description
+      || entry.abstract
+      || entry.description
+      || entry.summary
+      || '';
+    const published = entry.updated_at
+      || entry.latest_action_date
+      || entry.latest_action_at
+      || entry.first_action_date
+      || entry.publishedAt
+      || entry.date
+      || entry.created_at;
+    const docId = entry.id || entry.identifier || entry.docId || '';
+    const status = entry.latest_action_description || entry.status || '';
+    const agency = entry.from_organization?.name || entry.organization?.name || entry.agency || '';
+    const effectiveDate = entry.effective_date || entry.latest_action_date || '';
+    const parsedPublished = published ? Date.parse(published) : Date.now();
+    const rawTags = Array.isArray(entry.classification)
+      ? entry.classification
+      : Array.isArray(entry.tags)
+        ? entry.tags
+        : (entry.classification ? [entry.classification] : []);
+    const tags = ['us', 'gov', jurisdictionLevel === 'state' ? 'state' : 'federal', signalType, ...(feed.tags || []), ...rawTags]
+      .map((tag) => String(tag || '').trim().toLowerCase())
+      .filter(Boolean);
+    const dedupedTags = Array.from(new Set(tags));
+
+    return {
+      title,
+      url,
+      summary,
+      publishedAt: Number.isNaN(parsedPublished) ? Date.now() : parsedPublished,
+      source: entry.source || feed.name,
+      category: feed.category,
+      jurisdictionLevel,
+      jurisdictionCode,
+      jurisdictionName,
+      signalType,
+      docId: String(docId || ''),
+      status,
+      agency,
+      effectiveDate,
+      tags: dedupedTags
+    };
+  }).filter((item) => item.title);
+}
+
+const parseStateLegislation = (data, feed) => parseStateGovernmentItems(data, feed, 'legislation');
+const parseStateRulemaking = (data, feed) => parseStateGovernmentItems(data, feed, 'rulemaking');
+const parseStateExecutiveOrders = (data, feed) => parseStateGovernmentItems(data, feed, 'executive_order');
+
+const parseFederalRegister = (data, feed) => (data.results || []).map((doc) => {
+  const publishedAt = doc.publication_date ? Date.parse(doc.publication_date) : Date.now();
+  const commentsClose = doc.comments_close_on || null;
+  const effective = doc.effective_on || null;
+  const deadline = commentsClose || effective || null;
+  const detailFields = [
+    { label: 'Document #', value: doc.document_number || '' },
+    { label: 'Type', value: doc.type || '' },
+    { label: 'Published', value: doc.publication_date || '' }
+  ].filter((field) => field.value);
+  if (deadline) {
+    detailFields.push({ label: commentsClose ? 'Comments Close' : 'Effective', value: deadline });
+  }
+  return {
+    title: doc.title,
+    url: doc.html_url,
+    externalUrl: doc.html_url,
+    summary: doc.abstract || doc.type,
+    publishedAt,
+    source: 'Federal Register',
+    category: feed.category,
+    alertType: doc.type,
+    deadline,
+    documentNumber: doc.document_number || '',
+    detailTitle: doc.title,
+    detailFields
+  };
+});
+
+const parseGovinfoCollectionUpdate = (data, feed) => {
+  const packages = Array.isArray(data?.packages) ? data.packages : [];
+  if (!packages.length) return [];
+  return packages.slice(0, 40).map((pkg) => {
+    const packageId = pkg.packageId || pkg.package_id || '';
+    const detailsUrl = packageId ? `https://www.govinfo.gov/app/details/${packageId}` : '';
+    const lastModified = pkg.lastModified || pkg.last_modified || '';
+    const dateIssued = pkg.dateIssued || pkg.date_issued || '';
+    const publishedAt = lastModified
+      ? Date.parse(lastModified)
+      : (dateIssued ? Date.parse(dateIssued) : Date.now());
+    const summaryParts = [
+      pkg.collectionCode ? `Collection: ${pkg.collectionCode}` : '',
+      pkg.docClass ? `Class: ${pkg.docClass}` : '',
+      pkg.congress ? `Congress: ${pkg.congress}` : '',
+      dateIssued ? `Issued: ${dateIssued}` : ''
+    ].filter(Boolean);
+    const detailFields = [
+      { label: 'Package', value: packageId },
+      { label: 'Collection', value: pkg.collectionName || pkg.collectionCode || '' },
+      { label: 'Doc Class', value: pkg.docClass || '' },
+      { label: 'Congress', value: pkg.congress || '' },
+      { label: 'Issued', value: dateIssued || '' },
+      { label: 'Last Modified', value: lastModified || '' }
+    ].filter((field) => field.value);
+    return {
+      title: pkg.title || packageId || 'GovInfo Package',
+      url: detailsUrl,
+      externalUrl: detailsUrl,
+      summary: summaryParts.join(' • '),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: 'GovInfo',
+      category: feed.category,
+      alertType: pkg.docClass || pkg.collectionCode || 'GovInfo',
+      packageId,
+      apiUrl: pkg.packageLink || '',
+      detailTitle: pkg.title || packageId || 'GovInfo Package',
+      detailFields
+    };
+  });
+};
+
+const parseCongressList = (data, feed) => {
+  const isUntitled = (value) => !value || String(value).trim().toLowerCase() === 'untitled';
+  const stripApiKey = (value) => {
+    if (!value) return '';
+    try {
+      const parsed = new URL(value);
+      parsed.searchParams.delete('api_key');
+      return parsed.toString();
+    } catch {
+      return value;
+    }
+  };
+  const formatCodeNumber = (code, number, prefixes = {}) => {
+    if (!code || !number) return '';
+    const upper = String(code).toUpperCase();
+    const prefix = prefixes[upper] || upper;
+    return `${prefix} ${number}`;
+  };
+  const billTitle = (item) => {
+    const billCode = item.type || item.billType || '';
+    const billNumber = item.number || item.billNumber || item.bill?.number || '';
+    const prettyMap = {
+      HR: 'H.R.',
+      S: 'S.',
+      HJRES: 'H.J.Res.',
+      SJRES: 'S.J.Res.',
+      HCONRES: 'H.Con.Res.',
+      SCONRES: 'S.Con.Res.',
+      HRES: 'H.Res.',
+      SRES: 'S.Res.'
+    };
+    return formatCodeNumber(billCode, billNumber, prettyMap);
+  };
+  const amendTitle = (item) => {
+    const amendCode = item.type || '';
+    const amendNumber = item.number || '';
+    const prettyMap = {
+      HAMDT: 'H.Amdt.',
+      SAMDT: 'S.Amdt.'
+    };
+    return formatCodeNumber(amendCode, amendNumber, prettyMap);
+  };
+  const reportTitle = (item) => {
+    const reportCode = item.type || '';
+    const reportNumber = item.number || '';
+    const prettyMap = {
+      HRPT: 'H. Rept.',
+      SRPT: 'S. Rept.',
+      ERPT: 'E. Rept.'
+    };
+    return item.citation || formatCodeNumber(reportCode, reportNumber, prettyMap);
+  };
+  const voteTitle = (item) => {
+    const voteNumber = item.voteNumber || item.rollCall || item.rollCallNumber || item.number;
+    if (!voteNumber) return '';
+    const session = item.session || item.sessionNumber;
+    return session ? `Roll Call ${voteNumber} • Session ${session}` : `Roll Call ${voteNumber}`;
+  };
+  const committeeTitle = (item) => item.name || item.committeeName || item.committee?.name || '';
+  const printTitle = (item) => item.title || item.printTitle || item.name || '';
+  const meetingTitle = (item) => item.meetingTitle || item.title || item.eventTitle || '';
+  const communicationTitle = (item) => item.title || item.description || '';
+  const buildSearchUrl = (query) => `https://www.congress.gov/search?q=${encodeURIComponent(query)}`;
+  const isSearchUrl = (value) => typeof value === 'string' && value.includes('congress.gov/search?');
+  const buildBillUrl = (item) => {
+    const congress = item.congress || item.bill?.congress || item.congressReceived;
+    const billCode = String(item.type || item.billType || '').toUpperCase();
+    const billNumber = item.number || item.billNumber || item.bill?.number;
+    if (!congress || !billCode || !billNumber) return item.url || item.link || '';
+    const typeMap = {
+      HR: 'house-bill',
+      S: 'senate-bill',
+      HJRES: 'house-joint-resolution',
+      SJRES: 'senate-joint-resolution',
+      HCONRES: 'house-concurrent-resolution',
+      SCONRES: 'senate-concurrent-resolution',
+      HRES: 'house-resolution',
+      SRES: 'senate-resolution'
+    };
+    const slug = typeMap[billCode];
+    if (!slug) return item.url || item.link || '';
+    return `https://www.congress.gov/bill/${congress}th-congress/${slug}/${billNumber}`;
+  };
+  const buildAmendmentUrl = (item) => {
+    const congress = item.congress;
+    const amendCode = String(item.type || '').toUpperCase();
+    const amendNumber = item.number;
+    if (!congress || !amendCode || !amendNumber) return item.url || '';
+    const slug = amendCode.startsWith('S') ? 'senate-amendment' : 'house-amendment';
+    return `https://www.congress.gov/amendment/${congress}th-congress/${slug}/${amendNumber}`;
+  };
+  const buildReportUrl = (item) => {
+    const congress = item.congress;
+    const reportCode = String(item.type || '').toUpperCase();
+    const reportNumber = item.number;
+    if (!congress || !reportCode || !reportNumber) return item.url || '';
+    const slug = reportCode.startsWith('S') ? 'senate-report' : 'house-report';
+    return `https://www.congress.gov/congressional-report/${congress}th-congress/${slug}/${reportNumber}`;
+  };
+  const buildHouseVoteUrl = (item) => {
+    const congress = item.congress;
+    const session = item.session || item.sessionNumber;
+    const voteNumber = item.voteNumber || item.rollCall || item.rollCallNumber || item.number;
+    if (congress && session && voteNumber) {
+      return `https://www.congress.gov/roll-call-vote/${congress}th-congress/house-session-${session}/${voteNumber}`;
+    }
+    if (voteNumber) {
+      return buildSearchUrl(`house roll call vote ${voteNumber}`);
+    }
+    return item.url || '';
+  };
+  const buildCommitteeUrl = (item) => {
+    const chamber = (item.chamber || item.committeeChamber || '').toLowerCase();
+    const code = item.committeeCode || item.systemCode || item.committee?.systemCode || '';
+    if (chamber && code) {
+      return `https://www.congress.gov/committee/${chamber}/${code}`;
+    }
+    const name = item.name || item.committeeName || '';
+    return name ? buildSearchUrl(`${name} committee`) : '';
+  };
+  const buildCommitteePrintUrl = (item) => {
+    const jacket = item.jacketNumber || item.number;
+    const congress = item.congress ? `${item.congress}th` : '';
+    return buildSearchUrl(`committee print ${congress} ${jacket || ''}`.trim());
+  };
+  const buildCommitteeMeetingUrl = (item) => {
+    const congress = item.congress;
+    const chamber = (item.chamber || item.committeeChamber || '').toLowerCase();
+    const eventId = item.eventId || item.meetingId || item.event;
+    if (congress && chamber && eventId) {
+      return `https://www.congress.gov/event/${congress}th-congress/${chamber}-event/${eventId}`;
+    }
+    return buildSearchUrl(`committee meeting ${eventId || ''}`.trim());
+  };
+  const buildCommunicationUrl = (item) => {
+    const congress = item.congress;
+    const type = item.communicationType || item.type || '';
+    const number = item.communicationNumber || item.number;
+    const chamber = (item.chamber || item.communicationChamber || '').toLowerCase();
+    if (congress && type && number && chamber) {
+      const prefix = chamber === 'senate' ? 'senate' : 'house';
+      return `https://www.congress.gov/${prefix}-communication/${congress}th-congress/${type}/${number}`;
+    }
+    return buildSearchUrl(`congress communication ${number || ''}`.trim());
+  };
+  const parseNominationId = (item) => {
+    const primary = item?.nomination || {};
+    const number = item.number
+      || item.nominationNumber
+      || primary.number
+      || primary.nominationNumber
+      || primary.nominationId;
+    if (number) return String(number).replace(/^PN/i, '').split('-')[0];
+    const citation = item.citation || primary.citation || '';
+    const match = citation.match(/PN(\d+)(?:-(\d+))?/i);
+    if (match) return match[1];
+    return '';
+  };
+  const normalizeCongressUrl = (value) => {
+    if (!value) return '';
+    try {
+      const url = new URL(value);
+      const normalized = `${url.origin}${url.pathname}`;
+      if (normalized.includes('/event/') && normalized.includes('/text')) {
+        return normalized.split('/text')[0];
+      }
+      return normalized;
+    } catch (err) {
+      return value.split('#')[0].split('?')[0];
+    }
+  };
+  const buildNominationUrl = (item) => {
+    const congress = item.congress;
+    const direct = item.nomination?.url || item.url || item.link || '';
+    if (direct && direct.includes('congress.gov/nomination')) return direct;
+    const citationSource = String(item.citation || item.nomination?.citation || item.title || item.detailTitle || '').toUpperCase();
+    const citationMatch = citationSource.match(/PN\d+(?:-\d+)?/);
+    if (congress && citationMatch) {
+      const base = citationMatch[0].replace(/^PN/i, '').split('-')[0];
+      return `https://www.congress.gov/nomination/${congress}th-congress/${base}`;
+    }
+    const number = item.number || item.nomination?.number || item.nominationNumber;
+    const part = item.partNumber || item.nomination?.partNumber;
+    if (congress && number) {
+      if (part) {
+        const cleanPart = String(part).replace(/^0+/, '');
+        return `https://www.congress.gov/nomination/${congress}th-congress/${number}`;
+      }
+      return `https://www.congress.gov/nomination/${congress}th-congress/${number}`;
+    }
+    if (item.citation) return buildSearchUrl(item.citation);
+    const fallback = item.nomination?.url || item.url || item.link || '';
+    return fallback;
+  };
+  const formatNominationTitle = (item) => {
+    const desc = item.description || '';
+    if (!desc) return '';
+    const [namePart, rest] = desc.split(', of ');
+    const roleSplit = desc.split(' to be ');
+    if (roleSplit.length > 1) {
+      const name = roleSplit[0].replace(/,? of .*/i, '').trim();
+      const role = roleSplit[1].replace(/, vice .*/i, '').trim();
+      if (name && role) return `${name} — ${role}`;
+    }
+    if (namePart && rest) {
+      const role = rest.split(', vice ')[0];
+      if (role) return `${namePart.trim()} — ${role.trim()}`;
+    }
+    return desc;
+  };
+  const formatHearingTitle = (item) => {
+    const explicit = item.hearingTitle || item.meetingTitle || item.title || item.topic;
+    if (explicit && !isUntitled(explicit)) return explicit;
+    const committee = item.committeeName || '';
+    const when = item.date ? formatShortDate(item.date) : '';
+    if (item.number) {
+      return committee ? `${committee} — Hearing ${item.number}` : `Hearing ${item.number}`;
+    }
+    if (item.jacketNumber) {
+      return committee ? `${committee} — Jacket ${item.jacketNumber}` : `Hearing Jacket ${item.jacketNumber}`;
+    }
+    return 'Hearing';
+  };
+  const buildTreatyUrl = (item) => {
+    const congress = item.congressReceived || item.congressConsidered;
+    const number = item.number;
+    if (congress && number) return `https://www.congress.gov/treaty/${congress}th-congress/${number}`;
+    return buildSearchUrl(`treaty ${number || ''}`.trim());
+  };
+  const buildHearingUrl = (item) => {
+    const direct = [item.eventUrl, item.hearingUrl, item.meetingUrl, item.congressUrl, item.url, item.link]
+      .find((value) => typeof value === 'string' && value.includes('congress.gov') && !value.includes('api.congress.gov'));
+    if (direct) return direct;
+    const congress = item.congress;
+    const chamber = (item.chamber || '').toLowerCase();
+    const eventId = item.eventId || item.meetingId || item.event;
+    if (congress && eventId && (chamber === 'house' || chamber === 'senate')) {
+      return `https://www.congress.gov/event/${congress}th-congress/${chamber}-event/${eventId}`;
+    }
+    const jacket = item.jacketNumber;
+    return buildSearchUrl(['hearing', jacket || eventId || '', item.committeeName || ''].filter(Boolean).join(' '));
+  };
+  const buildRecordUrl = (item) => {
+    const links = item.Links || {};
+    const pick = links.FullRecord || links.Digest || links.Senate || links.House || links.Remarks;
+    const pdfUrl = pick?.PDF?.[0]?.Url;
+    if (pdfUrl) return pdfUrl;
+    if (item.PublishDate) return buildSearchUrl(`congressional record ${item.PublishDate}`);
+    return item.url || '';
+  };
+  const pickArray = (value) => {
+    if (!value) return null;
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value.items)) return value.items;
+    if (Array.isArray(value.item)) return value.item;
+    if (Array.isArray(value.bill)) return value.bill;
+    if (Array.isArray(value.amendment)) return value.amendment;
+    if (Array.isArray(value.report)) return value.report;
+    if (Array.isArray(value.hearing)) return value.hearing;
+    if (Array.isArray(value.nomination)) return value.nomination;
+    if (Array.isArray(value.treaty)) return value.treaty;
+    return null;
+  };
+  const list = pickArray(data?.bills)
+    || pickArray(data?.amendments)
+    || pickArray(data?.committeeReports)
+    || pickArray(data?.committeeReport)
+    || pickArray(data?.reports)
+    || pickArray(data?.nominations)
+    || pickArray(data?.treaties)
+    || pickArray(data?.hearings)
+    || pickArray(data?.committeeMeetings)
+    || pickArray(data?.committee)
+    || pickArray(data?.committees)
+    || pickArray(data?.committeePrints)
+    || pickArray(data?.committeePrint)
+    || pickArray(data?.houseVotes)
+    || pickArray(data?.houseVote)
+    || pickArray(data?.houseRollCallVotes)
+    || pickArray(data?.houseCommunications)
+    || pickArray(data?.houseCommunication)
+    || pickArray(data?.senateCommunications)
+    || pickArray(data?.senateCommunication)
+    || pickArray(data?.summaries)
+    || pickArray(data?.congressionalRecord)
+    || pickArray(data?.dailyCongressionalRecord)
+    || pickArray(data?.records)
+    || pickArray(data?.Results?.Issues)
+    || pickArray(data?.results)
+    || [];
+  return list.map((item) => {
+    const number = item.number
+      || item.billNumber
+      || item.amendmentNumber
+      || item.reportNumber
+      || item.voteNumber
+      || item.rollCallNumber
+      || item.communicationNumber
+      || item.jacketNumber
+      || item.nominationNumber
+      || item.treatyNumber
+      || item.citation
+      || item.report?.citation
+      || '';
+    let title = item.title
+      || item.shortTitle
+      || item.name
+      || item.bill?.title
+      || item.report?.title
+      || '';
+    const codeTitle = billTitle(item) || amendTitle(item) || reportTitle(item);
+    const recordTitle = item.PublishDate ? `Congressional Record — ${item.PublishDate}` : '';
+    const label = codeTitle || recordTitle || number;
+    const actionDate = item.latestAction?.actionDate || item.latestAction?.actionDateTime || item.actionDate || item.date;
+    const updateDate = item.updateDate || item.updateDateIncludingText || item.updateDateTime || item.updatedDate;
+    const summaryHtml = item.text || item.summaryText || '';
+    const summaryPlain = summaryHtml ? stripHtml(summaryHtml) : '';
+    const summaryUpdatedAtRaw = item.lastSummaryUpdateDate
+      || item.updateDate
+      || item.updateDateTime
+      || item.updateDateIncludingText
+      || '';
+    const summaryUpdatedAt = summaryUpdatedAtRaw ? Date.parse(summaryUpdatedAtRaw) : null;
+    const summaryActionDesc = item.actionDesc || '';
+    const summaryVersionCode = item.versionCode || '';
+    let publishedAt = actionDate
+      ? Date.parse(actionDate)
+      : (item.PublishDate ? Date.parse(item.PublishDate) : (updateDate ? Date.parse(updateDate) : Date.now()));
+    const actionText = item.latestAction?.text || item.latestAction?.action || item.latestAction?.actionDesc || '';
+    const derivedType = feed.congressType
+      || (item.type && item.type.includes('AMDT') ? 'Amendment' : '')
+      || (item.type && item.type.includes('RPT') ? 'Committee Report' : '')
+      || (item.citation && item.citation.startsWith('PN') ? 'Nomination' : '')
+      || (item.voteNumber || item.rollCall || item.rollCallNumber ? 'House Vote' : '')
+      || (item.committeeCode || item.systemCode || item.committee?.systemCode ? 'Committee' : '')
+      || (item.printTitle || item.jacketNumber ? 'Committee Print' : '')
+      || (item.meetingType || item.eventId ? 'Committee Meeting' : '')
+      || (item.communicationType ? 'Communication' : '')
+      || (item.topic ? 'Treaty' : '')
+      || (item.Links ? 'Congressional Record' : '')
+      || ((item.jacketNumber || item.chamber) ? 'Hearing' : '')
+      || (item.summaryText || item.summary || item.bill?.title ? 'Summary' : '')
+      || 'Bill';
+    if (isUntitled(title) || String(title).toLowerCase().includes('untitled')) {
+      if (derivedType === 'Hearing') {
+        title = formatHearingTitle(item);
+      } else if (derivedType === 'Committee Report') {
+        title = reportTitle(item) || `Committee Report ${number || ''}`.trim();
+      } else if (derivedType === 'Amendment') {
+        title = amendTitle(item) || `Amendment ${number || ''}`.trim();
+      } else if (derivedType === 'House Vote') {
+        title = voteTitle(item) || `House Vote ${number || ''}`.trim();
+      } else if (derivedType === 'Committee') {
+        title = committeeTitle(item) || `Committee ${number || ''}`.trim();
+      } else if (derivedType === 'Committee Print') {
+        title = printTitle(item) || `Committee Print ${number || ''}`.trim();
+      } else if (derivedType === 'Committee Meeting') {
+        title = meetingTitle(item) || `Committee Meeting ${number || ''}`.trim();
+      } else if (derivedType === 'Communication') {
+        title = communicationTitle(item) || `Communication ${number || ''}`.trim();
+      } else if (derivedType === 'Summary') {
+        title = billTitle(item.bill || item) || item.bill?.title || item.summaryTitle || `Summary ${number || ''}`.trim();
+      } else if (derivedType === 'Nomination') {
+        title = formatNominationTitle(item) || item.citation || `Nomination ${number || ''}`.trim();
+      } else if (derivedType === 'Treaty') {
+        title = item.topic ? `${item.topic} Treaty` : `Treaty ${number || ''}`.trim();
+      } else if (derivedType === 'Congressional Record') {
+        title = item.PublishDate ? `Congressional Record ${item.PublishDate}` : 'Congressional Record';
+      } else {
+        title = billTitle(item) || `Bill ${number || ''}`.trim();
+      }
+    }
+    const labelText = label && title && title !== label ? `${label} — ${title}` : (title || label);
+    const displayTitle = labelText || 'Untitled';
+    const summarySource = actionText || item.summary || item.description || item.action || summaryPlain || '';
+    let summary = summarySource;
+    if (derivedType === 'Summary' && summaryPlain) {
+      summary = truncateText(summaryPlain, 360);
+    }
+    if (!summary) {
+      if (derivedType === 'Bill') {
+        const chamber = item.originChamber || item.chamber || '';
+        const label = billTitle(item) || `${item.type || ''} ${item.number || ''}`.trim();
+        summary = [chamber, label, item.latestAction?.actionDate].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Amendment') {
+        summary = item.purpose ? `Purpose: ${item.purpose}` : (amendTitle(item) || 'Amendment');
+      } else if (derivedType === 'House Vote') {
+        const question = item.question || item.voteQuestion || item.title || '';
+        const result = item.result || item.voteResult || item.voteResultText || '';
+        const when = item.voteDate || item.startDate || item.actionDate || item.date || item.updateDate;
+        summary = [question, result, when ? formatShortDate(when) : ''].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Committee') {
+        const chamber = item.chamber || item.committeeChamber || '';
+        const code = item.committeeCode || item.systemCode || item.committee?.systemCode || '';
+        summary = [chamber, code].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Committee Print') {
+        const committee = item.committeeName || item.committee?.name || '';
+        const jacket = item.jacketNumber || item.number || '';
+        summary = [committee, jacket ? `Jacket ${jacket}` : '', item.chamber || ''].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Committee Meeting') {
+        const committee = item.committeeName || item.committee?.name || '';
+        const when = item.date || item.meetingDate || item.startDate;
+        summary = [committee, item.meetingType || '', when ? formatShortDate(when) : ''].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Communication') {
+        const chamber = item.chamber || item.communicationChamber || '';
+        const commType = item.communicationType || item.type || '';
+        const commNumber = item.communicationNumber || item.number || '';
+        summary = [chamber, commType ? commType.toUpperCase() : '', commNumber].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Summary') {
+        const billLabel = billTitle(item.bill || item) || '';
+        const update = summaryUpdatedAtRaw || item.updateDate || item.updateDateTime || item.latestAction?.actionDate;
+        summary = [billLabel, update ? `Updated ${formatShortDate(update)}` : ''].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Committee Report') {
+        const reportLabel = item.citation || reportTitle(item);
+        const part = item.part ? `Part ${item.part}` : '';
+        summary = [item.chamber, reportLabel, part].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Hearing') {
+        const hearingTitle = item.hearingTitle || item.meetingTitle || item.title || '';
+        const hearingNo = item.number ? `Hearing ${item.number}` : '';
+        const jacket = item.jacketNumber ? `Jacket ${item.jacketNumber}` : '';
+        const committee = item.committeeName || '';
+        const when = item.date ? formatShortDate(item.date) : '';
+        summary = [committee, item.chamber, hearingTitle, hearingNo, jacket, when]
+          .filter(Boolean)
+          .join(' • ');
+      } else if (derivedType === 'Nomination') {
+        summary = item.description || (item.organization ? `Organization: ${item.organization}` : 'Nomination');
+      } else if (derivedType === 'Treaty') {
+        const transmitted = item.transmittedDate ? `Transmitted ${formatShortDate(item.transmittedDate)}` : '';
+        summary = [item.topic || 'Treaty', transmitted].filter(Boolean).join(' • ');
+      } else if (derivedType === 'Congressional Record') {
+        const issue = item.Issue ? `Issue ${item.Issue}` : '';
+        const volume = item.Volume ? `Volume ${item.Volume}` : '';
+        const session = item.Session ? `Session ${item.Session}` : '';
+        summary = [issue, volume, session].filter(Boolean).join(' • ');
+      }
+    }
+    if (!summary) {
+      summary = [item.chamber, item.organization, item.topic, item.purpose].filter(Boolean).join(' • ');
+    }
+    if (derivedType === 'Summary' && summaryUpdatedAt) {
+      publishedAt = summaryUpdatedAt;
+    }
+    let apiUrl = stripApiKey((item.url && String(item.url).includes('api.congress.gov'))
+      ? item.url
+      : ((item.link && String(item.link).includes('api.congress.gov')) ? item.link : ''));
+    let url = item.url || item.link || item.links?.self || item.bill?.url || item.report?.url || '';
+    if (item.Links) {
+      url = buildRecordUrl(item);
+    } else if (item.type && (item.type.includes('AMDT') || item.amendmentNumber)) {
+      url = buildAmendmentUrl(item) || url;
+    } else if (item.type && item.type.includes('RPT')) {
+      url = buildReportUrl(item) || url;
+    } else if (derivedType === 'House Vote') {
+      url = buildHouseVoteUrl(item) || url;
+    } else if (derivedType === 'Committee') {
+      url = buildCommitteeUrl(item) || url;
+    } else if (derivedType === 'Committee Print') {
+      url = buildCommitteePrintUrl(item) || url;
+    } else if (derivedType === 'Committee Meeting') {
+      url = buildCommitteeMeetingUrl(item) || url;
+    } else if (derivedType === 'Communication') {
+      url = buildCommunicationUrl(item) || url;
+    } else if (derivedType === 'Summary') {
+      const billUrl = buildBillUrl(item.bill || item);
+      url = billUrl || url;
+      if (!apiUrl && item.bill?.url) {
+        apiUrl = stripApiKey(item.bill.url);
+      }
+    } else if (item.citation && item.citation.startsWith('PN')) {
+      url = buildNominationUrl(item) || url;
+    } else if (item.topic && (item.congressReceived || item.congressConsidered)) {
+      url = buildTreatyUrl(item) || url;
+    } else if (item.jacketNumber || item.chamber) {
+      url = buildHearingUrl(item) || url;
+    } else if (item.type || item.billNumber || item.bill?.number) {
+      url = buildBillUrl(item) || url;
+    }
+    const externalUrl = url && !isSearchUrl(url) ? url : '';
+    const fallbackUrl = url || '';
+    const congressValue = item.congress
+      || item.bill?.congress
+      || item.congressReceived
+      || item.congressConsidered
+      || '';
+    const billTypeValue = item.billType || item.bill?.type || (derivedType === 'Bill' ? item.type : '') || '';
+    const billNumberValue = item.billNumber || item.bill?.number || (derivedType === 'Bill' ? item.number : '') || '';
+    const amendmentTypeValue = derivedType === 'Amendment' ? (item.type || item.amendmentType || '') : '';
+    const amendmentNumberValue = derivedType === 'Amendment' ? (item.number || item.amendmentNumber || '') : '';
+    const voteNumberValue = item.voteNumber || item.rollCall || item.rollCallNumber || (derivedType === 'House Vote' ? item.number : '');
+    const voteSessionValue = item.session || item.sessionNumber || '';
+    const committeeCodeValue = item.committeeCode || item.systemCode || item.committee?.systemCode || '';
+    const committeeChamberValue = item.committeeChamber || item.chamber || item.committee?.chamber || '';
+    const reportTypeValue = item.reportType || (derivedType === 'Committee Report' ? item.type : '') || '';
+    const reportNumberValue = item.reportNumber || (derivedType === 'Committee Report' ? item.number : '') || '';
+    const jacketNumberValue = item.jacketNumber || (derivedType === 'Committee Print' ? item.number : '') || '';
+    const communicationTypeValue = item.communicationType || item.type || '';
+    const communicationNumberValue = item.communicationNumber || (derivedType === 'Communication' ? item.number : '') || '';
+    const communicationChamberValue = item.communicationChamber || item.chamber || '';
+    const detailFields = [];
+    const pushDetail = (label, value) => {
+      if (!value) return;
+      detailFields.push({ label, value: String(value) });
+    };
+    pushDetail('Type', derivedType);
+    pushDetail('Chamber', item.originChamber || item.chamber || item.committeeName);
+    pushDetail('Congress', congressValue ? `${congressValue}th Congress` : '');
+    pushDetail('Number', number);
+    pushDetail('Jacket', item.jacketNumber);
+    pushDetail('Citation', item.citation || item.report?.citation);
+    pushDetail('Committee', item.committeeName || item.committees?.[0]?.name);
+    if (derivedType === 'House Vote') {
+      pushDetail('Session', voteSessionValue);
+      pushDetail('Vote Number', voteNumberValue);
+      pushDetail('Result', item.result || item.voteResult || '');
+      pushDetail('Question', item.question || item.voteQuestion || '');
+    }
+    if (derivedType === 'Committee') {
+      pushDetail('Committee Code', committeeCodeValue);
+      pushDetail('Chamber', committeeChamberValue || item.chamber);
+    }
+    if (derivedType === 'Committee Print') {
+      pushDetail('Chamber', committeeChamberValue || item.chamber);
+      pushDetail('Jacket', jacketNumberValue);
+    }
+    if (derivedType === 'Committee Meeting') {
+      pushDetail('Meeting Type', item.meetingType || item.type);
+      pushDetail('Event ID', item.eventId || item.meetingId || '');
+    }
+    if (derivedType === 'Communication') {
+      pushDetail('Communication Type', communicationTypeValue);
+      pushDetail('Communication Number', communicationNumberValue);
+    }
+    if (derivedType === 'Hearing') {
+      pushDetail('Hearing Title', item.hearingTitle || item.meetingTitle || item.title || item.topic || '');
+      pushDetail('Meeting Type', item.meetingType || item.type);
+      pushDetail('Hearing Date', item.date ? formatShortDate(item.date) : '');
+      pushDetail('Event ID', item.eventId || item.meetingId || '');
+    }
+    pushDetail('Topic', item.topic);
+    pushDetail('Organization', item.organization);
+    if (derivedType === 'Nomination') {
+      const nominee = formatNominationTitle(item);
+      if (nominee) pushDetail('Nominee', nominee);
+    }
+    pushDetail('Latest Action', actionText);
+    pushDetail('Action Date', actionDate ? formatShortDate(actionDate) : '');
+    pushDetail('Updated', updateDate ? formatShortDate(updateDate) : '');
+    pushDetail('Source ID', item.systemCode || item.billId || item.reportId || item.hearingId);
+
+    const nominationId = derivedType === 'Nomination' ? parseNominationId(item) : '';
+    return {
+      title: displayTitle,
+      url: '',
+      externalUrl,
+      fallbackUrl,
+      apiUrl,
+      summary,
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: 'Congress.gov',
+      category: feed.category,
+      alertType: derivedType,
+      detailTitle: displayTitle,
+      detailFields,
+      summaryHtml,
+      summaryUpdatedAt,
+      summaryVersionCode,
+      summaryActionDesc,
+      congress: congressValue,
+      billType: billTypeValue,
+      billNumber: billNumberValue,
+      amendmentType: amendmentTypeValue,
+      amendmentNumber: amendmentNumberValue,
+      voteNumber: voteNumberValue,
+      voteSession: voteSessionValue,
+      committeeCode: committeeCodeValue,
+      committeeChamber: committeeChamberValue,
+      reportType: reportTypeValue,
+      reportNumber: reportNumberValue,
+      jacketNumber: jacketNumberValue,
+      communicationType: communicationTypeValue,
+      communicationNumber: communicationNumberValue,
+      communicationChamber: communicationChamberValue,
+      nominationId,
+      location: item.originChamber
+        || item.committeeName
+        || item.chamber
+        || item.organization
+        || item.latestAction?.actionType
+        || ''
+    };
+  });
+};
+
+const parseEiaSeries = (data, feed) => {
+  const seriesList = Array.isArray(data?.series) ? data.series : [];
+  if (seriesList.length) {
+    const items = seriesList.flatMap((series) => {
+      if (!Array.isArray(series.data) || !series.data.length) return [];
+      const title = series.name || series.series_id || 'EIA Series Update';
+      const units = series.units ? ` ${series.units}` : '';
+      const latest = series.data[0];
+      const prev = series.data[1];
+      const delta = prev ? (Number(latest[1]) - Number(prev[1])) : null;
+      const deltaPct = prev && Number(prev[1]) ? (delta / Number(prev[1])) * 100 : null;
+      return series.data.slice(0, 4).map(([date, value], idx) => {
+        const valueText = value !== null && value !== undefined ? formatNumber(value) : '--';
+        return {
+          title: idx === 0 ? title : `${title} (${date})`,
+          url: series.link || feed.docsUrl || feed.url,
+          summary: `${date || 'Latest'}: ${valueText}${units}`,
+          publishedAt: Date.now() - idx * 3600 * 1000,
+          source: 'EIA',
+          category: feed.category,
+          value: Number(value),
+          unit: series.units || '',
+          delta: idx === 0 ? delta : null,
+          deltaPct: idx === 0 ? deltaPct : null
+        };
+      });
+    });
+    if (items.length) return items;
+  }
+
+  const response = data?.response;
+  if (response && Array.isArray(response.data) && response.data.length) {
+    const title = response.description || response.series_id || data.series_id || 'EIA Series Update';
+    return response.data.slice(0, 4).map((row, idx) => {
+      const period = row.period || row.date || row.timestamp || row.time;
+      let value = row.value ?? row.price ?? row.data;
+      if (value === undefined && row) {
+        const fallbackKey = Object.keys(row).find((key) => !['period', 'date', 'timestamp', 'time', 'series', 'series_id'].includes(key));
+        value = row[fallbackKey];
+      }
+      const valueText = value !== null && value !== undefined ? formatNumber(value) : '--';
+      return {
+        title: idx === 0 ? title : `${title} (${period})`,
+        url: feed.docsUrl || feed.url,
+        summary: `${period || 'Latest'}: ${valueText}`,
+        publishedAt: Date.now() - idx * 3600 * 1000,
+        source: 'EIA',
+        category: feed.category,
+        value: Number(value)
+      };
+    });
+  }
+  return [];
+};
+
+const parsePolymarketMarkets = (data, feed) => {
+  const markets = Array.isArray(data) ? data : (data?.markets || data?.data || []);
+  if (!Array.isArray(markets) || !markets.length) return [];
+  const toNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+  const parseArray = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  const sorted = [...markets].sort((a, b) => {
+    const aVol = toNumber(a.volume24hr ?? a.volume) || 0;
+    const bVol = toNumber(b.volume24hr ?? b.volume) || 0;
+    return bVol - aVol;
+  });
+  return sorted.slice(0, 60).map((market) => {
+    const outcomes = parseArray(market.outcomes);
+    const prices = parseArray(market.outcomePrices);
+    const yesIndex = outcomes.findIndex((entry) => String(entry).toLowerCase() === 'yes');
+    const pickedIndex = yesIndex >= 0 ? yesIndex : 0;
+    const primaryPrice = prices[pickedIndex] !== undefined ? Number(prices[pickedIndex]) : null;
+    const bid = toNumber(market.bestBid);
+    const ask = toNumber(market.bestAsk);
+    const mid = Number.isFinite(bid) && Number.isFinite(ask) ? (bid + ask) / 2 : null;
+    const fallbackPrice = Number.isFinite(mid) ? mid : toNumber(market.lastTradePrice);
+    const price = Number.isFinite(primaryPrice) ? primaryPrice : fallbackPrice;
+    const probability = Number.isFinite(price) ? Math.round(price * 100) : null;
+    const outcomeLabel = outcomes[pickedIndex] || 'Yes';
+    const volume24 = toNumber(market.volume24hr) || toNumber(market.volume24hrClob) || toNumber(market.volume) || 0;
+    const liquidity = toNumber(market.liquidity) || toNumber(market.liquidityClob) || 0;
+    const change24h = toNumber(market.oneDayPriceChange);
+    const metaParts = [];
+    if (probability !== null) metaParts.push(`${outcomeLabel}: ${probability}%`);
+    if (volume24) metaParts.push(`24h Vol ${formatCompactCurrency(volume24)}`);
+    if (liquidity) metaParts.push(`Liq ${formatCompactCurrency(liquidity)}`);
+    const end = market.endDate || market.endDateIso;
+    if (end) metaParts.push(`Ends ${new Date(end).toLocaleDateString('en-US')}`);
+    const updated = market.updatedAt || market.createdAt || market.startDate || market.endDate;
+    return {
+      title: market.question || market.title || 'Polymarket Market',
+      url: market.slug ? `https://polymarket.com/market/${market.slug}` : 'https://polymarket.com/',
+      summary: metaParts.join(' • '),
+      publishedAt: updated ? Date.parse(updated) : Date.now(),
+      source: 'Polymarket',
+      category: feed.category,
+      value: probability !== null ? probability : null,
+      alertType: 'Prediction',
+      volume24,
+      liquidity,
+      probability,
+      outcomeLabel,
+      change24h
+    };
+  });
+};
+
+const parseIncidentNewsCsv = (text, feed) => {
+  if (!text) return [];
+  const rows = parseCsvRows(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (key) => headers.indexOf(key);
+  const get = (row, key) => {
+    const i = idx(key);
+    return i >= 0 ? row[i] : '';
+  };
+  return rows.slice(1, 101).map((row) => {
+    const id = get(row, 'id');
+    const name = get(row, 'name');
+    const location = get(row, 'location');
+    const threat = get(row, 'threat') || 'Oil';
+    const commodity = get(row, 'commodity');
+    const openDate = get(row, 'open_date');
+    const lat = Number(get(row, 'lat'));
+    const lon = Number(get(row, 'lon'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const summaryParts = [];
+    if (threat) summaryParts.push(threat);
+    if (commodity) summaryParts.push(commodity);
+    if (location) summaryParts.push(location);
+    return {
+      title: name || 'Incident',
+      url: id ? `https://incidentnews.noaa.gov/incident/${id}` : 'https://incidentnews.noaa.gov/',
+      summary: summaryParts.join(' • '),
+      publishedAt: openDate ? Date.parse(openDate) : Date.now(),
+      source: 'NOAA IncidentNews',
+      category: feed.category,
+      geo: { lat, lon },
+      alertType: threat || 'Spill',
+      location,
+      severity: threat
+    };
+  }).filter(Boolean);
+};
+
+const parseStooqCsv = (text, feed) => {
+  if (!text) return [];
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim());
+  const values = lines[1].split(',').map((v) => v.trim());
+  if (values.length < headers.length) return [];
+  const row = headers.reduce((acc, key, idx) => {
+    acc[key] = values[idx];
+    return acc;
+  }, {});
+  if (!row.Symbol || !row.Close || row.Close === 'N/D') return [];
+  const value = Number(row.Close);
+  if (!Number.isFinite(value)) return [];
+  const open = Number(row.Open);
+  const deltaPct = Number.isFinite(open) && open ? ((value - open) / open) * 100 : null;
+  return [{
+    title: `${row.Symbol} Price`,
+    url: `https://stooq.com/q/?s=${encodeURIComponent(row.Symbol.toLowerCase())}`,
+    summary: `Close ${formatNumber(value)} | ${row.Date || 'Latest'} ${row.Time || ''}`.trim(),
+    publishedAt: Date.now(),
+    source: 'Stooq',
+    category: feed.category,
+    value,
+    deltaPct,
+    symbol: row.Symbol
+  }];
+};
+
+const feedParsers = {
+  'gdelt-doc': (data, feed) => (data.articles || []).map((article) => ({
+    title: article.title,
+    url: article.url,
+    summary: article.seen || '',
+    publishedAt: article.seendate ? Date.parse(article.seendate) : Date.now(),
+    source: article.domain || article.sourceCountry || feed.name,
+    category: feed.category
+  })),
+  'gdelt-conflict-geo': parseGdeltConflictGeo,
+  'ucdp-candidate-events': parseUcdpCandidateEvents,
+  'state-legislation': parseStateLegislation,
+  'state-rulemaking': parseStateRulemaking,
+  'state-executive-orders': parseStateExecutiveOrders,
+  'federal-register': parseFederalRegister,
+  'federal-register-transport': parseFederalRegister,
+  'govinfo-api': parseGovinfoCollectionUpdate,
+  'congress-api': parseCongressList,
+  'congress-amendments': parseCongressList,
+  'congress-summaries': parseCongressList,
+  'congress-reports': parseCongressList,
+  'congress-hearings': parseCongressList,
+  'congress-nominations': parseCongressList,
+  'congress-treaties': parseCongressList,
+  'congress-record': parseCongressList,
+  'nws-alerts': (data, feed) => (data.features || []).map((feature) => ({
+    title: feature.properties.event,
+    url: feature.properties.uri,
+    summary: feature.properties.headline,
+    publishedAt: Date.parse(feature.properties.sent) || Date.now(),
+    source: 'NWS',
+    category: feed.category,
+    geo: geometryToPoint(feature.geometry),
+    severity: feature.properties.severity,
+    location: feature.properties.areaDesc,
+    alertType: feature.properties.event
+  })),
+  'usgs-quakes-hour': (data, feed) => parseQuakes(data, feed),
+  'usgs-quakes-day': (data, feed) => parseQuakes(data, feed),
+  'eonet-events': (data, feed) => (data.events || []).map((event) => ({
+    title: event.title,
+    url: event.link,
+    summary: event.description || '',
+    publishedAt: event.geometry?.[0]?.date ? Date.parse(event.geometry[0].date) : Date.now(),
+    source: 'NASA EONET',
+    category: feed.category,
+    geo: event.geometry?.[0] ? {
+      lat: event.geometry[0].coordinates[1],
+      lon: event.geometry[0].coordinates[0]
+    } : null
+  })),
+  'swpc-json': (data, feed) => {
+    if (!Array.isArray(data) || !data.length) return [];
+    const entry = data[data.length - 1];
+    const speed = entry.speed ?? entry.vsw ?? entry.VSW;
+    const density = entry.density ?? entry.proton_density ?? entry.DENSITY;
+    const temp = entry.temperature ?? entry.TEMP;
+    const parts = [];
+    if (speed) parts.push(`Speed ${formatNumber(speed)} km/s`);
+    if (density) parts.push(`Density ${formatNumber(density)} p/cm3`);
+    if (temp) parts.push(`Temp ${formatNumber(temp)} K`);
+    return [{
+      title: 'SWPC Solar Wind (1m)',
+      url: 'https://services.swpc.noaa.gov/json/',
+      summary: parts.length ? parts.join(' | ') : 'Solar wind updated.',
+      publishedAt: entry.time_tag ? Date.parse(entry.time_tag) : Date.now(),
+      source: 'NOAA SWPC',
+      category: feed.category,
+      alertType: 'Solar Wind'
+    }];
+  },
+  'swpc-kp': (data, feed) => {
+    if (!Array.isArray(data) || !data.length) return [];
+    const entry = data[data.length - 1];
+    const kp = Number(entry.kp_index ?? entry.kp);
+    if (!Number.isFinite(kp)) return [];
+    let impact = 'Quiet';
+    if (kp >= 5) impact = 'Storm';
+    else if (kp >= 4) impact = 'Active';
+    const severity = `Kp ${kp.toFixed(1)} (${impact})`;
+    return [{
+      title: 'Geomagnetic Kp Index',
+      url: 'https://www.swpc.noaa.gov/products/planetary-k-index',
+      summary: severity,
+      publishedAt: entry.time_tag ? Date.parse(entry.time_tag) : Date.now(),
+      source: 'NOAA SWPC',
+      category: feed.category,
+      severity,
+      alertType: 'Geomagnetic'
+    }];
+  },
+  'energy-eia': parseEiaSeries,
+  'energy-eia-brent': parseEiaSeries,
+  'energy-eia-ng': parseEiaSeries,
+  'acled-events': parseAcledEvents,
+  'warspotting-losses': parseWarspottingLosses,
+  'polymarket-markets': parsePolymarketMarkets,
+  'noaa-incidentnews': parseIncidentNewsCsv,
+  'stooq-quote': parseStooqCsv,
+  'transport-opensky': (data, feed) => {
+    const states = Array.isArray(data?.states) ? data.states : [];
+    if (!states.length) return [];
+    let filtered = states.filter((entry) => Number.isFinite(entry?.[5]) && Number.isFinite(entry?.[6]));
+    const scope = state.settings.scope;
+    if (scope === 'us') {
+      const country = getSelectedCountry();
+      if (country?.bbox) {
+        filtered = filtered.filter((entry) => isInCountryBounds(entry?.[6], entry?.[5], country));
+      }
+    } else if (scope === 'local') {
+      const { lat, lon } = state.location;
+      const radius = state.settings.radiusKm || 200;
+      filtered = filtered.filter((entry) => haversineKm(lat, lon, entry?.[6], entry?.[5]) <= radius);
+    }
+    const max = scope === 'global' ? 240 : scope === 'us' ? 160 : 80;
+    const sampled = sampleByStep(filtered, max);
+    const updatedAt = (data?.time ? data.time * 1000 : Date.now());
+    return sampled.map((entry) => {
+      const icao24 = entry?.[0] || '';
+      const callsignRaw = entry?.[1] || '';
+      const callsign = callsignRaw.toString().trim() || icao24 || 'Flight';
+      const origin = entry?.[2] || '';
+      const speedMs = Number.isFinite(entry?.[9]) ? entry[9] : null;
+      const speed = Number.isFinite(speedMs) ? `${Math.round(speedMs * 3.6)} km/h` : null;
+      const altitudeM = Number.isFinite(entry?.[7]) ? entry[7] : null;
+      const altitude = Number.isFinite(altitudeM) ? `${Math.round(altitudeM * 3.28084)} ft` : null;
+      const heading = Number.isFinite(entry?.[10]) ? Math.round(entry[10]) : null;
+      const onGround = Boolean(entry?.[8]);
+      const parts = [speed, altitude].filter(Boolean);
+      return {
+        title: `${callsign} • ${origin || 'Unknown'}`,
+        url: icao24 ? `https://opensky-network.org/api/tracks/all?icao24=${encodeURIComponent(icao24)}` : 'https://opensky-network.org/',
+        summary: parts.length ? parts.join(' | ') : 'Airborne signal',
+        publishedAt: entry?.[4] ? entry[4] * 1000 : updatedAt,
+        source: 'OpenSky',
+        category: feed.category,
+        geo: {
+          lat: entry[6],
+          lon: entry[5]
+        },
+        icao24,
+        callsign,
+        originCountry: origin,
+        velocity: speedMs,
+        altitude: altitudeM,
+        heading,
+        onGround,
+        alertType: 'Flight'
+      };
+    });
+  },
+  'coinpaprika-global': (data, feed) => ([{
+    title: `Global Market Cap: $${formatNumber(data.market_cap_usd)}`,
+    url: 'https://coinpaprika.com',
+    summary: `24h Volume $${formatNumber(data.volume_24h_usd)} | Dominance BTC ${data.bitcoin_dominance_percentage?.toFixed(2)}%`,
+    publishedAt: Date.now(),
+    source: 'CoinPaprika',
+    category: feed.category,
+    value: Number(data.market_cap_usd),
+    secondaryValue: Number(data.volume_24h_usd),
+    dominance: Number(data.bitcoin_dominance_percentage)
+  }]),
+  'coinpaprika-tickers': (data, feed) => data.slice(0, 10).map((coin) => ({
+    title: `${coin.name} (${coin.symbol})`,
+    url: `https://coinpaprika.com/coin/${coin.id}/`,
+    summary: `Price $${coin.quotes.USD.price.toFixed(2)} | 24h ${coin.quotes.USD.percent_change_24h?.toFixed(2)}%`,
+    publishedAt: Date.now(),
+    source: 'CoinPaprika',
+    category: feed.category,
+    value: Number(coin.quotes.USD.price),
+    change24h: Number(coin.quotes.USD.percent_change_24h),
+    symbol: coin.symbol
+  })),
+  'blockstream-mempool': (data, feed) => ([{
+    title: `Bitcoin Mempool: ${formatNumber(data.count)} tx`,
+    url: 'https://blockstream.info',
+    summary: `vSize ${formatNumber(data.vsize)} | Fees ${formatNumber(data.total_fee)} sat`,
+    publishedAt: Date.now(),
+    source: 'Blockstream',
+    category: feed.category
+  }]),
+  'openaq-api': (data, feed) => {
+    const rows = Array.isArray(data?.results) ? data.results : [];
+    if (!rows.length) return [];
+    return rows.slice(0, 12).map((row) => {
+      const coords = row.coordinates || {};
+      const lat = Number(coords.latitude ?? coords.lat);
+      const lon = Number(coords.longitude ?? coords.lon);
+      const hasGeo = Number.isFinite(lat) && Number.isFinite(lon);
+      const locality = row.locality || row.city || row.name;
+      const country = row.country?.name || row.country?.code || row.country;
+      const provider = row.provider?.name || row.provider || 'OpenAQ';
+      const parameters = Array.isArray(row.parameters) ? row.parameters.map((p) => p.name || p.parameter).filter(Boolean) : [];
+      const summaryParts = [];
+      if (country) summaryParts.push(country);
+      if (parameters.length) summaryParts.push(`Sensors: ${parameters.slice(0, 4).join(', ')}`);
+      return {
+        title: locality ? `${locality}` : 'Air Quality Station',
+        url: row.id ? `https://openaq.org/locations/${row.id}` : 'https://openaq.org/',
+        summary: summaryParts.length ? summaryParts.join(' | ') : 'Air quality station update.',
+        publishedAt: row.updatedAt ? Date.parse(row.updatedAt) : Date.now(),
+        source: provider,
+        category: feed.category,
+        alertType: 'Air Quality',
+        regionTag: country,
+        geo: hasGeo ? { lat, lon } : null,
+        mapOnly: true
+      };
+    });
+  },
+  'foia-api': (data, feed) => {
+    const resolveDescription = (value) => {
+      if (!value) return '';
+      if (typeof value === 'object') {
+        return coerceTextValue(value.processed ?? value.value ?? value);
+      }
+      return coerceTextValue(value);
+    };
+    const ckanResults = Array.isArray(data?.result?.results) ? data.result.results : null;
+    if (ckanResults) {
+      return ckanResults.slice(0, 12).map((entry) => ({
+        title: coerceTextValue(entry.title || entry.name || 'FOIA Dataset') || 'FOIA Dataset',
+        url: coerceTextValue(entry.url || (entry.name ? `https://catalog.data.gov/dataset/${entry.name}` : '')),
+        summary: resolveDescription(entry.notes),
+        publishedAt: entry.metadata_modified ? Date.parse(entry.metadata_modified) : Date.now(),
+        source: coerceTextValue(entry.organization?.title || 'Data.gov') || 'Data.gov',
+        category: feed.category
+      }));
+    }
+    const foiaRows = Array.isArray(data?.data) ? data.data : [];
+    if (!foiaRows.length) return [];
+    return foiaRows.slice(0, 12).map((entry) => ({
+      title: coerceTextValue(entry.attributes?.name || entry.attributes?.title || 'FOIA Component') || 'FOIA Component',
+      url: coerceTextValue(entry.links?.self || 'https://www.foia.gov/developer/'),
+      summary: resolveDescription(entry.attributes?.description),
+      publishedAt: Date.parse(entry.attributes?.updated_at || entry.attributes?.created_at) || Date.now(),
+      source: 'FOIA.gov',
+      category: feed.category
+    }));
+  },
+  'treasury-debt': (data, feed) => (data.data || []).map((row) => ({
+    title: `Debt to the Penny (${row.record_date})`,
+    url: 'https://fiscaldata.treasury.gov/',
+    summary: `Total: $${formatNumber(row.tot_pub_debt_out_amt || row.total_public_debt_outstanding_amt)} | Intragov: $${formatNumber(row.intragov_hold_amt || row.intragovernmental_holdings)}`,
+    publishedAt: Date.parse(row.record_date) || Date.now(),
+    source: 'US Treasury',
+    category: feed.category,
+    value: Number(row.tot_pub_debt_out_amt || row.total_public_debt_outstanding_amt),
+    secondaryValue: Number(row.intragov_hold_amt || row.intragovernmental_holdings)
+  })),
+  'bls-cpi': (data, feed) => {
+    const series = data.Results?.series?.[0]?.data?.[0];
+    if (!series) return [];
+    return [{
+      title: `CPI (CUUR0000SA0) ${series.periodName} ${series.year}`,
+      url: 'https://www.bls.gov/',
+      summary: `Value ${series.value}`,
+      publishedAt: Date.now(),
+      source: 'BLS',
+      category: feed.category,
+      value: Number(series.value)
+    }];
+  },
+  'cisa-kev': (data, feed) => (data.vulnerabilities || []).slice(0, 8).map((vuln) => ({
+    title: `${vuln.cveID} | ${vuln.vendorProject}`,
+    url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+    summary: `${vuln.product} | Due ${vuln.dueDate}`,
+    publishedAt: Date.parse(vuln.dateAdded) || Date.now(),
+    source: 'CISA KEV',
+    category: feed.category,
+    alertType: 'Known Exploited',
+    deadline: vuln.dueDate,
+    severity: vuln.knownRansomwareCampaignUse && vuln.knownRansomwareCampaignUse !== 'Unknown'
+      ? 'Ransomware'
+      : 'Exploited'
+  }))
+};
+
+function parseQuakes(data, feed) {
+  return (data.features || []).map((feature) => ({
+    title: `${feature.properties.mag.toFixed(1)}M - ${feature.properties.place}`,
+    url: feature.properties.url,
+    summary: `Depth ${feature.geometry.coordinates[2]} km`,
+    publishedAt: feature.properties.time || Date.now(),
+    source: 'USGS',
+    category: feed.category,
+    magnitude: feature.properties.mag,
+    severity: (() => {
+      const mag = feature.properties.mag;
+      if (mag === null || mag === undefined) return null;
+      const match = severityLabels.find((entry) => mag >= entry.min);
+      return match ? `Magnitude ${mag.toFixed(1)} (${match.label})` : `Magnitude ${mag.toFixed(1)}`;
+    })(),
+    location: feature.properties.place,
+    alertType: 'Earthquake',
+    geo: {
+      lat: feature.geometry.coordinates[1],
+      lon: feature.geometry.coordinates[0]
+    }
+  }));
+}
+
+function geometryToPoint(geometry) {
+  if (!geometry || !geometry.coordinates) return null;
+  if (geometry.type === 'Point') {
+    return { lat: geometry.coordinates[1], lon: geometry.coordinates[0] };
+  }
+  if (geometry.type === 'MultiPoint') {
+    const coords = geometry.coordinates;
+    if (!coords?.length) return null;
+    return { lat: coords[0][1], lon: coords[0][0] };
+  }
+  if (geometry.type === 'LineString') {
+    const coords = geometry.coordinates;
+    if (!coords?.length) return null;
+    const mid = coords[Math.floor(coords.length / 2)];
+    return { lat: mid[1], lon: mid[0] };
+  }
+  if (geometry.type === 'MultiLineString') {
+    const coords = geometry.coordinates?.[0];
+    if (!coords?.length) return null;
+    const mid = coords[Math.floor(coords.length / 2)];
+    return { lat: mid[1], lon: mid[0] };
+  }
+  const coords = geometry.type === 'Polygon'
+    ? geometry.coordinates[0]
+    : geometry.type === 'MultiPolygon'
+      ? geometry.coordinates[0][0]
+      : null;
+  if (!coords || !coords.length) return null;
+  const sum = coords.reduce((acc, coord) => {
+    acc.lat += coord[1];
+    acc.lon += coord[0];
+    return acc;
+  }, { lat: 0, lon: 0 });
+  return {
+    lat: sum.lat / coords.length,
+    lon: sum.lon / coords.length
+  };
+}
+
+function formatNumber(value) {
+  if (value === null || value === undefined) return '--';
+  const num = Number(value);
+  if (Number.isNaN(num)) return value;
+  return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function formatShortDate(value) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function coerceTextValue(value, depth = 0) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (depth > 3) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => coerceTextValue(entry, depth + 1).trim())
+      .filter(Boolean)
+      .join(' • ');
+  }
+  if (typeof value === 'object') {
+    const preferredKeys = [
+      'processed', 'value', 'text', 'summary', 'description', 'details',
+      'title', 'name', 'label', 'headline', 'status_text', 'status_desc',
+      'message', 'content', 'html'
+    ];
+    for (const key of preferredKeys) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      const resolved = coerceTextValue(value[key], depth + 1);
+      if (resolved) return resolved;
+    }
+    if (typeof value.toString === 'function' && value.toString !== Object.prototype.toString) {
+      const rendered = String(value.toString());
+      if (rendered && rendered !== '[object Object]') return rendered;
+    }
+    return '';
+  }
+  return String(value);
+}
+
+function decodeHtmlEntities(input) {
+  const safeInput = coerceTextValue(input);
+  if (!safeInput) return '';
+  const doc = new DOMParser().parseFromString(safeInput, 'text/html');
+  return doc.documentElement.textContent || '';
+}
+
+function stripHtml(input) {
+  const safeInput = coerceTextValue(input);
+  if (!safeInput) return '';
+  let safe = safeInput;
+  if (safe.includes('&lt;') || safe.includes('&gt;')) {
+    safe = decodeHtmlEntities(safe);
+  }
+  const doc = new DOMParser().parseFromString(`<div>${safe}</div>`, 'text/html');
+  return doc.body.textContent || '';
+}
+
+function truncateText(text, maxChars) {
+  if (!text) return '';
+  if (text.length <= maxChars) return text;
+  const trimmed = text.slice(0, maxChars);
+  const lastSpace = trimmed.lastIndexOf(' ');
+  return `${trimmed.slice(0, lastSpace > 80 ? lastSpace : maxChars).trim()}…`;
+}
+
+function normalizeSummary(rawDesc, rawHtml) {
+  const safeDesc = coerceTextValue(rawDesc);
+  const safeHtml = coerceTextValue(rawHtml);
+  const raw = safeHtml && safeHtml !== safeDesc ? safeHtml : safeDesc;
+  if (!raw) return { summary: safeDesc || '', summaryHtml: '' };
+  let decoded = raw;
+  if (raw.includes('&lt;') || raw.includes('&gt;')) {
+    decoded = decodeHtmlEntities(raw);
+  }
+  const hasTags = decoded.includes('<') && decoded.includes('>');
+  if (hasTags) {
+    const text = stripHtml(decoded).replace(/\s+/g, ' ').trim();
+    return {
+      summary: text || safeDesc || '',
+      summaryHtml: decoded
+    };
+  }
+  return { summary: safeDesc || decoded, summaryHtml: '' };
+}
+
+function getListLimit(id) {
+  if (!id) return 6;
+  if (!(id in state.listLimits)) {
+    state.listLimits[id] = LIST_DEFAULTS[id] ?? 6;
+  }
+  return state.listLimits[id];
+}
+
+function bumpListLimit(id, total) {
+  if (!id) return false;
+  const current = getListLimit(id);
+  if (current >= total) return false;
+  state.listLimits[id] = Math.min(total, current + LIST_PAGE_SIZE);
+  return true;
+}
+
+function sanitizeHtml(input) {
+  let safeInput = coerceTextValue(input);
+  if (!safeInput) return '';
+  if (safeInput.includes('&lt;') || safeInput.includes('&gt;')) {
+    safeInput = decodeHtmlEntities(safeInput);
+  }
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${safeInput}</div>`, 'text/html');
+  const root = doc.body.firstElementChild;
+  if (!root) return '';
+
+  const cleanNode = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) return;
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      node.remove();
+      return;
+    }
+    const tag = node.tagName.toLowerCase();
+    if (!ALLOWED_SUMMARY_TAGS.has(tag)) {
+      const text = doc.createTextNode(node.textContent || '');
+      node.replaceWith(text);
+      return;
+    }
+    [...node.attributes].forEach((attr) => {
+      if (tag === 'a' && attr.name === 'href') return;
+      node.removeAttribute(attr.name);
+    });
+    if (tag === 'a') {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    }
+    [...node.childNodes].forEach(cleanNode);
+  };
+
+  [...root.childNodes].forEach(cleanNode);
+  return root.innerHTML;
+}
+
+function formatCompactNumber(value, options = {}) {
+  if (!Number.isFinite(value)) return '--';
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 2,
+    ...options
+  }).format(value);
+}
+
+function formatCompactCurrency(value) {
+  if (!Number.isFinite(value)) return '--';
+  return `$${formatCompactNumber(value)}`;
+}
+
+function getTickerKey(entry) {
+  return `${entry.type}:${entry.lookup}`;
+}
+
+function formatTickerValue(ticker) {
+  if (!Number.isFinite(ticker.value)) return '--';
+  return ticker.isIndex ? formatCompactNumber(ticker.value) : formatCompactCurrency(ticker.value);
+}
+
+function extractStooqAsOf(summary = '') {
+  if (!summary) return '';
+  const parts = summary.split('|');
+  if (parts.length < 2) return '';
+  return parts[1].trim();
+}
+
+function buildCustomTickerItems() {
+  const watchlist = state.settings.tickerWatchlist || [];
+  if (!watchlist.length && !state.customTickers.length) return [];
+  const resolved = new Map();
+  state.customTickers.forEach((ticker) => {
+    const key = getTickerKey({ type: ticker.type, lookup: ticker.lookup || ticker.symbol || ticker.label || '' });
+    resolved.set(key, ticker);
+  });
+  return watchlist.map((entry) => {
+    const key = getTickerKey(entry);
+    const ticker = resolved.get(key);
+    if (!ticker) {
+      return {
+        text: `${entry.label || entry.symbol}: --`,
+        url: entry.url || '',
+        change: null,
+        pending: true
+      };
+    }
+    const valueText = formatTickerValue(ticker);
+    const deltaText = Number.isFinite(ticker.delta) ? `${ticker.delta > 0 ? '+' : ''}${ticker.delta.toFixed(2)}%` : '';
+    const parts = [`${ticker.label}: ${valueText}`];
+    if (deltaText) parts.push(`24h ${deltaText}`);
+    return {
+      text: parts.join(' | '),
+      url: ticker.url,
+      change: ticker.delta
+    };
+  });
+}
+
+function normalizeTickerSymbol(input) {
+  return input
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[^a-zA-Z0-9.^-]/g, '')
+    .toUpperCase();
+}
+
+async function resolveSymbolWithAI(type, input) {
+  if (!state.settings.aiTranslate || !hasAssistantAccess()) return null;
+  const prompt = `Return the best ${type === 'market' ? 'market index' : 'equity'} ticker symbol for "${input}". Use ^ prefix for indices. Return only the symbol or UNKNOWN.`;
+  try {
+    const response = await callAssistant({
+      messages: [{ role: 'user', content: prompt }],
+      context: { mode: 'ticker_resolve', type },
+      temperature: 0
+    });
+    const cleaned = (response || '').split(/\s+/)[0].replace(/[^a-zA-Z0-9.^-]/g, '').toUpperCase();
+    if (!cleaned || cleaned.includes('UNKNOWN')) return null;
+    return cleaned;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function resolveTickerInput(type, input) {
+  const raw = input.trim();
+  if (!raw) return null;
+  if (type === 'crypto') {
+    const res = await fetch(`https://api.coinpaprika.com/v1/search/?q=${encodeURIComponent(raw)}&c=currencies`);
+    const data = await res.json();
+    if (!data?.currencies?.length) return null;
+    const normalized = raw.replace(/\s+/g, '').toLowerCase();
+    const match = data.currencies.find((entry) => entry.symbol?.toLowerCase() === normalized) || data.currencies[0];
+    if (!match) return null;
+    return {
+      type: 'crypto',
+      symbol: match.symbol,
+      label: `${match.name} (${match.symbol})`,
+      lookup: match.id,
+      source: 'CoinPaprika'
+    };
+  }
+
+  let symbol = normalizeTickerSymbol(raw);
+  if (!symbol) return null;
+  if ((/\s/.test(raw) || raw.length > 6) && hasAssistantAccess()) {
+    const resolved = await resolveSymbolWithAI(type, raw);
+    if (resolved) symbol = resolved;
+  }
+
+  const isIndex = type === 'market' || symbol.startsWith('^');
+  let lookup = symbol;
+  if (type === 'market' && !symbol.startsWith('^')) {
+    lookup = `^${symbol}`;
+    symbol = `^${symbol}`;
+  }
+  if (!lookup.includes('.') && !lookup.startsWith('^')) {
+    lookup = `${lookup}.US`;
+  }
+  return {
+    type: type === 'market' ? 'market' : 'equity',
+    symbol,
+    label: symbol,
+    lookup: lookup.toLowerCase(),
+    isIndex,
+    source: 'Stooq'
+  };
+}
+
+async function fetchStooqQuote(symbol) {
+  const feed = state.feeds.find((entry) => entry.id === 'stooq-quote');
+  if (!feed) return null;
+  if (isStaticMode()) {
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
+    const proxies = ['allorigins', 'jina'];
+    for (const proxy of proxies) {
+      try {
+        const proxied = applyCustomProxy(url, proxy);
+        const response = await fetch(proxied);
+        if (!response.ok) continue;
+        const text = await response.text();
+        const parsed = parseStooqCsv(text, feed);
+        if (parsed?.[0]) return parsed[0];
+      } catch {
+        // try next proxy
+      }
+    }
+    return null;
+  }
+  const result = await fetchFeed(feed, symbol, true);
+  return result.items?.[0] || null;
+}
+
+async function fetchCryptoQuote(id) {
+  const response = await fetch(`https://api.coinpaprika.com/v1/tickers/${id}`);
+  const data = await response.json();
+  if (!data || !data.quotes?.USD) return null;
+  return {
+    value: Number(data.quotes.USD.price),
+    delta: Number(data.quotes.USD.percent_change_24h),
+    url: `https://coinpaprika.com/coin/${data.id}/`,
+    name: data.name,
+    symbol: data.symbol
+  };
+}
+
+function renderWatchlistChips() {
+  const containers = document.querySelectorAll('[data-watchlist]');
+  containers.forEach((container) => {
+    container.innerHTML = '';
+    const watchlist = state.settings.tickerWatchlist || [];
+    if (!watchlist.length) {
+      const empty = document.createElement('div');
+      empty.className = 'ticker-builder-hint';
+      empty.textContent = 'No custom tickers yet.';
+      container.appendChild(empty);
+      return;
+    }
+    watchlist.forEach((entry) => {
+      const chip = document.createElement('div');
+      chip.className = `ticker-chip ${entry.type}`;
+      const label = document.createElement('span');
+      label.textContent = entry.label || entry.symbol;
+      const remove = document.createElement('button');
+      remove.className = 'ticker-remove';
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.dataset.key = getTickerKey(entry);
+      chip.appendChild(label);
+      chip.appendChild(remove);
+      container.appendChild(chip);
+    });
+  });
+}
+
+async function refreshEnergyMarketQuotes() {
+  if (isStaticMode() && !state.settings.superMonitor) {
+    try {
+      const response = await fetch(getAssetUrl(`/data/energy-market.json?ts=${Date.now()}`), { cache: 'no-store' });
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload?.items) {
+          state.energyMarket = payload.items;
+          return;
+        }
+      }
+    } catch {
+      // fall through to live fetch
+    }
+  }
+  const [wti, gas, gold] = await Promise.all([
+    fetchStooqQuote('cl.f'),
+    fetchStooqQuote('ng.f'),
+    fetchStooqQuote('xauusd')
+  ]);
+  const next = {};
+  if (wti?.value) {
+    next.wti = {
+      label: 'WTI Crude',
+      value: wti.value,
+      delta: Number.isFinite(wti.deltaPct) ? wti.deltaPct : null,
+      url: wti.url,
+      asOf: extractStooqAsOf(wti.summary || ''),
+      symbol: wti.symbol
+    };
+  }
+  if (gas?.value) {
+    next.gas = {
+      label: 'Nat Gas',
+      value: gas.value,
+      delta: Number.isFinite(gas.deltaPct) ? gas.deltaPct : null,
+      url: gas.url,
+      asOf: extractStooqAsOf(gas.summary || ''),
+      symbol: gas.symbol
+    };
+  }
+  if (gold?.value) {
+    next.gold = {
+      label: 'Gold',
+      value: gold.value,
+      delta: Number.isFinite(gold.deltaPct) ? gold.deltaPct : null,
+      url: gold.url,
+      asOf: extractStooqAsOf(gold.summary || ''),
+      symbol: gold.symbol
+    };
+  }
+  state.energyMarket = next;
+}
+
+async function refreshCustomTickers() {
+  const watchlist = state.settings.tickerWatchlist || [];
+  if (!watchlist.length) {
+    state.customTickers = [];
+    renderWatchlistChips();
+    await refreshEnergyMarketQuotes();
+    return;
+  }
+  const results = await Promise.all(watchlist.map(async (entry) => {
+    if (entry.type === 'crypto') {
+      const quote = await fetchCryptoQuote(entry.lookup);
+      if (!quote || !Number.isFinite(quote.value)) return null;
+      return {
+        label: entry.label || `${quote.name} (${quote.symbol})`,
+        value: quote.value,
+        delta: Number.isFinite(quote.delta) ? quote.delta : null,
+        url: quote.url,
+        type: entry.type,
+        isIndex: false,
+        lookup: entry.lookup,
+        symbol: entry.symbol
+      };
+    }
+    const quote = await fetchStooqQuote(entry.lookup);
+    if (!quote || !Number.isFinite(quote.value)) return null;
+    return {
+      label: entry.label || quote.symbol || entry.symbol,
+      value: quote.value,
+      delta: Number.isFinite(quote.deltaPct) ? quote.deltaPct : null,
+      url: quote.url,
+      type: entry.type,
+      isIndex: entry.isIndex || entry.symbol?.startsWith('^') || quote.symbol?.startsWith('^'),
+      lookup: entry.lookup,
+      symbol: entry.symbol || quote.symbol
+    };
+  }));
+  state.customTickers = results.filter(Boolean);
+  renderWatchlistChips();
+  await refreshEnergyMarketQuotes();
+}
+
+function setTickerBuilderStatus(builder, message, tone) {
+  const status = builder.querySelector('.ticker-builder-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.classList.remove('error', 'success');
+  if (tone) status.classList.add(tone);
+}
+
+async function handleTickerAdd(builder) {
+  const typeSelect = builder.querySelector('.ticker-type');
+  const queryInput = builder.querySelector('.ticker-query');
+  if (!typeSelect || !queryInput) return;
+  const type = typeSelect.value;
+  const query = queryInput.value.trim();
+  if (!query) return;
+  setTickerBuilderStatus(builder, 'Searching...', null);
+  try {
+    const resolved = await resolveTickerInput(type, query);
+    if (!resolved) {
+      setTickerBuilderStatus(builder, 'No match found. Try a symbol like AAPL, ^SPX, BTC.', 'error');
+      return;
+    }
+    const key = getTickerKey(resolved);
+    const existing = (state.settings.tickerWatchlist || []).some((entry) => getTickerKey(entry) === key);
+    if (existing) {
+      setTickerBuilderStatus(builder, 'Already in watchlist.', 'error');
+      return;
+    }
+    state.settings.tickerWatchlist = [...(state.settings.tickerWatchlist || []), resolved];
+    saveSettings();
+    queryInput.value = '';
+    setTickerBuilderStatus(builder, 'Added. Fetching quote…', 'success');
+    await refreshCustomTickers();
+    const resolvedNow = state.customTickers.some((ticker) => getTickerKey({ type: ticker.type, lookup: ticker.lookup || ticker.symbol || ticker.label || '' }) === key);
+    setTickerBuilderStatus(builder, resolvedNow ? 'Added to watchlist.' : 'Added, quote pending. Will refresh shortly.', resolvedNow ? 'success' : 'error');
+    renderTicker();
+    renderFinanceSpotlight();
+  } catch (err) {
+    setTickerBuilderStatus(builder, 'Unable to add ticker right now.', 'error');
+  }
+}
+
+function removeTickerFromWatchlist(key) {
+  state.settings.tickerWatchlist = (state.settings.tickerWatchlist || []).filter((entry) => getTickerKey(entry) !== key);
+  saveSettings();
+  refreshCustomTickers().then(() => {
+    renderTicker();
+    renderFinanceSpotlight();
+  });
+}
+
+function buildFinanceKPIs() {
+  const items = applyFreshnessFilter(state.items);
+  const byFeed = (id) => items.filter((item) => item.feedId === id);
+  const pickFirst = (id) => byFeed(id)[0];
+  const pickCoin = (symbol) => byFeed('coinpaprika-tickers').find((item) => item.symbol === symbol);
+
+  const kpis = [];
+
+  const debt = pickFirst('treasury-debt');
+  if (debt?.value) {
+    kpis.push({
+      label: 'US Debt',
+      value: formatCompactCurrency(debt.value),
+      meta: debt.secondaryValue ? `Intragov ${formatCompactCurrency(debt.secondaryValue)}` : '',
+      source: debt.source,
+      url: debt.url,
+      category: 'finance'
+    });
+  }
+
+  const cpi = pickFirst('bls-cpi');
+  if (cpi?.value) {
+    kpis.push({
+      label: 'CPI',
+      value: formatCompactNumber(cpi.value),
+      meta: cpi.title.replace('CPI (CUUR0000SA0) ', ''),
+      source: cpi.source,
+      url: cpi.url,
+      category: 'finance'
+    });
+  }
+
+  const marketWti = state.energyMarket?.wti;
+  const wti = pickFirst('energy-eia');
+  if (marketWti?.value || wti?.value) {
+    const sourceItem = marketWti?.value ? marketWti : wti;
+    const meta = marketWti?.value
+      ? (marketWti.asOf ? `Market ${marketWti.asOf}` : 'Market')
+      : wti.summary.split(':')[0];
+    kpis.push({
+      label: 'WTI Crude',
+      value: formatCompactCurrency(sourceItem.value),
+      meta,
+      delta: Number.isFinite(sourceItem.delta ?? sourceItem.deltaPct) ? (sourceItem.delta ?? sourceItem.deltaPct) : null,
+      source: sourceItem.source || (marketWti?.value ? 'Stooq' : wti.source),
+      url: sourceItem.url || wti.url,
+      category: 'energy'
+    });
+  }
+
+  const brent = pickFirst('energy-eia-brent');
+  if (brent?.value) {
+    kpis.push({
+      label: 'Brent',
+      value: formatCompactCurrency(brent.value),
+      meta: brent.summary.split(':')[0],
+      delta: Number.isFinite(brent.deltaPct) ? brent.deltaPct : null,
+      source: brent.source,
+      url: brent.url,
+      category: 'energy'
+    });
+  }
+
+  const marketGas = state.energyMarket?.gas;
+  const gas = pickFirst('energy-eia-ng');
+  if (marketGas?.value || gas?.value) {
+    const sourceItem = marketGas?.value ? marketGas : gas;
+    const meta = marketGas?.value
+      ? (marketGas.asOf ? `Market ${marketGas.asOf}` : 'Market')
+      : gas.summary.split(':')[0];
+    kpis.push({
+      label: 'Nat Gas',
+      value: formatCompactCurrency(sourceItem.value),
+      meta,
+      delta: Number.isFinite(sourceItem.delta ?? sourceItem.deltaPct) ? (sourceItem.delta ?? sourceItem.deltaPct) : null,
+      source: sourceItem.source || (marketGas?.value ? 'Stooq' : gas.source),
+      url: sourceItem.url || gas.url,
+      category: 'energy'
+    });
+  }
+
+  const marketGold = state.energyMarket?.gold;
+  if (marketGold?.value) {
+    kpis.push({
+      label: 'Gold',
+      value: formatCompactCurrency(marketGold.value),
+      meta: marketGold.asOf ? `Market ${marketGold.asOf}` : 'Market',
+      delta: Number.isFinite(marketGold.delta) ? marketGold.delta : null,
+      source: marketGold.source || 'Stooq',
+      url: marketGold.url,
+      category: 'finance'
+    });
+  }
+
+  const globalCap = pickFirst('coinpaprika-global');
+  if (globalCap?.value) {
+    kpis.push({
+      label: 'Crypto Mkt Cap',
+      value: formatCompactCurrency(globalCap.value),
+      meta: globalCap.dominance ? `BTC Dom ${globalCap.dominance.toFixed(2)}%` : '',
+      source: globalCap.source,
+      url: globalCap.url,
+      category: 'crypto'
+    });
+  }
+
+  const btc = pickCoin('BTC');
+  if (btc?.value) {
+    kpis.push({
+      label: 'Bitcoin',
+      value: formatCompactCurrency(btc.value),
+      delta: Number.isFinite(btc.change24h) ? btc.change24h : null,
+      meta: '24h',
+      source: btc.source,
+      url: btc.url,
+      category: 'crypto'
+    });
+  }
+
+  const eth = pickCoin('ETH');
+  if (eth?.value) {
+    kpis.push({
+      label: 'Ethereum',
+      value: formatCompactCurrency(eth.value),
+      delta: Number.isFinite(eth.change24h) ? eth.change24h : null,
+      meta: '24h',
+      source: eth.source,
+      url: eth.url,
+      category: 'crypto'
+    });
+  }
+
+  const watchlist = state.settings.tickerWatchlist || [];
+  const resolved = new Map();
+  state.customTickers.forEach((ticker) => {
+    const key = getTickerKey({ type: ticker.type, lookup: ticker.lookup || ticker.symbol || ticker.label || '' });
+    resolved.set(key, ticker);
+  });
+  const custom = watchlist.map((entry) => {
+    const key = getTickerKey(entry);
+    const ticker = resolved.get(key);
+    if (!ticker) {
+      return {
+        label: entry.label || entry.symbol,
+        value: '--',
+        meta: 'Awaiting quote',
+        delta: null,
+        url: entry.url || '',
+        category: entry.type === 'crypto' ? 'crypto' : 'finance'
+      };
+    }
+    return {
+      label: ticker.label || ticker.symbol,
+      value: formatTickerValue(ticker),
+      meta: ticker.type === 'crypto' ? '24h' : 'Session',
+      delta: Number.isFinite(ticker.delta) ? ticker.delta : null,
+      url: ticker.url,
+      category: ticker.type === 'crypto' ? 'crypto' : 'finance'
+    };
+  });
+
+  const seen = new Set();
+  const merged = [...custom, ...kpis].filter((entry) => {
+    if (!entry.label) return false;
+    const key = entry.label.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return merged;
+}
+
+function renderFinanceCards(container, kpis, variant = 'spotlight') {
+  if (!container) return;
+  container.innerHTML = '';
+  kpis.forEach((kpi) => {
+    const card = document.createElement('a');
+    card.className = `finance-card ${variant}`;
+    if (Number.isFinite(kpi.delta)) {
+      card.classList.add(kpi.delta >= 0 ? 'up' : 'down');
+    }
+    if (kpi.url) {
+      card.href = kpi.url;
+      card.target = '_blank';
+      card.rel = 'noopener';
+    }
+    const label = document.createElement('div');
+    label.className = 'finance-label';
+    label.textContent = kpi.label;
+    const value = document.createElement('div');
+    value.className = 'finance-value';
+    value.textContent = kpi.value || '--';
+    const meta = document.createElement('div');
+    meta.className = 'finance-meta';
+    const deltaText = Number.isFinite(kpi.delta) ? `${kpi.delta > 0 ? '+' : ''}${kpi.delta.toFixed(2)}%` : '';
+    meta.textContent = [kpi.meta, deltaText].filter(Boolean).join(' • ');
+    card.appendChild(label);
+    card.appendChild(value);
+    card.appendChild(meta);
+    container.appendChild(card);
+  });
+}
+
+function renderFinanceSpotlight() {
+  if (!elements.financeSpotlight) return;
+  const kpis = buildFinanceKPIs().slice(0, 8);
+  renderFinanceCards(elements.financeSpotlight, kpis, 'spotlight');
+}
+
+function resolveMoneyFlowRange(days = MONEY_FLOW_DEFAULT_DAYS) {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - Number(days || MONEY_FLOW_DEFAULT_DAYS));
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10)
+  };
+}
+
+function formatMoney(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '--';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0
+  }).format(amount);
+}
+
+function formatMoneyCompact(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '--';
+  const abs = Math.abs(amount);
+  if (abs >= 1e12) return `${(amount / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${(amount / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(amount / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(amount / 1e3).toFixed(1)}K`;
+  return formatMoney(amount);
+}
+
+function renderMoneyRateNotice() {
+  if (!elements.moneyFlowsRateNotice) return;
+  const sam = state.moneyFlowsData?.sources?.sam;
+  if (!sam || !sam.error || !sam.retryAt) {
+    elements.moneyFlowsRateNotice.textContent = '';
+    elements.moneyFlowsRateNotice.classList.remove('active');
+    return;
+  }
+  const retryAt = new Date(sam.retryAt);
+  const retryLabel = Number.isNaN(retryAt.getTime())
+    ? 'later'
+    : `${retryAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${retryAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+  elements.moneyFlowsRateNotice.textContent = `SAM rate limit reached — try again ${retryLabel}.`;
+  elements.moneyFlowsRateNotice.classList.add('active');
+}
+
+function renderMoneyFlows() {
+  if (!elements.moneyFlowsList) return;
+  if (elements.moneyFlowsMeta) {
+    if (!state.moneyFlowsQuery) {
+      elements.moneyFlowsMeta.textContent = 'No query yet.';
+    } else if (state.moneyFlowsLoading) {
+      elements.moneyFlowsMeta.textContent = 'Fetching money flows...';
+    } else if (state.moneyFlowsError) {
+      elements.moneyFlowsMeta.textContent = `Error: ${state.moneyFlowsError}`;
+    } else {
+      const count = state.moneyFlowsItems?.length || 0;
+      const sources = state.moneyFlowsData?.sources
+        ? Object.entries(state.moneyFlowsData.sources)
+          .map(([key, info]) => `${key}: ${info.count || 0}${info.error ? ' (err)' : ''}`)
+          .join(' • ')
+        : '';
+      elements.moneyFlowsMeta.textContent = count
+        ? `Showing ${count} items${sources ? ` · ${sources}` : ''}`
+        : 'No matching flows yet.';
+    }
+  }
+
+  if (elements.moneyFlowsSummary) {
+    const summary = state.moneyFlowsData?.summary;
+    if (!summary) {
+      elements.moneyFlowsSummary.innerHTML = '';
+    } else {
+      const buckets = summary.buckets || {};
+      const bucketConfig = [
+        { id: 'contributions', label: 'Contributions In', tone: 'money-tone-in' },
+        { id: 'spending', label: 'Spending Out', tone: 'money-tone-out' },
+        { id: 'lobbying', label: 'Lobbying', tone: 'money-tone-lobby' },
+        { id: 'registry', label: 'SAM Registry', tone: 'money-tone-registry' }
+      ];
+      const amounts = bucketConfig.map((config) => Number(buckets[config.id]?.totalAmount || 0));
+      const maxAmount = Math.max(...amounts, 1);
+      elements.moneyFlowsSummary.innerHTML = `
+        <div class="summary-card money-summary-card">
+          <div class="summary-label">Total items</div>
+          <div class="summary-value">${summary.totalItems || 0}</div>
+          <div class="summary-sub">Across all sources</div>
+        </div>
+        ${bucketConfig.map((config) => {
+          const bucket = buckets[config.id] || {};
+          const amount = Number(bucket.totalAmount || 0);
+          const count = bucket.count || 0;
+          const pct = Math.max(4, Math.round((amount / maxAmount) * 100));
+          return `
+            <div class="summary-card money-summary-card ${config.tone}">
+              <div class="summary-label">${config.label}</div>
+              <div class="summary-value">${amount ? formatMoney(amount) : '—'}</div>
+              <div class="summary-sub">${count} items</div>
+              <div class="money-bar"><span style="width:${amount ? pct : 6}%"></span></div>
+            </div>
+          `;
+        }).join('')}
+      `;
+    }
+  }
+
+  renderMoneyRateNotice();
+
+  const summary = state.moneyFlowsData?.summary;
+  const buckets = summary?.buckets || {};
+  const top = summary?.top || {};
+  const updateSection = (metaEl, bodyEl, { totalAmount, count, rows }) => {
+    if (!metaEl || !bodyEl) return;
+    const amountLabel = Number(totalAmount) ? formatMoneyCompact(totalAmount) : '—';
+    metaEl.textContent = `${amountLabel} · ${count || 0} items`;
+    bodyEl.innerHTML = rows.map((row) => {
+      const value = row.value || '—';
+      const amount = Number.isFinite(row.amount) && row.amount ? formatMoneyCompact(row.amount) : '—';
+      return `
+        <div class="money-rank">
+          <div>
+            <div class="money-rank-label">${row.label}</div>
+            <div class="money-rank-value">${value}</div>
+          </div>
+          <div class="money-rank-amount">${amount}</div>
+        </div>
+      `;
+    }).join('');
+  };
+
+  if (summary) {
+    updateSection(elements.moneyInMeta, elements.moneyInBody, {
+      totalAmount: buckets.contributions?.totalAmount || 0,
+      count: buckets.contributions?.count || 0,
+      rows: [
+        { label: 'Top donor', value: top.contributions?.donor, amount: top.contributions?.donorAmount },
+        { label: 'Top recipient', value: top.contributions?.recipient, amount: top.contributions?.recipientAmount }
+      ]
+    });
+    updateSection(elements.moneyOutMeta, elements.moneyOutBody, {
+      totalAmount: buckets.spending?.totalAmount || 0,
+      count: buckets.spending?.count || 0,
+      rows: [
+        { label: 'Top recipient', value: top.spending?.recipient, amount: top.spending?.recipientAmount }
+      ]
+    });
+    updateSection(elements.moneyLobbyMeta, elements.moneyLobbyBody, {
+      totalAmount: buckets.lobbying?.totalAmount || 0,
+      count: buckets.lobbying?.count || 0,
+      rows: [
+        { label: 'Top client', value: top.lobbying?.client, amount: top.lobbying?.clientAmount },
+        { label: 'Top registrant', value: top.lobbying?.registrant, amount: top.lobbying?.registrantAmount }
+      ]
+    });
+    updateSection(elements.moneyRegistryMeta, elements.moneyRegistryBody, {
+      totalAmount: buckets.registry?.totalAmount || 0,
+      count: buckets.registry?.count || 0,
+      rows: [
+        { label: 'Top entity', value: top.registry?.entity, amount: top.registry?.entityAmount }
+      ]
+    });
+  } else {
+    if (elements.moneyInMeta) elements.moneyInMeta.textContent = '—';
+    if (elements.moneyOutMeta) elements.moneyOutMeta.textContent = '—';
+    if (elements.moneyLobbyMeta) elements.moneyLobbyMeta.textContent = '—';
+    if (elements.moneyRegistryMeta) elements.moneyRegistryMeta.textContent = '—';
+    if (elements.moneyInBody) elements.moneyInBody.innerHTML = '';
+    if (elements.moneyOutBody) elements.moneyOutBody.innerHTML = '';
+    if (elements.moneyLobbyBody) elements.moneyLobbyBody.innerHTML = '';
+    if (elements.moneyRegistryBody) elements.moneyRegistryBody.innerHTML = '';
+  }
+
+  if (state.moneyFlowsLoading) {
+    elements.moneyFlowsList.innerHTML = '<div class="list-item">Loading money flows...</div>';
+    return;
+  }
+  if (state.moneyFlowsError) {
+    elements.moneyFlowsList.innerHTML = '<div class="list-item">Unable to load money flows.</div>';
+    return;
+  }
+  renderList(elements.moneyFlowsList, state.moneyFlowsItems || []);
+}
+
+async function fetchMoneyFlows() {
+  const query = elements.moneyFlowsQuery?.value?.trim();
+  if (!query) {
+    state.moneyFlowsError = 'Enter a query to search.';
+    state.moneyFlowsLoading = false;
+    state.moneyFlowsItems = [];
+    renderMoneyFlows();
+    return;
+  }
+
+  const rangeDays = Number(elements.moneyFlowsRange?.value) || MONEY_FLOW_DEFAULT_DAYS;
+  state.moneyFlowsRangeDays = rangeDays;
+  state.moneyFlowsQuery = query;
+
+  const { start, end } = resolveMoneyFlowRange(rangeDays);
+  const params = new URLSearchParams({
+    q: query,
+    start,
+    end,
+    limit: String(MONEY_FLOW_MAX_LIMIT)
+  });
+
+  state.moneyFlowsLoading = true;
+  state.moneyFlowsError = null;
+  renderMoneyFlows();
+
+  try {
+    const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`, {}, 30000);
+    if (error) {
+      throw new Error(data?.message || error);
+    }
+    state.moneyFlowsData = data;
+    state.moneyFlowsItems = (data?.items || []).map((item) => ({
+      ...item,
+      url: item.url || item.externalUrl || null
+    }));
+    state.moneyFlowsFetchedAt = data?.fetchedAt || Date.now();
+  } catch (err) {
+    state.moneyFlowsError = err?.message || 'Fetch failed.';
+    state.moneyFlowsData = null;
+    state.moneyFlowsItems = [];
+  } finally {
+    state.moneyFlowsLoading = false;
+    renderMoneyFlows();
+    updatePanelTimestamps();
+    updatePanelErrors();
+  }
+}
+
+function extractLocationCandidates(item) {
+  const text = `${item.title || ''} ${item.summary || ''}`.replace(/https?:\/\/\S+/g, '');
+  const candidates = new Set();
+  const rawLocation = (item.location || item.geoLabel || '').trim();
+  if (rawLocation) {
+    const primary = rawLocation.split(';')[0].split(',').slice(0, 2).join(',').trim();
+    if (primary) candidates.add(primary);
+  }
+
+  const travelMatch = (item.title || '').match(/Travel Advisory\s*[-–]\s*([A-Za-z\s.'-]+)/i);
+  if (travelMatch) {
+    candidates.add(travelMatch[1].trim());
+  }
+
+  const commaMatch = text.match(/([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}),\s*([A-Z]{2})/);
+  if (commaMatch) {
+    candidates.add(`${commaMatch[1]}, ${commaMatch[2]}`);
+  }
+
+  const dashMatch = (item.title || '').match(/-\s*([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})$/);
+  if (dashMatch) {
+    candidates.add(dashMatch[1]);
+  }
+
+  const locationRegex = /\b(?:in|near|at|outside|north of|south of|east of|west of)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})/g;
+  let match;
+  while ((match = locationRegex.exec(text)) !== null) {
+    candidates.add(match[1]);
+  }
+
+  return [...candidates].filter(Boolean);
+}
+
+async function geocodeItems(items, maxItems = 60) {
+  const eligible = items.filter((item) => item && !item.geo && item.category !== 'crypto' && item.category !== 'finance');
+  const seen = new Set();
+  let updated = false;
+
+  for (const item of eligible.slice(0, maxItems)) {
+    const candidates = extractLocationCandidates(item);
+    for (const candidate of candidates) {
+      const key = candidate.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const cached = state.geoCache[key];
+      if (cached) {
+        if (!cached.notFound && cached.lat) {
+          item.geo = { lat: cached.lat, lon: cached.lon };
+          item.geoLabel = cached.displayName || candidate;
+          updated = true;
+          break;
+        }
+        continue;
+      }
+
+      try {
+        const { data: payload, error } = await apiJson(`/api/geocode?q=${encodeURIComponent(candidate)}`);
+        if (error || !payload) {
+          state.geoCache[key] = { query: candidate, notFound: true };
+          saveGeoCache();
+          continue;
+        }
+        state.geoCache[key] = payload;
+        saveGeoCache();
+        if (!payload.notFound && payload.lat) {
+          item.geo = { lat: payload.lat, lon: payload.lon };
+          item.geoLabel = payload.displayName || candidate;
+          updated = true;
+          break;
+        }
+      } catch (err) {
+        state.geoCache[key] = { query: candidate, notFound: true };
+        saveGeoCache();
+      }
+    }
+  }
+
+  return updated;
+}
+
+function buildStateFeedRequestParams(feed) {
+  return buildStateFeedRequestParamsForSelection(feed, getSelectedStateSignalFilter());
+}
+
+async function fetchFeed(feed, query, force = false, requestParams = {}) {
+  if (feed.isCustom) {
+    return fetchCustomFeedDirect(feed, query);
+  }
+  if (feed.id === 'gpsjam') {
+    return fetchGpsJamFeed(feed, force);
+  }
+  const queryParams = new URLSearchParams();
+  const feedParams = {
+    ...buildStateFeedRequestParams(feed),
+    ...(requestParams && typeof requestParams === 'object' ? requestParams : {})
+  };
+  const hasFeedParams = Object.keys(feedParams).some((key) => feedParams[key] !== undefined && feedParams[key] !== null && String(feedParams[key]) !== '');
+  const keyConfig = getKeyConfig(feed);
+  const feedTimeoutMs = Number(feed?.timeoutMs);
+  const baseTimeoutMs = Number.isFinite(feedTimeoutMs) && feedTimeoutMs > 0 ? feedTimeoutMs : 12000;
+  const requestTimeoutMs = Math.max(15000, Math.min(30000, baseTimeoutMs + 5000));
+  try {
+    let payload;
+    let res;
+    if (isStaticMode()) {
+      queryParams.set('id', feed.id);
+      if (query) queryParams.set('query', query);
+      if (force) queryParams.set('force', '1');
+      if (hasFeedParams) {
+        Object.entries(feedParams).forEach(([key, value]) => {
+          if (value === undefined || value === null || value === '') return;
+          queryParams.set(`param.${key}`, String(value));
+        });
+      }
+      res = await apiFetch(`/api/feed?${queryParams.toString()}`, {}, requestTimeoutMs);
+      payload = await res.json();
+    } else {
+      res = await apiFetch('/api/feed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: feed.id,
+          query,
+          force: Boolean(force),
+          key: keyConfig.key || undefined,
+          keyParam: keyConfig.keyParam || undefined,
+          keyHeader: keyConfig.keyHeader || undefined,
+          params: hasFeedParams ? feedParams : undefined
+        })
+      }, requestTimeoutMs);
+      payload = await res.json();
+    }
+    const httpStatus = payload.httpStatus || res.status || 0;
+    const error = payload.error || (httpStatus >= 400 ? `http_${httpStatus}` : null);
+    const errorMessage = payload.message || (httpStatus >= 400 ? `HTTP ${httpStatus}` : null);
+    const items = error ? [] : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
+    const enriched = items.map((item) => ({
+      ...item,
+      tags: Array.from(new Set([...(feed.tags || []), ...((Array.isArray(item.tags) ? item.tags : []))])),
+      feedId: feed.id,
+      feedName: feed.name
+    }));
+    return {
+      feed,
+      items: enriched,
+      error,
+      errorMessage,
+      httpStatus,
+      fetchedAt: payload.fetchedAt
+    };
+  } catch (err) {
+    return {
+      feed,
+      items: [],
+      error: 'fetch_failed',
+      errorMessage: err.message,
+      httpStatus: 0,
+      fetchedAt: Date.now()
+    };
+  }
+}
+
+function getH3Lib() {
+  return window.h3 || window.h3js || window.h3Js || null;
+}
+
+function parseGpsJamData(text, feed, date) {
+  const h3 = getH3Lib();
+  if (!h3 || (!h3.cellToLatLng && !h3.h3ToGeo)) {
+    return { items: [], error: 'h3_unavailable', errorMessage: 'H3 library not available.' };
+  }
+  const rows = parseCsvRows(String(text || '').trim());
+  const dataRows = rows.filter((row) => row?.length >= 3 && String(row[0] || '').trim().toLowerCase() !== 'hex');
+  const items = [];
+  const maxItems = 1200;
+  const sorted = dataRows
+    .map((row) => ({
+      hex: String(row[0] || '').trim(),
+      good: Number(row[1] || 0),
+      bad: Number(row[2] || 0)
+    }))
+    .filter((row) => row.hex && Number.isFinite(row.bad) && row.bad > 0)
+    .sort((a, b) => b.bad - a.bad)
+    .slice(0, maxItems);
+
+  sorted.forEach((row) => {
+    const coords = h3.cellToLatLng ? h3.cellToLatLng(row.hex) : h3.h3ToGeo(row.hex);
+    if (!coords || coords.length < 2) return;
+    const [lat, lon] = coords;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const total = Number.isFinite(row.good) ? row.good + row.bad : row.bad;
+    const ratio = total > 0 ? Math.round((row.bad / total) * 100) : null;
+    const publishedAt = date ? Date.parse(date) : Date.now();
+    const summaryParts = [`Bad aircraft: ${row.bad}`];
+    if (Number.isFinite(row.good)) summaryParts.push(`Good aircraft: ${row.good}`);
+    if (ratio !== null) summaryParts.push(`Bad share: ${ratio}%`);
+    const intensity = ratio !== null ? ratio / 140 : clamp(row.bad / 400, 0.1, 0.35);
+    items.push({
+      title: 'GPS Jamming Risk',
+      url: date ? `https://gpsjam.org/?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&z=6&date=${date}` : 'https://gpsjam.org/',
+      summary: summaryParts.join(' • '),
+      summaryHtml: summaryParts.join(' • '),
+      publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      source: feed.name,
+      category: feed.category,
+      geo: { lat, lon },
+      hex: row.hex,
+      gpsBad: row.bad,
+      gpsGood: row.good,
+      gpsRatio: ratio,
+      gpsIntensity: intensity,
+      alertType: 'GPS Jamming',
+      severity: `${row.bad} affected aircraft`,
+      mapOnly: true,
+      tags: feed.tags || [],
+      feedId: feed.id,
+      feedName: feed.name
+    });
+  });
+
+  return { items, error: null, errorMessage: null };
+}
+
+async function fetchGpsJamFeed(feed, force = false) {
+  try {
+    const res = await apiFetch(force ? '/api/gpsjam?force=1' : '/api/gpsjam');
+    const payload = await res.json();
+    if (payload.error) {
+      return {
+        feed,
+        items: [],
+        error: payload.error,
+        errorMessage: payload.message || 'GPSJam fetch failed.',
+        httpStatus: payload.httpStatus || res.status || 0,
+        fetchedAt: payload.fetchedAt || Date.now()
+      };
+    }
+    const parsed = parseGpsJamData(payload.body || '', feed, payload.date || '');
+    return {
+      feed,
+      items: parsed.items.map((item) => ({ ...item, tags: feed.tags || [] })),
+      error: parsed.error,
+      errorMessage: parsed.errorMessage,
+      httpStatus: payload.httpStatus || res.status || 0,
+      fetchedAt: payload.fetchedAt || Date.now()
+    };
+  } catch (err) {
+    return {
+      feed,
+      items: [],
+      error: 'fetch_failed',
+      errorMessage: err.message,
+      httpStatus: 0,
+      fetchedAt: Date.now()
+    };
+  }
+}
+
+function applyCustomProxy(url, proxy) {
+  if (!proxy) return url;
+  if (Array.isArray(proxy)) {
+    return applyCustomProxy(url, proxy[0]);
+  }
+  if (proxy === 'allorigins') {
+    return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  }
+  if (proxy === 'jina') {
+    const stripped = url.replace(/^https?:\/\//, '');
+    return `https://r.jina.ai/http://${stripped}`;
+  }
+  return url;
+}
+
+function shouldFetchLiveInStatic(feed) {
+  if (!isStaticMode() || !state.settings.superMonitor) return false;
+  if (feed.keySource === 'server') return false;
+  if (feed.requiresKey) {
+    const keyConfig = getKeyConfig(feed);
+    if (!keyConfig.key) return false;
+  }
+  return true;
+}
+
+function applyQueryToUrl(url, query) {
+  if (!query) return url;
+  if (url.includes('{{query}}')) {
+    return url.replaceAll('{{query}}', encodeURIComponent(query));
+  }
+  const parsed = new URL(url);
+  parsed.searchParams.set('q', query);
+  return parsed.toString();
+}
+
+function formatIsoDate(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function getDateRange() {
+  const end = new Date();
+  const days = Math.max(1, Number(state.settings.maxAgeDays) || 1);
+  const start = new Date(end);
+  start.setDate(end.getDate() - days);
+  return {
+    startDate: formatIsoDate(start),
+    endDate: formatIsoDate(end)
+  };
+}
+
+function buildAcledUrl(feed) {
+  const proxy = getAcledProxy();
+  const { startDate, endDate } = getDateRange();
+  const params = new URLSearchParams();
+  const limit = String(feed.limit || 500);
+  const country = state.settings.scope !== 'global' ? getSelectedCountry()?.name : '';
+  if (proxy) {
+    const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
+    params.set('start', startDate);
+    params.set('end', endDate);
+    params.set('limit', limit);
+    if (feed.acledMode === 'aggregated') {
+      params.set('region', feed.acledRegion || 'global');
+      if (country) params.set('country', country);
+      return `${base}/aggregated?${params.toString()}`;
+    }
+    if (country) params.set('country', country);
+    return `${base}/events?${params.toString()}`;
+  }
+  params.set('_format', 'json');
+  params.set('event_date', `${startDate}|${endDate}`);
+  params.set('limit', limit);
+  if (country) params.set('country', country);
+  return `${feed.url}?${params.toString()}`;
+}
+
+function buildGdeltConflictUrl(feed, query) {
+  const days = Math.max(1, Number(state.settings.maxAgeDays) || 1);
+  const timespan = `${days}d`;
+  const baseQuery = query || feed.defaultQuery || '';
+  let url = feed.url || '';
+  url = url.replaceAll('{{query}}', encodeURIComponent(baseQuery));
+  url = url.replaceAll('{{timespan}}', encodeURIComponent(timespan));
+  if (!url.includes('timespan=')) {
+    const parsed = new URL(url);
+    parsed.searchParams.set('timespan', timespan);
+    url = parsed.toString();
+  }
+  return url;
+}
+
+function buildUcdpCandidateUrl(feed) {
+  const { startDate, endDate } = getDateRange();
+  let url = feed.url || '';
+  url = url.replaceAll('{{start}}', encodeURIComponent(startDate));
+  url = url.replaceAll('{{end}}', encodeURIComponent(endDate));
+  return url;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = CLIENT_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchCustomFeedDirect(feed, query) {
+  const keyConfig = getKeyConfig(feed);
+  let url = feed.acledMode
+    ? buildAcledUrl(feed)
+    : feed.id === 'gdelt-conflict-geo'
+      ? buildGdeltConflictUrl(feed, query)
+      : feed.id === 'ucdp-candidate-events'
+        ? buildUcdpCandidateUrl(feed)
+    : applyQueryToUrl(feed.url, feed.supportsQuery ? (query || feed.defaultQuery || '') : '');
+  if (keyConfig.key && keyConfig.keyParam) {
+    const parsed = new URL(url);
+    parsed.searchParams.set(keyConfig.keyParam, keyConfig.key);
+    url = parsed.toString();
+  }
+
+  const headers = {};
+  if (keyConfig.key && keyConfig.keyHeader) {
+    headers[keyConfig.keyHeader] = keyConfig.key;
+  }
+
+  try {
+    const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
+    const candidates = [url, ...proxyList.map((proxy) => applyCustomProxy(url, proxy))];
+    let lastResponse = null;
+    let lastBody = '';
+    let lastRssInvalid = false;
+    for (const candidate of candidates) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const response = await fetchWithTimeout(candidate, { headers });
+        lastResponse = response;
+        if (!response.ok) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const body = await response.text();
+        lastBody = body;
+        if (feed.format === 'rss' && !isLikelyRssPayload(response.headers.get('content-type') || '', body)) {
+          lastRssInvalid = true;
+          continue;
+        }
+        lastRssInvalid = false;
+        const items = feed.format === 'rss' ? parseRss(body, feed) : parseJson(body, feed);
+        const enriched = items.map((item) => ({
+          ...item,
+          tags: Array.from(new Set([...(feed.tags || []), ...((Array.isArray(item.tags) ? item.tags : []))])),
+          feedId: feed.id,
+          feedName: feed.name
+        }));
+        return {
+          feed,
+          items: enriched,
+          error: null,
+          errorMessage: null,
+          httpStatus: response.status,
+          fetchedAt: Date.now()
+        };
+      } catch (err) {
+        // try next candidate
+      }
+    }
+    const invalidRss = feed.format === 'rss' && lastResponse?.ok && lastRssInvalid;
+    const items = lastResponse && lastResponse.ok && !invalidRss
+      ? (feed.format === 'rss' ? parseRss(lastBody, feed) : parseJson(lastBody, feed))
+      : [];
+    const enriched = items.map((item) => ({
+      ...item,
+      tags: Array.from(new Set([...(feed.tags || []), ...((Array.isArray(item.tags) ? item.tags : []))])),
+      feedId: feed.id,
+      feedName: feed.name
+    }));
+    return {
+      feed,
+      items: enriched,
+      error: invalidRss
+        ? 'invalid_rss'
+        : (lastResponse?.ok ? null : (lastResponse ? `http_${lastResponse.status}` : 'fetch_failed')),
+      errorMessage: invalidRss
+        ? 'Upstream response was not valid RSS/Atom XML.'
+        : (lastResponse?.ok ? null : (lastResponse ? `HTTP ${lastResponse.status}` : 'fetch failed')),
+      httpStatus: lastResponse?.status || 0,
+      fetchedAt: Date.now()
+    };
+  } catch (err) {
+    return {
+      feed,
+      items: [],
+      error: 'fetch_failed',
+      errorMessage: err.message,
+      httpStatus: 0,
+      fetchedAt: Date.now()
+    };
+  }
+}
+
+function translateQuery(feed, query) {
+  if (!feed || !query) return query;
+  if (feed.id === 'gdelt-doc') {
+    return query;
+  }
+  if (feed.id.startsWith('google-news')) {
+    return query.includes('when:') ? query : `${query} when:1d`;
+  }
+  return query;
+}
+
+function getLiveSearchFeeds() {
+  const ids = new Set(['gdelt-doc', 'google-news-search']);
+  return state.feeds.filter((feed) => {
+    if (!feed || !feed.supportsQuery) return false;
+    if (feed.requiresKey || feed.keyParam || feed.keyHeader || feed.requiresConfig) return false;
+    if (feed.isCustom) return false;
+    return ids.has(feed.id) || (feed.tags || []).includes('search');
+  });
+}
+
+async function translateQueryAsync(feed, query) {
+  if (!feed || !query) return query;
+  if (!state.settings.aiTranslate || !hasAssistantAccess()) {
+    return translateQuery(feed, query);
+  }
+  try {
+    const prompt = `Translate this search query for the feed "${feed.name}". Keep it short and compatible with the feed. Return only the final query string. Original: ${query}`;
+    const response = await callAssistant({
+      messages: [{ role: 'user', content: prompt }],
+      context: { feed: { id: feed.id, name: feed.name, url: feed.url } },
+      temperature: 0
+    });
+    const cleaned = (response || '').split('\n')[0].replace(/^\"|\"$/g, '').trim();
+    return cleaned || translateQuery(feed, query);
+  } catch (err) {
+    return translateQuery(feed, query);
+  }
+}
+
+function toRelativeTime(timestamp) {
+  let parsed = timestamp;
+  if (typeof timestamp === 'string') {
+    parsed = Date.parse(timestamp);
+  }
+  const ts = Number(parsed);
+  if (!Number.isFinite(ts)) return '—';
+  const delta = Date.now() - ts;
+  const minutes = Math.max(1, Math.round(delta / 60000));
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+function safeRelativeTime(timestamp) {
+  if (!timestamp) return '—';
+  const parsed = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) return '—';
+  return toRelativeTime(parsed);
+}
+
+function ensurePanelUpdateBadges() {
+  document.querySelectorAll('.panel[data-panel]').forEach((panel) => {
+    if (panel.dataset.noUpdate) return;
+    const panelId = panel.dataset.panel;
+    const existing = panel.querySelector(`[data-panel-update="${panelId}"]`);
+    if (existing) return;
+    const header = panel.querySelector('.panel-header > div');
+    if (!header) return;
+    const badge = document.createElement('div');
+    badge.className = 'panel-updated';
+    badge.dataset.panelUpdate = panelId;
+    badge.textContent = 'Updated --';
+    header.appendChild(badge);
+  });
+}
+
+function getLatestTimestamp(items) {
+  if (!items || !items.length) return null;
+  return items.reduce((max, item) => Math.max(max, item.publishedAt || 0), 0) || null;
+}
+
+function getLatestFeedTimestamp(categories) {
+  const feeds = state.feeds.filter((feed) => categories.includes(feed.category));
+  const stamps = feeds.map((feed) => state.feedStatus[feed.id]?.fetchedAt).filter(Boolean);
+  if (!stamps.length) return null;
+  return Math.max(...stamps);
+}
+
+function getLatestFeedTimestampByIds(feedIds) {
+  if (!Array.isArray(feedIds) || !feedIds.length) return null;
+  const stamps = feedIds.map((id) => state.feedStatus[id]?.fetchedAt).filter(Boolean);
+  if (!stamps.length) return null;
+  return Math.max(...stamps);
+}
+
+function getStateGovernmentFeedIds() {
+  return state.feeds
+    .filter((feed) => String(feed?.category || '').toLowerCase() === 'gov')
+    .filter((feed) => String(feed?.jurisdictionLevel || '').toLowerCase() === 'state')
+    .map((feed) => feed.id);
+}
+
+function getFederalPolicyFeedIds() {
+  return state.feeds
+    .filter((feed) => String(feed?.category || '').toLowerCase() === 'gov')
+    .filter((feed) => String(feed?.jurisdictionLevel || '').toLowerCase() !== 'state')
+    .filter((feed) => {
+      const feedId = String(feed?.id || '').toLowerCase();
+      if (feedId.startsWith('congress-')) return false;
+      const tags = Array.isArray(feed?.tags)
+        ? feed.tags.map((tag) => String(tag || '').toLowerCase())
+        : [];
+      if (tags.includes('congress')) return false;
+      return true;
+    })
+    .map((feed) => feed.id);
+}
+
+const PANEL_ERROR_CATEGORY_MAP = {
+  map: ['weather', 'disaster', 'space', 'news', 'travel', 'transport', 'local', 'security', 'infrastructure'],
+  ticker: ['finance', 'crypto', 'energy'],
+  'finance-spotlight': ['finance', 'crypto', 'energy'],
+  news: ['news'],
+  finance: ['finance', 'energy', 'gov', 'cyber', 'agriculture'],
+  crypto: ['crypto'],
+  prediction: ['prediction'],
+  hazards: ['disaster', 'weather', 'space'],
+  'critical-alerts': ['news', 'disaster', 'weather', 'space', 'security', 'cyber', 'health', 'gov', 'travel', 'transport'],
+  local: ['news', 'gov', 'disaster', 'weather'],
+  policy: ['gov'],
+  'state-gov': ['gov'],
+  cyber: ['cyber'],
+  agriculture: ['agriculture'],
+  research: ['research'],
+  space: ['space'],
+  energy: ['energy'],
+  'energy-map': ['energy'],
+  health: ['health'],
+  transport: ['transport']
+};
+
+function getPanelTimestamp(panelId) {
+  const latestFromCategories = (categories) => {
+    const scoped = state.scopedItems.filter((item) => categories.includes(item.category));
+    const scopedStamp = getLatestTimestamp(scoped);
+    if (scopedStamp) return scopedStamp;
+    const global = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => categories.includes(item.category));
+    const globalStamp = getLatestTimestamp(global);
+    if (globalStamp) return globalStamp;
+    return getLatestFeedTimestamp(categories) || state.lastFetch || null;
+  };
+
+  switch (panelId) {
+    case 'map':
+      return getLatestTimestamp(getMapItems()) || state.lastFetch || null;
+    case 'ticker':
+    case 'finance-spotlight':
+      return latestFromCategories(['finance', 'crypto', 'energy']);
+    case 'command':
+    case 'signals':
+      return state.lastFetch || null;
+    case 'news': {
+      const clusterStamp = state.clusters.reduce((max, cluster) => Math.max(max, cluster.updatedAt || 0), 0);
+      return clusterStamp || getLatestFeedTimestamp(['news']) || state.lastFetch || null;
+    }
+    case 'finance':
+      return latestFromCategories(['finance', 'energy', 'gov', 'cyber', 'agriculture']);
+    case 'money-flows':
+      return state.moneyFlowsFetchedAt || null;
+    case 'crypto':
+      return latestFromCategories(['crypto']);
+    case 'prediction':
+      return latestFromCategories(['prediction']);
+    case 'hazards':
+      return latestFromCategories(['disaster', 'weather', 'space']);
+    case 'critical-alerts':
+      return latestFromCategories(['news', 'disaster', 'weather', 'space', 'security', 'cyber', 'health', 'gov', 'travel', 'transport']);
+    case 'local':
+      return getLatestTimestamp(getLocalItems()) || state.lastFetch || null;
+    case 'policy': {
+      const policyStamp = getLatestTimestamp(getFederalPolicyItems());
+      if (policyStamp) return policyStamp;
+      return getLatestFeedTimestampByIds(getFederalPolicyFeedIds()) || state.lastFetch || null;
+    }
+    case 'state-gov': {
+      const stateStamp = getLatestTimestamp(getStateGovernmentItems());
+      if (stateStamp) return stateStamp;
+      return getLatestFeedTimestampByIds(getStateGovernmentFeedIds()) || state.lastFetch || null;
+    }
+    case 'cyber':
+      return latestFromCategories(['cyber']);
+    case 'agriculture':
+      return latestFromCategories(['agriculture']);
+    case 'research':
+      return latestFromCategories(['research']);
+    case 'space':
+      return latestFromCategories(['space']);
+    case 'energy':
+      return latestFromCategories(['energy']);
+    case 'energy-map':
+      return latestFromCategories(['energy']);
+    case 'health':
+      return latestFromCategories(['health']);
+    case 'transport':
+      return latestFromCategories(['transport']);
+    default:
+      return state.lastFetch || null;
+  }
+}
+
+function getPanelFeedIds(panelId) {
+  if (panelId === 'map') {
+    return state.feeds
+      .filter((feed) => feed.mapOnly || PANEL_ERROR_CATEGORY_MAP.map.includes(feed.category))
+      .map((feed) => feed.id);
+  }
+  if (panelId === 'policy') {
+    return getFederalPolicyFeedIds();
+  }
+  if (panelId === 'state-gov') {
+    return getStateGovernmentFeedIds();
+  }
+  const categories = PANEL_ERROR_CATEGORY_MAP[panelId];
+  if (!categories) return [];
+  return state.feeds.filter((feed) => categories.includes(feed.category)).map((feed) => feed.id);
+}
+
+function updatePanelTimestamps() {
+  ensurePanelUpdateBadges();
+  document.querySelectorAll('.panel-updated[data-panel-update]').forEach((el) => {
+    const panelId = el.dataset.panelUpdate;
+    const stamp = getPanelTimestamp(panelId);
+    el.textContent = stamp ? `Updated ${toRelativeTime(stamp)}` : 'Updated --';
+  });
+}
+
+function ensurePanelErrorBadges() {
+  document.querySelectorAll('.panel[data-panel]').forEach((panel) => {
+    if (panel.dataset.noUpdate) return;
+    const panelId = panel.dataset.panel;
+    const existing = panel.querySelector(`[data-panel-error="${panelId}"]`);
+    if (existing) return;
+    const header = panel.querySelector('.panel-header > div');
+    if (!header) return;
+    const badge = document.createElement('div');
+    badge.className = 'panel-error';
+    badge.dataset.panelError = panelId;
+    badge.textContent = '';
+    header.appendChild(badge);
+  });
+}
+
+function updatePanelErrors() {
+  ensurePanelErrorBadges();
+  document.querySelectorAll('.panel-error[data-panel-error]').forEach((el) => {
+    const panelId = el.dataset.panelError;
+    let label = '';
+    if (panelId === 'money-flows') {
+      label = state.moneyFlowsError ? 'Feed error' : '';
+    } else if (panelId === 'map') {
+      if (state.refreshing || !state.mapPointsReady) {
+        label = '';
+      } else if (state.mapPoints && state.mapPoints.length) {
+        label = '';
+      } else {
+        const travelScoped = state.scopedItems.filter((item) => item?.category === 'travel');
+        const travelGlobal = applyLanguageFilter(applyFreshnessFilter(state.items))
+          .filter((item) => item?.category === 'travel');
+        const hasTravelSignals = (travelScoped.length || travelGlobal.length) > 0;
+        const recentNonEmpty = state.mapLastNonEmptyAt
+          && (Date.now() - state.mapLastNonEmptyAt) < 6 * 60 * 60 * 1000;
+        if (hasTravelSignals || recentNonEmpty) {
+          label = '';
+        } else {
+        const mapFeeds = state.feeds.filter((feed) => feed.mapOnly || PANEL_ERROR_CATEGORY_MAP.map.includes(feed.category));
+        const mapErrors = mapFeeds.filter((feed) => state.feedStatus[feed.id]?.error === 'fetch_failed');
+        const mapOnlyErrors = mapErrors.filter((feed) => feed.mapOnly);
+          const hasError = mapOnlyErrors.length > 0 || mapErrors.length >= 2;
+          label = hasError ? 'Data delayed' : '';
+        }
+      }
+    } else {
+      const feedIds = getPanelFeedIds(panelId);
+      label = feedIds.some((id) => state.feedStatus[id]?.error === 'fetch_failed') ? 'Feed error' : '';
+    }
+    el.textContent = label;
+    el.classList.toggle('active', Boolean(label));
+  });
+}
+
+function isNonEnglish(text = '') {
+  if (!text) return false;
+  const nonLatinRegex = /[\u0400-\u04FF\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u1100-\u11FF\u2E80-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/;
+  return nonLatinRegex.test(text);
+}
+
+function applyLanguageFilter(items) {
+  if (state.settings.languageMode === 'all') return items;
+  if (state.settings.languageMode === 'translate') {
+    if (!hasAssistantAccess()) {
+      return items.filter((item) => !item.isNonEnglish);
+    }
+    return items;
+  }
+  return items.filter((item) => !item.isNonEnglish);
+}
+
+function applyFreshnessFilter(items) {
+  const cutoff = Date.now() - state.settings.maxAgeDays * 24 * 60 * 60 * 1000;
+  return items.filter((item) => (item.publishedAt || Date.now()) >= cutoff);
+}
+
+function normalizeSearchItems(items) {
+  return items.map((item) => ({
+    ...item,
+    url: canonicalUrl(item.url),
+    isNonEnglish: typeof item.isNonEnglish === 'boolean'
+      ? item.isNonEnglish
+      : isNonEnglish(`${item.title || ''} ${item.summary || ''}`)
+  }));
+}
+
+function applySearchFilters(items) {
+  const normalized = normalizeSearchItems(items);
+  const deduped = dedupeItems(normalized);
+  return applyLanguageFilter(applyFreshnessFilter(deduped));
+}
+
+function buildTickerItems() {
+  const fresh = applyFreshnessFilter(state.items);
+  const eligible = applyLanguageFilter(fresh);
+  const byFeed = (id) => eligible.filter((item) => item.feedId === id);
+  const pickFirst = (id) => byFeed(id)[0];
+  const pickFirstFrom = (ids) => ids.map((id) => pickFirst(id)).find(Boolean);
+  const pickSymbol = (symbol) => byFeed('coinpaprika-tickers').find((item) => item.title?.includes(`(${symbol})`));
+  const parseChange = (item) => {
+    if (!item?.summary) return null;
+    const match = item.summary.match(/24h\s+(-?\d+(?:\.\d+)?)%/i);
+    if (!match) return null;
+    return Number(match[1]);
+  };
+
+  const items = [];
+  buildCustomTickerItems().forEach((custom) => items.push(custom));
+  const marketWti = state.energyMarket?.wti;
+  const marketGas = state.energyMarket?.gas;
+  const pushMarket = (entry, label) => {
+    if (!entry?.value) return;
+    const valueText = formatCompactCurrency(entry.value);
+    const meta = entry.asOf ? `Market ${entry.asOf}` : 'Market';
+    items.push({
+      text: `${label}: ${valueText} • ${meta}`,
+      url: entry.url,
+      change: Number.isFinite(entry.delta) ? entry.delta : null
+    });
+  };
+  pushMarket(marketWti, 'WTI Crude');
+  pushMarket(marketGas, 'Nat Gas');
+  const pushItem = (item, fallbackTitle) => {
+    if (!item) return;
+    const title = item.translatedTitle || item.title || fallbackTitle;
+    const summary = item.summary || '';
+    items.push({
+      text: summary ? `${title} • ${summary}` : title,
+      url: item.url,
+      change: parseChange(item)
+    });
+  };
+
+  pushItem(pickFirst('treasury-debt'), 'US Debt');
+  pushItem(pickFirst('bls-cpi'), 'US CPI');
+  if (!marketWti?.value) pushItem(pickFirst('energy-eia'), 'WTI Crude');
+  pushItem(pickFirst('energy-eia-brent'), 'Brent Crude');
+  if (!marketGas?.value) pushItem(pickFirst('energy-eia-ng'), 'Nat Gas');
+  pushItem(pickFirst('coinpaprika-global'), 'Crypto Market Cap');
+  ['BTC', 'ETH'].forEach((symbol) => pushItem(pickSymbol(symbol), symbol));
+  pushItem(pickFirst('blockstream-mempool'), 'Bitcoin Mempool');
+
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = (item.text || '').toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function renderTicker() {
+  if (!elements.tickerTrack || !elements.tickerBar) return;
+  const tickerItems = buildTickerItems();
+  elements.tickerTrack.innerHTML = '';
+  if (!tickerItems.length) {
+    elements.tickerBar.classList.add('empty');
+    elements.tickerTrack.textContent = 'No market signals yet.';
+    return;
+  }
+  elements.tickerBar.classList.remove('empty');
+  const group = document.createElement('div');
+  group.className = 'ticker-group';
+  tickerItems.forEach((item) => {
+    const el = document.createElement(item.url ? 'a' : 'span');
+    el.className = 'ticker-item';
+    if (typeof item.change === 'number') {
+      el.classList.add(item.change >= 0 ? 'up' : 'down');
+    }
+    el.textContent = item.text;
+    if (item.url) {
+      el.href = item.url;
+      el.target = '_blank';
+      el.rel = 'noopener noreferrer';
+    }
+    group.appendChild(el);
+  });
+  const clone = group.cloneNode(true);
+  elements.tickerTrack.appendChild(group);
+  elements.tickerTrack.appendChild(clone);
+}
+
+async function translateItem(item, titleEl, summaryEl) {
+  if (!hasAssistantAccess()) return;
+  if (!item || !item.isNonEnglish) return;
+  const key = `${item.title}|${item.summary}`;
+  if (state.translationCache[key]) {
+    const cached = state.translationCache[key];
+    if (cached.title && titleEl) titleEl.textContent = cached.title;
+    return;
+  }
+  if (state.translationInFlight.has(key) || state.translationInFlight.size > 4) return;
+  state.translationInFlight.add(key);
+  try {
+    const prompt = `Translate the following title to English. Return only the translated title.\nTitle: ${item.title}`;
+    const response = await callAssistant({
+      messages: [{ role: 'user', content: prompt }],
+      context: { mode: 'translate' },
+      temperature: 0
+    });
+    const translated = {
+      title: (response || item.title || '').trim()
+    };
+    state.translationCache[key] = translated;
+    if (translated.title && titleEl) titleEl.textContent = translated.title;
+  } catch (err) {
+    // Ignore translation failures.
+  } finally {
+    state.translationInFlight.delete(key);
+  }
+}
+
+function getDomain(url) {
+  if (!url) return '';
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    return hostname;
+  } catch (err) {
+    return '';
+  }
+}
+
+const tier1Domains = new Set([
+  'reuters.com', 'apnews.com', 'bloomberg.com', 'wsj.com', 'nytimes.com',
+  'ft.com', 'bbc.com', 'theguardian.com', 'washingtonpost.com', 'npr.org',
+  'economist.com', 'aljazeera.com', 'cnn.com', 'foxnews.com', 'forbes.com',
+  'wsj.com', 'nationalgeographic.com', 'nature.com', 'sciencemag.org'
+]);
+const tier2Domains = new Set([
+  'yahoo.com', 'finance.yahoo.com', 'cnbc.com', 'axios.com', 'politico.com',
+  'thehill.com', 'time.com', 'usatoday.com', 'abcnews.go.com', 'nbcnews.com',
+  'cbsnews.com', 'newsweek.com', 'businessinsider.com', 'marketwatch.com'
+]);
+
+function getCredibilityTier(item) {
+  const domain = getDomain(item.url || '');
+  if (!domain) return null;
+  if (domain.endsWith('.gov') || domain.endsWith('.mil') || domain.endsWith('.edu')) {
+    return { label: 'Tier 1', className: 'tier-1' };
+  }
+  if (tier1Domains.has(domain)) return { label: 'Tier 1', className: 'tier-1' };
+  if (tier2Domains.has(domain)) return { label: 'Tier 2', className: 'tier-2' };
+  return { label: 'Tier 3', className: 'tier-3' };
+}
+
+function getTrendLabel(item) {
+  if (!item.coverage) return null;
+  const ageMinutes = (Date.now() - (item.publishedAt || Date.now())) / 60000;
+  if (item.coverage >= 6 && ageMinutes < 120) return 'Spiking';
+  if (item.coverage >= 4) return 'Broad';
+  if (ageMinutes < 60) return 'Fresh';
+  return null;
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatInline(text) {
+  let value = escapeHtml(text);
+  value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  value = value.replace(/`([^`]+)`/g, '<code>$1</code>');
+  value = value.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  value = value.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  value = value.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  value = value.replace(/_([^_]+)_/g, '<em>$1</em>');
+  value = value.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+  return value;
+}
+
+function formatBriefingText(text) {
+  const cleanedText = String(text || '').replace(/```[\s\S]*?```/g, '').trim();
+  const lines = cleanedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let html = '';
+  let listType = null;
+  lines.forEach((line) => {
+    const unordered = /^[-*•‣–—]\s*/.test(line);
+    const ordered = /^\d+[.)]\s+/.test(line);
+    if (unordered || ordered) {
+      const type = ordered ? 'ol' : 'ul';
+      if (listType && listType !== type) {
+        html += `</${listType}>`;
+        listType = null;
+      }
+      if (!listType) {
+        listType = type;
+        html += `<${type}>`;
+      }
+      const content = line.replace(/^[-*•‣–—]\s*/, '').replace(/^\d+[.)]\s+/, '');
+      html += `<li>${formatInline(content)}</li>`;
+      return;
+    }
+    if (listType) {
+      html += `</${listType}>`;
+      listType = null;
+    }
+    const heading = /^(#{1,3})\s+(.+)/.exec(line);
+    if (heading) {
+      html += `<div class="analysis-heading">${formatInline(heading[2])}</div>`;
+      return;
+    }
+    const labelMatch = /^([A-Z][A-Za-z0-9 &/.-]{2,}):\s*(.+)$/.exec(line);
+    if (labelMatch) {
+      html += `<p><strong>${formatInline(labelMatch[1])}:</strong> ${formatInline(labelMatch[2])}</p>`;
+      return;
+    }
+    html += `<p>${formatInline(line)}</p>`;
+  });
+  if (listType) {
+    html += `</${listType}>`;
+  }
+  return html || `<p>${formatInline(text)}</p>`;
+}
+
+function setAnalysisOutput(text) {
+  if (!elements.analysisBody) return;
+  elements.analysisBody.innerHTML = formatBriefingText(text);
+}
+
+function getAnalysisSignature() {
+  const items = state.scopedItems.length ? state.scopedItems : state.items;
+  let latest = 0;
+  items.forEach((item) => {
+    const ts = new Date(item.publishedAt || item.updatedAt || 0).getTime();
+    if (Number.isFinite(ts)) latest = Math.max(latest, ts);
+  });
+  return [
+    items.length,
+    latest,
+    state.clusters.length,
+    state.lastFetch || 0,
+    state.lastBuildAt || 0,
+    state.settings.scope,
+    state.settings.radiusKm,
+    state.settings.languageMode
+  ].join('|');
+}
+
+function maybeAutoRunAnalysis() {
+  const signature = getAnalysisSignature();
+  if (signature === state.analysisSignature) return;
+  state.analysisSignature = signature;
+  if (hasAssistantAccess()) {
+    runAiAnalysis({ emitChat: false, auto: true });
+  } else {
+    generateAnalysis(false, { metaNote: 'AI offline' });
+  }
+}
+
+function getDistanceKm(item) {
+  if (!item.geo) return null;
+  const { lat, lon } = state.location;
+  return haversineKm(lat, lon, item.geo.lat, item.geo.lon);
+}
+
+function extractRegionFromText(text) {
+  if (!text) return '';
+  const upper = text.toUpperCase();
+  if (upper.includes('UNITED STATES') || upper.includes('U.S.') || upper.includes('USA')) {
+    return 'US';
+  }
+  if (upper.includes('GLOBAL')) return 'Global';
+  const stateMatches = upper.match(/\b[A-Z]{2}\b/g) || [];
+  const state = stateMatches.find((code) => usStateCodes.has(code));
+  if (state) return state;
+  if (text.includes(',')) {
+    const tail = text.split(',').pop().trim();
+    if (tail && tail.length <= 24) return tail;
+  }
+  return '';
+}
+
+function extractTravelRegion(title = '') {
+  if (/global/i.test(title)) return 'Global';
+  const match = title.match(/\bin\s+([A-Za-z][A-Za-z\s.-]+)/i);
+  if (match) return match[1].trim();
+  return '';
+}
+
+function extractTravelLevel(title = '') {
+  const match = title.match(/Level\s*(\d)/i);
+  return match ? `Level ${match[1]}` : '';
+}
+
+function enrichItem(item) {
+  const enriched = { ...item };
+  const text = `${item.title || ''} ${item.summary || ''}`.toLowerCase();
+
+  if (item.category === 'travel') {
+    enriched.alertType = enriched.alertType || 'Travel Notice';
+    const level = extractTravelLevel(item.title || '');
+    if (level && !enriched.severity) enriched.severity = level;
+    const region = extractTravelRegion(item.title || '');
+    if (region) enriched.regionTag = region;
+    if (/dengue|chikungunya|zika|malaria/.test(text)) enriched.hazardType = 'Mosquito-borne';
+    else if (/rabies/.test(text)) enriched.hazardType = 'Zoonotic';
+    else if (/rmsf|rocky mountain spotted fever|tick/.test(text)) enriched.hazardType = 'Tick-borne';
+    else if (/cholera|diarrhea/.test(text)) enriched.hazardType = 'Waterborne';
+    else if (/measles|respiratory/.test(text)) enriched.hazardType = 'Respiratory';
+  }
+
+  if (item.category === 'health' && !enriched.alertType) {
+    if (/recall/.test(text)) enriched.alertType = 'Recall';
+    else if (/outbreak|cases/.test(text)) enriched.alertType = 'Outbreak';
+    else if (/advisory/.test(text)) enriched.alertType = 'Advisory';
+    else if (/alert/.test(text)) enriched.alertType = 'Alert';
+  }
+
+  if (item.category === 'cyber' && !enriched.alertType) {
+    if (/cve-\\d{4}-\\d+/i.test(item.title || '')) enriched.alertType = 'Vulnerability';
+  }
+
+  if (item.category === 'research') {
+    if (/arxiv/i.test(item.source || '')) {
+      const rawTopic = (item.source || '').replace(/arxiv/i, '').replace(/[()]/g, '').trim();
+      enriched.topicTag = rawTopic || 'arXiv';
+      const match = (item.url || '').match(/v(\\d+)$/);
+      if (match && Number(match[1]) > 1) {
+        enriched.alertType = 'Updated';
+      } else {
+        enriched.alertType = 'New';
+      }
+    }
+  }
+
+  if (item.category === 'news' && item.url) {
+    const tier = getCredibilityTier(item);
+    if (tier) enriched.credibility = tier.label;
+  }
+
+  if (!enriched.regionTag) {
+    const region = extractRegionFromText(item.location || item.geoLabel || '');
+    if (region) enriched.regionTag = region;
+    else if (item.tags?.includes('us')) enriched.regionTag = 'US';
+    else if (item.tags?.includes('global')) enriched.regionTag = 'Global';
+  }
+
+  if (Array.isArray(item.tags) && item.tags.includes('govinfo')) {
+    enriched.externalUrl = enriched.externalUrl || enriched.url || '';
+    enriched.detailTitle = enriched.detailTitle || enriched.title || 'GovInfo';
+    if (!Array.isArray(enriched.detailFields) || !enriched.detailFields.length) {
+      const packageId = extractGovinfoPackageId(enriched.externalUrl || enriched.url || '');
+      enriched.detailFields = [
+        { label: 'Package', value: packageId || '' },
+        { label: 'Feed', value: enriched.feedName || 'GovInfo' }
+      ].filter((field) => field.value);
+    }
+  }
+
+  return enriched;
+}
+
+const badgePriorityBase = {
+  critical: 5,
+  alertType: 10,
+  severity: 20,
+  hazardType: 30,
+  deadline: 40,
+  regionTag: 50,
+  distance: 60,
+  delta: 70,
+  trend: 80,
+  credibility: 90,
+  topicTag: 100
+};
+
+const badgePriorityOverrides = {
+  news: { alertType: 8, severity: 12, hazardType: 16, regionTag: 20, trend: 30, credibility: 40 },
+  local: { distance: 5, alertType: 10, severity: 14, hazardType: 18, regionTag: 22 },
+  travel: { severity: 5, hazardType: 8, regionTag: 12, alertType: 16 },
+  research: { topicTag: 5, alertType: 10 },
+  financeMarkets: { delta: 5, trend: 10, alertType: 20, severity: 24, regionTag: 28 },
+  financePolicy: { alertType: 5, deadline: 10, regionTag: 16, severity: 20 },
+  policy: { alertType: 5, deadline: 10, regionTag: 16, severity: 20 },
+  cyber: { alertType: 5, severity: 10, deadline: 14, regionTag: 18 },
+  health: { alertType: 5, severity: 10, hazardType: 14, regionTag: 18 },
+  disaster: { severity: 5, alertType: 10, hazardType: 14, regionTag: 18 },
+  crypto: { delta: 5, trend: 10, regionTag: 20 },
+  energy: { delta: 5, trend: 10, alertType: 16 },
+  transport: { alertType: 8, severity: 12, regionTag: 16 },
+  agriculture: { alertType: 8, severity: 12, regionTag: 16 }
+};
+
+function resolveBadgeContext(contextId, item) {
+  const map = {
+    newsList: 'news',
+    financeMarketsList: 'financeMarkets',
+    financePolicyList: 'financePolicy',
+    policyList: 'policy',
+    stateGovAllList: 'policy',
+    stateGovLegislationList: 'policy',
+    stateGovRulemakingList: 'policy',
+    stateGovExecutiveOrdersList: 'policy',
+    congressList: 'policy',
+    cryptoList: 'crypto',
+    disasterList: 'disaster',
+    localList: 'local',
+    cyberList: 'cyber',
+    agricultureList: 'agriculture',
+    researchList: 'research',
+    spaceList: 'space',
+    energyList: 'energy',
+    healthList: 'health',
+    transportList: 'transport'
+  };
+  if (contextId === 'searchResultsList') {
+    const category = item.category === 'gov' ? 'policy' : item.category;
+    return category || 'default';
+  }
+  return map[contextId] || (item.category === 'gov' ? 'policy' : item.category) || 'default';
+}
+
+function getBadgePriority(context, key) {
+  const override = badgePriorityOverrides[context] || {};
+  if (Object.prototype.hasOwnProperty.call(override, key)) return override[key];
+  if (Object.prototype.hasOwnProperty.call(badgePriorityBase, key)) return badgePriorityBase[key];
+  return 999;
+}
+
+function isCriticalItem(item) {
+  if (!item) return false;
+  const alertText = `${item.alertType || ''} ${item.severity || ''} ${item.title || ''}`.toLowerCase();
+  if (/(emergency|warning|extreme|catastrophic|major|critical)/.test(alertText)) return true;
+  const magnitude = Number(item.magnitude ?? item.mag);
+  if (Number.isFinite(magnitude) && magnitude >= 6) return true;
+  if (item.category === 'cyber' && /(known exploited|kev|ransomware)/.test(alertText)) return true;
+  if (item.category === 'health' && /(outbreak|recall|fatal)/.test(alertText)) return true;
+  if (item.category === 'security' && /(attack|explosion|shooting)/.test(alertText)) return true;
+  return false;
+}
+
+function buildListBadges(item, contextId) {
+  const context = resolveBadgeContext(contextId, item);
+  const badges = [];
+  const pushBadge = (key, label, className) => {
+    badges.push({
+      label,
+      className,
+      priority: getBadgePriority(context, key),
+      order: badges.length
+    });
+  };
+
+  if (item.category === 'news') {
+    const tier = getCredibilityTier(item);
+    if (tier) pushBadge('credibility', tier.label, `chip-badge ${tier.className}`);
+    const trend = getTrendLabel(item);
+    if (trend) pushBadge('trend', trend, 'chip-badge trend');
+  }
+  if (isAlertItem(item) && !item.alertType) {
+    pushBadge('alert', 'Alert', 'chip-badge alert');
+  }
+  if (isCriticalItem(item)) {
+    pushBadge('critical', 'Critical', 'chip-badge critical');
+  }
+  if (item.alertType) pushBadge('alertType', item.alertType, 'chip-badge alert');
+  if (item.severity) pushBadge('severity', item.severity, 'chip-badge severity');
+  if (Number.isFinite(item.delta)) {
+    const deltaText = item.delta > 0 ? `+${formatNumber(item.delta)}` : formatNumber(item.delta);
+    const unit = item.unit ? ` ${item.unit}` : '';
+    pushBadge('delta', `Δ ${deltaText}${unit}`, 'chip-badge trend');
+  }
+  if (item.hazardType) pushBadge('hazardType', item.hazardType, 'chip-badge hazard');
+  if (item.verificationCount && item.verificationCount > 1) {
+    pushBadge('verified', `Verified ${item.verificationCount} sources`, 'chip-badge verified');
+  }
+  if (item.deadline) pushBadge('deadline', `Due ${formatShortDate(item.deadline)}`, 'chip-badge deadline');
+  if (item.regionTag) pushBadge('regionTag', item.regionTag, 'chip-badge region');
+  if (context === 'local') {
+    const distance = getDistanceKm(item);
+    if (Number.isFinite(distance)) {
+      pushBadge('distance', `${Math.round(distance)} km`, 'chip-badge distance');
+    }
+  }
+  if (item.topicTag) pushBadge('topicTag', item.topicTag, 'chip-badge topic');
+
+  return badges
+    .sort((a, b) => (a.priority - b.priority) || (a.order - b.order))
+    .slice(0, 4);
+}
+
+function renderList(container, items, { withCoverage = false, append = false } = {}) {
+  if (!container) return;
+  if (!append) {
+    container.innerHTML = '';
+  }
+  if (!items.length) {
+    if (!append) {
+      container.innerHTML = '<div class="list-item">No signals yet.</div>';
+    }
+    return;
+  }
+  let rendered = 0;
+  const contextId = container?.dataset?.listContext || container?.id || '';
+  items.forEach((item) => {
+    if (state.settings.languageMode === 'en' && item.isNonEnglish) return;
+    const div = document.createElement('div');
+    div.className = 'list-item';
+    if (isAlertItem(item)) {
+      div.classList.add('is-alert');
+    }
+    if (isCriticalItem(item)) {
+      div.classList.add('is-critical');
+    }
+
+    const hasDetail = Array.isArray(item.detailFields) && item.detailFields.length;
+    const isDetailItem = hasDetail || item.detailSummary || item.detailTitle;
+    if (isDetailItem) {
+      div.classList.add('is-clickable');
+    }
+    const shouldLinkTitle = Boolean(item.url && !isDetailItem);
+    const title = document.createElement(shouldLinkTitle ? 'a' : (isDetailItem ? 'button' : 'div'));
+    title.className = `list-title${isDetailItem ? ' btn-link' : ''}`;
+    title.textContent = item.translatedTitle || item.title;
+    if (shouldLinkTitle) {
+      title.href = item.url;
+      title.target = '_blank';
+      title.rel = 'noopener noreferrer';
+    } else if (isDetailItem) {
+      title.type = 'button';
+      title.addEventListener('click', () => openDetailModal(item));
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'list-meta';
+    const metaSource = document.createElement('span');
+    metaSource.textContent = item.source || 'Source';
+    const metaTime = document.createElement('span');
+    metaTime.textContent = toRelativeTime(item.publishedAt || Date.now());
+    meta.appendChild(metaSource);
+    meta.appendChild(metaTime);
+    if (item.externalUrl) {
+      const openLink = document.createElement('a');
+      openLink.className = 'list-open-link';
+      openLink.href = item.externalUrl;
+      openLink.target = '_blank';
+      openLink.rel = 'noopener noreferrer';
+      openLink.textContent = 'Open';
+      meta.appendChild(openLink);
+    }
+
+    let predictionOdds = null;
+    if (item.category === 'prediction' && Number.isFinite(item.probability)) {
+      const odds = document.createElement('div');
+      odds.className = 'prediction-odds';
+      const label = document.createElement('div');
+      label.className = 'prediction-odds-label';
+      const delta = Number.isFinite(item.change24h) ? item.change24h : null;
+      const deltaText = delta !== null ? ` (${delta > 0 ? '+' : ''}${Math.round(delta * 100)}%)` : '';
+      label.textContent = `${item.outcomeLabel || 'Yes'} ${item.probability}%${deltaText}`;
+      const bar = document.createElement('div');
+      bar.className = 'prediction-odds-bar';
+      const fill = document.createElement('span');
+      fill.style.width = `${Math.max(4, Math.min(100, item.probability))}%`;
+      bar.appendChild(fill);
+      odds.appendChild(label);
+      odds.appendChild(bar);
+      predictionOdds = odds;
+    }
+
+    if (withCoverage && item.coverage) {
+      const coverage = document.createElement('div');
+      coverage.className = 'list-coverage';
+      const dots = Array.from({ length: Math.min(item.coverage, 6) }).map(() => '<span class="cover-dot"></span>').join('');
+      const extra = item.coverage - Math.min(item.coverage, 6);
+      coverage.innerHTML = extra > 0 ? `${dots} <span>+${extra}</span>` : dots;
+      meta.appendChild(coverage);
+    }
+
+    const badges = buildListBadges(item, contextId);
+    if (badges.length) {
+      const badgeRow = document.createElement('div');
+      badgeRow.className = 'list-badges';
+      badges.forEach((badge) => {
+        const el = document.createElement('span');
+        el.className = badge.className;
+        el.textContent = badge.label;
+        badgeRow.appendChild(el);
+      });
+      div.appendChild(badgeRow);
+    }
+
+    const summary = document.createElement('div');
+    summary.className = 'list-summary';
+    const isNewsList = contextId === 'newsList';
+    const translatedSummary = coerceTextValue(item.translatedSummary).trim();
+    const rawSummaryText = stripHtml(item.summaryHtml ?? item.summary ?? '').trim();
+    const safeSummaryHtml = sanitizeHtml(item.summaryHtml);
+    if (isNewsList) {
+      const baseText = translatedSummary || rawSummaryText;
+      summary.textContent = truncateText(baseText, 240);
+    } else if (safeSummaryHtml) {
+      summary.innerHTML = safeSummaryHtml;
+    } else {
+      summary.textContent = translatedSummary || rawSummaryText;
+    }
+
+    div.appendChild(title);
+    div.appendChild(meta);
+    if (predictionOdds) {
+      div.appendChild(predictionOdds);
+    }
+    const shouldShowSummary = Boolean(rawSummaryText || safeSummaryHtml)
+      && !(state.settings.languageMode === 'translate' && item.isNonEnglish);
+    if (shouldShowSummary) div.appendChild(summary);
+    container.appendChild(div);
+    rendered += 1;
+
+    if (state.settings.languageMode === 'translate' && item.isNonEnglish) {
+      translateItem(item, title, summary);
+    }
+  });
+  if (!rendered && !append) {
+    container.innerHTML = '<div class="list-item">No signals yet.</div>';
+  }
+}
+
+function renderListWithLimit(container, items, options = {}) {
+  if (!container) return;
+  const limit = Math.min(getListLimit(container.id), items.length);
+  renderList(container, items.slice(0, limit), options);
+  const rowEstimate = options.rowEstimate || 92;
+  if (!container.clientHeight || items.length <= limit) return;
+  const target = Math.min(items.length, Math.max(limit, Math.floor(container.clientHeight / rowEstimate)));
+  if (target > limit) {
+    state.listLimits[container.id] = target;
+    renderList(container, items.slice(0, target), options);
+  }
+}
+
+function renderNews(clusters) {
+  const items = buildNewsItems(clusters);
+  renderListWithLimit(elements.newsList, items, { withCoverage: true });
+}
+
+function renderSignals() {
+  const totalItems = state.scopedItems.length;
+  const newsClusters = state.clusters.length;
+  const localItems = getLocalItems();
+  const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
+    .filter((item) => item.category === 'crypto' || item.category === 'finance');
+
+  const previous = state.previousSignals;
+  const formatDelta = (value, prev) => {
+    if (prev === null || prev === undefined) return '';
+    const diff = value - prev;
+    if (!diff) return '';
+    return diff > 0 ? `• +${diff}` : `• ${diff}`;
+  };
+
+  if (elements.globalActivity) elements.globalActivity.textContent = totalItems ? totalItems : '--';
+  if (elements.globalActivityMeta) {
+    elements.globalActivityMeta.textContent = totalItems
+      ? `Signals ingested: ${totalItems} ${formatDelta(totalItems, previous?.totalItems)}`.trim()
+      : (state.refreshing ? 'Fetching feeds…' : 'Awaiting signals');
+  }
+
+  if (elements.summaryGlobalActivity) {
+    elements.summaryGlobalActivity.textContent = totalItems ? totalItems : '--';
+    elements.summaryGlobalActivityMeta.textContent = totalItems
+      ? `Signals ingested: ${totalItems} ${formatDelta(totalItems, previous?.totalItems)}`.trim()
+      : (state.refreshing ? 'Fetching feeds…' : 'Awaiting signals');
+  }
+
+  if (elements.newsSaturation) elements.newsSaturation.textContent = newsClusters ? newsClusters : '--';
+  if (elements.newsSaturationMeta) {
+    elements.newsSaturationMeta.textContent = newsClusters
+      ? `Clusters across sources ${formatDelta(newsClusters, previous?.newsClusters)}`.trim()
+      : (state.refreshing ? 'Fetching clusters…' : 'No clusters yet');
+  }
+
+  if (elements.summaryNewsSaturation) {
+    elements.summaryNewsSaturation.textContent = newsClusters ? newsClusters : '--';
+    elements.summaryNewsSaturationMeta.textContent = newsClusters
+      ? `Clusters across sources ${formatDelta(newsClusters, previous?.newsClusters)}`.trim()
+      : (state.refreshing ? 'Fetching clusters…' : 'No clusters yet');
+  }
+
+  if (elements.localEvents) elements.localEvents.textContent = localItems.length ? localItems.length : '--';
+  if (elements.localEventsMeta) {
+    elements.localEventsMeta.textContent = localItems.length
+      ? (state.location.source === 'geo'
+        ? `Within local radius ${formatDelta(localItems.length, previous?.localItems)}`
+        : `Fallback region ${formatDelta(localItems.length, previous?.localItems)}`)
+      : (state.refreshing ? 'Locating…' : 'No local signals yet');
+  }
+
+  if (elements.summaryLocalEvents) {
+    elements.summaryLocalEvents.textContent = localItems.length ? localItems.length : '--';
+    elements.summaryLocalEventsMeta.textContent = localItems.length
+      ? (state.location.source === 'geo'
+        ? `Within local radius ${formatDelta(localItems.length, previous?.localItems)}`
+        : `Fallback region ${formatDelta(localItems.length, previous?.localItems)}`)
+      : (state.refreshing ? 'Locating…' : 'No local signals yet');
+  }
+
+  const marketCount = marketSignals.length;
+  if (elements.marketPulse) elements.marketPulse.textContent = marketCount ? marketCount : '--';
+  if (elements.marketPulseMeta) {
+    elements.marketPulseMeta.textContent = marketCount
+      ? `Markets + macro feeds ${formatDelta(marketCount, previous?.marketCount)}`.trim()
+      : (state.refreshing ? 'Fetching feeds…' : 'No market signals yet');
+  }
+
+  if (elements.summaryMarketPulse) {
+    elements.summaryMarketPulse.textContent = marketCount ? marketCount : '--';
+    elements.summaryMarketPulseMeta.textContent = marketCount
+      ? `Markets + macro feeds ${formatDelta(marketCount, previous?.marketCount)}`.trim()
+      : (state.refreshing ? 'Fetching feeds…' : 'No market signals yet');
+  }
+
+  if (elements.signalHealthChip) {
+    const degraded = criticalFeedIds
+      .map((id) => state.feedStatus[id])
+      .filter((status) => {
+        if (!status) return false;
+        if (status.stale) return true;
+        if (!status.error) return false;
+        if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return false;
+        return true;
+      });
+    const degradedFeedIds = criticalFeedIds.filter((id) => {
+      const status = state.feedStatus[id];
+      if (!status) return false;
+      if (status.stale) return true;
+      if (!status.error) return false;
+      if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return false;
+      return true;
+    });
+    const degradedNames = degradedFeedIds
+      .map((id) => state.feeds.find((feed) => feed.id === id)?.name || id);
+    if (degraded.length) {
+      elements.signalHealthChip.textContent = `Feed Health: Degraded (${degraded.length})`;
+      elements.signalHealthChip.classList.add('degraded');
+      elements.signalHealthChip.classList.remove('healthy');
+      if (elements.signalHealthDetail) {
+        const shortList = degradedNames.slice(0, 3).join(', ');
+        const suffix = degradedNames.length > 3 ? ` +${degradedNames.length - 3} more` : '';
+        elements.signalHealthDetail.textContent = `Degraded: ${shortList}${suffix}`;
+        elements.signalHealthDetail.title = degradedNames.join(', ');
+      }
+    } else {
+      elements.signalHealthChip.textContent = 'Feed Health: Healthy';
+      elements.signalHealthChip.classList.add('healthy');
+      elements.signalHealthChip.classList.remove('degraded');
+      if (elements.signalHealthDetail) {
+        elements.signalHealthDetail.textContent = '';
+        elements.signalHealthDetail.removeAttribute('title');
+      }
+    }
+  }
+
+  renderAnalysisStory();
+
+  state.previousSignals = {
+    totalItems,
+    newsClusters,
+    localItems: localItems.length,
+    marketCount
+  };
+}
+
+function buildNewsItems(clusters) {
+  return clusters.map((cluster, index) => ({
+    title: cluster.primary.title,
+    source: Array.from(cluster.sources).slice(0, 2).join(', '),
+    summary: index < 3 ? truncateText(stripHtml(cluster.primary.summaryHtml || cluster.primary.summary || ''), 240) : '',
+    summaryHtml: '',
+    publishedAt: cluster.updatedAt,
+    coverage: cluster.sources.size,
+    url: cluster.primary.url,
+    isNonEnglish: cluster.primary.isNonEnglish
+  }));
+}
+
+function getLocalItemsForPanel() {
+  let items = getLocalItems().filter((item) => !item.mapOnly);
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.tags?.includes('us') && !item.mapOnly);
+  }
+  const scored = items
+    .filter((item) => !isLocalAnalysisExcluded(item))
+    .map((item) => ({ item, score: getLocalPriorityScore(item) }))
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.item);
+  return scored;
+}
+
+function getEnergyNewsItems() {
+  let items = state.scopedItems.filter((item) => item.feedId === 'eia-today');
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.feedId === 'eia-today');
+  }
+  if (!items.length) {
+    items = state.scopedItems.filter((item) => item.category === 'energy');
+  }
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.category === 'energy');
+  }
+  return dedupeItems(items);
+}
+
+function renderFeedHealth() {
+  if (!elements.feedHealth) return;
+  if (!Object.keys(state.feedStatus).length) {
+    elements.feedHealth.innerHTML = '<div class="settings-note">Fetching feeds...</div>';
+    return;
+  }
+  const entries = state.feeds.map((feed) => {
+    const status = state.feedStatus[feed.id] || {};
+    const stale = status.stale;
+    const code = stale ? 'STALE' : (status.httpStatus || (status.error ? 'ERR' : 'OK'));
+    const ok = !status.error && !stale && (status.httpStatus ? status.httpStatus < 400 : true);
+    return {
+      id: feed.id,
+      name: feed.name,
+      ok,
+      code,
+      stale,
+      fetchedAt: status.fetchedAt,
+      error: status.error,
+      message: status.errorMessage
+    };
+  });
+
+  const issues = entries.filter((entry) => !entry.ok && entry.error !== 'requires_config');
+  if (!issues.length) {
+    elements.feedHealth.innerHTML = '<div class="settings-note">All feeds are healthy.</div>';
+    return;
+  }
+
+  elements.feedHealth.innerHTML = '';
+  issues.slice(0, 6).forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'feed-health-row';
+    const name = document.createElement('div');
+    name.textContent = entry.name;
+    const meta = document.createElement('div');
+    meta.className = 'feed-health-meta';
+    let message = entry.message;
+    if (!message && entry.stale && entry.fetchedAt) {
+      message = `Stale (${toRelativeTime(entry.fetchedAt)})`;
+    }
+    if (!message && entry.error === 'requires_key') message = 'Missing API key';
+    if (!message && entry.error === 'missing_server_key') message = 'Missing server API key';
+    meta.textContent = message ? message : (entry.error ? entry.error : `HTTP ${entry.code}`);
+    row.appendChild(name);
+    row.appendChild(meta);
+    elements.feedHealth.appendChild(row);
+  });
+}
+
+function getStaticAnalysisStamp() {
+  if (!state.staticAnalysis?.generatedAt) return null;
+  const stamp = Date.parse(state.staticAnalysis.generatedAt);
+  return Number.isFinite(stamp) ? stamp : null;
+}
+
+function getAnalysisDataStamp() {
+  if (isStaticMode() && !state.settings.superMonitor) {
+    return getStaticAnalysisStamp() || state.lastBuildAt || state.lastFetch || null;
+  }
+  return state.lastFetch || state.lastBuildAt || getStaticAnalysisStamp() || null;
+}
+
+function setAnalysisMeta(mode, note, stampOverride) {
+  if (!elements.analysisMeta) return;
+  const labels = {
+    ai: 'AI briefing',
+    cached: 'Cached briefing',
+    heuristic: 'Heuristic briefing',
+    empty: 'Awaiting signals'
+  };
+  let message = '';
+  if (mode === 'empty') {
+    message = note || 'Awaiting signals to build a briefing.';
+  } else {
+    const label = labels[mode] || 'Briefing';
+    const stamp = stampOverride ?? getAnalysisDataStamp();
+    const timeText = stamp ? `Data ${safeRelativeTime(stamp)}` : '';
+    const parts = [label, note, timeText].filter(Boolean);
+    message = parts.join(' • ');
+  }
+  elements.analysisMeta.textContent = message;
+  if (elements.analysisOutput && mode) {
+    elements.analysisOutput.dataset.mode = mode;
+  }
+}
+
+function getPriorityCluster() {
+  if (!state.clusters.length) return null;
+  return [...state.clusters].sort((a, b) => {
+    const coverageDelta = b.sources.size - a.sources.size;
+    if (coverageDelta) return coverageDelta;
+    return b.updatedAt - a.updatedAt;
+  })[0];
+}
+
+function getLatestItem(items) {
+  if (!items || !items.length) return null;
+  return [...items].sort((a, b) => {
+    const aStamp = a.publishedAt || a.updatedAt || 0;
+    const bStamp = b.publishedAt || b.updatedAt || 0;
+    return bStamp - aStamp;
+  })[0];
+}
+
+function getTopThemes(max = 5) {
+  if (!state.clusters.length) return [];
+  const tokens = [];
+  state.clusters.slice(0, 12).forEach((cluster) => {
+    const normalized = normalizeTitle(cluster.primary.title);
+    normalized.split(' ').forEach((token) => {
+      if (!token || token.length < 3) return;
+      if (ANALYSIS_NOISE_TOKENS.has(token)) return;
+      if (/^\d+$/.test(token)) return;
+      tokens.push(token);
+    });
+  });
+
+  const counts = tokens.reduce((acc, token) => {
+    acc[token] = (acc[token] || 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([token]) => token);
+}
+
+function buildStorylineItems() {
+  const items = [];
+  const focusCluster = getPriorityCluster();
+  if (focusCluster) {
+    const title = truncateText(focusCluster.primary.title || '', 120);
+    const coverage = focusCluster.sources?.size ? `${focusCluster.sources.size} sources` : 'Single source';
+    const updated = focusCluster.updatedAt ? toRelativeTime(focusCluster.updatedAt) : '';
+    const meta = [coverage, updated].filter(Boolean).join(' • ');
+    items.push({ label: 'Focus', value: meta ? `${title} • ${meta}` : title });
+  }
+
+  const localItem = getLatestItem(getLocalAnalysisItems());
+  if (localItem) {
+    const title = truncateText(localItem.title || '', 120);
+    const location = localItem.geoLabel || localItem.location || localItem.area || '';
+    const updated = localItem.publishedAt ? toRelativeTime(localItem.publishedAt) : '';
+    const meta = [location, updated].filter(Boolean).join(' • ');
+    items.push({ label: 'Local', value: meta ? `${title} • ${meta}` : title });
+  } else if (state.settings.scope !== 'global') {
+    items.push({ label: 'Local', value: `No signals within ${state.settings.radiusKm} km.` });
+  }
+
+  const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
+    .filter((item) => item.category === 'crypto' || item.category === 'finance');
+  const marketItem = getLatestItem(marketSignals);
+  if (marketItem) {
+    const title = truncateText(marketItem.title || '', 120);
+    const summary = marketItem.summary ? truncateText(stripHtml(marketItem.summary), 80) : '';
+    items.push({ label: 'Market', value: summary ? `${title} • ${summary}` : title });
+  }
+
+  const themes = getTopThemes(3);
+  if (themes.length) {
+    items.push({ label: 'Themes', value: themes.join(', ') });
+  }
+
+  return items.slice(0, 4);
+}
+
+function renderAnalysisStory() {
+  if (!elements.analysisStory) return;
+  const storyItems = buildStorylineItems();
+  elements.analysisStory.innerHTML = '';
+  if (!storyItems.length) {
+    elements.analysisStory.innerHTML = '<div class="analysis-story-empty">Awaiting narrative context.</div>';
+    return;
+  }
+  storyItems.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'analysis-story-item';
+    const label = document.createElement('div');
+    label.className = 'analysis-story-label';
+    label.textContent = item.label;
+    const value = document.createElement('div');
+    value.className = 'analysis-story-value';
+    value.textContent = item.value;
+    row.appendChild(label);
+    row.appendChild(value);
+    elements.analysisStory.appendChild(row);
+  });
+}
+
+function buildChatContext() {
+  const focusCluster = getPriorityCluster();
+  const feedIssues = state.feeds.map((feed) => {
+    const status = state.feedStatus[feed.id];
+    if (!status) return null;
+    if (status.error === 'requires_key' || status.error === 'requires_config' || status.error === 'missing_server_key') return null;
+    if (!status.error && !status.stale) return null;
+    return {
+      id: feed.id,
+      name: feed.name,
+      error: status.error || null,
+      stale: Boolean(status.stale),
+      fetchedAt: status.fetchedAt || null
+    };
+  }).filter(Boolean).slice(0, 6);
+  const congressItems = getCongressItems();
+  const congressSample = congressItems.slice(0, 6).map((item) => ({
+    title: item.title,
+    type: item.alertType || item.category,
+    publishedAt: item.publishedAt,
+    url: item.externalUrl || item.url
+  }));
+  const stateGovSignals = applyStateSignalFilter(
+    state.scopedItems.filter((item) => (item.category || '').toLowerCase() === 'gov' && (item.jurisdictionLevel || '').toLowerCase() === 'state'),
+    { includeFederal: false }
+  );
+  const stateSignalBuckets = stateGovSignals.reduce((acc, item) => {
+    const key = item.signalType || 'other';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const selectedStateCode = getSelectedStateSignalFilter();
+  const selectedStateName = getSelectedStateSignalName();
+
+  return {
+    generatedAt: new Date().toISOString(),
+    scope: state.settings.scope,
+    location: state.location,
+    refreshMinutes: state.settings.refreshMinutes,
+    feedHealth: {
+      status: state.health,
+      issueCount: feedIssues.length,
+      issues: feedIssues
+    },
+    signals: {
+      totalItems: state.scopedItems.length,
+      newsClusters: state.clusters.length,
+      localEvents: getLocalAnalysisItems().length,
+      congressItems: congressItems.length
+    },
+    congressSignals: congressSample,
+    stateSignals: {
+      selectedStateCode,
+      selectedStateName,
+      total: stateGovSignals.length,
+      bySignalType: stateSignalBuckets,
+      sample: stateGovSignals.slice(0, 6).map((item) => ({
+        title: item.title,
+        signalType: item.signalType || null,
+        jurisdictionCode: item.jurisdictionCode || null,
+        jurisdictionName: item.jurisdictionName || null,
+        publishedAt: item.publishedAt || null,
+        url: item.externalUrl || item.url || null
+      }))
+    },
+    searchContext: {
+      query: state.lastSearchQuery || null,
+      scope: state.lastSearchScope,
+      categories: state.lastSearchCategories,
+      state: state.lastSearchState || getSearchStateFilter()
+    },
+    themes: getTopThemes(5),
+    focusCluster: focusCluster ? {
+      title: focusCluster.primary.title,
+      sources: Array.from(focusCluster.sources),
+      updatedAt: focusCluster.updatedAt,
+      url: focusCluster.primary.url
+    } : null,
+    topClusters: state.clusters.slice(0, 8).map((cluster) => ({
+      title: cluster.primary.title,
+      sources: Array.from(cluster.sources),
+      updatedAt: cluster.updatedAt,
+      url: cluster.primary.url
+    })),
+    localSignals: getLocalAnalysisItems().slice(0, 6).map((item) => ({
+      title: item.title,
+      source: item.source,
+      publishedAt: item.publishedAt,
+      url: item.url
+    })),
+    marketSignals: state.scopedItems.filter((item) => item.category === 'finance' || item.category === 'crypto').slice(0, 6).map((item) => ({
+      title: item.title,
+      source: item.source,
+      publishedAt: item.publishedAt,
+      url: item.url
+    }))
+  };
+}
+
+async function callOpenAIDirect({ messages, context, temperature = 0.2, model } = {}) {
+  const key = (state.keys.openai?.key || '').trim();
+  if (!key) {
+    throw new Error('missing_api_key');
+  }
+  const payload = {
+    model: model || 'gpt-5.2',
+    input: [
+      { role: 'system', content: 'You are an intelligence assistant for a situational awareness dashboard.' },
+      ...(Array.isArray(messages) ? messages : [])
+    ],
+    temperature
+  };
+  if (context) {
+    payload.metadata = { context };
+  }
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error?.message || 'openai_error');
+  }
+  return (data?.output_text || '').trim();
+}
+
+async function callAssistant({ messages, context, temperature = 0.2, model } = {}) {
+  const proxyUrl = getOpenAiProxy();
+  const key = getClientOpenAiKey();
+  if (proxyUrl) {
+    const payload = {
+      messages: Array.isArray(messages) ? messages : [],
+      context,
+      temperature
+    };
+    if (model) payload.model = model;
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    if (key) headers['x-openai-key'] = key;
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.message || data.error);
+    }
+    return (data.text || '').trim();
+  }
+
+  if (isStaticMode()) {
+    throw new Error('assistant_unavailable');
+  }
+  const payload = {
+    messages: Array.isArray(messages) ? messages : [],
+    context,
+    temperature
+  };
+  if (model) payload.model = model;
+
+  const response = await apiFetch('/api/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { 'x-openai-key': key } : {})
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (data.error) {
+    throw new Error(data.message || data.error);
+  }
+  return (data.text || '').trim();
+}
+
+function generateAnalysis(emitChat = false, options = {}) {
+  const { metaNote } = options;
+  if (isStaticMode() && state.staticAnalysis?.text) {
+    const staticStamp = getStaticAnalysisStamp();
+    const stamp = staticStamp ? `\n\nUpdated ${toRelativeTime(staticStamp)}` : '';
+    setAnalysisMeta('cached', metaNote, staticStamp);
+    setAnalysisOutput(`${state.staticAnalysis.text}${stamp}`);
+    return;
+  }
+  const totalItems = state.scopedItems.length;
+  const newsClusters = state.clusters.length;
+  const localCount = getLocalAnalysisItems().length;
+  const marketCount = applyLanguageFilter(applyFreshnessFilter(state.items))
+    .filter((item) => item.category === 'crypto' || item.category === 'finance').length;
+  const congressItems = getCongressItems();
+  const congressCount = congressItems.length;
+
+  if (!totalItems && !newsClusters) {
+    const fallback = `Awaiting signals. Check feed health or refresh. Local radius: ${state.settings.radiusKm} km.`;
+    setAnalysisMeta('empty', metaNote || 'Awaiting signals to build a briefing.');
+    setAnalysisOutput(fallback);
+    if (emitChat) appendChatBubble(`Briefing: ${fallback}`, 'system');
+    return;
+  }
+
+  const focusCluster = getPriorityCluster();
+  const localItem = getLatestItem(getLocalAnalysisItems());
+  const marketSignals = applyLanguageFilter(applyFreshnessFilter(state.items))
+    .filter((item) => item.category === 'crypto' || item.category === 'finance');
+  const marketItem = getLatestItem(marketSignals);
+  const congressItem = getLatestItem(congressItems);
+  const topThemes = getTopThemes(4);
+
+  const storyline = ['## Storyline'];
+  if (focusCluster) {
+    const focusTitle = truncateText(focusCluster.primary.title || '', 140);
+    const focusMeta = `${focusCluster.sources.size} sources`;
+    const updated = focusCluster.updatedAt ? toRelativeTime(focusCluster.updatedAt) : '';
+    storyline.push(`- Focus: ${focusTitle} (${[focusMeta, updated].filter(Boolean).join(' • ')})`);
+  }
+  if (localItem) {
+    const localTitle = truncateText(localItem.title || '', 140);
+    const localMeta = localItem.geoLabel || localItem.location || '';
+    const updated = localItem.publishedAt ? toRelativeTime(localItem.publishedAt) : '';
+    storyline.push(`- Local: ${localTitle} (${[localMeta, updated].filter(Boolean).join(' • ')})`);
+  }
+  if (marketItem) {
+    const marketTitle = truncateText(marketItem.title || '', 140);
+    storyline.push(`- Market: ${marketTitle}`);
+  }
+  if (congressItem) {
+    const congressTitle = truncateText(congressItem.title || '', 140);
+    storyline.push(`- Congress: ${congressTitle}`);
+  }
+  if (topThemes.length) {
+    storyline.push(`- Themes: ${topThemes.join(', ')}`);
+  }
+
+  const signals = [
+    '## Signals',
+    `- Signals in view: ${totalItems || 'awaiting'} across ${newsClusters || 'no'} news clusters.`,
+    `- Local risks: ${localCount || 'no'} events within ${state.settings.radiusKm} km.`,
+    `- Market pulse: ${marketCount || 'no'} finance/crypto signals.`,
+    `- Congress: ${congressCount || 'no'} legislative updates.`
+  ];
+
+  const text = [...storyline, ...signals].join('\n');
+  setAnalysisMeta('heuristic', metaNote);
+  setAnalysisOutput(text);
+  if (emitChat) {
+    appendChatBubble(`Briefing:\n${text}`, 'system');
+  }
+}
+
+async function runAiAnalysis({ emitChat = true } = {}) {
+  if (!elements.analysisRun || elements.analysisRun.disabled) return;
+  const originalLabel = elements.analysisRun.textContent;
+  elements.analysisRun.disabled = true;
+  elements.analysisRun.classList.add('loading');
+  elements.analysisRun.setAttribute('aria-busy', 'true');
+  elements.analysisRun.textContent = 'Briefing…';
+  state.analysisRunning = true;
+  if (!hasAssistantAccess()) {
+    generateAnalysis(emitChat, { metaNote: 'AI unavailable' });
+    elements.analysisRun.disabled = false;
+    elements.analysisRun.classList.remove('loading');
+    elements.analysisRun.removeAttribute('aria-busy');
+    elements.analysisRun.textContent = originalLabel;
+    state.analysisRunning = false;
+    return;
+  }
+  setAnalysisMeta('ai', 'Generating briefing');
+  setAnalysisOutput('Generating AI briefing...');
+  const progressBubble = emitChat ? appendChatBubble('Generating briefing…', 'system') : null;
+  try {
+    const text = await callAssistant({
+      messages: [{
+        role: 'user',
+        content: 'Provide a concise situation briefing with 3 bullets: global pulse, local risks, and notable market/cyber signals. Mention sources when possible.'
+      }],
+      context: buildChatContext(),
+      temperature: 0.2
+    });
+    const cleaned = text || 'No response yet.';
+    setAnalysisMeta('ai');
+    setAnalysisOutput(cleaned);
+    if (emitChat) {
+      if (progressBubble) {
+        progressBubble.className = 'chat-bubble assistant';
+        progressBubble.innerHTML = formatBriefingText(cleaned);
+      } else {
+        appendChatBubble(cleaned, 'assistant');
+      }
+    }
+  } catch (err) {
+    const normalized = normalizeOpenAIError(err);
+    const fallbackMessage = normalized?.message
+      ? `AI briefing unavailable. ${normalized.message} Showing heuristic analysis.`
+      : 'AI briefing failed. Showing heuristic analysis.';
+    setAnalysisOutput(fallbackMessage);
+    if (progressBubble) {
+      progressBubble.className = 'chat-bubble system';
+      progressBubble.innerHTML = formatBriefingText(fallbackMessage);
+    }
+    generateAnalysis(emitChat, { metaNote: 'AI unavailable' });
+  } finally {
+    elements.analysisRun.disabled = false;
+    elements.analysisRun.classList.remove('loading');
+    elements.analysisRun.removeAttribute('aria-busy');
+    elements.analysisRun.textContent = originalLabel;
+    state.analysisRunning = false;
+  }
+}
+
+function appendChatBubble(text, role) {
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble ${role}`;
+  if (role === 'assistant' || role === 'system') {
+    bubble.innerHTML = formatBriefingText(text);
+  } else {
+    bubble.textContent = text;
+  }
+  elements.chatLog.appendChild(bubble);
+  elements.chatLog.scrollTop = elements.chatLog.scrollHeight;
+  return bubble;
+}
+
+async function sendChatMessage() {
+  const text = elements.chatInput.value.trim();
+  if (!text) return;
+  appendChatBubble(text, 'user');
+  elements.chatInput.value = '';
+
+  if (!hasAssistantAccess()) {
+    appendChatBubble('AI is offline. Enable the proxy or turn on "Use my OpenAI key" in Settings > API Keys.', 'system');
+    return;
+  }
+
+  const typing = appendChatBubble('Thinking...', 'system');
+  state.chatHistory.push({ role: 'user', content: text });
+  const history = state.chatHistory.slice(-6);
+
+  try {
+    const reply = await callAssistant({
+      messages: history,
+      context: buildChatContext(),
+      temperature: 0.3
+    });
+    typing.textContent = reply || 'No response.';
+    state.chatHistory.push({ role: 'assistant', content: reply || 'No response.' });
+  } catch (err) {
+    const normalized = normalizeOpenAIError(err);
+    typing.textContent = normalized.message || `Assistant error: ${err.message}`;
+  }
+}
+
+function exportSnapshot() {
+  const snapshot = {
+    generatedAt: new Date().toISOString(),
+    settings: state.settings,
+    location: state.location,
+    scope: state.settings.scope,
+    feeds: state.feeds.map((feed) => ({ id: feed.id, name: feed.name, category: feed.category })),
+    items: state.scopedItems,
+    clusters: state.clusters.map((cluster) => ({
+      title: cluster.primary.title,
+      sources: Array.from(cluster.sources),
+      updatedAt: cluster.updatedAt,
+      url: cluster.primary.url
+    }))
+  };
+
+  const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  link.href = URL.createObjectURL(blob);
+  link.download = `situation-room-snapshot-${stamp}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+
+  if (!isStaticMode()) {
+    apiFetch('/api/snapshot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(snapshot)
+    }).catch(() => {});
+  }
+}
+
+function applyScope(items) {
+  let filtered = applyFreshnessFilter(items);
+  if (state.settings.scope === 'us') {
+    const country = getSelectedCountry();
+    filtered = filtered.filter((item) => matchesCountry(item, country));
+  }
+  if (state.settings.scope === 'local') {
+    filtered = filtered.filter((item) => item.geo && haversineKm(state.location.lat, state.location.lon, item.geo.lat, item.geo.lon) <= state.settings.radiusKm);
+  }
+  return applyLanguageFilter(filtered);
+}
+
+function getLocalItems() {
+  const sourceItems = state.settings.scope === 'global'
+    ? applyLanguageFilter(applyFreshnessFilter(state.items))
+    : state.scopedItems;
+  if (!sourceItems.length) return [];
+  const { lat, lon } = state.location;
+  const radius = state.settings.radiusKm;
+  return sourceItems.filter((item) => item.geo && haversineKm(lat, lon, item.geo.lat, item.geo.lon) <= radius);
+}
+
+function isLocalAnalysisExcluded(item) {
+  if (!item) return false;
+  const alertType = (item.alertType || '').toLowerCase();
+  const feedId = (item.feedId || '').toLowerCase();
+  const tags = Array.isArray(item.tags) ? item.tags.map((tag) => String(tag).toLowerCase()) : [];
+  const category = (item.category || '').toLowerCase();
+  const staticFeedIds = new Set([
+    'arcgis-military-installations',
+    'arcgis-power-plants',
+    'arcgis-submarine-cables',
+    'arcgis-submarine-landing'
+  ]);
+  if (staticFeedIds.has(feedId)) return true;
+  if (feedId.includes('military') || tags.includes('military') || tags.includes('installations')) return true;
+  if (feedId === 'transport-opensky') return true;
+  if (alertType === 'flight') return true;
+  if (tags.includes('flight') || tags.includes('aviation')) return true;
+  if (tags.includes('airport') || tags.includes('aircraft')) return true;
+  if (item.mapOnly && tags.includes('infrastructure') && !tags.includes('outage')) return true;
+  if (item.mapOnly && category === 'infrastructure' && !tags.includes('outage')) return true;
+  if (category === 'crypto' || category === 'finance') return true;
+  return false;
+}
+
+function getLocalAnalysisItems() {
+  return getLocalItems().filter((item) => !isLocalAnalysisExcluded(item));
+}
+
+function getLocalPriorityScore(item) {
+  let score = 0;
+  const category = (item.category || '').toLowerCase();
+  const tags = Array.isArray(item.tags) ? item.tags.map((tag) => String(tag).toLowerCase()) : [];
+
+  if (item.alertType) score += 40;
+  if (item.severity) score += 25;
+  if (item.hazardType) score += 20;
+  if (Number.isFinite(item.impactScore)) score += Math.min(item.impactScore, 80);
+  if (Number.isFinite(item.fatalities)) score += Math.min(item.fatalities * 5, 60);
+  if (Number.isFinite(item.magnitude)) score += Math.min((item.magnitude - 3) * 10, 50);
+
+  const highSignalCategories = new Set(['security', 'disaster', 'weather', 'health', 'infrastructure', 'transport', 'gov', 'travel']);
+  if (highSignalCategories.has(category)) score += 20;
+  if (tags.includes('outage')) score += 20;
+  if (tags.includes('evacuation')) score += 20;
+  if (tags.includes('emergency')) score += 20;
+
+  const stamp = item.publishedAt || item.updatedAt || 0;
+  if (stamp) {
+    const ageHours = Math.max(0, (Date.now() - stamp) / 36e5);
+    score += Math.max(0, 24 - ageHours);
+  }
+
+  const distance = getDistanceKm(item);
+  if (Number.isFinite(distance)) {
+    score += Math.max(0, 25 - Math.min(distance, 25));
+  }
+
+  return score;
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function isInUsBounds(lat, lon) {
+  return lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66;
+}
+
+function getMapItems() {
+  let fresh = applyLanguageFilter(applyFreshnessFilter(state.items));
+  if (state.settings.scope === 'us') {
+    const country = getSelectedCountry();
+    fresh = fresh.filter((item) => item.geo && matchesCountry(item, country));
+    return dedupeConflictItems(dedupeWildfireItems(fresh));
+  }
+  if (state.settings.scope === 'local') {
+    const { lat, lon } = state.location;
+    const radius = state.settings.radiusKm;
+    const local = fresh.filter((item) => item.geo && haversineKm(lat, lon, item.geo.lat, item.geo.lon) <= radius);
+    return dedupeConflictItems(dedupeWildfireItems(local));
+  }
+  const scoped = state.scopedItems.filter((item) => item.geo);
+  return dedupeConflictItems(dedupeWildfireItems(scoped));
+}
+
+function dedupeWildfireItems(items) {
+  const wildfire = [];
+  const rest = [];
+  items.forEach((item) => {
+    if (item?.tags?.includes('wildfire')) {
+      wildfire.push(item);
+    } else {
+      rest.push(item);
+    }
+  });
+  if (!wildfire.length) return items;
+  wildfire.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  const seen = new Set();
+  const deduped = [];
+  wildfire.forEach((item) => {
+    if (!item.geo) {
+      deduped.push(item);
+      return;
+    }
+    const lat = Math.round(item.geo.lat * 10) / 10;
+    const lon = Math.round(item.geo.lon * 10) / 10;
+    const key = `${lat}:${lon}:${normalizeTitle(item.title || item.alertType || 'fire')}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(item);
+  });
+  return [...rest, ...deduped];
+}
+
+function dedupeConflictItems(items) {
+  const conflict = [];
+  const rest = [];
+  items.forEach((item) => {
+    if (item?.category === 'security' || item?.tags?.includes('conflict')) {
+      conflict.push(item);
+    } else {
+      rest.push(item);
+    }
+  });
+  if (!conflict.length) return items;
+  const grouped = new Map();
+  conflict.forEach((item) => {
+    const key = item.conflictKey || (() => {
+      if (!item.geo) return '';
+      const dateKey = formatIsoDate(item.publishedAt || Date.now());
+      const roundedLat = Math.round(item.geo.lat * 5) / 5;
+      const roundedLon = Math.round(item.geo.lon * 5) / 5;
+      const typeKey = normalizeTitle(item.alertType || item.eventType || item.title || '').slice(0, 24);
+      return `${dateKey}:${roundedLat}:${roundedLon}:${typeKey}`;
+    })();
+    if (!key) {
+      const fallback = `na:${normalizeTitle(item.title || '').slice(0, 24)}`;
+      const bucket = grouped.get(fallback) || [];
+      bucket.push(item);
+      grouped.set(fallback, bucket);
+      return;
+    }
+    const bucket = grouped.get(key) || [];
+    bucket.push(item);
+    grouped.set(key, bucket);
+  });
+  const merged = [];
+  grouped.forEach((bucket) => {
+    const sorted = [...bucket].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+    const primary = { ...sorted[0] };
+    const sources = Array.from(new Set(bucket.map((item) => item.source || item.feedName || '').filter(Boolean)));
+    if (sources.length > 1) {
+      primary.verificationCount = sources.length;
+      primary.verificationSources = sources;
+      primary.verified = true;
+    }
+    merged.push(primary);
+  });
+  return [...rest, ...merged];
+}
+
+function getConflictType(item) {
+  if (!item) return 'other';
+  const type = (item.eventType || item.alertType || item.subEventType || item.title || '').toLowerCase();
+  if (type.includes('battle')) return 'battle';
+  if (type.includes('explosion') || type.includes('remote violence') || type.includes('ied') || type.includes('bomb') || type.includes('incendiary') || type.includes('arson')) return 'explosion';
+  if (type.includes('violence against civilians') || type.includes('violence') || type.includes('assault') || type.includes('shoot') || type.includes('active shooter') || type.includes('killing') || type.includes('murder') || type.includes('attack') || type.includes('ambush') || type.includes('stabbing') || type.includes('ramming') || type.includes('vandalism')) return 'violence';
+  if (type.includes('riot')) return 'riot';
+  if (type.includes('protest') || type.includes('demonstration')) return 'protest';
+  if (type.includes('riot')) return 'riot';
+  return 'other';
+}
+
+function renderLocal() {
+  const items = getLocalItemsForPanel();
+  renderListWithLimit(elements.localList, items);
+}
+
+function getCategoryItems(category) {
+  let items = state.scopedItems.filter((item) => item.category === category);
+  if (!items.length && GLOBAL_FALLBACK_CATEGORIES.has(category)) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.category === category);
+  }
+  const originalItems = items;
+  items = items.filter((item) => !item.mapOnly);
+  if (category === 'health' && !items.length && originalItems.length) {
+    return { items: [], mapOnlyNotice: true };
+  }
+  if (category === 'health' && items.length) {
+    if (state.settings.mapLayers.health) {
+      const nonAir = items.filter((item) => item.feedId !== 'openaq-api');
+      if (nonAir.length) {
+        items = nonAir;
+      } else {
+        return { items: [], mapOnlyNotice: true };
+      }
+    }
+  }
+  if (category === 'crypto') {
+    items = [...items].sort((a, b) => Math.abs(b.change24h || 0) - Math.abs(a.change24h || 0));
+  }
+  if (category === 'research') {
+    items = dedupeItems(items);
+  }
+  if (category === 'security') {
+    items = dedupeConflictItems(items);
+  }
+  return { items, mapOnlyNotice: false };
+}
+
+function normalizeStateSignalType(item) {
+  const raw = String(item?.signalType || '').trim().toLowerCase();
+  if (!raw) return 'other';
+  if (raw === 'executive_order' || raw === 'executive-order' || raw === 'executive order') return 'executive_order';
+  if (raw.includes('executive')) return 'executive_order';
+  if (raw === 'rulemaking' || raw === 'rule' || raw === 'rules') return 'rulemaking';
+  if (raw.includes('rule')) return 'rulemaking';
+  if (raw === 'legislation' || raw === 'legislative' || raw === 'bill' || raw === 'bills') return 'legislation';
+  if (raw.includes('legis') || raw.includes('bill')) return 'legislation';
+  return 'other';
+}
+
+function getStateGovernmentItems(signalType = null) {
+  let items = state.scopedItems.filter((item) => (
+    item?.category === 'gov'
+    && String(item?.jurisdictionLevel || '').toLowerCase() === 'state'
+    && !item?.mapOnly
+  ));
+  items = applyStateSignalFilter(items, { includeFederal: false });
+  if (signalType) {
+    items = items.filter((item) => normalizeStateSignalType(item) === signalType);
+  }
+  return [...items].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+}
+
+function getFederalPolicyItems() {
+  const items = state.scopedItems.filter((item) => (
+    item?.category === 'gov'
+    && String(item?.jurisdictionLevel || '').toLowerCase() !== 'state'
+    && !item?.mapOnly
+    && !isCongressItem(item)
+  ));
+  return [...items].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+}
+
+function normalizeCongressBillType(value) {
+  if (!value) return '';
+  return String(value).toUpperCase().replace(/\./g, '').trim();
+}
+
+function getCongressBillKey(congress, type, number) {
+  const congressValue = Number(congress);
+  if (!congressValue || !type || !number) return '';
+  return `${congressValue}:${normalizeCongressBillType(type)}:${number}`;
+}
+
+function getCongressBillKeyFromItem(item) {
+  if (!item) return '';
+  return getCongressBillKey(item.congress, item.billType, item.billNumber);
+}
+
+function isCongressAmendment(item) {
+  return item?.alertType === 'Amendment';
+}
+
+function getNominationKey(congress, nominationId) {
+  const congressValue = Number(congress);
+  if (!congressValue || !nominationId) return '';
+  return `${congressValue}:PN:${nominationId}`;
+}
+
+function formatNominationTitleSafe(item) {
+  const globalTitle =
+    typeof globalThis !== 'undefined' ? globalThis.formatNominationTitle : undefined;
+  if (typeof globalTitle === 'function') {
+    return globalTitle(item);
+  }
+  const desc = item?.description || '';
+  if (!desc) return '';
+  const [namePart, rest] = desc.split(', of ');
+  const roleSplit = desc.split(' to be ');
+  if (roleSplit.length > 1) {
+    const name = roleSplit[0].replace(/,? of .*/i, '').trim();
+    const role = roleSplit[1].replace(/, vice .*/i, '').trim();
+    if (name && role) return `${name} — ${role}`;
+  }
+  if (namePart && rest) {
+    const role = rest.split(', vice ')[0];
+    if (role) return `${namePart.trim()} — ${role.trim()}`;
+  }
+  return desc;
+}
+
+function normalizeCongressUrlSafe(value) {
+  const globalNormalize =
+    typeof globalThis !== 'undefined' ? globalThis.normalizeCongressUrl : undefined;
+  if (typeof globalNormalize === 'function') {
+    return globalNormalize(value);
+  }
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    const normalized = `${url.origin}${url.pathname}`;
+    if (normalized.includes('/event/') && normalized.includes('/text')) {
+      return normalized.split('/text')[0];
+    }
+    return normalized;
+  } catch (err) {
+    return value.split('#')[0].split('?')[0];
+  }
+}
+
+function selectNominationPrimary(items) {
+  if (!items.length) return null;
+  const enriched = items.find((item) => {
+    const nominee = formatNominationTitleSafe(item);
+    const title = item.detailTitle || item.title || '';
+    return nominee || item.description || title.includes('—') || title.length > 40;
+  });
+  return enriched || items[0];
+}
+
+function extractAmendedBill(detail) {
+  if (!detail) return { amendment: null, bill: null };
+  const amendment = detail.amendment
+    || detail.amendments?.[0]
+    || detail.results?.[0]
+    || detail;
+  const bill = amendment?.amendedBill
+    || amendment?.amendedBills?.[0]
+    || amendment?.bill
+    || amendment?.legislation
+    || null;
+  return { amendment, bill };
+}
+
+function extractHearingDetail(detail) {
+  if (!detail) return null;
+  return detail.hearing
+    || detail.hearings?.[0]
+    || detail.meeting
+    || detail.meetings?.[0]
+    || detail.results?.[0]
+    || detail;
+}
+
+function extractGovinfoPackageId(value) {
+  if (!value) return '';
+  const raw = String(value);
+  const match = raw.match(/govinfo\.gov\/app\/details\/([^/?#]+)/i);
+  if (match && match[1]) return match[1];
+  const pkgMatch = raw.match(/\/content\/pkg\/([^/]+)/i);
+  if (pkgMatch && pkgMatch[1]) return pkgMatch[1];
+  return '';
+}
+
+function buildGovinfoSummaryUrl(packageId) {
+  if (!packageId) return '';
+  return `https://api.govinfo.gov/packages/${encodeURIComponent(packageId)}/summary`;
+}
+
+async function fetchGovinfoDetail(apiUrl) {
+  if (!apiUrl) return null;
+  const { response, data } = await apiJson(`/api/govinfo-detail?url=${encodeURIComponent(apiUrl)}`, {}, 12000);
+  if (!response?.ok) {
+    if (data?.status === 404) {
+      return { __empty: true, __status: 404 };
+    }
+    return null;
+  }
+  return data;
+}
+
+async function fetchGovinfoDetailCached(apiUrl) {
+  if (!apiUrl) return null;
+  if (state.govinfoDetailCache.has(apiUrl)) {
+    return state.govinfoDetailCache.get(apiUrl);
+  }
+  if (state.govinfoDetailLoading.has(apiUrl)) {
+    return state.govinfoDetailLoading.get(apiUrl);
+  }
+  const pending = fetchGovinfoDetail(apiUrl)
+    .then((detail) => {
+      const resolved = detail?.__empty ? null : detail;
+      state.govinfoDetailCache.set(apiUrl, resolved || null);
+      state.govinfoDetailLoading.delete(apiUrl);
+      return resolved || null;
+    })
+    .catch(() => {
+      state.govinfoDetailCache.set(apiUrl, null);
+      state.govinfoDetailLoading.delete(apiUrl);
+      return null;
+    });
+  state.govinfoDetailLoading.set(apiUrl, pending);
+  return pending;
+}
+
+async function hydrateGovinfoDetails(item, container) {
+  if (!container || !item) return;
+  const existingStatus = container.querySelector('.detail-related-status');
+  const packageId = item.packageId || extractGovinfoPackageId(item.externalUrl || item.url || '');
+  const apiUrl = item.apiUrl && String(item.apiUrl).includes('api.govinfo.gov/packages/')
+    ? item.apiUrl
+    : buildGovinfoSummaryUrl(packageId);
+  if (!apiUrl) {
+    if (existingStatus) existingStatus.textContent = 'No GovInfo package identifier found.';
+    return;
+  }
+  const detail = await fetchGovinfoDetailCached(apiUrl);
+  if (!detail) {
+    if (existingStatus) existingStatus.textContent = 'GovInfo details unavailable right now.';
+    return;
+  }
+  if (existingStatus) existingStatus.remove();
+
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = 'GovInfo';
+  container.appendChild(heading);
+
+  const rows = [
+    { label: 'Collection', value: detail.collectionName || detail.collectionCode || '' },
+    { label: 'Package', value: detail.packageId || packageId || '' },
+    { label: 'Issued', value: detail.dateIssued || '' },
+    { label: 'Doc Class', value: detail.docClass || detail.documentType || '' },
+    { label: 'Branch', value: detail.branch || '' },
+    { label: 'Congress', value: detail.congress || '' },
+    { label: 'Pages', value: detail.pages || '' },
+    { label: 'Category', value: detail.category || '' },
+    { label: 'Publisher', value: detail.publisher || '' },
+    { label: 'Last Modified', value: detail.lastModified || '' }
+  ].filter((entry) => entry.value);
+
+  rows.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'detail-row';
+    const label = document.createElement('div');
+    label.className = 'detail-label';
+    label.textContent = entry.label;
+    const value = document.createElement('div');
+    value.className = 'detail-value';
+    value.textContent = String(entry.value);
+    row.appendChild(label);
+    row.appendChild(value);
+    container.appendChild(row);
+  });
+
+  const detailsLink = detail.detailsLink || '';
+  if (detailsLink && !item.externalUrl) {
+    item.externalUrl = detailsLink;
+  }
+}
+
+function extractFederalRegisterDocumentNumber(item) {
+  const direct = item?.documentNumber || '';
+  if (direct && /^\d{4}-\d{5}$/.test(direct)) return direct;
+  const url = String(item?.externalUrl || item?.url || '');
+  const match = url.match(/\/documents\/\d{4}\/\d{2}\/\d{2}\/(\d{4}-\d{5})\b/i)
+    || url.match(/\/documents\/(\d{4}-\d{5})\b/i);
+  return match && match[1] ? match[1] : '';
+}
+
+async function fetchFederalRegisterDetail(documentNumber) {
+  if (!documentNumber) return null;
+  const { response, data } = await apiJson(`/api/federal-register-detail?documentNumber=${encodeURIComponent(documentNumber)}`, {}, 12000);
+  if (!response?.ok) return null;
+  return data;
+}
+
+async function fetchFederalRegisterDetailCached(documentNumber) {
+  if (!documentNumber) return null;
+  if (state.federalRegisterDetailCache.has(documentNumber)) {
+    return state.federalRegisterDetailCache.get(documentNumber);
+  }
+  if (state.federalRegisterDetailLoading.has(documentNumber)) {
+    return state.federalRegisterDetailLoading.get(documentNumber);
+  }
+  const pending = fetchFederalRegisterDetail(documentNumber)
+    .then((detail) => {
+      state.federalRegisterDetailCache.set(documentNumber, detail || null);
+      state.federalRegisterDetailLoading.delete(documentNumber);
+      return detail || null;
+    })
+    .catch(() => {
+      state.federalRegisterDetailCache.set(documentNumber, null);
+      state.federalRegisterDetailLoading.delete(documentNumber);
+      return null;
+    });
+  state.federalRegisterDetailLoading.set(documentNumber, pending);
+  return pending;
+}
+
+async function fetchRegulationsComments({ docketId, searchTerm = '', pageSize = 20, pageNumber = 1, sort = '-postedDate' } = {}) {
+  if (!docketId) return { data: null, error: 'missing_docketId' };
+  const params = new URLSearchParams();
+  params.set('docketId', docketId);
+  if (searchTerm) params.set('searchTerm', searchTerm);
+  params.set('pageSize', String(pageSize));
+  params.set('pageNumber', String(pageNumber));
+  params.set('sort', sort);
+  const { response, data, error } = await apiJson(`/api/regulations-comments?${params.toString()}`, {}, 20000);
+  if (!response?.ok || error) {
+    return { data: null, error: data?.error || error || 'fetch_failed' };
+  }
+  return { data, error: null };
+}
+
+function buildRegulationsSubmitterKey(detail) {
+  const attrs = detail?.data?.attributes || detail?.attributes || {};
+  const organization = String(attrs.organization || '').trim();
+  const first = String(attrs.firstName || '').trim();
+  const last = String(attrs.lastName || '').trim();
+  const rep = String(attrs.submitterRep || '').trim();
+  const title = String(attrs.title || '').trim();
+  if (organization) return organization;
+  if (first || last) return `${first} ${last}`.trim();
+  if (rep) return rep;
+  if (/anonymous/i.test(title)) return 'Anonymous';
+  return '';
+}
+
+async function fetchRegulationsCommentDetail(commentId) {
+  if (!commentId) return null;
+  const { response, data } = await apiJson(`/api/regulations-comment-detail?commentId=${encodeURIComponent(commentId)}`, {}, 20000);
+  if (!response?.ok) return null;
+  return data;
+}
+
+async function fetchRegulationsCommentDetailCached(commentId) {
+  if (!commentId) return null;
+  if (state.regulationsCommentDetailCache.has(commentId)) {
+    return state.regulationsCommentDetailCache.get(commentId);
+  }
+  if (state.regulationsCommentDetailLoading.has(commentId)) {
+    return state.regulationsCommentDetailLoading.get(commentId);
+  }
+  const pending = fetchRegulationsCommentDetail(commentId)
+    .then((detail) => {
+      state.regulationsCommentDetailCache.set(commentId, detail || null);
+      state.regulationsCommentDetailLoading.delete(commentId);
+      return detail || null;
+    })
+    .catch(() => {
+      state.regulationsCommentDetailCache.set(commentId, null);
+      state.regulationsCommentDetailLoading.delete(commentId);
+      return null;
+    });
+  state.regulationsCommentDetailLoading.set(commentId, pending);
+  return pending;
+}
+
+function extractCommenterNameFromTitle(title) {
+  const raw = String(title || '').trim();
+  if (!raw) return '';
+  if (/^anonymous\b/i.test(raw)) return 'Anonymous';
+  const match = raw.match(/comment submitted by\s+(.+)$/i);
+  if (match && match[1]) return match[1].trim();
+  return raw.length > 80 ? raw.slice(0, 80) : raw;
+}
+
+async function hydrateFederalRegisterDetails(item, container) {
+  if (!container || !item) return;
+  const status = container.querySelector('.detail-related-status');
+  const documentNumber = extractFederalRegisterDocumentNumber(item);
+  if (!documentNumber) {
+    if (status) status.textContent = 'Federal Register identifier missing.';
+    return;
+  }
+  const detail = await fetchFederalRegisterDetailCached(documentNumber);
+  if (!detail) {
+    if (status) status.textContent = 'Federal Register detail unavailable right now.';
+    return;
+  }
+  if (status) status.remove();
+
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = 'Public Comments';
+  container.appendChild(heading);
+
+  const regs = detail.regulations_dot_gov_info || {};
+  const docketId = regs.docket_id || '';
+  const commentsUrl = regs.comments_url || regs.commentsUrl || '';
+  const commentUrl = detail.comment_url || detail.regulations_dot_gov_url || '';
+  const commentsClose = detail.comments_close_on || '';
+  const commentsCount = Number.isFinite(Number(regs.comments_count)) ? Number(regs.comments_count) : null;
+
+  const metaRows = [
+    { label: 'Docket', value: docketId || (Array.isArray(detail.docket_ids) ? detail.docket_ids[0] : '') },
+    { label: 'Comments Close', value: commentsClose || '' },
+    { label: 'Count', value: commentsCount !== null ? String(commentsCount) : '' }
+  ].filter((entry) => entry.value);
+
+  metaRows.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'detail-row';
+    const label = document.createElement('div');
+    label.className = 'detail-label';
+    label.textContent = entry.label;
+    const value = document.createElement('div');
+    value.className = 'detail-value';
+    value.textContent = entry.value;
+    row.appendChild(label);
+    row.appendChild(value);
+    container.appendChild(row);
+  });
+
+  const linkRow = document.createElement('div');
+  linkRow.className = 'detail-actions';
+  if (commentsUrl) {
+    const docketLink = document.createElement('a');
+    docketLink.className = 'btn ghost';
+    docketLink.href = commentsUrl;
+    docketLink.target = '_blank';
+    docketLink.rel = 'noopener noreferrer';
+    docketLink.textContent = 'Open Docket';
+    linkRow.appendChild(docketLink);
+  }
+  if (commentUrl) {
+    const submitLink = document.createElement('a');
+    submitLink.className = 'btn';
+    submitLink.href = commentUrl;
+    submitLink.target = '_blank';
+    submitLink.rel = 'noopener noreferrer';
+    submitLink.textContent = 'Submit / View Comments';
+    linkRow.appendChild(submitLink);
+  }
+  if (linkRow.childNodes.length) {
+    container.appendChild(linkRow);
+  }
+
+  if (!docketId) {
+    const note = document.createElement('div');
+    note.className = 'detail-related-status';
+    note.textContent = 'Comment docket unavailable for this document.';
+    container.appendChild(note);
+    return;
+  }
+
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'detail-subsection';
+  const searchTitle = document.createElement('div');
+  searchTitle.className = 'detail-section-title';
+  searchTitle.textContent = 'Search Comments';
+  searchWrap.appendChild(searchTitle);
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Search within public comments (optional)…';
+  input.autocomplete = 'off';
+  searchWrap.appendChild(input);
+  const runBtn = document.createElement('button');
+  runBtn.className = 'btn ghost';
+  runBtn.type = 'button';
+  runBtn.textContent = 'Search';
+  searchWrap.appendChild(runBtn);
+
+  const resultsMeta = document.createElement('div');
+  resultsMeta.className = 'detail-related-status';
+  resultsMeta.textContent = 'Enter a term to search, or run empty to see latest comments.';
+  searchWrap.appendChild(resultsMeta);
+  const resultsList = document.createElement('div');
+  resultsList.className = 'detail-list';
+  searchWrap.appendChild(resultsList);
+  const loadMoreRow = document.createElement('div');
+  loadMoreRow.className = 'detail-actions';
+  const loadMoreBtn = document.createElement('button');
+  loadMoreBtn.className = 'btn ghost';
+  loadMoreBtn.type = 'button';
+  loadMoreBtn.textContent = 'Load more';
+  loadMoreBtn.disabled = true;
+  loadMoreRow.appendChild(loadMoreBtn);
+  searchWrap.appendChild(loadMoreRow);
+  container.appendChild(searchWrap);
+
+  const listState = {
+    searchTerm: '',
+    pageNumber: 1,
+    pageSize: 20,
+    hasNextPage: false,
+    totalElements: null,
+    loaded: [],
+    submitterCounts: new Map()
+  };
+
+  const normalizeListPayload = (payload) => {
+    const data = payload?.data;
+    const items = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+    const meta = data?.meta || payload?.meta || {};
+    return { items, meta };
+  };
+
+  const deriveSubmitterFromEntry = (entry) => {
+    const title = entry?.attributes?.title || '';
+    return extractCommenterNameFromTitle(title) || 'Unknown';
+  };
+
+  const updateSubmitterRollup = () => {
+    const top = [...listState.submitterCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, count]) => `${name} (${count})`);
+    const totalSuffix = Number.isFinite(listState.totalElements) ? ` of ${listState.totalElements}` : '';
+    const loadedCount = listState.loaded.length;
+    resultsMeta.textContent = loadedCount
+      ? `Loaded ${loadedCount}${totalSuffix} comments. Top submitters: ${top.join(', ') || '—'}`
+      : 'No comments found.';
+  };
+
+  const renderCommentRow = (entry) => {
+    const row = document.createElement('div');
+    row.className = 'detail-item';
+
+    const title = document.createElement('div');
+    title.className = 'detail-item-title';
+    const link = document.createElement('a');
+    link.href = `https://www.regulations.gov/document/${entry.id}`;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = entry?.attributes?.title || entry.id;
+    title.appendChild(link);
+    row.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'detail-item-meta';
+    meta.textContent = entry?.attributes?.postedDate ? formatShortDate(entry.attributes.postedDate) : '';
+    row.appendChild(meta);
+
+    const snippet = entry?.attributes?.highlightedContent || '';
+    if (snippet) {
+      const summary = document.createElement('div');
+      summary.className = 'detail-item-summary';
+      summary.textContent = truncateText(stripHtml(snippet), 240);
+      row.appendChild(summary);
+    }
+
+    const expand = document.createElement('button');
+    expand.className = 'btn ghost';
+    expand.type = 'button';
+    expand.textContent = 'Details';
+    row.appendChild(expand);
+
+    const detailBox = document.createElement('div');
+    detailBox.className = 'detail-item-summary';
+    detailBox.style.display = 'none';
+    row.appendChild(detailBox);
+
+    let open = false;
+    const openDetail = async () => {
+      if (open) {
+        open = false;
+        expand.textContent = 'Details';
+        detailBox.style.display = 'none';
+        return;
+      }
+      open = true;
+      expand.textContent = 'Hide';
+      detailBox.style.display = 'block';
+      detailBox.textContent = 'Loading comment detail…';
+      const detail = await fetchRegulationsCommentDetailCached(entry.id);
+      if (!detail) {
+        detailBox.textContent = 'Comment detail unavailable.';
+        return;
+      }
+      const attrs = detail?.data?.attributes || {};
+      const submitter = buildRegulationsSubmitterKey(detail) || deriveSubmitterFromEntry(entry);
+      const subtype = attrs.subtype || attrs.category || '';
+      const tracking = attrs.trackingNbr || '';
+      const received = attrs.receiveDate || '';
+      const commentText = attrs.comment || '';
+      const parts = [];
+      if (submitter) parts.push(`Submitter: ${submitter}`);
+      if (subtype) parts.push(`Type: ${subtype}`);
+      if (tracking) parts.push(`Tracking: ${tracking}`);
+      if (received) parts.push(`Received: ${formatShortDate(received)}`);
+      if (commentText) parts.push(`Comment: ${truncateText(stripHtml(commentText), 360)}`);
+      detailBox.textContent = parts.length ? parts.join(' • ') : 'No extra metadata on this comment.';
+    };
+
+    expand.addEventListener('click', openDetail);
+    return row;
+  };
+
+  const appendComments = (items) => {
+    items.forEach((entry) => {
+      if (!entry?.id) return;
+      if (listState.loaded.some((e) => e.id === entry.id)) return;
+      listState.loaded.push(entry);
+      const submitter = deriveSubmitterFromEntry(entry);
+      listState.submitterCounts.set(submitter, (listState.submitterCounts.get(submitter) || 0) + 1);
+      resultsList.appendChild(renderCommentRow(entry));
+    });
+    updateSubmitterRollup();
+  };
+
+  const prefetchDetailsForRollup = async (items) => {
+    const sample = items.slice(0, 10);
+    const concurrency = 3;
+    const queue = [...sample];
+    const workers = Array.from({ length: concurrency }).map(async () => {
+      while (queue.length) {
+        const next = queue.shift();
+        if (!next?.id) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const detail = await fetchRegulationsCommentDetailCached(next.id);
+        if (!detail) continue;
+        const submitter = buildRegulationsSubmitterKey(detail);
+        if (!submitter) continue;
+        const prev = deriveSubmitterFromEntry(next);
+        if (prev === submitter) continue;
+        // adjust counts (best-effort on loaded window)
+        const prevCount = listState.submitterCounts.get(prev) || 0;
+        if (prevCount > 0) listState.submitterCounts.set(prev, prevCount - 1);
+        listState.submitterCounts.set(submitter, (listState.submitterCounts.get(submitter) || 0) + 1);
+      }
+    });
+    await Promise.all(workers);
+    updateSubmitterRollup();
+  };
+
+  const runSearch = async ({ reset = true } = {}) => {
+    runBtn.disabled = true;
+    loadMoreBtn.disabled = true;
+    resultsMeta.textContent = reset ? 'Searching comments…' : 'Loading more comments…';
+    try {
+      const term = input.value.trim();
+      if (reset) {
+        resultsList.innerHTML = '';
+        listState.loaded = [];
+        listState.submitterCounts = new Map();
+        listState.pageNumber = 1;
+        listState.searchTerm = term;
+        listState.totalElements = null;
+      }
+      const payload = await fetchRegulationsComments({
+        docketId,
+        searchTerm: term,
+        pageSize: listState.pageSize,
+        pageNumber: listState.pageNumber,
+        sort: '-postedDate'
+      });
+      if (payload.error || !payload.data) {
+        resultsMeta.textContent = 'Comment search unavailable right now.';
+        resultsList.innerHTML = '';
+        return;
+      }
+      const { items, meta } = normalizeListPayload(payload);
+      if (reset && !items.length) {
+        resultsMeta.textContent = 'No comments found.';
+        resultsList.innerHTML = '';
+        return;
+      }
+      listState.hasNextPage = Boolean(meta?.hasNextPage);
+      listState.totalElements = Number.isFinite(Number(meta?.totalElements)) ? Number(meta.totalElements) : listState.totalElements;
+      appendComments(items);
+      loadMoreBtn.disabled = !listState.hasNextPage;
+      if (items.length) {
+        prefetchDetailsForRollup(items).catch(() => {});
+      }
+    } finally {
+      runBtn.disabled = false;
+    }
+  };
+
+  runBtn.addEventListener('click', runSearch);
+  input.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') runSearch();
+  });
+  loadMoreBtn.addEventListener('click', async () => {
+    if (!listState.hasNextPage) return;
+    listState.pageNumber += 1;
+    await runSearch({ reset: false });
+  });
+}
+
+async function fetchCongressDetail(apiUrl) {
+  if (!apiUrl) return null;
+  const { response, data } = await apiJson(`/api/congress-detail?url=${encodeURIComponent(apiUrl)}`, {}, 12000);
+  if (!response?.ok) {
+    if (data?.status === 404) {
+      return { __empty: true, __status: 404 };
+    }
+    return null;
+  }
+  return data;
+}
+
+function buildCongressApiUrl(path) {
+  return `https://api.congress.gov/v3${path}`;
+}
+
+function toCongressApiType(value) {
+  if (!value) return '';
+  return normalizeCongressBillType(value).toLowerCase();
+}
+
+function extractCongressList(detail, keys) {
+  if (!detail) return [];
+  for (const key of keys) {
+    const value = detail[key];
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.item)) return value.item;
+    if (Array.isArray(value?.results)) return value.results;
+    if (Array.isArray(value?.result)) return value.result;
+  }
+  return [];
+}
+
+async function fetchCongressDetailCached(apiUrl) {
+  if (!apiUrl) return null;
+  if (state.congressDetailCache.has(apiUrl)) {
+    return state.congressDetailCache.get(apiUrl);
+  }
+  if (state.congressDetailLoading.has(apiUrl)) {
+    return state.congressDetailLoading.get(apiUrl);
+  }
+  const pending = fetchCongressDetail(apiUrl)
+    .then((detail) => {
+      const resolved = detail?.__empty ? null : detail;
+      state.congressDetailCache.set(apiUrl, resolved || null);
+      state.congressDetailLoading.delete(apiUrl);
+      return resolved || null;
+    })
+    .catch(() => {
+      state.congressDetailCache.set(apiUrl, null);
+      state.congressDetailLoading.delete(apiUrl);
+      return null;
+    });
+  state.congressDetailLoading.set(apiUrl, pending);
+  return pending;
+}
+
+function getCongressDetailTargets(item) {
+  const targets = [];
+  if (item?.feedId === 'congress-summaries' && item.apiUrl) {
+    const rawUrl = String(item.apiUrl || '');
+    const match = rawUrl.match(/https?:\/\/api\.congress\.gov\/v3(.*)/i);
+    if (match && match[1]) {
+      const path = match[1].startsWith('/') ? match[1] : `/${match[1]}`;
+      const withFormat = path.includes('format=json')
+        ? path
+        : `${path}${path.includes('?') ? '&' : '?'}format=json`;
+      targets.push({ type: 'summary-detail', label: 'Summary Detail', url: buildCongressApiUrl(withFormat) });
+    }
+  }
+  const congress = item.congress;
+  const billType = toCongressApiType(item.billType);
+  const billNumber = item.billNumber;
+  if (congress && billType && billNumber) {
+    const base = `/bill/${congress}/${billType}/${billNumber}`;
+    targets.push({ type: 'bill-detail', label: 'Bill Detail', url: buildCongressApiUrl(`${base}?format=json`) });
+    targets.push({ type: 'summary', label: 'Summary', url: buildCongressApiUrl(`${base}/summaries?format=json`) });
+    targets.push({ type: 'actions', label: 'Actions', url: buildCongressApiUrl(`${base}/actions?format=json&limit=20`) });
+    targets.push({ type: 'committees', label: 'Committees', url: buildCongressApiUrl(`${base}/committees?format=json&limit=20`) });
+    targets.push({ type: 'cosponsors', label: 'Cosponsors', url: buildCongressApiUrl(`${base}/cosponsors?format=json&limit=20`) });
+    targets.push({ type: 'related', label: 'Related Bills', url: buildCongressApiUrl(`${base}/relatedbills?format=json&limit=20`) });
+    targets.push({ type: 'subjects', label: 'Subjects', url: buildCongressApiUrl(`${base}/subjects?format=json&limit=20`) });
+    targets.push({ type: 'titles', label: 'Titles', url: buildCongressApiUrl(`${base}/titles?format=json&limit=20`) });
+    targets.push({ type: 'text', label: 'Text Versions', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
+    targets.push({ type: 'bill-amendments', label: 'Bill Amendments', url: buildCongressApiUrl(`${base}/amendments?format=json&limit=20`) });
+  }
+  const amendmentType = toCongressApiType(item.amendmentType);
+  const amendmentNumber = item.amendmentNumber;
+  if (congress && amendmentType && amendmentNumber) {
+    const base = `/amendment/${congress}/${amendmentType}/${amendmentNumber}`;
+    targets.push({ type: 'amendment-detail', label: 'Amendment Detail', url: buildCongressApiUrl(`${base}?format=json`) });
+    targets.push({ type: 'amend-actions', label: 'Amendment Actions', url: buildCongressApiUrl(`${base}/actions?format=json&limit=20`) });
+    targets.push({ type: 'amend-cosponsors', label: 'Amendment Cosponsors', url: buildCongressApiUrl(`${base}/cosponsors?format=json&limit=20`) });
+    targets.push({ type: 'amendment-amendments', label: 'Amendment Amendments', url: buildCongressApiUrl(`${base}/amendments?format=json&limit=20`) });
+    targets.push({ type: 'amend-text', label: 'Amendment Text', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
+  }
+  const voteNumber = item.voteNumber;
+  const voteSession = item.voteSession;
+  if (congress && voteSession && voteNumber) {
+    const base = `/house-vote/${congress}/${voteSession}/${voteNumber}`;
+    targets.push({ type: 'vote', label: 'Vote Detail', url: buildCongressApiUrl(`${base}?format=json&limit=20`) });
+    targets.push({ type: 'vote-members', label: 'Member Votes', url: buildCongressApiUrl(`${base}/members?format=json&limit=500`) });
+  }
+  const committeeCode = item.committeeCode;
+  const committeeChamber = (item.committeeChamber || '').toLowerCase();
+  if (committeeCode && committeeChamber) {
+    const base = `/committee/${committeeChamber}/${committeeCode}`;
+    targets.push({ type: 'committee-detail', label: 'Committee Detail', url: buildCongressApiUrl(`${base}?format=json`) });
+    targets.push({ type: 'committee-bills', label: 'Committee Bills', url: buildCongressApiUrl(`${base}/bills?format=json&limit=20`) });
+    targets.push({ type: 'committee-reports', label: 'Committee Reports', url: buildCongressApiUrl(`${base}/reports?format=json&limit=20`) });
+    targets.push({ type: 'committee-nominations', label: 'Committee Nominations', url: buildCongressApiUrl(`${base}/nominations?format=json&limit=20`) });
+    targets.push({ type: 'committee-communications-house', label: 'Committee House Communications', url: buildCongressApiUrl(`${base}/house-communication?format=json&limit=20`) });
+    targets.push({ type: 'committee-communications-senate', label: 'Committee Senate Communications', url: buildCongressApiUrl(`${base}/senate-communication?format=json&limit=20`) });
+  }
+  const reportType = toCongressApiType(item.reportType);
+  const reportNumber = item.reportNumber;
+  if (congress && reportType && reportNumber) {
+    const base = `/committee-report/${congress}/${reportType}/${reportNumber}`;
+    targets.push({ type: 'report-detail', label: 'Committee Report', url: buildCongressApiUrl(`${base}?format=json`) });
+    targets.push({ type: 'report-text', label: 'Report Text', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
+  }
+  const jacketNumber = item.jacketNumber;
+  if (congress && committeeChamber && jacketNumber && item.alertType === 'Committee Print') {
+    const base = `/committee-print/${congress}/${committeeChamber}/${jacketNumber}`;
+    targets.push({ type: 'print-detail', label: 'Committee Print', url: buildCongressApiUrl(`${base}?format=json`) });
+    targets.push({ type: 'print-text', label: 'Print Text', url: buildCongressApiUrl(`${base}/text?format=json&limit=20`) });
+  }
+  if (item.alertType === 'Committee Meeting' && congress && committeeChamber && (item.eventId || item.meetingId || item.event)) {
+    const eventId = item.eventId || item.meetingId || item.event;
+    const base = `/committee-meeting/${congress}/${committeeChamber}/${eventId}`;
+    targets.push({ type: 'meeting-detail', label: 'Meeting Detail', url: buildCongressApiUrl(`${base}?format=json`) });
+  }
+  const communicationType = item.communicationType;
+  const communicationNumber = item.communicationNumber;
+  if (congress && communicationType && communicationNumber) {
+    const chamber = (item.communicationChamber || '').toLowerCase() === 'senate' ? 'senate' : 'house';
+    const base = `/${chamber}-communication/${congress}/${communicationType}/${communicationNumber}`;
+    targets.push({ type: 'communication-detail', label: 'Communication Detail', url: buildCongressApiUrl(`${base}?format=json`) });
+  }
+  return targets;
+}
+
+function buildCongressDetailSection(title, rows) {
+  if (!rows.length) return null;
+  const section = document.createElement('div');
+  section.className = 'detail-subsection';
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = title;
+  section.appendChild(heading);
+  const list = document.createElement('div');
+  list.className = 'detail-list';
+  rows.forEach((row) => {
+    const item = document.createElement('div');
+    item.className = 'detail-item';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'detail-item-title';
+    if (row.url) {
+      const link = document.createElement('a');
+      link.href = row.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = row.title || 'View';
+      titleEl.appendChild(link);
+    } else {
+      titleEl.textContent = row.title || 'View';
+    }
+    item.appendChild(titleEl);
+    if (row.meta) {
+      const meta = document.createElement('div');
+      meta.className = 'detail-item-meta';
+      meta.textContent = row.meta;
+      item.appendChild(meta);
+    }
+    if (row.summary) {
+      const summary = document.createElement('div');
+      summary.className = 'detail-item-summary';
+      summary.textContent = row.summary;
+      item.appendChild(summary);
+    }
+    list.appendChild(item);
+  });
+  section.appendChild(list);
+  return section;
+}
+
+function buildCongressPeopleRows(list, limit = 8) {
+  if (!Array.isArray(list) || !list.length) return [];
+  return list.slice(0, limit).map((person) => ({
+    title: person.fullName || person.name || person.bioguideId || person.bioguide || 'Member',
+    meta: [person.party, person.state, person.district ? `District ${person.district}` : '']
+      .filter(Boolean)
+      .join(' • '),
+    url: normalizeCongressUrlSafe(person.url) || ''
+  }));
+}
+
+function renderCongressDetails(item, container, results, options = {}) {
+  container.innerHTML = '';
+  const heading = document.createElement('div');
+  heading.className = 'detail-section-title';
+  heading.textContent = 'Congress.gov Details';
+  container.appendChild(heading);
+  if (!results.length) {
+    const status = document.createElement('div');
+    status.className = 'detail-related-status';
+    status.textContent = 'No additional Congress.gov details available.';
+    container.appendChild(status);
+    if (options.emptyCount) {
+      const note = document.createElement('div');
+      note.className = 'detail-related-status';
+      note.textContent = 'Some Congress.gov endpoints returned no data (404).';
+      container.appendChild(note);
+    }
+    return;
+  }
+  results.forEach((section) => {
+    if (section) container.appendChild(section);
+  });
+  if (options.emptyCount) {
+    const note = document.createElement('div');
+    note.className = 'detail-related-status';
+    note.textContent = 'Some Congress.gov endpoints returned no data (404).';
+    container.appendChild(note);
+  }
+}
+
+async function hydrateCongressDetails(item, container) {
+  const targets = getCongressDetailTargets(item);
+  if (!targets.length) {
+    renderCongressDetails(item, container, []);
+    return;
+  }
+  let hasSummarySection = false;
+  let emptyCount = 0;
+  const detailResults = await Promise.allSettled(
+    targets.map(async (target) => {
+      const detail = await fetchCongressDetailCached(target.url);
+      return { target, detail };
+    })
+  );
+  const sections = [];
+  detailResults.forEach((result) => {
+    if (result.status !== 'fulfilled' || !result.value.detail) return;
+    const { target, detail } = result.value;
+    if (detail?.__empty) {
+      emptyCount += 1;
+      return;
+    }
+    if (target.type === 'summary-detail') {
+      const summaryDetail = detail?.summary || detail?.summaries?.[0] || detail;
+      const summaryText = summaryDetail?.summaryText
+        || summaryDetail?.summary
+        || summaryDetail?.text
+        || summaryDetail?.description
+        || '';
+      if (summaryText) {
+        hasSummarySection = true;
+        const section = document.createElement('div');
+        section.className = 'detail-subsection';
+        const heading = document.createElement('div');
+        heading.className = 'detail-section-title';
+        heading.textContent = 'Summary Detail';
+        section.appendChild(heading);
+        const text = document.createElement('div');
+        text.className = 'detail-rich-text';
+        text.textContent = truncateText(stripHtml(summaryText), 1400);
+        section.appendChild(text);
+        sections.push(section);
+      }
+      return;
+    }
+    if (target.type === 'summary') {
+      const summaries = extractCongressList(detail, ['summaries', 'summary', 'items']);
+      const best = summaries.find((entry) => entry?.summaryText || entry?.summary || entry?.text) || summaries[0];
+      const summaryText = best?.summaryText || best?.summary || best?.text || '';
+      if (summaryText) {
+        hasSummarySection = true;
+        const section = document.createElement('div');
+        section.className = 'detail-subsection';
+        const heading = document.createElement('div');
+        heading.className = 'detail-section-title';
+        heading.textContent = 'Summary';
+        section.appendChild(heading);
+        const summaryEl = document.createElement('div');
+        summaryEl.className = 'detail-summary';
+        const p = document.createElement('p');
+        p.textContent = summaryText;
+        summaryEl.appendChild(p);
+        section.appendChild(summaryEl);
+        sections.push(section);
+      }
+      return;
+    }
+    if (target.type === 'bill-detail') {
+      const billDetail = detail?.bill || detail;
+      if (!billDetail) return;
+      const sponsorRows = buildCongressPeopleRows(
+        extractCongressList(billDetail, ['sponsors', 'sponsor', 'sponsorItem'])
+      );
+      const onBehalfRows = buildCongressPeopleRows(
+        extractCongressList(billDetail, ['onBehalfOfSponsor', 'onBehalfOf', 'onBehalf'])
+      );
+      const cboRows = extractCongressList(billDetail, ['cboCostEstimates', 'cboCostEstimate'])
+        .slice(0, 6)
+        .map((estimate) => ({
+        title: estimate.title || estimate.description || 'CBO Cost Estimate',
+        meta: estimate.pubDate ? formatShortDate(estimate.pubDate) : '',
+        url: estimate.url || estimate.link || ''
+      }));
+      const lawRows = extractCongressList(billDetail, ['laws', 'law']).slice(0, 4).map((law) => ({
+        title: [law.lawType, law.lawNumber].filter(Boolean).join(' ') || 'Law',
+        meta: law.lawType || ''
+      }));
+      const reportRows = extractCongressList(billDetail, ['committeeReports', 'committeeReport'])
+        .slice(0, 6)
+        .map((report) => ({
+          title: report.citation || report.reportTitle || 'Committee Report',
+          meta: [report.reportType, report.reportNumber].filter(Boolean).join(' '),
+          url: normalizeCongressUrlSafe(report.url || report.link || '')
+        }));
+      if (sponsorRows.length) {
+        const section = buildCongressDetailSection('Sponsors', sponsorRows);
+        if (section) sections.push(section);
+      }
+      if (onBehalfRows.length) {
+        const section = buildCongressDetailSection('Introduced On Behalf Of', onBehalfRows);
+        if (section) sections.push(section);
+      }
+      if (cboRows.length) {
+        const section = buildCongressDetailSection('CBO Cost Estimates', cboRows);
+        if (section) sections.push(section);
+      }
+      if (lawRows.length) {
+        const section = buildCongressDetailSection('Laws', lawRows);
+        if (section) sections.push(section);
+      }
+      if (reportRows.length) {
+        const section = buildCongressDetailSection('Committee Reports', reportRows);
+        if (section) sections.push(section);
+      }
+      const constitutional = billDetail.constitutionalAuthorityStatementText || '';
+      if (constitutional) {
+        const section = document.createElement('div');
+        section.className = 'detail-subsection';
+        const heading = document.createElement('div');
+        heading.className = 'detail-section-title';
+        heading.textContent = 'Constitutional Authority Statement';
+        section.appendChild(heading);
+        const text = document.createElement('div');
+        text.className = 'detail-rich-text';
+        text.textContent = truncateText(stripHtml(constitutional), 1200);
+        section.appendChild(text);
+        sections.push(section);
+      }
+      return;
+    }
+    if (target.type === 'amendment-detail') {
+      const amendDetail = detail?.amendment || detail;
+      if (!amendDetail) return;
+      const sponsorRows = buildCongressPeopleRows(
+        extractCongressList(amendDetail, ['sponsors', 'sponsor', 'sponsorItem'])
+      );
+      const onBehalfRows = buildCongressPeopleRows(
+        extractCongressList(amendDetail, ['onBehalfOf', 'onBehalf'])
+      );
+      const amendedTargets = [];
+      if (amendDetail.amendedBill) {
+        const bill = amendDetail.amendedBill;
+        amendedTargets.push({
+          title: bill.title || [bill.type, bill.number].filter(Boolean).join(' ') || 'Amended Bill',
+          meta: [bill.congress ? `${bill.congress}th Congress` : '', bill.type, bill.number].filter(Boolean).join(' • '),
+          url: bill.url || ''
+        });
+      }
+      if (amendDetail.amendedAmendment) {
+        const amendment = amendDetail.amendedAmendment;
+        amendedTargets.push({
+          title: amendment.title || [amendment.type, amendment.number].filter(Boolean).join(' ') || 'Amended Amendment',
+          meta: [amendment.congress ? `${amendment.congress}th Congress` : '', amendment.type, amendment.number]
+            .filter(Boolean)
+            .join(' • '),
+          url: amendment.url || ''
+        });
+      }
+      if (amendDetail.amendedTreaty) {
+        const treaty = amendDetail.amendedTreaty;
+        amendedTargets.push({
+          title: treaty.title || treaty.topic || 'Amended Treaty',
+          meta: [treaty.congress ? `${treaty.congress}th Congress` : '', treaty.number || treaty.treatyNumber]
+            .filter(Boolean)
+            .join(' • '),
+          url: treaty.url || ''
+        });
+      }
+      if (sponsorRows.length) {
+        const section = buildCongressDetailSection('Sponsors', sponsorRows);
+        if (section) sections.push(section);
+      }
+      if (onBehalfRows.length) {
+        const section = buildCongressDetailSection('Submitted On Behalf Of', onBehalfRows);
+        if (section) sections.push(section);
+      }
+      if (amendedTargets.length) {
+        const section = buildCongressDetailSection('Amends', amendedTargets);
+        if (section) sections.push(section);
+      }
+      return;
+    }
+    if (target.type === 'actions' || target.type === 'amend-actions') {
+      const actions = extractCongressList(detail, ['actions', 'action']);
+      const rows = actions.slice(0, 8).map((action) => ({
+        title: action.text || action.action || action.actionDesc || 'Action',
+        meta: action.actionDate ? formatShortDate(action.actionDate) : '',
+        summary: action.committee || action.committeeName || ''
+      }));
+      const section = buildCongressDetailSection('Actions', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'committees') {
+      const committees = extractCongressList(detail, ['committees', 'committee']);
+      const rows = committees.slice(0, 8).map((committee) => ({
+        title: committee.name || committee.committeeName || committee.systemCode || 'Committee',
+        meta: [committee.chamber, committee.systemCode].filter(Boolean).join(' • ')
+      }));
+      const section = buildCongressDetailSection('Committees', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'cosponsors' || target.type === 'amend-cosponsors') {
+      const cosponsors = extractCongressList(detail, ['cosponsors', 'cosponsor']);
+      const rows = cosponsors.slice(0, 8).map((cosponsor) => ({
+        title: cosponsor.fullName || cosponsor.name || cosponsor.bioguideId || 'Cosponsor',
+        meta: [cosponsor.party, cosponsor.state].filter(Boolean).join(' • ')
+      }));
+      const section = buildCongressDetailSection('Cosponsors', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'related') {
+      const related = extractCongressList(detail, ['relatedBills', 'relatedBill']);
+      const rows = related.slice(0, 8).map((bill) => ({
+        title: bill.title || bill.number || 'Related Bill',
+        meta: [bill.type, bill.number].filter(Boolean).join(' '),
+        summary: bill.relationshipType || bill.relationship || ''
+      }));
+      const section = buildCongressDetailSection('Related Bills', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'subjects') {
+      const subjects = extractCongressList(detail, ['subjects', 'subject']);
+      const rows = subjects.slice(0, 8).map((subject) => ({
+        title: subject.name || subject.subject || subject.term || 'Subject',
+        meta: subject.policyArea ? `Policy Area: ${subject.policyArea}` : ''
+      }));
+      const section = buildCongressDetailSection('Subjects', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'titles') {
+      const titles = extractCongressList(detail, ['titles', 'title']);
+      const rows = titles.slice(0, 8).map((title) => ({
+        title: title.title || title.text || 'Title',
+        meta: title.titleType || title.type || ''
+      }));
+      const section = buildCongressDetailSection('Titles', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'text' || target.type === 'amend-text' || target.type === 'report-text' || target.type === 'print-text') {
+      const texts = extractCongressList(detail, ['textVersions', 'textVersion', 'text', 'texts']);
+      const rows = texts.slice(0, 8).map((text) => ({
+        title: text.type || text.format || text.description || 'Text Version',
+        meta: text.date ? formatShortDate(text.date) : '',
+        url: text.url || text.link || text.pdfUrl || ''
+      }));
+      const section = buildCongressDetailSection('Text Versions', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'bill-amendments') {
+      if (Array.isArray(item.amendments) && item.amendments.length) return;
+      const amendments = extractCongressList(detail, ['amendments', 'amendment']);
+      const rows = amendments.slice(0, 6).map((amendment) => ({
+        title: amendment.title || amendment.number || 'Amendment',
+        meta: [amendment.type, amendment.number].filter(Boolean).join(' ')
+      }));
+      const section = buildCongressDetailSection('Amendments', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'amendment-amendments') {
+      const amendments = extractCongressList(detail, ['amendments', 'amendment']);
+      const rows = amendments.slice(0, 6).map((amendment) => ({
+        title: amendment.title || amendment.number || 'Amendment',
+        meta: [amendment.type, amendment.number].filter(Boolean).join(' '),
+        url: normalizeCongressUrlSafe(amendment.url || amendment.link || '')
+      }));
+      const section = buildCongressDetailSection('Amendments to Amendment', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'vote' || target.type === 'vote-members') {
+      const voteDetail = detail?.houseRollCallVote
+        || detail?.houseRollCallVotes?.[0]
+        || detail?.houseVote
+        || detail;
+      const metadata = [
+        { label: 'Question', value: voteDetail?.voteQuestion || voteDetail?.question },
+        { label: 'Result', value: voteDetail?.voteResult || voteDetail?.result },
+        { label: 'Vote Type', value: voteDetail?.voteType || voteDetail?.voteTypeCode },
+        { label: 'Legislation', value: [voteDetail?.legislationType, voteDetail?.legislationNumber].filter(Boolean).join(' ') },
+        { label: 'Start', value: voteDetail?.startDate ? formatShortDate(voteDetail.startDate) : '' },
+        { label: 'Source', value: voteDetail?.sourceDataURL || voteDetail?.url }
+      ].filter((entry) => entry.value);
+      if (metadata.length) {
+        const metaRows = metadata.map((entry) => ({
+          title: entry.label,
+          meta: entry.label === 'Source' ? '' : entry.value,
+          url: entry.label === 'Source' ? entry.value : ''
+        }));
+        const metaSection = buildCongressDetailSection('Vote Metadata', metaRows);
+        if (metaSection) sections.push(metaSection);
+      }
+      const members = extractCongressList(voteDetail, ['members', 'member', 'votes', 'houseRollCallVoteMembers']);
+      const counts = members.reduce((acc, member) => {
+        const vote = (member.voteCast || member.vote || member.position || 'Other').toString();
+        acc[vote] = (acc[vote] || 0) + 1;
+        return acc;
+      }, {});
+      const rows = Object.entries(counts).map(([vote, count]) => ({
+        title: vote,
+        meta: `${count} members`
+      }));
+      const section = buildCongressDetailSection('Vote Breakdown', rows);
+      if (section) sections.push(section);
+      const totals = voteDetail?.votesPartyTotal
+        || voteDetail?.votePartyTotals
+        || voteDetail?.votesByPartyTotal
+        || voteDetail?.voteTotals;
+      if (Array.isArray(totals) && totals.length) {
+        const totalRows = totals.slice(0, 10).map((entry) => ({
+          title: entry.party || entry.partyCode || entry.partyName || 'Party',
+          meta: [
+            entry.yea ? `Yea ${entry.yea}` : '',
+            entry.nay ? `Nay ${entry.nay}` : '',
+            entry.present ? `Present ${entry.present}` : '',
+            entry.notVoting ? `Not Voting ${entry.notVoting}` : ''
+          ].filter(Boolean).join(' • ')
+        }));
+        const totalsSection = buildCongressDetailSection('Party Totals', totalRows);
+        if (totalsSection) sections.push(totalsSection);
+      }
+      return;
+    }
+    if (target.type === 'committee-detail') {
+      const committee = detail?.committee || detail;
+      if (!committee) return;
+      const rows = [{
+        title: committee.name || committee.committeeName || 'Committee Detail',
+        meta: [committee.chamber, committee.systemCode].filter(Boolean).join(' • '),
+        summary: committee.jurisdiction || committee.description || ''
+      }];
+      const section = buildCongressDetailSection('Committee Detail', rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'committee-bills' || target.type === 'committee-reports' || target.type === 'committee-nominations') {
+      const list = extractCongressList(detail, ['bills', 'bill', 'committeeReports', 'committeeReport', 'nominations', 'nomination']);
+      const rows = list.slice(0, 8).map((entry) => ({
+        title: entry.title || entry.number || entry.citation || 'Item',
+        meta: entry.number || entry.citation || ''
+      }));
+      const titleMap = {
+        'committee-bills': 'Committee Bills',
+        'committee-reports': 'Committee Reports',
+        'committee-nominations': 'Committee Nominations'
+      };
+      const section = buildCongressDetailSection(titleMap[target.type], rows);
+      if (section) sections.push(section);
+      return;
+    }
+    if (target.type === 'committee-communications-house' || target.type === 'committee-communications-senate' || target.type === 'communication-detail') {
+      const list = extractCongressList(detail, ['communications', 'communication', 'houseCommunication', 'senateCommunication']);
+      const rows = list.slice(0, 8).map((entry) => ({
+        title: entry.description || entry.title || 'Communication',
+        meta: [entry.communicationType || entry.type, entry.number].filter(Boolean).join(' '),
+        summary: entry.abstract || entry.summary || ''
+      }));
+      const section = buildCongressDetailSection('Communications', rows);
+      if (section) sections.push(section);
+      if (target.type === 'communication-detail') {
+        const communication = detail?.houseCommunication || detail?.senateCommunication || detail?.communication || detail;
+        if (communication?.abstract) {
+          const abstractSection = document.createElement('div');
+          abstractSection.className = 'detail-subsection';
+          const heading = document.createElement('div');
+          heading.className = 'detail-section-title';
+          heading.textContent = 'Abstract';
+          abstractSection.appendChild(heading);
+          const abstract = document.createElement('div');
+          abstract.className = 'detail-rich-text';
+          abstract.textContent = truncateText(stripHtml(communication.abstract), 800);
+          abstractSection.appendChild(abstract);
+          sections.push(abstractSection);
+        }
+        const committees = extractCongressList(communication, ['committees', 'committee']);
+        const committeeRows = committees.slice(0, 6).map((committee) => ({
+          title: committee.name || committee.committeeName || 'Committee',
+          meta: committee.referralDate ? formatShortDate(committee.referralDate) : '',
+          url: normalizeCongressUrlSafe(committee.url) || ''
+        }));
+        const committeeSection = buildCongressDetailSection('Committees', committeeRows);
+        if (committeeSection) sections.push(committeeSection);
+        const requirements = extractCongressList(communication, ['matchingRequirements', 'matchingRequirement']);
+        const requirementRows = requirements.slice(0, 6).map((req) => ({
+          title: req.number || req.title || req.requirement || 'Requirement',
+          meta: req.name || req.type || '',
+          url: req.url || req.URL || ''
+        }));
+        const requirementSection = buildCongressDetailSection('Matching Requirements', requirementRows);
+        if (requirementSection) sections.push(requirementSection);
+        const documents = extractCongressList(communication, ['houseDocument', 'houseDocuments', 'document']);
+        const documentRows = documents.slice(0, 6).map((doc) => ({
+          title: doc.documentNumber || doc.documentTitle || doc.title || 'Document',
+          meta: doc.documentType || doc.type || '',
+          url: doc.url || doc.URL || ''
+        }));
+        const documentSection = buildCongressDetailSection('House Documents', documentRows);
+        if (documentSection) sections.push(documentSection);
+      }
+      return;
+    }
+    if (target.type === 'report-detail' || target.type === 'print-detail' || target.type === 'meeting-detail') {
+      const detailItem = detail?.report || detail?.print || detail?.meeting || detail?.committeePrint || detail?.committeeMeeting || detail;
+      if (!detailItem) return;
+      const rows = [{
+        title: detailItem.title || detailItem.meetingTitle || detailItem.description || target.label,
+        meta: [detailItem.chamber, detailItem.jacketNumber].filter(Boolean).join(' • '),
+        summary: detailItem.summary || detailItem.description || ''
+      }];
+      const section = buildCongressDetailSection(target.label, rows);
+      if (section) sections.push(section);
+    }
+  });
+  if (!hasSummarySection) {
+    const fallbackText = item.summaryHtml || item.summaryText || item.summary || '';
+    if (fallbackText) {
+      const section = document.createElement('div');
+      section.className = 'detail-subsection';
+      const heading = document.createElement('div');
+      heading.className = 'detail-section-title';
+      heading.textContent = 'Summary';
+      section.appendChild(heading);
+      const text = document.createElement('div');
+      text.className = 'detail-rich-text';
+      text.textContent = truncateText(stripHtml(fallbackText), 1400);
+      section.appendChild(text);
+      sections.push(section);
+    }
+  }
+  renderCongressDetails(item, container, sections, { emptyCount });
+}
+
+async function enrichCongressHearings(items) {
+  if (!items.length) return;
+  const pending = items.filter((item) => item.apiUrl && !state.congressHearingCache.has(item.apiUrl));
+  if (!pending.length) return;
+  const sample = pending.slice(0, 40);
+  for (const item of sample) {
+    const detail = await fetchCongressDetail(item.apiUrl);
+    state.congressHearingCache.set(item.apiUrl, detail || null);
+  }
+}
+
+async function enrichCongressAmendments(items) {
+  if (!items.length || state.congressAmendmentsLoading) return;
+  const pending = items.filter((item) => item.apiUrl && !state.congressAmendmentCache.has(item.apiUrl));
+  if (!pending.length) return;
+  state.congressAmendmentsLoading = true;
+  try {
+    const sample = pending.slice(0, 80);
+    for (const item of sample) {
+      const detail = await fetchCongressDetail(item.apiUrl);
+      state.congressAmendmentCache.set(item.apiUrl, detail || null);
+      const { amendment, bill } = extractAmendedBill(detail);
+      const billKey = getCongressBillKey(
+        bill?.congress || item.congress,
+        bill?.type || item.billType,
+        bill?.number || item.billNumber
+      );
+      if (!billKey) continue;
+      const entry = {
+        title: item.title,
+        summary: item.summary,
+        publishedAt: item.publishedAt,
+        externalUrl: item.externalUrl,
+        type: normalizeCongressBillType(item.amendmentType || item.type),
+        number: item.amendmentNumber || item.number,
+        chamber: item.location || item.chamber || '',
+        purpose: amendment?.purpose || amendment?.description || ''
+      };
+      const existing = state.congressBillAmendments.get(billKey) || [];
+      const merged = [...existing, entry].filter((value, idx, list) => {
+        if (!value.externalUrl) return list.findIndex((item) => item.title === value.title) === idx;
+        return list.findIndex((item) => item.externalUrl === value.externalUrl) === idx;
+      });
+      merged.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+      state.congressBillAmendments.set(billKey, merged.slice(0, 50));
+    }
+    renderCongress();
+  } finally {
+    state.congressAmendmentsLoading = false;
+  }
+}
+
+function getCongressItems() {
+  const filterCongress = (item) => item.feedId === 'congress-api' || item.tags?.includes('congress');
+  let items = state.scopedItems.filter(filterCongress);
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items)).filter(filterCongress);
+  }
+  items = items.filter((item) => !item.mapOnly);
+  const isSummaryItem = (item) => item.alertType === 'Summary' || item.feedId === 'congress-summaries';
+  const summaryMap = new Map();
+  items.filter(isSummaryItem).forEach((item) => {
+    const key = getCongressBillKeyFromItem(item);
+    if (!key) return;
+    const existing = summaryMap.get(key);
+    const existingTime = existing?.summaryUpdatedAt || existing?.publishedAt || 0;
+    const itemTime = item.summaryUpdatedAt || item.publishedAt || 0;
+    if (!existing || itemTime > existingTime) {
+      summaryMap.set(key, item);
+    }
+  });
+  items = items.filter((item) => !isSummaryItem(item));
+  const deduped = dedupeItems(items);
+  const amendments = deduped.filter(isCongressAmendment);
+  const hearings = deduped.filter((item) => item.alertType === 'Hearing');
+  const nominations = deduped.filter((item) => item.nominationId);
+  const base = deduped.filter((item) => !isCongressAmendment(item));
+  enrichCongressAmendments(amendments);
+  enrichCongressHearings(hearings);
+  const nominationGroups = new Map();
+  nominations.forEach((item) => {
+    const key = getNominationKey(item.congress, item.nominationId);
+    if (!key) return;
+    const bucket = nominationGroups.get(key) || [];
+    bucket.push(item);
+    nominationGroups.set(key, bucket);
+  });
+  const mergedNominations = [];
+  nominationGroups.forEach((bucket) => {
+    const sorted = [...bucket].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+    const primary = selectNominationPrimary(sorted) || sorted[0];
+    if (!primary) return;
+    const actions = sorted.map((item) => ({
+      title: item.summary || item.title,
+      publishedAt: item.publishedAt,
+      externalUrl: item.externalUrl
+    }));
+    const latestPublished = sorted[0]?.publishedAt || primary.publishedAt;
+    mergedNominations.push({
+      ...primary,
+      nominationActions: actions,
+      publishedAt: latestPublished
+    });
+  });
+  const hydratedHearings = new Map();
+  hearings.forEach((item) => {
+    const detail = extractHearingDetail(state.congressHearingCache.get(item.apiUrl));
+    if (!detail) return;
+    const title = detail.meetingTitle || detail.title || detail.eventTitle || detail.description || item.title;
+    const committee = detail.committee?.name || detail.committees?.[0]?.name || detail.committeeName;
+    const when = detail.date || detail.meetingDate || detail.startDate;
+    const detailChamber = (detail.chamber || item.chamber || '').toLowerCase();
+    const detailCongress = detail.congress || item.congress;
+    const eventId = detail.eventId || detail.hearingId || detail.meetingId || detail.event;
+    const eventLink = (detailCongress && eventId && (detailChamber === 'house' || detailChamber === 'senate'))
+      ? `https://www.congress.gov/event/${detailCongress}th-congress/${detailChamber}-event/${eventId}`
+      : '';
+    const link = normalizeCongressUrlSafe(detail.url)
+      || normalizeCongressUrlSafe(detail.websiteUrl)
+      || normalizeCongressUrlSafe(detail.eventUrl)
+      || normalizeCongressUrlSafe(detail.congressUrl)
+      || normalizeCongressUrlSafe(eventLink)
+      || normalizeCongressUrlSafe(item.externalUrl)
+      || normalizeCongressUrlSafe(item.fallbackUrl);
+    hydratedHearings.set(item.apiUrl, {
+      title: title || item.title,
+      committee,
+      when,
+      link
+    });
+  });
+  const filteredBase = base.filter((item) => !item.nominationId);
+  const hydrated = [...filteredBase, ...mergedNominations].map((item) => {
+    const baseSortTime = item.publishedAt || 0;
+    if (item.alertType === 'Hearing' && item.apiUrl && hydratedHearings.has(item.apiUrl)) {
+      const detail = hydratedHearings.get(item.apiUrl);
+      const summaryParts = [detail.committee, item.chamber, detail.when ? formatShortDate(detail.when) : '']
+        .filter(Boolean);
+      return {
+        ...item,
+        title: detail.title || item.title,
+        detailTitle: detail.title || item.detailTitle,
+        summary: summaryParts.length ? summaryParts.join(' • ') : item.summary,
+        externalUrl: detail.link ? detail.link : (item.externalUrl || item.fallbackUrl),
+        detailFields: item.detailFields?.map((field) => {
+          if (field.label === 'Committee' && detail.committee) {
+            return { ...field, value: detail.committee };
+          }
+          if (field.label === 'Hearing Date' && detail.when) {
+            return { ...field, value: formatShortDate(detail.when) };
+          }
+          return field;
+        }),
+        congressSortTime: baseSortTime
+      };
+    }
+    const billKey = getCongressBillKeyFromItem(item);
+    const summaryInfo = billKey ? summaryMap.get(billKey) : null;
+    if (summaryInfo?.summary) {
+      const summaryText = truncateText(summaryInfo.summary, 360);
+      item = {
+        ...item,
+        summary: summaryText || item.summary,
+        summaryHtml: summaryInfo.summaryHtml || summaryInfo.summaryText || item.summaryHtml,
+        summaryUpdatedAt: summaryInfo.summaryUpdatedAt || item.summaryUpdatedAt,
+        summaryVersionCode: summaryInfo.summaryVersionCode || item.summaryVersionCode,
+        summaryActionDesc: summaryInfo.summaryActionDesc || item.summaryActionDesc
+      };
+    }
+    const amendmentList = billKey ? (state.congressBillAmendments.get(billKey) || []) : [];
+    const latestAmendment = amendmentList[0]?.publishedAt || 0;
+    const sortTime = Math.max(baseSortTime, latestAmendment || 0);
+    return { ...item, amendments: amendmentList, congressSortTime: sortTime };
+  });
+  hydrated.sort((a, b) => (b.congressSortTime || 0) - (a.congressSortTime || 0));
+  return hydrated.map(({ congressSortTime, ...rest }) => rest);
+}
+
+function renderCategory(category, container) {
+  if (!container) return;
+  const { items, mapOnlyNotice } = getCategoryItems(category);
+  if (mapOnlyNotice) {
+    container.innerHTML = '<div class="list-item"><div class="list-title">Air quality signals are shown on the map.</div><div class="list-summary">Toggle the Health layer in the map legend to filter air quality stations.</div></div>';
+    return;
+  }
+  renderListWithLimit(container, items);
+}
+
+function renderFederalPolicy() {
+  if (!elements.policyList) return;
+  const items = getFederalPolicyItems();
+  renderListWithLimit(elements.policyList, items);
+}
+
+const STATE_GOV_TAB_TO_LIST_ID = {
+  all: 'stateGovAllList',
+  legislation: 'stateGovLegislationList',
+  rulemaking: 'stateGovRulemakingList',
+  executive: 'stateGovExecutiveOrdersList'
+};
+
+const STATE_CONNECTOR_GATING_ERRORS = new Set(['requires_config', 'requires_key', 'missing_server_key']);
+
+function setStateGovernmentActiveTab(tab = 'all') {
+  if (!elements.stateGovTabs) return;
+  const buttons = Array.from(elements.stateGovTabs.querySelectorAll('.tab'));
+  const requested = buttons.find((button) => button.dataset.tab === tab && !button.hidden)
+    || buttons.find((button) => button.dataset.tab === 'all' && !button.hidden)
+    || buttons.find((button) => !button.hidden);
+  if (!requested) return;
+
+  buttons.forEach((button) => {
+    button.classList.toggle('active', button === requested);
+  });
+  const activeListId = STATE_GOV_TAB_TO_LIST_ID[requested.dataset.tab] || 'stateGovAllList';
+  document.querySelectorAll('.state-gov-panel .tab-panel').forEach((panel) => {
+    if (panel.hidden) {
+      panel.classList.remove('active');
+      return;
+    }
+    panel.classList.toggle('active', panel.id === activeListId);
+  });
+}
+
+function shouldHideStateConnectorTab(feedId, items = []) {
+  if (items.length) return false;
+  const status = state.feedStatus?.[feedId];
+  const error = status?.error || '';
+  if (STATE_CONNECTOR_GATING_ERRORS.has(error)) return true;
+  if (!status) {
+    const feed = state.feeds.find((entry) => entry.id === feedId);
+    if (feed?.requiresConfig && !feed?.url) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function updateStateGovernmentTabVisibility({ rulemakingItems = [], executiveOrderItems = [] } = {}) {
+  const tabSpecs = [
+    { tab: 'rulemaking', listId: 'stateGovRulemakingList', hidden: shouldHideStateConnectorTab('state-rulemaking', rulemakingItems) },
+    { tab: 'executive', listId: 'stateGovExecutiveOrdersList', hidden: shouldHideStateConnectorTab('state-executive-orders', executiveOrderItems) }
+  ];
+
+  tabSpecs.forEach(({ tab, listId, hidden }) => {
+    const button = elements.stateGovTabs?.querySelector(`.tab[data-tab="${tab}"]`);
+    const panel = elements[listId];
+    if (button) {
+      button.hidden = hidden;
+    }
+    if (panel) {
+      panel.hidden = hidden;
+      if (hidden) {
+        panel.classList.remove('active');
+      }
+    }
+  });
+
+  const activeTab = elements.stateGovTabs?.querySelector('.tab.active:not([hidden])')?.dataset.tab || 'all';
+  setStateGovernmentActiveTab(activeTab);
+}
+
+function renderStateGovernment() {
+  const allItems = getStateGovernmentItems();
+  const legislationItems = getStateGovernmentItems('legislation');
+  const rulemakingItems = getStateGovernmentItems('rulemaking');
+  const executiveOrderItems = getStateGovernmentItems('executive_order');
+
+  if (elements.stateGovAllList) {
+    renderListWithLimit(elements.stateGovAllList, allItems);
+  }
+  if (elements.stateGovLegislationList) {
+    renderListWithLimit(elements.stateGovLegislationList, legislationItems);
+  }
+
+  if (elements.stateGovRulemakingList) {
+    renderListWithLimit(elements.stateGovRulemakingList, rulemakingItems);
+  }
+  if (elements.stateGovExecutiveOrdersList) {
+    renderListWithLimit(elements.stateGovExecutiveOrdersList, executiveOrderItems);
+  }
+  updateStateGovernmentTabVisibility({ rulemakingItems, executiveOrderItems });
+}
+
+function renderCongress() {
+  if (!elements.congressList) return;
+  const items = getCongressItems();
+  renderListWithLimit(elements.congressList, items);
+}
+
+function getCombinedItems(categories) {
+  let items = state.scopedItems.filter((item) => categories.includes(item.category));
+  if (categories.includes('weather') || categories.includes('disaster') || categories.includes('space')) {
+    items = dedupeItems(items.map((item) => ({
+      ...item,
+      _dedupeKey: `${normalizeTitle(item.alertType || '')}|${normalizeTitle(item.title || '')}|${normalizeTitle(item.location || item.geoLabel || '')}`
+    }))).map((item) => {
+      const { _dedupeKey, ...rest } = item;
+      return rest;
+    });
+  }
+  return items;
+}
+
+function renderCombined(categories, container) {
+  if (!container) return;
+  const items = getCombinedItems(categories);
+  renderListWithLimit(container, items);
+}
+
+function getCriticalAlertsItems() {
+  const scoped = Array.isArray(state.scopedItems) ? state.scopedItems : [];
+  const global = applyLanguageFilter(applyFreshnessFilter(state.items));
+  const pool = scoped.length ? scoped : global;
+  const filtered = pool.filter((item) => {
+    if (!item) return false;
+    // Avoid "market noise" and map-only artifacts in the alerts list.
+    if (item.category === 'crypto' || item.category === 'finance' || item.category === 'energy') return false;
+    if (item.mapOnly) return false;
+    return isCriticalItem(item) || (isAlertItem(item) && Boolean(item.severity || item.alertType || item.hazardType));
+  });
+  const deduped = dedupeItems(filtered);
+  deduped.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  return deduped.slice(0, 60);
+}
+
+function renderCriticalAlerts() {
+  if (!elements.criticalAlertsList) return;
+  const items = getCriticalAlertsItems();
+  renderListWithLimit(elements.criticalAlertsList, items);
+}
+
+function renderEnergyNews() {
+  if (!elements.energyList) return;
+  const items = getEnergyNewsItems();
+  renderListWithLimit(elements.energyList, items);
+}
+
+async function loadPredictionFallback() {
+  if (state.predictionFallback.loading || state.predictionFallback.loaded) return;
+  state.predictionFallback.loading = true;
+  try {
+    const feed = state.feeds.find((item) => item.id === 'polymarket-markets');
+    if (!feed) {
+      state.predictionFallback.loaded = true;
+      return;
+    }
+    const response = await fetch(`${getAssetUrl('/data/feeds/polymarket-markets.json')}?_ts=${Date.now()}`);
+    const payload = await response.json();
+    if (payload?.body) {
+      const items = parseJson(payload.body, feed) || [];
+      state.predictionFallback.items = items.map((item) => ({
+        ...item,
+        tags: feed.tags || [],
+        feedId: feed.id,
+        feedName: feed.name
+      }));
+    }
+    state.predictionFallback.loaded = true;
+  } catch {
+    state.predictionFallback.loaded = true;
+  } finally {
+    state.predictionFallback.loading = false;
+  }
+}
+
+function getPredictionItems() {
+  let items = getCategoryItems('prediction').items;
+  if (!items.length && state.predictionFallback.items.length) {
+    items = state.predictionFallback.items;
+  }
+  if (!items.length) return [];
+  const isCryptoPrediction = (item) => /\\b(btc|eth|sol|xrp|crypto|bitcoin|ethereum|solana|doge)\\b/i.test(item.title || '');
+  const sortedByVolume = [...items].sort((a, b) => (b.volume24 || 0) - (a.volume24 || 0));
+  const preferredVolume = sortedByVolume.filter((item) => !isCryptoPrediction(item));
+  const fallbackVolume = sortedByVolume.filter((item) => isCryptoPrediction(item));
+  const byVolume = [...preferredVolume.slice(0, 2), ...fallbackVolume.slice(0, Math.max(0, 2 - preferredVolume.length))];
+  const seen = new Set(byVolume.map((item) => item.title));
+  const sortedByNewest = [...items]
+    .sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0))
+    .filter((item) => !seen.has(item.title));
+  const preferredNewest = sortedByNewest.filter((item) => !isCryptoPrediction(item));
+  const fallbackNewest = sortedByNewest.filter((item) => isCryptoPrediction(item));
+  const byNewest = [...preferredNewest.slice(0, 2), ...fallbackNewest.slice(0, Math.max(0, 2 - preferredNewest.length))];
+  const combined = [...byVolume, ...byNewest];
+  const remaining = items.filter((item) => !combined.includes(item));
+  return [...combined, ...remaining];
+}
+
+function renderPrediction() {
+  if (!elements.predictionList) return;
+  let items = getPredictionItems();
+  if (!items.length && !state.predictionFallback.loaded && !state.predictionFallback.loading) {
+    loadPredictionFallback().then(() => renderPrediction());
+  }
+  if (!items.length && state.predictionFallback.items.length) {
+    items = state.predictionFallback.items;
+  }
+  renderListWithLimit(elements.predictionList, items);
+}
+
+async function loadEnergyGeoJson() {
+  if (state.energyGeo) return state.energyGeo;
+  const response = await fetch(getAssetUrl('/geo/us-states.geojson'));
+  const data = await response.json();
+  state.energyGeo = data;
+  return data;
+}
+
+async function fetchEnergyMapData() {
+  const cacheTtl = 60 * 60 * 1000;
+  if (state.energyMapData && Date.now() - state.energyMapFetchedAt < cacheTtl) {
+    return state.energyMapData;
+  }
+  try {
+    const { data: payload, error } = await apiJson('/api/energy-map');
+    if (error || !payload) {
+      state.energyMapError = 'fetch_failed';
+      return null;
+    }
+    if (payload?.error) {
+      state.energyMapError = payload.error;
+      return null;
+    }
+    state.energyMapError = null;
+    state.energyMapData = payload;
+    state.energyMapFetchedAt = Date.now();
+    return payload;
+  } catch (err) {
+    state.energyMapError = 'fetch_failed';
+    return null;
+  }
+}
+
+function getEnergyMapColor(value, min, max) {
+  if (!Number.isFinite(value)) return 'rgba(90, 100, 120, 0.2)';
+  const clamped = (value - min) / (max - min || 1);
+  const light = elements.app?.dataset?.theme === 'light';
+  const hue = 200;
+  const sat = light ? 70 : 75;
+  const l = light ? 85 - clamped * 35 : 55 - clamped * 25;
+  return `hsl(${hue}, ${sat}%, ${l}%)`;
+}
+
+async function renderEnergyMap() {
+  if (!elements.energyMap || !window.L) return;
+  const [geo, energyData] = await Promise.all([
+    loadEnergyGeoJson(),
+    fetchEnergyMapData()
+  ]);
+  if (!geo || !energyData) {
+    if (elements.energyMapEmpty) {
+      const message = state.energyMapError === 'missing_server_key'
+        ? 'Energy map needs the server EIA key to be configured.'
+        : 'Energy map unavailable right now.';
+      elements.energyMapEmpty.textContent = message;
+      elements.energyMapEmpty.style.display = 'flex';
+    }
+    return;
+  }
+  if (elements.energyMapEmpty) elements.energyMapEmpty.style.display = 'none';
+
+  if (!state.energyMap) {
+    state.energyMap = window.L.map(elements.energyMap, {
+      zoomControl: false,
+      attributionControl: false,
+      dragging: true,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      keyboard: false
+    });
+  }
+
+  if (state.energyMapLayer) {
+    state.energyMap.removeLayer(state.energyMapLayer);
+  }
+
+  state.energyMapLayer = window.L.geoJSON(geo, {
+    style: (feature) => {
+      const abbr = feature?.properties?.STUSPS;
+      const entry = energyData.values?.[abbr];
+      return {
+        color: 'rgba(60, 80, 110, 0.6)',
+        weight: 1,
+        fillColor: getEnergyMapColor(entry?.value, energyData.min, energyData.max),
+        fillOpacity: 0.8
+      };
+    },
+    onEachFeature: (feature, layer) => {
+      const abbr = feature?.properties?.STUSPS;
+      const name = feature?.properties?.NAME || abbr || 'Unknown';
+      const entry = energyData.values?.[abbr];
+      const valueText = entry ? `${entry.value.toFixed(2)} ${energyData.units}` : 'No data';
+      const period = entry?.period || energyData.period;
+      layer.bindTooltip(`${name} (${abbr}) • ${valueText} ${period ? `• ${period}` : ''}`, {
+        sticky: true,
+        direction: 'top'
+      });
+      layer.on('mouseover', () => {
+        layer.setStyle({ weight: 2, fillOpacity: 0.95 });
+      });
+      layer.on('mouseout', () => {
+        layer.setStyle({ weight: 1, fillOpacity: 0.8 });
+      });
+    }
+  }).addTo(state.energyMap);
+
+  const excluded = new Set(['AK', 'HI', 'PR', 'GU', 'VI', 'MP', 'AS']);
+  const viewFeatures = (geo.features || []).filter((feature) => !excluded.has(feature?.properties?.STUSPS));
+  const bounds = viewFeatures.length
+    ? window.L.geoJSON(viewFeatures).getBounds()
+    : state.energyMapLayer.getBounds();
+  if (bounds.isValid()) {
+    state.energyMap.fitBounds(bounds, { padding: [10, 10], maxZoom: 5 });
+  }
+  setTimeout(() => state.energyMap.invalidateSize(), 80);
+
+  if (elements.energyMapLegend) {
+    elements.energyMapLegend.innerHTML = `
+      <div class="energy-map-legend-title">Price (cents/kWh)</div>
+      <div class="energy-map-legend-scale">
+        <span>${energyData.min.toFixed(1)}</span>
+        <span>${energyData.max.toFixed(1)}</span>
+      </div>
+      <div class="energy-map-legend-bar"></div>
+      <div class="energy-map-legend-meta">Residential • ${energyData.period}</div>
+    `;
+  }
+}
+
+function renderTravelTicker() {
+  if (!elements.travelTicker || !elements.travelTickerTrack) return;
+  elements.travelTicker.classList.toggle('hidden', !state.settings.showTravelTicker);
+  if (!state.settings.showTravelTicker) return;
+
+  let items = state.scopedItems.filter((item) => item.category === 'travel');
+  if (!items.length) {
+    items = applyLanguageFilter(applyFreshnessFilter(state.items))
+      .filter((item) => item.category === 'travel');
+  }
+  items = dedupeItems(items).slice(0, 14);
+
+  elements.travelTickerTrack.innerHTML = '';
+  if (!items.length) {
+    elements.travelTickerTrack.innerHTML = '<span class="map-travel-item">No travel advisories in the current window.</span>';
+    return;
+  }
+
+  const buildGroup = () => {
+    const group = document.createElement('div');
+    group.className = 'map-travel-group';
+    items.forEach((item) => {
+      const link = document.createElement(item.url ? 'a' : 'span');
+      link.className = 'map-travel-item';
+      if (item.url) {
+        link.href = item.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+      }
+      const parts = [];
+      if (item.severity) parts.push(`<span class="map-travel-chip">${item.severity}</span>`);
+      if (item.regionTag) parts.push(`<span class="map-travel-chip">${item.regionTag}</span>`);
+      parts.push(`<span class="map-travel-text">${truncateText(item.title || '', 120)}</span>`);
+      link.innerHTML = parts.join('');
+      group.appendChild(link);
+    });
+    return group;
+  };
+
+  const group = buildGroup();
+  elements.travelTickerTrack.appendChild(group);
+  if (items.length > 4) {
+    elements.travelTickerTrack.appendChild(buildGroup());
+  }
+}
+
+function renderDenario() {
+  if (!elements.denarioPanel) return;
+  elements.denarioPanel.classList.toggle('is-hidden', !state.denario.available);
+  if (!state.denario.available) return;
+  if (elements.denarioMeta) {
+    const metaParts = [];
+    if (state.denario.summary) metaParts.push(state.denario.summary);
+    if (Number.isFinite(state.denario.generatedAt)) metaParts.push(`Updated ${safeRelativeTime(state.denario.generatedAt)}`);
+    elements.denarioMeta.textContent = metaParts.length ? metaParts.join(' • ') : 'Denario insights loaded.';
+  }
+  if (!elements.denarioList) return;
+  elements.denarioList.innerHTML = '';
+  const items = Array.isArray(state.denario.items) ? state.denario.items : [];
+  if (!items.length) {
+    elements.denarioList.innerHTML = '<div class="denario-empty">No deep analysis available yet.</div>';
+    return;
+  }
+  items.slice(0, 6).forEach((item) => {
+    const entry = document.createElement('div');
+    entry.className = 'denario-item';
+    const title = document.createElement('div');
+    title.className = 'denario-item-title';
+    title.textContent = item.title || item.label || 'Insight';
+    const summary = document.createElement('div');
+    summary.className = 'denario-item-summary';
+    summary.textContent = truncateText(stripHtml(item.summary || item.detail || ''), 180);
+    entry.appendChild(title);
+    entry.appendChild(summary);
+    elements.denarioList.appendChild(entry);
+  });
+}
+
+async function loadDenarioSummary() {
+  if (!elements.denarioPanel) return;
+  state.denario.loading = true;
+  renderDenario();
+  try {
+    const response = await fetch(getAssetUrl('data/denario.json'));
+    if (!response.ok) throw new Error('Denario unavailable');
+    const payload = await response.json();
+    state.denario.available = true;
+    state.denario.summary = payload.summary || payload.overview || null;
+    const rawStamp = payload.generatedAt || payload.generated_at || payload.timestamp || '';
+    const parsedStamp = Date.parse(rawStamp);
+    state.denario.generatedAt = Number.isFinite(parsedStamp) ? parsedStamp : null;
+    state.denario.items = Array.isArray(payload.items) ? payload.items : [];
+  } catch (err) {
+    state.denario.available = false;
+    state.denario.summary = null;
+    state.denario.generatedAt = null;
+    state.denario.items = [];
+    state.denario.error = err?.message || 'Denario unavailable';
+  } finally {
+    state.denario.loading = false;
+    renderDenario();
+  }
+}
+
+function renderAllPanels() {
+  renderNews(state.clusters);
+  renderCombined(['finance', 'energy'], elements.financeMarketsList);
+  renderCombined(['gov', 'cyber', 'agriculture'], elements.financePolicyList);
+  renderCategory('crypto', elements.cryptoList);
+  renderPrediction();
+  renderCombined(['disaster', 'weather', 'space'], elements.disasterList);
+  renderCriticalAlerts();
+  renderCategory('security', elements.securityList);
+  renderFederalPolicy();
+  renderStateGovernment();
+  renderCongress();
+  renderCategory('cyber', elements.cyberList);
+  renderCategory('agriculture', elements.agricultureList);
+  renderCategory('research', elements.researchList);
+  renderCategory('space', elements.spaceList);
+  renderEnergyNews();
+  renderEnergyMap();
+  renderCategory('health', elements.healthList);
+  renderCategory('transport', elements.transportList);
+  renderLocal();
+  renderTravelTicker();
+  renderFinanceSpotlight();
+  renderMoneyFlows();
+  if (mcpTrendsController && typeof mcpTrendsController.render === 'function') {
+    mcpTrendsController.render();
+  }
+  renderDenario();
+  updatePanelTimestamps();
+  updatePanelErrors();
+}
+
+function openListModal(listId) {
+  const config = LIST_MODAL_CONFIG_MAP[listId];
+  if (!config || !elements.listModalList) return;
+  const items = config.getItems() || [];
+  if (elements.listModalTitle) {
+    elements.listModalTitle.textContent = config.title || 'Panel Items';
+  }
+  if (elements.listModalMeta) {
+    elements.listModalMeta.textContent = items.length
+      ? `${items.length} items`
+      : 'No signals yet';
+  }
+  elements.listModalList.dataset.listContext = config.id;
+  renderList(elements.listModalList, items, { withCoverage: config.withCoverage });
+  toggleListModal(true);
+}
+
+function closeListModal() {
+  toggleListModal(false);
+}
+
+function initListModal() {
+  if (elements.listModalClose) {
+    elements.listModalClose.addEventListener('click', () => closeListModal());
+  }
+  if (elements.listOverlay) {
+    elements.listOverlay.addEventListener('click', (event) => {
+      if (event.target === elements.listOverlay) {
+        closeListModal();
+      }
+    });
+  }
+}
+
+function initDetailModal() {
+  if (elements.detailClose) {
+    elements.detailClose.addEventListener('click', () => closeDetailModal());
+  }
+  if (elements.detailOverlay) {
+    elements.detailOverlay.addEventListener('click', (event) => {
+      if (event.target === elements.detailOverlay) {
+        closeDetailModal();
+      }
+    });
+  }
+}
+
+function initCommunityEmbed() {
+  if (!elements.communityConnect || !elements.communityFrame) return;
+  const frame = elements.communityFrame;
+  const loadFrame = () => {
+    if (frame.src) return;
+    const src = frame.dataset.src;
+    if (!src) return;
+    frame.src = src;
+  };
+  elements.communityConnect.addEventListener('click', () => {
+    loadFrame();
+  });
+}
+
+function initLidarEmbed() {
+  const container = elements.lidarMap;
+  if (!container) return;
+  const empty = elements.lidarEmpty;
+  const emptyTitle = elements.lidarEmptyTitle;
+  const emptySub = elements.lidarEmptySub;
+
+  const setEmptyState = (title, sub) => {
+    if (emptyTitle) emptyTitle.textContent = title;
+    if (emptySub) emptySub.textContent = sub;
+  };
+
+  const loadModules = async () => {
+    if (state.lidarModules) return state.lidarModules;
+    const [{ default: maplibregl }, lidarModule] = await Promise.all([
+      import('https://cdn.jsdelivr.net/npm/maplibre-gl@5.14.0/+esm'),
+      import('https://cdn.jsdelivr.net/npm/maplibre-gl-usgs-lidar@0.3.0/+esm')
+    ]);
+    maplibregl.workerUrl = 'https://cdn.jsdelivr.net/npm/maplibre-gl@5.14.0/dist/maplibre-gl-csp-worker.js';
+    const UsgsLidarControl = lidarModule.UsgsLidarControl || lidarModule.default?.UsgsLidarControl;
+    state.lidarModules = { maplibregl, UsgsLidarControl };
+    return state.lidarModules;
+  };
+
+  const destroyMap = () => {
+    if (state.lidarMap) {
+      state.lidarMap.remove();
+      state.lidarMap = null;
+      state.lidarControl = null;
+    }
+  };
+
+  const loadMap = async ({ forceReload = false } = {}) => {
+    if (state.lidarMap && !forceReload) {
+      if (empty) empty.classList.add('is-hidden');
+      return state.lidarMap;
+    }
+    destroyMap();
+    setEmptyState('Loading LiDAR…', 'Initializing MapLibre and USGS 3DEP controls.');
+    if (empty) empty.classList.remove('is-hidden');
+    try {
+      const { maplibregl, UsgsLidarControl } = await loadModules();
+      const map = new maplibregl.Map({
+        container,
+        style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+        center: [-98.5, 39.8],
+        zoom: 3,
+        antialias: true
+      });
+      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+      map.on('load', () => {
+        if (UsgsLidarControl) {
+          const control = new UsgsLidarControl({
+            title: 'USGS 3DEP LiDAR',
+            collapsed: false,
+            maxResults: 50
+          });
+          map.addControl(control, 'top-right');
+          state.lidarControl = control;
+        }
+        if (empty) empty.classList.add('is-hidden');
+      });
+      state.lidarMap = map;
+      state.settings.lidarEnabled = true;
+      saveSettings();
+      return map;
+    } catch (err) {
+      console.error('LiDAR init failed', err);
+      setEmptyState('LiDAR failed to load', 'Check your connection and try again.');
+      if (empty) empty.classList.remove('is-hidden');
+      return null;
+    }
+  };
+
+  const openOverlay = async (options = {}) => {
+    document.body.classList.add('lidar-open');
+    const map = await loadMap(options);
+    if (map && typeof map.resize === 'function') {
+      setTimeout(() => map.resize(), 80);
+    }
+  };
+
+  const closeOverlay = () => {
+    document.body.classList.remove('lidar-open');
+  };
+
+  state.openLidarOverlay = openOverlay;
+  state.closeLidarOverlay = closeOverlay;
+
+  const openFull = () => {
+    window.open('https://usgs-lidar.gishub.org', '_blank', 'noopener');
+  };
+
+  elements.lidarLoad?.addEventListener('click', () => openOverlay());
+  elements.lidarLoadInline?.addEventListener('click', () => openOverlay());
+  elements.lidarReload?.addEventListener('click', () => openOverlay({ forceReload: true }));
+  elements.lidarOverlayOpen?.addEventListener('click', () => openOverlay());
+  elements.lidarOpen?.addEventListener('click', () => openFull());
+  elements.lidarClose?.addEventListener('click', () => closeOverlay());
+  elements.lidarScrim?.addEventListener('click', () => closeOverlay());
+  elements.lidarPointCenter?.addEventListener('click', () => {
+    if (state.lidarSelectedBounds && state.map?.fitBounds) {
+      state.map.fitBounds(state.lidarSelectedBounds, { padding: [28, 28] });
+    }
+  });
+  elements.lidarPointRefresh?.addEventListener('click', () => {
+    if (state.lidarPointEptUrl) {
+      checkLidarEptAvailability(state.lidarPointEptUrl);
+    }
+  });
+  elements.lidarPointLoad?.addEventListener('click', () => {
+    if (state.lidarPointEptAvailable) {
+      loadLidarPointOverlay();
+    }
+  });
+  elements.lidarPointCustomize?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointCap?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointRadius?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointTilesDesktop?.addEventListener('change', applyLidarPointLimitSettings);
+  elements.lidarPointTilesMobile?.addEventListener('change', applyLidarPointLimitSettings);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && document.body.classList.contains('lidar-open')) {
+      closeOverlay();
+    }
+  });
+
+  if (state.settings.lidarEnabled) {
+    loadMap();
+  } else {
+    setEmptyState('USGS LiDAR Explorer', 'Search 3DEP LiDAR tiles and visualize point clouds using the USGS MapLibre control.');
+  }
+}
+
+function initWorldClocks() {
+  const clocks = Array.from(document.querySelectorAll('.clock-card[data-timezone]'));
+  if (!clocks.length) return;
+  const formatters = new Map();
+  const getFormatter = (tz) => {
+    if (!formatters.has(tz)) {
+      formatters.set(tz, new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }));
+    }
+    return formatters.get(tz);
+  };
+  const readParts = (parts) => {
+    let hours = NaN;
+    let minutes = NaN;
+    let seconds = NaN;
+    parts.forEach((part) => {
+      if (part.type === 'hour') hours = Number(part.value);
+      if (part.type === 'minute') minutes = Number(part.value);
+      if (part.type === 'second') seconds = Number(part.value);
+    });
+    if (Number.isNaN(hours) || Number.isNaN(minutes) || Number.isNaN(seconds)) return null;
+    return { hours, minutes, seconds };
+  };
+  const getClockTime = (tz, now) => {
+    try {
+      const parts = getFormatter(tz).formatToParts(now);
+      const parsed = readParts(parts);
+      if (parsed) return parsed;
+    } catch (err) {
+      // Fall through to locale parsing.
+    }
+    try {
+      const fallback = new Date(now.toLocaleString('en-US', { timeZone: tz }));
+      if (!Number.isNaN(fallback.getTime())) {
+        return {
+          hours: fallback.getHours(),
+          minutes: fallback.getMinutes(),
+          seconds: fallback.getSeconds()
+        };
+      }
+    } catch (err) {
+      // ignore
+    }
+    return { hours: now.getHours(), minutes: now.getMinutes(), seconds: now.getSeconds() };
+  };
+
+  const tick = () => {
+    const now = new Date();
+    clocks.forEach((clock) => {
+      const tz = clock.dataset.timezone;
+      const { hours, minutes, seconds } = getClockTime(tz, now);
+      const hourFraction = (hours % 12) + minutes / 60 + seconds / 3600;
+      const hourDeg = hourFraction * 30;
+      const minuteDeg = (minutes + seconds / 60) * 6;
+      const secondDeg = seconds * 6;
+      const hourHand = clock.querySelector('.clock-hand.hour');
+      const minuteHand = clock.querySelector('.clock-hand.minute');
+      const secondHand = clock.querySelector('.clock-hand.second');
+      if (hourHand) hourHand.style.transform = `translateX(-50%) rotate(${hourDeg}deg)`;
+      if (minuteHand) minuteHand.style.transform = `translateX(-50%) rotate(${minuteDeg}deg)`;
+      if (secondHand) secondHand.style.transform = `translateX(-50%) rotate(${secondDeg}deg)`;
+      const timeEl = clock.querySelector('[data-role="time"]');
+      if (timeEl) {
+        const hh = String(hours).padStart(2, '0');
+        const mm = String(minutes).padStart(2, '0');
+        timeEl.textContent = `${hh}:${mm}`;
+      }
+    });
+  };
+
+  tick();
+  setInterval(tick, 1000);
+}
+
+function initSidebarNav() {
+  const navLinks = [...document.querySelectorAll('.nav-link[data-panel-target]')];
+  if (!navLinks.length) return;
+  const panels = [...document.querySelectorAll('.panel[data-panel]')].filter((panel) => panel.dataset.panel !== 'lidar');
+  const specialTargets = {
+    signals: elements.signalDeckAnchor
+  };
+
+  const setActive = (target) => {
+    navLinks.forEach((link) => {
+      link.classList.toggle('active', link.dataset.panelTarget === target);
+    });
+  };
+
+  navLinks.forEach((link) => {
+    link.addEventListener('click', () => {
+      const target = link.dataset.panelTarget;
+      const panel = panels.find((entry) => entry.dataset.panel === target);
+      if (panel) {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (specialTargets[target]) {
+        specialTargets[target].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      setActive(target);
+      setNavOpen(false);
+    });
+  });
+
+  let ticking = false;
+  const onScroll = () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      const offset = 140;
+      const firstPanel = panels[0];
+      const firstRect = firstPanel ? firstPanel.getBoundingClientRect() : null;
+      let active = firstPanel?.dataset.panel;
+      if (firstRect && firstRect.top - offset > 0) {
+        active = 'signals';
+      }
+      panels.forEach((panel) => {
+        const rect = panel.getBoundingClientRect();
+        if (rect.top - offset <= 0) {
+          active = panel.dataset.panel;
+        }
+      });
+      if (active) {
+        setActive(active);
+      }
+      ticking = false;
+    });
+  };
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
+
+function initCommandSections() {
+  const sections = [...document.querySelectorAll('.command-section')];
+  sections.forEach((section) => {
+    const toggle = section.querySelector('.command-section-toggle');
+    if (!toggle) return;
+    const isDefaultOpen = section.dataset.defaultOpen === 'true';
+    section.classList.toggle('is-open', isDefaultOpen);
+    toggle.setAttribute('aria-expanded', isDefaultOpen ? 'true' : 'false');
+    toggle.addEventListener('click', () => {
+      const isOpen = section.classList.toggle('is-open');
+      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
+  });
+}
+
+function getRecentIsoDate(offsetDays = 1) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function buildGibsTileUrl(layer, date, format = 'jpg', matrixSet = 'GoogleMapsCompatible_Level9') {
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${date}/${matrixSet}/{z}/{y}/{x}.${format}`;
+}
+
+function buildSarTileUrl(date) {
+  return `https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=CGS_S1_GRD_SIGMA0&style=default&format=image/png&tilematrixset=EPSG:3857&tilematrix=EPSG:3857:{z}&tilerow={y}&tilecol={x}&time=${date}`;
+}
+
+function buildSarTileUrlForTile(date, z, y, x) {
+  return `https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=CGS_S1_GRD_SIGMA0&style=default&format=image/png&tilematrixset=EPSG:3857&tilematrix=EPSG:3857:${z}&tilerow=${y}&tilecol=${x}&time=${date}`;
+}
+
+async function fetchSarCapabilitiesDate() {
+  if (state.sarCapabilitiesChecked) return state.sarCapabilitiesDate;
+  state.sarCapabilitiesChecked = true;
+  const url = 'https://services.terrascope.be/wmts/v2/wmts?service=WMTS&request=GetCapabilities';
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`GetCapabilities ${response.status}`);
+    const text = await response.text();
+    const layerMatch = text.match(/<Layer[^>]*>[\s\S]*?<Identifier>CGS_S1_GRD_SIGMA0<\/Identifier>[\s\S]*?<\/Layer>/i);
+    const block = layerMatch ? layerMatch[0] : text;
+    const dates = block.match(/\d{4}-\d{2}-\d{2}/g);
+    if (dates && dates.length) {
+      state.sarCapabilitiesDate = dates[dates.length - 1];
+    }
+  } catch (err) {
+    console.warn('SAR GetCapabilities fetch failed', err);
+  }
+  return state.sarCapabilitiesDate;
+}
+
+function getLidarCoverageStyle(opacity = 0.25) {
+  const fillOpacity = Math.max(0, Math.min(opacity, 0.6));
+  const strokeOpacity = Math.min(1, fillOpacity + 0.35);
+  return {
+    color: `rgba(58, 148, 255, ${strokeOpacity.toFixed(2)})`,
+    weight: 1,
+    fillColor: `rgba(58, 148, 255, ${fillOpacity.toFixed(2)})`,
+    fillOpacity
+  };
+}
+
+function getLidarSelectedStyle(opacity = 0.3) {
+  const fillOpacity = Math.max(0.15, Math.min(opacity, 0.7));
+  return {
+    color: 'rgba(255, 189, 64, 0.95)',
+    weight: 2,
+    fillColor: `rgba(255, 189, 64, ${fillOpacity.toFixed(2)})`,
+    fillOpacity
+  };
+}
+
+function applyLidarSelection(layerRef) {
+  const opacity = getOverlayOpacity('lidar', 0.25);
+  if (state.lidarSelectedLayer && state.lidarSelectedLayer.setStyle) {
+    state.lidarSelectedLayer.setStyle(getLidarCoverageStyle(opacity));
+  }
+  state.lidarSelectedLayer = layerRef || null;
+  if (layerRef?.setStyle) {
+    layerRef.setStyle(getLidarSelectedStyle(opacity + 0.1));
+    if (layerRef.bringToFront) layerRef.bringToFront();
+  }
+}
+
+function buildLidarEptUrl(projectName) {
+  if (!projectName) return null;
+  const safe = projectName.replace(/\s+/g, '_');
+  return `https://s3-us-west-2.amazonaws.com/usgs-lidar-public/${encodeURIComponent(safe)}/ept.json`;
+}
+
+function getLidarEptCenter(meta) {
+  if (!meta) return null;
+  const bounds = meta.boundsConforming || meta.bounds;
+  if (!Array.isArray(bounds) || bounds.length < 6) return null;
+  const centerLon = (bounds[0] + bounds[3]) / 2;
+  const centerLat = (bounds[1] + bounds[4]) / 2;
+  const centerAlt = (bounds[2] + bounds[5]) / 2;
+  return [centerLon, centerLat, centerAlt];
+}
+
+function clampNumber(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function normalizeLidarPointLimits(limits = {}) {
+  return {
+    useCustom: Boolean(limits.useCustom),
+    pointCap: clampNumber(limits.pointCap, 150000, 10000, 500000),
+    radiusKm: clampNumber(limits.radiusKm, 5, 1, 25),
+    maxTilesDesktop: clampNumber(limits.maxTilesDesktop, 16, 1, 32),
+    maxTilesMobile: clampNumber(limits.maxTilesMobile, 8, 1, 16)
+  };
+}
+
+function getLidarPointLimits() {
+  const isMobile = window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+  const defaults = normalizeLidarPointLimits();
+  const limits = normalizeLidarPointLimits(state.settings.lidarPointLimits);
+  const useCustom = limits.useCustom;
+  return {
+    pointCap: useCustom ? limits.pointCap : defaults.pointCap,
+    radiusKm: useCustom ? limits.radiusKm : defaults.radiusKm,
+    maxTiles: useCustom
+      ? (isMobile ? limits.maxTilesMobile : limits.maxTilesDesktop)
+      : (isMobile ? defaults.maxTilesMobile : defaults.maxTilesDesktop)
+  };
+}
+
+function getEptSrsCode(meta) {
+  const srs = meta?.srs;
+  if (!srs) return null;
+  const code = srs?.horizontal || srs?.authority || srs?.horizontalEPSG || srs?.authorityCode;
+  const value = Number(code);
+  return Number.isFinite(value) ? value : null;
+}
+
+function isEptSrsSupported(meta) {
+  const code = getEptSrsCode(meta);
+  return code === 4326 || code === 3857;
+}
+
+function mercatorToLonLat(x, y) {
+  const R = 6378137;
+  const lon = (x / R) * (180 / Math.PI);
+  const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * (180 / Math.PI);
+  return [lon, lat];
+}
+
+function buildEptBaseUrl(eptUrl) {
+  if (!eptUrl) return null;
+  return eptUrl.replace(/\/ept\.json$/i, '/');
+}
+
+function buildEptHierarchyUrl(baseUrl, key) {
+  return `${baseUrl}ept-hierarchy/${key}.json`;
+}
+
+function buildEptDataUrl(baseUrl, key, dataType) {
+  return `${baseUrl}data/${key}.${dataType}`;
+}
+
+function parseEptKey(key) {
+  const parts = String(key).split('-').map((value) => Number(value));
+  if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value))) return null;
+  const [depth, x, y, z] = parts;
+  return { depth, x, y, z };
+}
+
+function getEptNodeBounds(meta, key) {
+  const parsed = parseEptKey(key);
+  if (!parsed) return null;
+  const bounds = meta?.boundsConforming || meta?.bounds;
+  if (!Array.isArray(bounds) || bounds.length < 6) return null;
+  const [minX, minY, minZ, maxX, maxY, maxZ] = bounds;
+  const divisions = 2 ** parsed.depth;
+  const sizeX = (maxX - minX) / divisions;
+  const sizeY = (maxY - minY) / divisions;
+  const sizeZ = (maxZ - minZ) / divisions;
+  const nodeMinX = minX + parsed.x * sizeX;
+  const nodeMaxX = nodeMinX + sizeX;
+  const nodeMinY = minY + parsed.y * sizeY;
+  const nodeMaxY = nodeMinY + sizeY;
+  const nodeMinZ = minZ + parsed.z * sizeZ;
+  const nodeMaxZ = nodeMinZ + sizeZ;
+  return [nodeMinX, nodeMinY, nodeMinZ, nodeMaxX, nodeMaxY, nodeMaxZ];
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function fetchEptHierarchyKeys(baseUrl) {
+  const rootKey = '0-0-0-0';
+  const url = buildEptHierarchyUrl(baseUrl, rootKey);
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`EPT hierarchy ${response.status}`);
+  const data = await response.json();
+  return Object.entries(data || {}).map(([key, count]) => ({ key, count: Number(count) || 0 }));
+}
+
+function selectEptKeys(entries, maxTiles, meta, center, radiusKm) {
+  if (!entries.length) return [];
+  const srsCode = getEptSrsCode(meta);
+  const radiusMeters = (radiusKm || 0) * 1000;
+  const withDistance = entries.map((entry) => {
+    const bounds = getEptNodeBounds(meta, entry.key);
+    if (!bounds || !center) {
+      return { ...entry, distance: Number.POSITIVE_INFINITY };
+    }
+    const centerX = (bounds[0] + bounds[3]) / 2;
+    const centerY = (bounds[1] + bounds[4]) / 2;
+    let distance = Number.POSITIVE_INFINITY;
+    if (srsCode === 4326) {
+      distance = haversineMeters(center[1], center[0], centerY, centerX);
+    } else if (srsCode === 3857) {
+      const dx = centerX - center[0];
+      const dy = centerY - center[1];
+      distance = Math.sqrt(dx * dx + dy * dy);
+    }
+    return { ...entry, distance };
+  });
+  const withinRadius = radiusMeters
+    ? withDistance.filter((entry) => entry.distance <= radiusMeters)
+    : withDistance;
+  const pool = withinRadius.length ? withinRadius : withDistance;
+  const sorted = pool.slice().sort((a, b) => {
+    if (a.distance !== b.distance) return a.distance - b.distance;
+    return b.count - a.count;
+  });
+  return sorted.slice(0, maxTiles).map((entry) => entry.key);
+}
+
+async function loadLidarPointOverlayFromEpt() {
+  const eptUrl = state.lidarPointEptUrl;
+  const meta = state.lidarPointEptMeta;
+  if (!eptUrl || !meta) throw new Error('EPT metadata missing');
+  if (!isEptSrsSupported(meta)) throw new Error('EPT SRS unsupported');
+
+  const baseUrl = buildEptBaseUrl(eptUrl);
+  const dataType = meta.dataType || 'laz';
+  const limits = getLidarPointLimits();
+  const hierarchy = await fetchEptHierarchyKeys(baseUrl);
+  const center = getLidarEptCenter(meta);
+  const keys = selectEptKeys(hierarchy, limits.maxTiles, meta, center, limits.radiusKm);
+  if (!keys.length) throw new Error('EPT hierarchy empty');
+
+  const { LASLoader } = await import('https://unpkg.com/@loaders.gl/las@3.4.14/dist/esm/index.js');
+  const points = [];
+  const srsCode = getEptSrsCode(meta);
+  let totalLoaded = 0;
+
+  for (const key of keys) {
+    const url = buildEptDataUrl(baseUrl, key, dataType);
+    // eslint-disable-next-line no-await-in-loop
+    const response = await fetch(url);
+    if (!response.ok) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const buffer = await response.arrayBuffer();
+    // eslint-disable-next-line no-await-in-loop
+    const mesh = await LASLoader.parse(buffer, {});
+    const positions = mesh?.attributes?.POSITION?.value;
+    if (!positions) continue;
+    const total = positions.length / 3;
+    const step = Math.max(1, Math.ceil(total / Math.max(1, Math.floor(limits.pointCap / keys.length))));
+    for (let i = 0; i < total && totalLoaded < limits.pointCap; i += step) {
+      const idx = i * 3;
+      let lon = positions[idx];
+      let lat = positions[idx + 1];
+      const alt = positions[idx + 2];
+      if (srsCode === 3857) {
+        const lngLat = mercatorToLonLat(lon, lat);
+        lon = lngLat[0];
+        lat = lngLat[1];
+      }
+      points.push({
+        position: [lon, lat, alt],
+        color: [80, 195, 255, 200]
+      });
+      totalLoaded += 1;
+      if (totalLoaded >= limits.pointCap) break;
+    }
+    if (totalLoaded >= limits.pointCap) break;
+  }
+
+  if (!points.length) throw new Error('EPT tiles empty');
+  state.lidarPointSource = 'ept';
+  state.lidarPointData = points;
+  return points.length;
+}
+
+function setLidarPointProjectFromFeature(feature, bounds, layerRef) {
+  if (!feature || !bounds) return;
+  const name = feature?.properties?.name || null;
+  state.lidarPointProject = name;
+  state.lidarPointEptUrl = buildLidarEptUrl(name);
+  state.lidarPointEptAvailable = false;
+  state.lidarPointEptMeta = null;
+  state.lidarPointSource = null;
+  state.lidarSelectedBounds = bounds;
+  applyLidarSelection(layerRef);
+  if (state.lidarPointEptUrl) {
+    checkLidarEptAvailability(state.lidarPointEptUrl);
+  }
+  const center = bounds.getCenter?.();
+  if (center) {
+    state.lidarPointAnchor = [center.lng, center.lat, 0];
+  }
+  if (state.settings.mapRasterOverlays?.lidarPoints) {
+    loadLidarPointOverlay();
+  }
+  updateLidarMetaUI();
+}
+
+async function checkLidarEptAvailability(url) {
+  if (!url) return;
+  setOverlayStatus('lidarPoints', 'loading', 'checking ept');
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`EPT status ${response.status}`);
+    state.lidarPointEptAvailable = true;
+    try {
+      const meta = await response.clone().json();
+      state.lidarPointEptMeta = meta;
+      const center = getLidarEptCenter(meta);
+      if (center) {
+        state.lidarPointAnchor = [center[0], center[1], 0];
+      }
+      recordLidarPointTelemetry({ status: 'ept_meta', project: state.lidarPointProject || null });
+    } catch (metaErr) {
+      console.warn('LiDAR EPT meta parse failed', metaErr);
+    }
+    setOverlayStatus('lidarPoints', 'ready', `ept ok • ${state.lidarPointProject || 'project'}`);
+    recordLidarPointTelemetry({ status: 'ept_ok', project: state.lidarPointProject || null, eptUrl: url });
+  } catch (err) {
+    console.warn('LiDAR EPT check failed', err);
+    state.lidarPointEptAvailable = false;
+    state.lidarPointEptMeta = null;
+    setOverlayStatus('lidarPoints', 'unavailable', 'ept unavailable');
+    recordLidarPointTelemetry({
+      status: 'ept_unavailable',
+      project: state.lidarPointProject || null,
+      eptUrl: url,
+      reason: err?.message || 'ept unavailable'
+    });
+  } finally {
+    updateLidarMetaUI();
+  }
+}
+
+async function loadLidarCoverageLayer() {
+  if (!state.map || state.lidarCoverageLoading || state.lidarCoverageLayer) return;
+  if (!window.topojson) {
+    console.warn('TopoJSON not available for LiDAR coverage.');
+    setOverlayStatus('lidar', 'unavailable', 'topojson missing');
+    return;
+  }
+  state.lidarCoverageLoading = true;
+  setOverlayStatus('lidar', 'loading', 'loading coverage');
+  try {
+    const response = await fetch(LIDAR_BOUNDARY_URL);
+    if (!response.ok) throw new Error(`LiDAR coverage fetch failed: ${response.status}`);
+    const topo = await response.json();
+    try {
+      localStorage.setItem(LIDAR_CACHE_KEY, JSON.stringify(topo));
+    } catch (err) {
+      console.warn('LiDAR cache write failed', err);
+    }
+    const objectKey = topo?.objects ? Object.keys(topo.objects)[0] : null;
+    if (!objectKey) throw new Error('LiDAR coverage data missing.');
+    const geo = window.topojson.feature(topo, topo.objects[objectKey]);
+    const opacity = getOverlayOpacity('lidar', 0.25);
+    const layer = window.L.geoJSON(geo, {
+      style: () => getLidarCoverageStyle(opacity),
+      onEachFeature: (feature, layerRef) => {
+        const name = feature?.properties?.name || 'LiDAR coverage';
+        const count = feature?.properties?.count;
+        const meta = count ? `${name} • ${count} tiles` : name;
+        if (layerRef?.bindPopup) layerRef.bindPopup(meta);
+        if (layerRef?.on && layerRef.getBounds) {
+          layerRef.on('click', () => {
+            setLidarPointProjectFromFeature(feature, layerRef.getBounds(), layerRef);
+          });
+        }
+      }
+    });
+    state.lidarCoverageLayer = layer;
+    state.mapOverlayLayers = { ...state.mapOverlayLayers, lidar: layer };
+    syncMapRasterOverlays();
+    setOverlayStatus('lidar', 'ready', 'coverage loaded');
+  } catch (err) {
+    console.warn('LiDAR coverage load failed', err);
+    try {
+      const cached = localStorage.getItem(LIDAR_CACHE_KEY);
+      if (cached) {
+        const topo = JSON.parse(cached);
+        const objectKey = topo?.objects ? Object.keys(topo.objects)[0] : null;
+        if (objectKey) {
+          const geo = window.topojson.feature(topo, topo.objects[objectKey]);
+          const opacity = getOverlayOpacity('lidar', 0.25);
+          const layer = window.L.geoJSON(geo, {
+            style: () => getLidarCoverageStyle(opacity),
+            onEachFeature: (feature, layerRef) => {
+              if (layerRef?.on && layerRef.getBounds) {
+                layerRef.on('click', () => {
+                  setLidarPointProjectFromFeature(feature, layerRef.getBounds(), layerRef);
+                });
+              }
+            }
+          });
+          state.lidarCoverageLayer = layer;
+          state.mapOverlayLayers = { ...state.mapOverlayLayers, lidar: layer };
+          syncMapRasterOverlays();
+          setOverlayStatus('lidar', 'ready', 'cached coverage');
+          return;
+        }
+      }
+    } catch (cacheErr) {
+      console.warn('LiDAR cache read failed', cacheErr);
+    }
+    setOverlayStatus('lidar', 'unavailable', 'coverage fetch failed');
+  } finally {
+    state.lidarCoverageLoading = false;
+  }
+}
+
+async function loadLidarPointOverlay() {
+  if (!state.map || state.lidarPointLoading || state.lidarPointLayer) return;
+  if (!window.deck || !window.DeckGlLeaflet) {
+    setOverlayStatus('lidarPoints', 'unavailable', 'deck.gl missing');
+    recordLidarPointTelemetry({ status: 'unavailable', reason: 'deck.gl missing' });
+    return;
+  }
+  const startedAt = performance.now();
+  state.lidarPointLoading = true;
+  const useEpt = state.lidarPointEptAvailable && state.lidarPointEptMeta && isEptSrsSupported(state.lidarPointEptMeta);
+  setOverlayStatus('lidarPoints', 'loading', useEpt ? 'loading ept tiles' : 'loading sample');
+  try {
+    if (!state.lidarPointData || state.lidarPointSource !== (useEpt ? 'ept' : 'sample')) {
+      state.lidarPointData = null;
+      state.lidarPointSource = null;
+    }
+    if (!state.lidarPointData && useEpt) {
+      await loadLidarPointOverlayFromEpt();
+    }
+    if (!state.lidarPointData) {
+      const { LASLoader } = await import('https://unpkg.com/@loaders.gl/las@3.4.14/dist/esm/index.js');
+      const response = await fetch(LIDAR_POINT_SAMPLE_URL);
+      if (!response.ok) throw new Error(`LiDAR sample fetch failed: ${response.status}`);
+      const buffer = await response.arrayBuffer();
+      const mesh = await LASLoader.parse(buffer, {});
+      const positions = mesh?.attributes?.POSITION?.value;
+      if (!positions) throw new Error('LiDAR sample missing POSITION data.');
+      const total = positions.length / 3;
+      const bbox = mesh?.header?.boundingBox;
+      const center = bbox ? [
+        (bbox[0][0] + bbox[1][0]) / 2,
+        (bbox[0][1] + bbox[1][1]) / 2,
+        (bbox[0][2] + bbox[1][2]) / 2
+      ] : [0, 0, 0];
+      const intensities = mesh?.attributes?.intensity?.value;
+      const step = Math.max(1, Math.ceil(total / LIDAR_POINT_TARGET_COUNT));
+      const points = [];
+      for (let i = 0; i < total; i += step) {
+        const idx = i * 3;
+        const intensity = intensities ? intensities[i] : 0;
+        const shade = Math.min(255, Math.max(30, Math.round(30 + (intensity / 65535) * 225)));
+        points.push({
+          position: [
+            positions[idx] - center[0],
+            positions[idx + 1] - center[1],
+            positions[idx + 2] - center[2]
+          ],
+          color: [60, shade, 255, 200]
+        });
+      }
+      state.lidarPointData = points;
+      state.lidarPointSource = 'sample';
+      const anchor = state.map.getCenter();
+      state.lidarPointAnchor = [anchor.lng, anchor.lat, 0];
+    }
+    const layer = buildLidarPointLayer();
+    const leafletLayer = new window.DeckGlLeaflet.LeafletLayer({
+      layers: [layer]
+    });
+    state.lidarPointLayer = leafletLayer;
+    state.mapOverlayLayers = { ...state.mapOverlayLayers, lidarPoints: leafletLayer };
+    syncMapRasterOverlays();
+    const label = state.lidarPointSource === 'ept'
+      ? `project ${state.lidarPointProject || 'ept'}`
+      : (state.lidarPointProject ? `sample • ${state.lidarPointProject}` : 'sample');
+    setOverlayStatus('lidarPoints', 'ready', `points ${state.lidarPointData.length} • ${label}`);
+    recordLidarPointTelemetry({
+      status: 'ready',
+      points: state.lidarPointData.length,
+      project: state.lidarPointProject || null,
+      eptUrl: state.lidarPointEptUrl || null,
+      source: state.lidarPointSource || null,
+      loadMs: Math.round(performance.now() - startedAt)
+    });
+  } catch (err) {
+    console.warn('LiDAR point overlay failed', err);
+    state.lidarPointSource = null;
+    setOverlayStatus('lidarPoints', 'unavailable', useEpt ? 'ept load failed' : 'sample load failed');
+    recordLidarPointTelemetry({
+      status: 'unavailable',
+      reason: err?.message || 'sample load failed',
+      source: state.lidarPointSource || null,
+      loadMs: Math.round(performance.now() - startedAt)
+    });
+  } finally {
+    state.lidarPointLoading = false;
+  }
+}
+
+function buildLidarPointLayer() {
+  const { PointCloudLayer, COORDINATE_SYSTEM } = window.deck;
+  const opacity = getOverlayOpacity('lidarPoints', 0.65);
+  const origin = state.lidarPointAnchor || [state.location.lon, state.location.lat, 0];
+  const source = state.lidarPointSource || 'sample';
+  const coordinateSystem = source === 'ept' ? COORDINATE_SYSTEM.LNGLAT : COORDINATE_SYSTEM.METER_OFFSETS;
+  return new PointCloudLayer({
+    id: 'lidar-points',
+    data: state.lidarPointData || [],
+    getPosition: (d) => d.position,
+    getColor: (d) => d.color,
+    pointSize: source === 'ept' ? 1.5 : 2,
+    opacity,
+    coordinateSystem,
+    coordinateOrigin: source === 'ept' ? undefined : origin,
+    pickable: false
+  });
+}
+
+function recordLidarPointTelemetry(entry) {
+  const payload = { ts: new Date().toISOString(), ...entry };
+  const next = [...(state.lidarPointTelemetry || []), payload].slice(-50);
+  state.lidarPointTelemetry = next;
+  try {
+    localStorage.setItem(LIDAR_POINT_TELEMETRY_KEY, JSON.stringify(next));
+  } catch (err) {
+    console.warn('LiDAR telemetry write failed', err);
+  }
+}
+
+function sampleTileUrl(template) {
+  return template.replace('{z}', '2').replace('{y}', '1').replace('{x}', '1');
+}
+
+function checkTileAvailable(url, timeout = 5000) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const timer = setTimeout(() => {
+      img.src = '';
+      resolve(false);
+    }, timeout);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    const cacheBust = url.includes('?') ? '&' : '?';
+    img.src = `${url}${cacheBust}cb=${Date.now()}`;
+  });
+}
+
+function latLonToTile(lat, lon, z) {
+  const n = 2 ** z;
+  const x = Math.floor(((lon + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return { x, y, z };
+}
+
+function buildSarSampleUrls(date) {
+  const map = state.map;
+  if (map && typeof map.getBounds === 'function') {
+    const bounds = map.getBounds();
+    const center = map.getCenter();
+    const zoom = Math.min(6, Math.max(3, Math.round(map.getZoom() || 4)));
+    const samples = [
+      { lat: center.lat, lon: center.lng },
+      { lat: bounds.getNorth(), lon: bounds.getWest() },
+      { lat: bounds.getNorth(), lon: bounds.getEast() },
+      { lat: bounds.getSouth(), lon: bounds.getWest() },
+      { lat: bounds.getSouth(), lon: bounds.getEast() }
+    ];
+    return samples.map(({ lat, lon }) => {
+      const { x, y } = latLonToTile(lat, lon, zoom);
+      return buildSarTileUrlForTile(date, zoom, y, x);
+    });
+  }
+  const zoom = 4;
+  const samples = [
+    { lat: 50.0, lon: 4.5 },
+    { lat: 34.0, lon: -118.2 },
+    { lat: 35.6, lon: 139.6 }
+  ];
+  return samples.map(({ lat, lon }) => {
+    const { x, y } = latLonToTile(lat, lon, zoom);
+    return buildSarTileUrlForTile(date, zoom, y, x);
+  });
+}
+
+async function refreshSarCoverageStatus(date) {
+  if (!date || !state.settings.mapRasterOverlays?.sar) return;
+  const cacheKey = getSarCoverageCacheKey(date);
+  if (cacheKey) {
+    const cached = state.sarCoverageCache?.[cacheKey];
+    if (cached && (Date.now() - cached.ts < 5 * 60 * 1000)) {
+      if (cached.ok) {
+        setOverlayStatus('sar', 'ready', `date ${date}`);
+      } else {
+        setOverlayStatus('sar', 'unavailable', 'no coverage for AOI/date');
+      }
+      return;
+    }
+  }
+  const urls = buildSarSampleUrls(date);
+  let ok = false;
+  for (const url of urls) {
+    // eslint-disable-next-line no-await-in-loop
+    ok = await checkTileAvailable(url);
+    if (ok) break;
+  }
+  if (cacheKey) {
+    state.sarCoverageCache[cacheKey] = { ok, ts: Date.now() };
+  }
+  if (!ok) {
+    setOverlayStatus('sar', 'unavailable', 'no coverage for AOI/date');
+  } else {
+    setOverlayStatus('sar', 'ready', `date ${date}`);
+  }
+}
+
+function scheduleSarCoverageCheck() {
+  if (!state.settings.mapRasterOverlays?.sar) return;
+  if (!state.sarDate || state.sarResolveInFlight) return;
+  if (state.sarCoverageTimer) {
+    clearTimeout(state.sarCoverageTimer);
+  }
+  state.sarCoverageTimer = setTimeout(() => {
+    refreshSarCoverageStatus(state.sarDate);
+  }, 600);
+}
+
+function getSarCoverageCacheKey(date) {
+  const map = state.map;
+  if (!map || !date) return null;
+  const zoom = Math.round(map.getZoom() || 4);
+  const center = map.getCenter?.();
+  if (!center) return `${date}:${zoom}`;
+  return `${date}:${zoom}:${center.lat.toFixed(2)},${center.lng.toFixed(2)}`;
+}
+
+function shiftIsoDate(base, offsetDays) {
+  const date = new Date(`${base}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function getDefaultImageryDate(layerKey) {
+  const layer = GIBS_LAYERS[layerKey] || null;
+  if (layer?.defaultDate) return layer.defaultDate;
+  return getRecentIsoDate(1);
+}
+
+async function resolveLatestImageryDate() {
+  if (state.imageryResolveInFlight || state.imageryDateManual) return;
+  state.imageryResolveInFlight = true;
+  setOverlayStatus('imagery', 'loading', 'checking tiles');
+  try {
+    const activeKey = state.settings.mapBasemap?.startsWith('gibs') ? state.settings.mapBasemap : 'gibs-viirs';
+    const layer = GIBS_LAYERS[activeKey] || GIBS_LAYERS['gibs-viirs'];
+    if (layer?.defaultDate) {
+      updateImageryDate(layer.defaultDate);
+      return;
+    }
+    const base = getRecentIsoDate(1);
+    let found = false;
+    for (let i = 0; i < 8; i += 1) {
+      const candidate = shiftIsoDate(base, -i);
+      const url = sampleTileUrl(buildGibsTileUrl(layer.id, candidate, layer.format, layer.matrixSet));
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await checkTileAvailable(url);
+      if (ok) {
+        updateImageryDate(candidate);
+        found = true;
+        return;
+      }
+    }
+    if (!found) {
+      const fallback = state.settings.lastImageryDate;
+      if (fallback) {
+        updateImageryDate(fallback);
+        setOverlayStatus('imagery', 'ready', 'using last known');
+      } else {
+        setOverlayStatus('imagery', 'unavailable', 'try Latest');
+      }
+    }
+  } finally {
+    state.imageryResolveInFlight = false;
+  }
+}
+
+async function resolveLatestSarDate() {
+  if (state.sarResolveInFlight || state.sarDateManual) return;
+  if (!state.settings.mapRasterOverlays?.sar) {
+    setOverlayStatus('sar', 'off', '');
+    updateMapDateUI();
+    return;
+  }
+  state.sarResolveInFlight = true;
+  setOverlayStatus('sar', 'loading', 'checking tiles');
+  try {
+    const capabilityDate = await fetchSarCapabilitiesDate();
+    const base = capabilityDate || getRecentIsoDate(1);
+    let found = false;
+    for (let i = 0; i < 12; i += 1) {
+      const candidate = shiftIsoDate(base, -i);
+      const urls = buildSarSampleUrls(candidate);
+      for (const url of urls) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await checkTileAvailable(url);
+        if (ok) {
+          updateSarDate(candidate);
+          found = true;
+          return;
+        }
+      }
+    }
+    if (!found) {
+      const fallback = state.settings.lastSarDate;
+      if (fallback) {
+        updateSarDate(fallback);
+        setOverlayStatus('sar', 'ready', 'using last known');
+      } else {
+        setOverlayStatus('sar', 'unavailable', 'try Latest');
+      }
+    }
+  } finally {
+    state.sarResolveInFlight = false;
+  }
+}
+
+function updateImageryDate(date) {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  state.imageryDate = date;
+  state.settings.mapImageryDate = date;
+  state.settings.lastImageryDate = date;
+  Object.entries(state.mapBaseLayers || {}).forEach(([key, layer]) => {
+    if (!key.startsWith('gibs')) return;
+    const layerConfig = GIBS_LAYERS[key];
+    if (!layerConfig) return;
+    layer.setUrl(buildGibsTileUrl(layerConfig.id, date, layerConfig.format, layerConfig.matrixSet));
+    layer.redraw();
+  });
+  Object.entries(state.mapOverlayLayers || {}).forEach(([key, layer]) => {
+    if (!key.startsWith('gibs-overlay')) return;
+    const overlayKey = key.replace('gibs-overlay-', '');
+    const overlayConfig = GIBS_OVERLAYS[overlayKey];
+    if (!overlayConfig) return;
+    layer.setUrl(buildGibsTileUrl(overlayConfig.id, date, overlayConfig.format, overlayConfig.matrixSet));
+    layer.redraw();
+  });
+  updateMapDateUI();
+  saveSettings();
+  setOverlayStatus('imagery', 'ready', `date ${date}`);
+}
+
+function updateSarDate(date) {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  state.sarDate = date;
+  state.settings.mapSarDate = date;
+  state.settings.lastSarDate = date;
+  const layer = state.mapOverlayLayers?.sar;
+  if (layer) {
+    layer.setUrl(buildSarTileUrl(date));
+    layer.redraw();
+  }
+  updateMapDateUI();
+  saveSettings();
+  setOverlayStatus('sar', 'ready', `date ${date}`);
+  refreshSarCoverageStatus(date);
+}
+
+function applyMapPreset(preset) {
+  if (preset === 'night') {
+    applyMapBasemap('gibs-nightlights');
+    state.settings.mapRasterOverlays = {
+      ...state.settings.mapRasterOverlays,
+      hillshade: false,
+      sar: false,
+      aerosol: false,
+      thermal: false,
+      fire: false
+    };
+    saveSettings();
+    syncMapRasterOverlays();
+    updateImageryPanelUI();
+    updateMapLegendUI();
+    resolveLatestImageryDate();
+    return;
+  }
+  if (preset === 'thermal') {
+    applyMapBasemap('gibs-viirs');
+    state.settings.mapRasterOverlays = {
+      ...state.settings.mapRasterOverlays,
+      thermal: true,
+      fire: true
+    };
+    saveSettings();
+    syncMapRasterOverlays();
+    updateImageryPanelUI();
+    updateMapLegendUI();
+    resolveLatestImageryDate();
+  }
+}
+
+function resetImagerySettings() {
+  state.settings.mapBasemap = 'osm';
+  state.settings.mapRasterOverlays = {
+    hillshade: false,
+    sar: false,
+    aerosol: false,
+    lidar: false,
+    lidarPoints: false,
+    thermal: false,
+    fire: false
+  };
+  state.settings.mapOverlayOpacity = {
+    hillshade: 0.45,
+    sar: 0.55,
+    aerosol: 0.45,
+    lidar: 0.25,
+    lidarPoints: 0.65,
+    thermal: 0.45,
+    fire: 0.45
+  };
+  state.settings.lidarPointLimits = {
+    useCustom: false,
+    pointCap: 150000,
+    radiusKm: 5,
+    maxTilesDesktop: 16,
+    maxTilesMobile: 8
+  };
+  state.settings.mapImageryDate = '';
+  state.settings.mapSarDate = '';
+  state.imageryDateManual = false;
+  state.sarDateManual = false;
+  saveSettings();
+  applyMapBasemap('osm');
+  syncMapRasterOverlays();
+  updateImageryPanelUI();
+  updateMapLegendUI();
+  updateMapDateUI();
+}
+
+function applyMapBasemap(basemap, { skipSave = false } = {}) {
+  if (!state.map) return;
+  const resolved = basemap === 'gibs' ? 'gibs-viirs' : basemap;
+  const target = state.mapBaseLayers?.[resolved] || state.mapBaseLayers?.osm;
+  if (!target) return;
+  if (state.activeBaseLayer) {
+    state.map.removeLayer(state.activeBaseLayer);
+  }
+  state.activeBaseLayer = target;
+  target.addTo(state.map);
+  state.settings.mapBasemap = resolved;
+  if (target.options?.maxZoom) {
+    state.map.setMaxZoom(target.options.maxZoom);
+  } else {
+    state.map.setMaxZoom(18);
+  }
+  if (!skipSave) {
+    saveSettings();
+    updateMapLegendUI();
+  }
+  if (basemap.startsWith('gibs')) {
+    const layer = GIBS_LAYERS[resolved];
+    if (layer?.defaultDate && !state.imageryDateManual) {
+      updateImageryDate(layer.defaultDate);
+    } else {
+      resolveLatestImageryDate();
+    }
+  }
+  updateImageryPanelUI();
+}
+
+function syncMapRasterOverlays() {
+  if (!state.map) return;
+  Object.entries(state.mapOverlayLayers || {}).forEach(([key, layer]) => {
+    let overlayKey = key.startsWith('gibs-overlay-') ? key.replace('gibs-overlay-', '') : key;
+    if (overlayKey.startsWith('fire')) {
+      overlayKey = 'fire';
+    }
+    const shouldShow = Boolean(state.settings.mapRasterOverlays?.[overlayKey]);
+    const isActive = state.map.hasLayer(layer);
+    if (shouldShow && !isActive) {
+      layer.addTo(state.map);
+    }
+    if (!shouldShow && isActive) {
+      state.map.removeLayer(layer);
+    }
+    const opacity = getOverlayOpacity(overlayKey, layer.options?.opacity ?? 0.5);
+    if (overlayKey === 'lidar' && typeof layer.setStyle === 'function' && Number.isFinite(opacity)) {
+      layer.setStyle(getLidarCoverageStyle(opacity));
+    } else if (overlayKey === 'lidarPoints' && typeof layer.setProps === 'function' && Number.isFinite(opacity)) {
+      layer.setProps({ layers: [buildLidarPointLayer()] });
+    } else if (typeof layer.setOpacity === 'function' && Number.isFinite(opacity)) {
+      layer.setOpacity(opacity);
+    }
+  });
+}
+
+function initMap() {
+  if (!elements.mapBase || !window.L) return;
+  state.map = window.L.map(elements.mapBase, {
+    zoomControl: true,
+    attributionControl: true,
+    worldCopyJump: true
+  }).setView([state.location.lat, state.location.lon], 2);
+
+  if (elements.mapLegend && window.L?.DomEvent) {
+    window.L.DomEvent.disableScrollPropagation(elements.mapLegend);
+    window.L.DomEvent.disableClickPropagation(elements.mapLegend);
+    const stopLegendScroll = (event) => event.stopPropagation();
+    elements.mapLegend.addEventListener('wheel', stopLegendScroll, { passive: true });
+    elements.mapLegend.addEventListener('touchmove', stopLegendScroll, { passive: true });
+  }
+
+  const defaultDate = getDefaultImageryDate(state.settings.mapBasemap || 'gibs-viirs');
+  const gibsDate = state.settings.mapImageryDate || defaultDate;
+  const sarDate = state.settings.mapSarDate || defaultDate;
+  state.imageryDate = gibsDate;
+  state.sarDate = sarDate;
+  state.settings.mapImageryDate = gibsDate;
+  state.settings.mapSarDate = sarDate;
+
+  state.mapBaseLayers = {
+    osm: window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '&copy; OpenStreetMap contributors'
+    }),
+    esri: window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18,
+      attribution: '&copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+    }),
+    'gibs-viirs': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-viirs'].id, gibsDate, GIBS_LAYERS['gibs-viirs'].format, GIBS_LAYERS['gibs-viirs'].matrixSet), {
+      maxZoom: GIBS_LAYERS['gibs-viirs'].maxZoom,
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (VIIRS True Color)'
+    }),
+    'gibs-modis-terra': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-terra'].id, gibsDate, GIBS_LAYERS['gibs-modis-terra'].format, GIBS_LAYERS['gibs-modis-terra'].matrixSet), {
+      maxZoom: GIBS_LAYERS['gibs-modis-terra'].maxZoom,
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (MODIS Terra True Color)'
+    }),
+    'gibs-modis-aqua': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-modis-aqua'].id, gibsDate, GIBS_LAYERS['gibs-modis-aqua'].format, GIBS_LAYERS['gibs-modis-aqua'].matrixSet), {
+      maxZoom: GIBS_LAYERS['gibs-modis-aqua'].maxZoom,
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (MODIS Aqua True Color)'
+    }),
+    'gibs-nightlights': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-nightlights'].id, gibsDate, GIBS_LAYERS['gibs-nightlights'].format, GIBS_LAYERS['gibs-nightlights'].matrixSet), {
+      maxZoom: GIBS_LAYERS['gibs-nightlights'].maxZoom,
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (VIIRS Black Marble)'
+    }),
+    'gibs-daynight': window.L.tileLayer(buildGibsTileUrl(GIBS_LAYERS['gibs-daynight'].id, gibsDate, GIBS_LAYERS['gibs-daynight'].format, GIBS_LAYERS['gibs-daynight'].matrixSet), {
+      maxZoom: GIBS_LAYERS['gibs-daynight'].maxZoom,
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (VIIRS Day/Night Band)'
+    })
+  };
+
+  state.mapOverlayLayers = {
+    hillshade: window.L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18,
+      maxNativeZoom: 16,
+      opacity: getOverlayOpacity('hillshade', 0.45),
+      attribution: 'Esri World Hillshade'
+    }),
+    sar: window.L.tileLayer(buildSarTileUrl(sarDate), {
+      maxZoom: 18,
+      maxNativeZoom: 16,
+      opacity: getOverlayOpacity('sar', 0.55),
+      attribution: 'Sentinel-1 SAR (Terrascope)'
+    }),
+    'gibs-overlay-aerosol': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.aerosol.id, gibsDate, GIBS_OVERLAYS.aerosol.format, GIBS_OVERLAYS.aerosol.matrixSet), {
+      maxZoom: 16,
+      maxNativeZoom: GIBS_OVERLAYS.aerosol.maxZoom,
+      opacity: getOverlayOpacity('aerosol', GIBS_OVERLAYS.aerosol.opacity),
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (Aerosol Index)'
+    }),
+    'gibs-overlay-thermal': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS.thermal.id, gibsDate, GIBS_OVERLAYS.thermal.format, GIBS_OVERLAYS.thermal.matrixSet), {
+      maxZoom: 16,
+      maxNativeZoom: GIBS_OVERLAYS.thermal.maxZoom,
+      opacity: getOverlayOpacity('thermal', GIBS_OVERLAYS.thermal.opacity),
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (Thermal Brightness)'
+    }),
+    'gibs-overlay-fire-east': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS['fire-east'].id, gibsDate, GIBS_OVERLAYS['fire-east'].format, GIBS_OVERLAYS['fire-east'].matrixSet), {
+      maxZoom: 16,
+      maxNativeZoom: GIBS_OVERLAYS['fire-east'].maxZoom,
+      opacity: getOverlayOpacity('fire', GIBS_OVERLAYS['fire-east'].opacity),
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (GOES East Fire Temp)'
+    }),
+    'gibs-overlay-fire-west': window.L.tileLayer(buildGibsTileUrl(GIBS_OVERLAYS['fire-west'].id, gibsDate, GIBS_OVERLAYS['fire-west'].format, GIBS_OVERLAYS['fire-west'].matrixSet), {
+      maxZoom: 16,
+      maxNativeZoom: GIBS_OVERLAYS['fire-west'].maxZoom,
+      opacity: getOverlayOpacity('fire', GIBS_OVERLAYS['fire-west'].opacity),
+      crossOrigin: 'anonymous',
+      attribution: 'NASA GIBS (GOES West Fire Temp)'
+    })
+  };
+
+  if (state.settings.mapRasterOverlays?.lidar) {
+    loadLidarCoverageLayer();
+  } else {
+    setOverlayStatus('lidar', 'off', '');
+  }
+  if (state.settings.mapRasterOverlays?.lidarPoints) {
+    loadLidarPointOverlay();
+  } else {
+    setOverlayStatus('lidarPoints', 'off', '');
+  }
+  applyMapBasemap(state.settings.mapBasemap, { skipSave: true });
+  syncMapRasterOverlays();
+
+  state.map.on('moveend zoomend', () => {
+    drawMap();
+    scheduleSarCoverageCheck();
+  });
+  state.map.on('movestart zoomstart', () => {
+    hideMapDetail();
+  });
+
+  state.map.whenReady(() => {
+    updateMapViewForScope();
+    drawMap();
+  });
+
+  setTimeout(() => {
+    state.map.invalidateSize();
+    updateMapViewForScope();
+    drawMap();
+  }, 0);
+
+  resolveLatestImageryDate();
+  if (state.settings.mapRasterOverlays?.sar) {
+    resolveLatestSarDate();
+  } else {
+    setOverlayStatus('sar', 'off', '');
+  }
+}
+
+function getLayerForItem(item) {
+  if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
+  if (item.feedId === 'gpsjam') return 'gpsjam';
+  if (item.feedId === 'arcgis-military-installations') return 'military';
+  if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
+  if (item.feedId?.startsWith('arcgis-outage-')) return 'outage';
+  if (item.category === 'travel') return 'travel';
+  if (item.category === 'transport') return 'transport';
+  if (item.category === 'security-lagged') return 'securityLagged';
+  if (item.category === 'security') return 'security';
+  if (item.category === 'infrastructure') return 'infrastructure';
+  if (item.category === 'weather') return 'weather';
+  if (item.category === 'disaster') return 'disaster';
+  if (item.category === 'space') return 'space';
+  if (item.category === 'health') return 'health';
+  return 'news';
+}
+
+function getLayerColor(layer) {
+  if (layer === 'disaster') return 'rgba(255,106,106,0.9)';
+  if (layer === 'weather') return 'rgba(55,214,214,0.9)';
+  if (layer === 'space') return 'rgba(140,107,255,0.9)';
+  if (layer === 'travel') return 'rgba(255,196,87,0.95)';
+  if (layer === 'transport') return 'rgba(94,232,160,0.9)';
+  if (layer === 'gpsjam') return 'rgba(244,104,102,0.92)';
+  if (layer === 'security') return 'rgba(255,144,99,0.92)';
+  if (layer === 'securityLagged') return 'rgba(199,156,137,0.78)';
+  if (layer === 'military') return 'rgba(214,174,118,0.88)';
+  if (layer === 'infrastructure') return 'rgba(132,190,255,0.9)';
+  if (layer === 'outage') return 'rgba(255,210,90,0.92)';
+  if (layer === 'health') return 'rgba(109,209,255,0.9)';
+  if (layer === 'spill') return 'rgba(255,125,36,0.92)';
+  return 'rgba(255,184,76,0.9)';
+}
+
+function getSignalType(item) {
+  if (!item) return 'news';
+  const weatherText = `${item.alertType || ''} ${item.title || ''}`.toLowerCase();
+  const classifyWeather = () => {
+    if (!weatherText.trim()) return null;
+    if (weatherText.includes('tornado')) return 'tornado';
+    if (weatherText.includes('flash flood') || weatherText.includes('flood')) return 'flood';
+    if (weatherText.includes('hurricane') || weatherText.includes('tropical storm') || weatherText.includes('storm surge')) return 'hurricane';
+    if (weatherText.includes('blizzard') || weatherText.includes('winter') || weatherText.includes('snow') || weatherText.includes('ice') || weatherText.includes('freeze')) return 'winter';
+    if (weatherText.includes('excessive heat') || weatherText.includes('heat')) return 'heat';
+    if (weatherText.includes('severe thunderstorm') || weatherText.includes('thunderstorm')) return 'severe';
+    if (weatherText.includes('wind')) return 'wind';
+    return null;
+  };
+  if (item.feedId === 'noaa-incidentnews' || item.category === 'spill') return 'spill';
+  if (item.feedId === 'gpsjam') return 'gpsjam';
+  if (item.feedId === 'usgs-quakes-hour' || item.feedId === 'usgs-quakes-day') return 'quake';
+  if (item.feedId === 'arcgis-border-crisis') return 'border';
+  if (item.feedId === 'arcgis-kinetic-oconus' || item.feedId === 'arcgis-kinetic-domestic' || item.feedId === 'arcgis-kinetic-europe' || item.feedId === 'arcgis-kinetic-venezuela') return 'kinetic';
+  if (item.feedId === 'warspotting-losses') return 'kinetic';
+  if (item.feedId === 'arcgis-drone-reports') return 'drone';
+  if (item.feedId === 'arcgis-logistics-shortages') return 'logistics';
+  if (item.feedId === 'arcgis-tipline-reports') return 'warning';
+  if (item.feedId === 'arcgis-military-installations') return 'military';
+  if (item.feedId === 'arcgis-hms-fire') return 'fire';
+  if (item.feedId === 'arcgis-wildfire-incidents' || item.feedId === 'arcgis-wildfire-perimeters') return 'fire';
+  if (item.feedId === 'arcgis-noaa-severe') return 'severe';
+  if (item.feedId === 'arcgis-noaa-tornado') return 'tornado';
+  if (item.feedId === 'arcgis-noaa-flood') return 'flood';
+  if (item.feedId === 'nws-alerts') return classifyWeather() || 'weather';
+  if (item.feedId === 'nhc-atlantic') return 'hurricane';
+  if (item.feedId === 'arcgis-power-plants') return 'power';
+  if (item.feedId?.startsWith('arcgis-outage-')) return 'water';
+  if (item.feedId === 'arcgis-outage-area') return 'water';
+  if (item.feedId === 'arcgis-submarine-cables' || item.feedId === 'arcgis-submarine-landing') return 'infrastructure';
+  if (item.feedId === 'state-travel-advisories' || item.feedId === 'cdc-travel-notices') return 'travel';
+  if (item.feedId === 'transport-opensky') return 'air';
+  if (item.category === 'travel') return 'travel';
+  if (item.category === 'spill') return 'spill';
+  if (item.category === 'weather') return classifyWeather() || 'weather';
+  if (item.category === 'disaster') return 'disaster';
+  if (item.category === 'space') return 'space';
+  if (item.category === 'health') return 'health';
+  if (item.category === 'transport') return 'transport';
+  if (item.category === 'security') {
+    const type = (item.eventType || item.alertType || '').toLowerCase();
+    if (type.includes('battle')) return 'battle';
+    if (type.includes('explosion') || type.includes('remote violence')) return 'explosion';
+    if (type.includes('violence against civilians')) return 'violence';
+    if (type.includes('protest')) return 'protest';
+    if (type.includes('riot')) return 'riot';
+    return 'security';
+  }
+  if (item.category === 'infrastructure') return 'infrastructure';
+  return 'news';
+}
+
+const MAP_ICON_LIBRARY = {
+  quake: 'activity',
+  border: 'flag',
+  kinetic: 'crosshair',
+  drone: 'radar',
+  logistics: 'truck',
+  fire: 'flame',
+  warning: 'alert-triangle',
+  gpsjam: 'radar',
+  power: 'bolt',
+  severe: 'cloud-lightning',
+  tornado: 'tornado',
+  flood: 'droplet',
+  hurricane: 'activity',
+  winter: 'alert-octagon',
+  heat: 'heat',
+  wind: 'radar',
+  water: 'droplet',
+  travel: 'plane',
+  air: 'plane',
+  military: 'barracks',
+  battle: 'crosshair',
+  explosion: 'alert-octagon',
+  violence: 'shield',
+  protest: 'flag',
+  riot: 'alert-triangle',
+  health: 'heart-pulse',
+  transport: 'truck',
+  weather: 'cloud-lightning',
+  disaster: 'alert-octagon',
+  space: 'satellite',
+  security: 'shield',
+  infrastructure: 'factory',
+  spill: 'droplet',
+  news: 'newspaper'
+};
+
+const MAP_ICON_SVGS = {
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2" />',
+  tornado: '<path d="M3 4h18M5 8h14M7 12h10M9 16h6M11 20h2" />',
+  heat: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" x2="4" y1="22" y2="15" />',
+  crosshair: '<circle cx="12" cy="12" r="10" /><line x1="22" x2="18" y1="12" y2="12" /><line x1="6" x2="2" y1="12" y2="12" /><line x1="12" x2="12" y1="6" y2="2" /><line x1="12" x2="12" y1="22" y2="18" />',
+  radar: '<path d="M19.07 4.93A10 10 0 0 0 6.99 3.34" /><path d="M4 6h.01" /><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35" /><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67" /><path d="M12 18h.01" /><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67" /><circle cx="12" cy="12" r="2" /><path d="m13.41 10.59 5.66-5.66" />',
+  truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" /><path d="M15 18H9" /><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" /><circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" />',
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />',
+  'alert-triangle': '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4" /><path d="M12 17h.01" />',
+  bolt: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><circle cx="12" cy="12" r="4" />',
+  plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />',
+  'heart-pulse': '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" />',
+  'cloud-lightning': '<path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973" /><path d="m13 12-3 5h4l-3 5" />',
+  'alert-octagon': '<polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" />',
+  satellite: '<path d="M13 7 9 3 5 7l4 4" /><path d="m17 11 4 4-4 4-4-4" /><path d="m8 12 4 4 6-6-4-4Z" /><path d="m16 8 3-3" /><path d="M9 21a6 6 0 0 0-6-6" />',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />',
+  factory: '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M17 18h1" /><path d="M12 18h1" /><path d="M7 18h1" />',
+  barracks: '<path d="M4 22h16" /><path d="M6 22V9l6-3 6 3v13" /><path d="M10 22v-6h4v6" /><path d="M12 2v4" /><path d="M12 2h4l-4 2" />',
+  droplet: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />',
+  newspaper: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" /><path d="M18 14h-8" /><path d="M15 18h-5" /><path d="M10 6h8v4h-8V6Z" />'
+};
+
+const mapIconCache = new Map();
+const MAP_ICON_COLOR = '#0a0f14';
+const GPSJAM_COLOR = { r: 244, g: 104, b: 102 };
+
+function getMapIconName(type) {
+  return MAP_ICON_LIBRARY[type] || MAP_ICON_LIBRARY.news;
+}
+
+function getMapIconImage(type) {
+  const name = getMapIconName(type);
+  if (!MAP_ICON_SVGS[name]) return null;
+  if (mapIconCache.has(name)) return mapIconCache.get(name);
+  const svg = `<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"${MAP_ICON_COLOR}\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">${MAP_ICON_SVGS[name]}</svg>`;
+  const img = new Image();
+  img.src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  img.onload = () => {
+    if (elements.mapCanvas) drawMap();
+  };
+  mapIconCache.set(name, img);
+  return img;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function drawGpsJamLayer(ctx, items, map) {
+  if (!map || !items.length) return;
+  const h3 = getH3Lib();
+  if (!h3 || !h3.cellToBoundary) return;
+  ctx.save();
+  ctx.lineWidth = 0.6;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  items.forEach((item) => {
+    if (!item.hex) return;
+    const boundary = h3.cellToBoundary(item.hex, true);
+    if (!boundary || boundary.length < 3) return;
+    ctx.beginPath();
+    boundary.forEach(([lat, lon], idx) => {
+      const point = map.latLngToContainerPoint([lat, lon]);
+      if (idx === 0) {
+        ctx.moveTo(point.x, point.y);
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    });
+    ctx.closePath();
+    const intensity = clamp(item.gpsIntensity ?? 0.25, 0.08, 0.35);
+    ctx.fillStyle = `rgba(${GPSJAM_COLOR.r}, ${GPSJAM_COLOR.g}, ${GPSJAM_COLOR.b}, ${intensity})`;
+    ctx.fill();
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function getClusterRadius(layer) {
+  if (layer === 'security' || layer === 'securityLagged') return 16;
+  if (layer === 'weather') return 16;
+  return 24;
+}
+
+function clusterMapPoints(points, radius = 24) {
+  const clusters = [];
+  points.forEach((point) => {
+    let target = null;
+    for (const cluster of clusters) {
+      const dx = cluster.x - point.x;
+      const dy = cluster.y - point.y;
+      if (cluster.layer !== point.layer) {
+        continue;
+      }
+      const layerRadius = getClusterRadius(cluster.layer) || radius;
+      if (Math.sqrt(dx * dx + dy * dy) < layerRadius) {
+        target = cluster;
+        break;
+      }
+    }
+    if (!target) {
+      clusters.push({
+        x: point.x,
+        y: point.y,
+        points: [point],
+        layer: point.layer
+      });
+    } else {
+      target.points.push(point);
+      const count = target.points.length;
+      target.x = (target.x * (count - 1) + point.x) / count;
+      target.y = (target.y * (count - 1) + point.y) / count;
+    }
+  });
+
+  return clusters.map((cluster) => {
+    const count = cluster.points.length;
+    const layerCounts = cluster.points.reduce((acc, point) => {
+      acc[point.layer] = (acc[point.layer] || 0) + 1;
+      return acc;
+    }, {});
+    const dominant = Object.entries(layerCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'news';
+    const typeCounts = cluster.points.reduce((acc, point) => {
+      acc[point.type] = (acc[point.type] || 0) + 1;
+      return acc;
+    }, {});
+    const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'news';
+    const primary = cluster.points
+      .map((point) => point.item)
+      .sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0))[0];
+    const radiusPx = count === 1 ? 4 : Math.min(16, 4 + Math.sqrt(count) * 2);
+    return {
+      x: cluster.x,
+      y: cluster.y,
+      count,
+      layer: dominant,
+      type: dominantType,
+      iconName: getMapIconName(dominantType),
+      color: getLayerColor(dominant),
+      primary,
+      items: cluster.points.map((point) => point.item),
+      radius: radiusPx
+    };
+  });
+}
+
+function drawMap() {
+  const canvas = elements.mapCanvas;
+  const ctx = canvas.getContext('2d');
+  const baseRect = (elements.mapBase || canvas).getBoundingClientRect();
+  const { width, height } = baseRect;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  state.mapPoints = [];
+  state.mapPointsReady = false;
+
+  if (!state.map) {
+    for (let x = 0; x <= width; x += width / 6) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+
+    for (let y = 0; y <= height; y += height / 4) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+  }
+
+  const mapItems = getMapItems();
+  const gpsJamItems = mapItems.filter((item) => item.feedId === 'gpsjam' && item.hex);
+  const otherItems = mapItems.filter((item) => item.feedId !== 'gpsjam');
+  if (state.settings.mapLayers.gpsjam && gpsJamItems.length && state.map) {
+    drawGpsJamLayer(ctx, gpsJamItems, state.map);
+  }
+  const rawPoints = otherItems.map((item) => {
+    const { lat, lon } = item.geo;
+    let x;
+    let y;
+    if (state.map) {
+      const point = state.map.latLngToContainerPoint([lat, lon]);
+      x = point.x;
+      y = point.y;
+    } else {
+      x = ((lon + 180) / 360) * width;
+      y = ((90 - lat) / 180) * height;
+    }
+    const layer = getLayerForItem(item);
+    const type = getSignalType(item);
+    return { x, y, item, layer, type };
+  }).filter((point) => state.settings.mapLayers[point.layer])
+    .filter((point) => {
+      if (point.layer !== 'security' && point.layer !== 'securityLagged') return true;
+      const conflictType = getConflictType(point.item);
+      return state.settings.mapConflictTypes?.[conflictType] !== false;
+    });
+
+  if (elements.mapEmpty) {
+    elements.mapEmpty.classList.toggle('show', rawPoints.length === 0);
+  }
+
+  const clusters = clusterMapPoints(rawPoints);
+  const zoomLevel = state.map ? state.map.getZoom() : 2;
+  clusters.forEach((cluster) => {
+    ctx.beginPath();
+    ctx.fillStyle = cluster.color;
+    ctx.arc(cluster.x, cluster.y, cluster.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (cluster.count > 1) {
+      ctx.strokeStyle = 'rgba(10, 15, 20, 0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#0a0f14';
+      ctx.font = '600 11px "Atkinson Hyperlegible", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(cluster.count > 99 ? '99+' : String(cluster.count), cluster.x, cluster.y);
+      return;
+    }
+
+    if (zoomLevel >= 3) {
+      const iconSize = 14;
+      const icon = getMapIconImage(cluster.type);
+      if (icon && icon.complete) {
+        ctx.drawImage(icon, cluster.x - iconSize / 2, cluster.y - iconSize / 2, iconSize, iconSize);
+      } else {
+        ctx.fillStyle = '#0a0f14';
+        ctx.font = '700 10px "Atkinson Hyperlegible", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('•', cluster.x, cluster.y);
+      }
+    }
+  });
+
+  state.mapPoints = clusters;
+  state.mapPointsReady = true;
+  if (clusters.length) {
+    state.mapLastNonEmptyAt = Date.now();
+    state.mapLastNonEmptyCount = clusters.length;
+  }
+  updatePanelErrors();
+
+  if (state.location && state.settings.mapLayers.local) {
+    let x;
+    let y;
+    let radius;
+    if (state.map) {
+      const center = state.map.latLngToContainerPoint([state.location.lat, state.location.lon]);
+      const metersPerPixel = 156543.03392 * Math.cos(state.location.lat * Math.PI / 180) / Math.pow(2, state.map.getZoom());
+      radius = (state.settings.radiusKm * 1000) / metersPerPixel;
+      x = center.x;
+      y = center.y;
+    } else {
+      x = ((state.location.lon + 180) / 360) * width;
+      y = ((90 - state.location.lat) / 180) * height;
+      radius = (state.settings.radiusKm / 20037) * width * 2;
+    }
+
+    ctx.strokeStyle = 'rgba(200,255,106,0.5)';
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function updateMapViewForScope() {
+  if (!state.map) return;
+  state.map.invalidateSize();
+  const padding = { padding: [40, 40], maxZoom: 7 };
+  if (state.settings.scope === 'global') {
+    state.map.setView([20, 0], 2);
+    return;
+  }
+  if (state.settings.scope === 'us') {
+    const country = getSelectedCountry();
+    if (country?.code === 'US' || (state.settings.country || '').toUpperCase() === 'US') {
+      state.map.fitBounds([[24, -125], [49, -66]], { padding: [30, 30], maxZoom: 4 });
+    } else if (country?.bbox) {
+      state.map.fitBounds([[country.bbox.minLat, country.bbox.minLon], [country.bbox.maxLat, country.bbox.maxLon]], { padding: [30, 30], maxZoom: 6 });
+    } else {
+      state.map.fitBounds([[24, -125], [49, -66]], { padding: [30, 30], maxZoom: 4 });
+    }
+    return;
+  }
+  if (state.settings.scope === 'local') {
+    const { lat, lon } = state.location;
+    const latDelta = state.settings.radiusKm / 110.574;
+    const lonDelta = state.settings.radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180));
+    state.map.fitBounds([[lat - latDelta, lon - lonDelta], [lat + latDelta, lon + lonDelta]], { padding: [30, 30], maxZoom: 9 });
+  }
+}
+
+function updateMapTooltip(event) {
+  const rect = elements.mapCanvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  const hit = state.mapPoints.find((point) => {
+    const dx = point.x - x;
+    const dy = point.y - y;
+    return Math.sqrt(dx * dx + dy * dy) < (point.radius + 6);
+  });
+
+  if (!hit) {
+    elements.mapTooltip.style.display = 'none';
+    if (elements.mapWrap) elements.mapWrap.style.cursor = 'default';
+    return;
+  }
+
+  if (elements.mapWrap) elements.mapWrap.style.cursor = 'pointer';
+  elements.mapTooltip.style.display = 'block';
+  elements.mapTooltip.style.left = `${Math.min(x + 12, rect.width - 220)}px`;
+  elements.mapTooltip.style.top = `${Math.max(y - 12, 10)}px`;
+  if (hit.count > 1) {
+    const preview = hit.items.slice(0, 2).map((item) => item.translatedTitle || item.title).join(' | ');
+    elements.mapTooltip.textContent = `${hit.count} signals: ${preview}`;
+  } else {
+    elements.mapTooltip.textContent = hit.primary.translatedTitle || hit.primary.title;
+  }
+}
+
+function hideMapDetail() {
+  if (!elements.mapDetail) return;
+  elements.mapDetail.classList.remove('show');
+}
+
+function renderFlightFocus() {
+  if (!elements.flightFocus) return;
+  if (!state.flightFocus) {
+    elements.flightFocus.classList.remove('show');
+    if (elements.flightFocusBody) elements.flightFocusBody.innerHTML = '';
+    return;
+  }
+  const item = state.flightFocus;
+  const callsign = item.callsign || item.title || 'Flight';
+  const meta = [];
+  if (item.icao24) meta.push(item.icao24.toUpperCase());
+  if (item.originCountry) meta.push(item.originCountry);
+  if (elements.flightFocusMeta) {
+    elements.flightFocusMeta.textContent = meta.filter(Boolean).join(' • ') || 'OpenSky';
+  }
+  if (elements.flightFocusBody) {
+    const rows = [];
+    const speed = Number.isFinite(item.velocity) ? `${Math.round(item.velocity * 3.6)} km/h` : '—';
+    const altitude = Number.isFinite(item.altitude) ? `${Math.round(item.altitude * 3.28084)} ft` : '—';
+    const heading = Number.isFinite(item.heading) ? `${item.heading}°` : '—';
+    rows.push({ label: 'Callsign', value: callsign });
+    rows.push({ label: 'Speed', value: speed });
+    rows.push({ label: 'Altitude', value: altitude });
+    rows.push({ label: 'Heading', value: heading });
+    rows.push({ label: 'On ground', value: item.onGround ? 'Yes' : 'No' });
+    elements.flightFocusBody.innerHTML = rows.map((row) => (
+      `<div class="map-focus-row"><span>${row.label}</span><strong>${row.value}</strong></div>`
+    )).join('');
+  }
+  if (elements.flightFocusOpen) {
+    elements.flightFocusOpen.disabled = !item.icao24;
+  }
+  elements.flightFocus.classList.add('show');
+}
+
+function clearFlightFocus() {
+  state.flightFocus = null;
+  state.flightTrack = null;
+  state.flightTrackFetchedAt = 0;
+  if (state.flightTrackLayer && state.map) {
+    state.map.removeLayer(state.flightTrackLayer);
+  }
+  state.flightTrackLayer = null;
+  renderFlightFocus();
+}
+
+async function fetchFlightTrack(icao24, force = false) {
+  if (!icao24) return;
+  const proxy = getOpenSkyProxy();
+  if (!proxy) return;
+  if (state.flightTrackLoading) return;
+  if (!force && Date.now() - state.flightTrackFetchedAt < 60 * 1000) return;
+  state.flightTrackLoading = true;
+  if (elements.flightFocusTrack) {
+    elements.flightFocusTrack.disabled = true;
+    elements.flightFocusTrack.textContent = 'Tracking…';
+  }
+  try {
+    const base = proxy.endsWith('/') ? proxy.slice(0, -1) : proxy;
+    const response = await apiFetch(`${base}/tracks?icao24=${encodeURIComponent(icao24)}&time=0`);
+    if (!response.ok) return;
+    const data = await response.json();
+    state.flightTrack = data;
+    state.flightTrackFetchedAt = Date.now();
+    if (state.map && Array.isArray(data?.path)) {
+      const latlngs = data.path
+        .filter((point) => Number.isFinite(point?.[1]) && Number.isFinite(point?.[2]))
+        .map((point) => [point[1], point[2]]);
+      if (state.flightTrackLayer) {
+        state.map.removeLayer(state.flightTrackLayer);
+      }
+      if (latlngs.length) {
+        state.flightTrackLayer = L.polyline(latlngs, { color: '#4fa2ff', weight: 2, opacity: 0.75 }).addTo(state.map);
+      }
+    }
+  } catch {
+    // ignore failures
+  } finally {
+    state.flightTrackLoading = false;
+    if (elements.flightFocusTrack) {
+      elements.flightFocusTrack.disabled = false;
+      elements.flightFocusTrack.textContent = 'Track';
+    }
+  }
+}
+
+function setFlightFocus(item) {
+  if (!item) {
+    clearFlightFocus();
+    return;
+  }
+  state.flightFocus = item;
+  renderFlightFocus();
+  if (item.icao24) {
+    fetchFlightTrack(item.icao24, true);
+  }
+}
+
+function showMapDetail(cluster, x, y) {
+  if (!elements.mapDetail || !elements.mapDetailList) return;
+  const list = elements.mapDetailList;
+  list.innerHTML = '';
+  const rect = (elements.mapWrap || elements.mapCanvas).getBoundingClientRect();
+  const left = Math.min(x + 12, rect.width - 320);
+  const top = Math.min(y + 12, rect.height - 220);
+  elements.mapDetail.style.left = `${Math.max(12, left)}px`;
+  elements.mapDetail.style.top = `${Math.max(12, top)}px`;
+  if (elements.mapDetailMeta) {
+    elements.mapDetailMeta.textContent = `${cluster.count} signals in view`;
+  }
+
+  const resolveLocation = (item) => {
+    if (item.geoLabel) return item.geoLabel;
+    if (item.location) return item.location;
+    if (item.area) return item.area;
+    if (item.title && item.title.includes(' - ')) {
+      const parts = item.title.split(' - ');
+      if (parts[1]) return parts.slice(1).join(' - ').trim();
+    }
+    if (item.geo && Number.isFinite(item.geo.lat) && Number.isFinite(item.geo.lon)) {
+      return `${item.geo.lat.toFixed(2)}, ${item.geo.lon.toFixed(2)}`;
+    }
+    return '';
+  };
+
+  const resolveSeverity = (item) => {
+    if (item.severity) return item.severity;
+    if (item.category === 'travel' && item.title) {
+      const match = item.title.match(/Level\\s*(\\d)/i);
+      if (match) return `Level ${match[1]}`;
+    }
+    return '';
+  };
+
+  const resolveAlertType = (item) => {
+    if (item.alertType) return item.alertType;
+    if (item.category === 'travel') return 'Travel Notice';
+    if (item.category === 'space') return 'Space Weather';
+    if (item.category === 'weather') return 'Weather Alert';
+    if (item.category === 'disaster') return 'Disaster';
+    if (item.category === 'transport') return 'Transport';
+    return '';
+  };
+
+  const resolveRegionChips = (item) => {
+    const chips = new Set();
+    if (item.tags?.includes('us')) chips.add('US');
+    if (item.tags?.includes('global')) chips.add('Global');
+    if (item.category === 'travel') {
+      const travelRegion = extractTravelRegion(item.title || '');
+      if (travelRegion) chips.add(travelRegion);
+    }
+    const locationText = item.geoLabel || item.location || item.area || '';
+    const region = extractRegionFromText(locationText);
+    if (region) chips.add(region);
+    return Array.from(chips).slice(0, 3);
+  };
+
+  cluster.items.slice(0, 8).forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'map-detail-item';
+    const title = document.createElement('div');
+    title.className = 'map-detail-title';
+    title.textContent = item.translatedTitle || item.title;
+    const meta = document.createElement('div');
+    meta.className = 'map-detail-meta';
+    meta.textContent = `${item.source || 'Source'} • ${toRelativeTime(item.publishedAt || Date.now())}`;
+    const badges = document.createElement('div');
+    badges.className = 'map-detail-badges';
+    const categoryBadge = document.createElement('span');
+    categoryBadge.className = `badge badge-${item.category || 'news'}`;
+    categoryBadge.textContent = CATEGORY_LABELS[item.category] || item.category || 'Signal';
+    badges.appendChild(categoryBadge);
+    const alertType = resolveAlertType(item);
+    if (alertType) {
+      const alertBadge = document.createElement('span');
+      alertBadge.className = 'badge badge-alert';
+      alertBadge.textContent = alertType;
+      badges.appendChild(alertBadge);
+    }
+    if (item.verificationCount && item.verificationCount > 1) {
+      const verifiedBadge = document.createElement('span');
+      verifiedBadge.className = 'badge badge-verify';
+      verifiedBadge.textContent = `Verified ${item.verificationCount} sources`;
+      badges.appendChild(verifiedBadge);
+    }
+    const regions = resolveRegionChips(item);
+    regions.forEach((region) => {
+      const regionBadge = document.createElement('span');
+      regionBadge.className = 'badge badge-region';
+      regionBadge.textContent = region;
+      badges.appendChild(regionBadge);
+    });
+    const locationText = resolveLocation(item);
+    const severityText = resolveSeverity(item);
+    const info = document.createElement('div');
+    info.className = 'map-detail-info';
+    if (locationText) {
+      const locationRow = document.createElement('div');
+      locationRow.className = 'map-detail-info-row';
+      locationRow.innerHTML = `<span>Location</span><strong>${locationText}</strong>`;
+      info.appendChild(locationRow);
+    }
+    if (severityText) {
+      const severityRow = document.createElement('div');
+      severityRow.className = 'map-detail-info-row';
+      severityRow.innerHTML = `<span>Severity</span><strong>${severityText}</strong>`;
+      info.appendChild(severityRow);
+    }
+    const summaryText = (item.translatedSummary || item.summary || '').trim();
+    const summary = document.createElement('div');
+    summary.className = 'map-detail-summary';
+    if (summaryText) {
+      summary.textContent = summaryText;
+    } else if (item.url) {
+      summary.textContent = 'Tap to open full details.';
+    } else {
+      summary.textContent = 'No additional details available.';
+    }
+    row.appendChild(title);
+    row.appendChild(badges);
+    row.appendChild(meta);
+    if (info.childNodes.length) {
+      row.appendChild(info);
+    }
+    row.appendChild(summary);
+    if (item.feedId === 'transport-opensky' && item.icao24) {
+      const actions = document.createElement('div');
+      actions.className = 'map-detail-actions';
+      const focusBtn = document.createElement('button');
+      focusBtn.className = 'chip chip-small';
+      focusBtn.textContent = 'Focus Flight';
+      focusBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setFlightFocus(item);
+      });
+      actions.appendChild(focusBtn);
+      row.appendChild(actions);
+    }
+    row.addEventListener('click', () => {
+      if (item.url) {
+        window.open(item.url, '_blank', 'noopener');
+      }
+    });
+    list.appendChild(row);
+    if (state.settings.languageMode === 'translate' && item.isNonEnglish) {
+      translateItem(item, title, null);
+    }
+  });
+
+  if (cluster.count > 8) {
+    const more = document.createElement('div');
+    more.className = 'map-detail-more';
+    more.textContent = `+${cluster.count - 8} more signals`;
+    list.appendChild(more);
+  }
+
+  elements.mapDetail.classList.add('show');
+}
+
+function handleMapClick(event) {
+  const rect = elements.mapCanvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  const hit = state.mapPoints.find((point) => {
+    const dx = point.x - x;
+    const dy = point.y - y;
+    return Math.sqrt(dx * dx + dy * dy) < (point.radius + 6);
+  });
+  if (!hit) {
+    hideMapDetail();
+    return;
+  }
+  showMapDetail(hit, x, y);
+}
+
+function updateChatStatus() {
+  if (!elements.chatLog) return;
+  let bubble = elements.chatLog.querySelector('.chat-bubble.system');
+  if (!bubble) {
+    bubble = document.createElement('div');
+    bubble.className = 'chat-bubble system';
+    elements.chatLog.prepend(bubble);
+  }
+  const key = (state.keys.openai?.key || '').trim();
+  const proxyUrl = getOpenAiProxy();
+  const usingClient = state.settings.useClientOpenAI && key;
+  if (isStaticMode()) {
+    if (proxyUrl) {
+      bubble.textContent = usingClient
+        ? 'AI connected via proxy (using your key).'
+        : 'AI connected via proxy (server key). Use your key to override.';
+      return;
+    }
+    if (state.settings.superMonitor) {
+      bubble.textContent = key
+        ? 'Super Monitor Mode: OpenAI key stored (proxy required on GitHub Pages).'
+        : 'Super Monitor Mode is on. Add an OpenAI key; chat still needs a proxy.';
+    } else {
+      bubble.textContent = 'Static mode: AI chat needs a proxy. Briefings use the cached snapshot when available.';
+    }
+    return;
+  }
+  bubble.textContent = proxyUrl
+    ? (usingClient ? 'AI connected (proxy + your key).' : 'AI connected (server key).')
+    : (key ? 'AI connected. Ask a question or request a briefing.' : 'Connect an AI provider to enable live responses.');
+}
+
+function showSearchResults(items, label) {
+  if (!elements.searchResults || !elements.searchResultsList) return;
+  elements.searchResultsList.innerHTML = '';
+  const sliced = items.slice(0, 25);
+  if (sliced.length) {
+    renderList(elements.searchResultsList, sliced);
+  } else {
+    elements.searchResultsList.innerHTML = '<div class="list-item">No matching signals yet.</div>';
+  }
+  if (elements.searchResultsMeta) {
+    elements.searchResultsMeta.textContent = label;
+  }
+  elements.searchResults.classList.add('open');
+}
+
+function hideSearchResults() {
+  if (!elements.searchResults) return;
+  elements.searchResults.classList.remove('open');
+  if (elements.searchResultsList) {
+    elements.searchResultsList.innerHTML = '';
+  }
+  if (elements.searchResultsMeta) {
+    elements.searchResultsMeta.textContent = 'Awaiting query';
+  }
+  updateSearchHint();
+}
+
+async function refreshAll(force = false) {
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.refreshAll(force);
+}
+
+async function refreshFeeds(feedIds, options = {}) {
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.refreshFeeds(feedIds, options);
+}
+
+async function retryFailedFeeds() {
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.retryFailedFeeds();
+}
+
+async function retryStaleFeeds(results) {
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.retryStaleFeeds(results);
+}
+
+function startAutoRefresh() {
+  if (!feedManager) throw new Error('Feed manager not initialized.');
+  return feedManager.startAutoRefresh();
+}
+
+function requestLocation() {
+  if (!elements.geoLocateBtn) return;
+  const resetLabel = () => {
+    elements.geoLocateBtn.disabled = false;
+    elements.geoLocateBtn.textContent = 'Locate Me';
+  };
+
+  if (!navigator.geolocation) {
+    state.location.source = 'fallback';
+    updateSettingsUI();
+    elements.geoLocateBtn.textContent = 'Location Unsupported';
+    setTimeout(resetLabel, 2200);
+    return;
+  }
+
+  elements.geoLocateBtn.disabled = true;
+  elements.geoLocateBtn.textContent = 'Locating...';
+
+  navigator.geolocation.getCurrentPosition((position) => {
+    state.location = {
+      lat: position.coords.latitude,
+      lon: position.coords.longitude,
+      source: 'geo'
+    };
+    applyCountryFromLocation();
+    if (state.map) {
+      updateMapViewForScope();
+    }
+    state.scopedItems = applyScope(state.items);
+    updateSettingsUI();
+    drawMap();
+    renderLocal();
+    renderSignals();
+    elements.geoLocateBtn.textContent = 'Geolocated';
+    setTimeout(resetLabel, 1800);
+  }, () => {
+    state.location.source = 'fallback';
+    updateSettingsUI();
+    elements.geoLocateBtn.textContent = 'Location Blocked';
+    setTimeout(resetLabel, 2400);
+  }, { enableHighAccuracy: false, timeout: 7000 });
+}
+
+function initEvents() {
+  if (elements.exportSnapshot) {
+    elements.exportSnapshot.addEventListener('click', exportSnapshot);
+  }
+  if (elements.refreshNow) {
+    elements.refreshNow.addEventListener('click', () => refreshAll(true));
+  }
+  if (elements.sidebarAbout) {
+    elements.sidebarAbout.addEventListener('click', () => {
+      toggleAbout(true);
+      setNavOpen(false);
+    });
+  }
+  if (elements.navToggle) {
+    elements.navToggle.addEventListener('click', () => {
+      const isOpen = elements.app?.classList.contains('nav-open');
+      setNavOpen(!isOpen);
+    });
+  }
+  if (elements.sidebarScrim) {
+    elements.sidebarScrim.addEventListener('click', () => setNavOpen(false));
+  }
+  if (elements.aboutOpen) {
+    elements.aboutOpen.addEventListener('click', () => toggleAbout(true));
+  }
+  if (elements.aboutOpenSettings) {
+    elements.aboutOpenSettings.addEventListener('click', () => toggleAbout(true));
+  }
+  if (elements.aboutClose) {
+    elements.aboutClose.addEventListener('click', () => toggleAbout(false));
+  }
+  if (elements.aboutOverlay) {
+    elements.aboutOverlay.addEventListener('click', (event) => {
+      if (event.target === elements.aboutOverlay) {
+        toggleAbout(false);
+      }
+    });
+  }
+  if (elements.attributionClose) {
+    elements.attributionClose.addEventListener('click', () => toggleAttribution(false));
+  }
+  if (elements.attributionOverlay) {
+    elements.attributionOverlay.addEventListener('click', (event) => {
+      if (event.target === elements.attributionOverlay) {
+        toggleAttribution(false);
+      }
+    });
+  }
+  if (elements.moneyFlowsRun) {
+    elements.moneyFlowsRun.addEventListener('click', () => fetchMoneyFlows());
+  }
+  if (elements.moneyFlowsQuery) {
+    elements.moneyFlowsQuery.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        fetchMoneyFlows();
+      }
+    });
+  }
+  if (elements.moneyFlowsRange) {
+    elements.moneyFlowsRange.addEventListener('change', () => {
+      state.moneyFlowsRangeDays = Number(elements.moneyFlowsRange.value) || MONEY_FLOW_DEFAULT_DAYS;
+      if (state.moneyFlowsQuery) {
+        fetchMoneyFlows();
+      } else {
+        renderMoneyFlows();
+      }
+    });
+  }
+  if (elements.liveSearchToggle) {
+    elements.liveSearchToggle.addEventListener('click', () => {
+      state.settings.liveSearch = !state.settings.liveSearch;
+      saveSettings();
+      updateSettingsUI();
+    });
+  }
+  if (elements.savedSearches) {
+    elements.savedSearches.addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-query]');
+      if (!btn) return;
+      elements.searchInput.value = btn.dataset.query || '';
+      if (searchController?.handleSearch) {
+        searchController.handleSearch();
+      }
+    });
+  }
+  if (elements.stateSignalFilter) {
+    elements.stateSignalFilter.addEventListener('change', () => {
+      setSearchStateFilter(elements.stateSignalFilter.value);
+      updateSearchHint();
+      if (elements.searchResults?.classList.contains('open') && searchController?.handleSearch) {
+        searchController.handleSearch();
+      }
+    });
+  }
+  if (elements.statePanelSignalFilter) {
+    elements.statePanelSignalFilter.addEventListener('change', () => {
+      setStatePanelFilter(elements.statePanelSignalFilter.value);
+      renderStateGovernment();
+      renderSignals();
+      refreshFeeds(['state-legislation', 'state-rulemaking', 'state-executive-orders'], { rerender: false })
+        .then(() => {
+          renderStateGovernment();
+          renderSignals();
+          renderFeedHealth();
+          updatePanelErrors();
+        })
+        .catch(() => {});
+    });
+  }
+  if (elements.financeTabs) {
+    elements.financeTabs.addEventListener('click', (event) => {
+      const btn = event.target.closest('.tab');
+      if (!btn) return;
+      const tab = btn.dataset.tab;
+      elements.financeTabs.querySelectorAll('.tab').forEach((el) => {
+        el.classList.toggle('active', el === btn);
+      });
+      document.querySelectorAll('.finance-panel .tab-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === (tab === 'markets' ? 'financeMarketsList' : 'financePolicyList'));
+      });
+    });
+  }
+  if (elements.stateGovTabs) {
+    elements.stateGovTabs.addEventListener('click', (event) => {
+      const btn = event.target.closest('.tab');
+      if (!btn) return;
+      if (btn.hidden) return;
+      setStateGovernmentActiveTab(btn.dataset.tab);
+    });
+  }
+  document.querySelectorAll('.ticker-builder-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.target;
+      const builder = document.querySelector(`.ticker-builder[data-builder="${target}"]`);
+      if (!builder) return;
+      builder.classList.toggle('open');
+    });
+  });
+
+  document.querySelectorAll('.ticker-builder').forEach((builder) => {
+    const addBtn = builder.querySelector('.ticker-add');
+    const queryInput = builder.querySelector('.ticker-query');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => handleTickerAdd(builder));
+    }
+    if (queryInput) {
+      queryInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          handleTickerAdd(builder);
+        }
+      });
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    const removeBtn = event.target.closest('.ticker-remove');
+    if (!removeBtn) return;
+    const key = removeBtn.dataset.key;
+    if (!key) return;
+    removeTickerFromWatchlist(key);
+  });
+
+  if (elements.geoLocateBtn) {
+    elements.geoLocateBtn.addEventListener('click', requestLocation);
+  }
+
+  if (elements.mapLegendBtn && elements.mapLegend) {
+    elements.mapLegendBtn.addEventListener('click', () => {
+      elements.mapLegend.classList.toggle('show');
+    });
+
+    elements.mapLegend.addEventListener('change', (event) => {
+      const input = event.target.closest('input[data-layer]');
+      if (input) {
+        const layer = input.dataset.layer;
+        state.settings.mapLayers[layer] = input.checked;
+        saveSettings();
+        drawMap();
+        return;
+      }
+      const conflictInput = event.target.closest('input[data-conflict-type]');
+      if (conflictInput) {
+        const type = conflictInput.dataset.conflictType;
+        state.settings.mapConflictTypes = state.settings.mapConflictTypes || {};
+        state.settings.mapConflictTypes[type] = conflictInput.checked;
+        saveSettings();
+        drawMap();
+        return;
+      }
+      const baseInput = event.target.closest('input[data-basemap]');
+      if (baseInput) {
+        applyMapBasemap(baseInput.dataset.basemap);
+        drawMap();
+        return;
+      }
+      const overlayInput = event.target.closest('input[data-overlay]');
+      if (overlayInput) {
+        const overlay = overlayInput.dataset.overlay;
+        state.settings.mapRasterOverlays[overlay] = overlayInput.checked;
+        saveSettings();
+        syncMapRasterOverlays();
+        if (overlay === 'sar') {
+          if (overlayInput.checked) {
+            resolveLatestSarDate();
+          } else {
+            setOverlayStatus('sar', 'off', '');
+          }
+        }
+        if (overlay === 'lidar') {
+          if (overlayInput.checked) {
+            loadLidarCoverageLayer();
+          } else {
+            setOverlayStatus('lidar', 'off', '');
+          }
+        }
+        if (overlay === 'lidarPoints') {
+          if (overlayInput.checked) {
+            loadLidarPointOverlay();
+          } else {
+            setOverlayStatus('lidarPoints', 'off', '');
+          }
+        }
+      }
+      const densityInput = event.target.closest('input[data-flight-density]');
+      if (densityInput) {
+        state.settings.mapFlightDensity = densityInput.dataset.flightDensity || 'medium';
+        saveSettings();
+        drawMap();
+        return;
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!elements.mapLegend.classList.contains('show')) return;
+      if (elements.mapLegend.contains(event.target) || elements.mapLegendBtn.contains(event.target)) return;
+      elements.mapLegend.classList.remove('show');
+    });
+  }
+
+  if (elements.imageryDateInput) {
+    elements.imageryDateInput.addEventListener('change', (event) => {
+      state.imageryDateManual = true;
+      updateImageryDate(event.target.value);
+    });
+  }
+
+  if (elements.sarDateInput) {
+    elements.sarDateInput.addEventListener('change', (event) => {
+      state.sarDateManual = true;
+      updateSarDate(event.target.value);
+    });
+  }
+
+  if (elements.imageryDatePanel) {
+    elements.imageryDatePanel.addEventListener('change', (event) => {
+      state.imageryDateManual = true;
+      updateImageryDate(event.target.value);
+    });
+  }
+
+  if (elements.sarDatePanel) {
+    elements.sarDatePanel.addEventListener('change', (event) => {
+      state.sarDateManual = true;
+      updateSarDate(event.target.value);
+    });
+  }
+
+  const triggerImageryAuto = () => {
+    state.imageryDateManual = false;
+    resolveLatestImageryDate();
+  };
+  const triggerSarAuto = () => {
+    state.sarDateManual = false;
+    resolveLatestSarDate();
+  };
+  if (elements.imageryAutoBtn) {
+    elements.imageryAutoBtn.addEventListener('click', triggerImageryAuto);
+  }
+  if (elements.imageryPanelAutoBtn) {
+    elements.imageryPanelAutoBtn.addEventListener('click', triggerImageryAuto);
+  }
+  if (elements.sarAutoBtn) {
+    elements.sarAutoBtn.addEventListener('click', triggerSarAuto);
+  }
+  if (elements.sarPanelAutoBtn) {
+    elements.sarPanelAutoBtn.addEventListener('click', triggerSarAuto);
+  }
+  if (elements.imageryResetBtn) {
+    elements.imageryResetBtn.addEventListener('click', resetImagerySettings);
+  }
+  if (elements.imageryResetPanelBtn) {
+    elements.imageryResetPanelBtn.addEventListener('click', resetImagerySettings);
+  }
+
+  document.querySelectorAll('[data-imagery-preset]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyMapPreset(button.dataset.imageryPreset);
+    });
+  });
+
+  document.querySelectorAll('[data-imagery-basemap]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyMapBasemap(button.dataset.imageryBasemap);
+      updateImageryPanelUI();
+    });
+  });
+
+  document.querySelectorAll('[data-imagery-overlay]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const overlay = button.dataset.imageryOverlay;
+      const next = !state.settings.mapRasterOverlays?.[overlay];
+      state.settings.mapRasterOverlays[overlay] = next;
+      saveSettings();
+      syncMapRasterOverlays();
+      if (overlay === 'sar') {
+        if (next) {
+          resolveLatestSarDate();
+        } else {
+          setOverlayStatus('sar', 'off', '');
+        }
+      }
+    if (overlay === 'lidar') {
+      if (next) {
+        loadLidarCoverageLayer();
+      } else {
+        setOverlayStatus('lidar', 'off', '');
+        state.lidarSelectedLayer = null;
+        state.lidarSelectedBounds = null;
+        updateLidarMetaUI();
+      }
+    }
+    if (overlay === 'lidarPoints') {
+      if (next) {
+        if (!state.lidarPointEptUrl) {
+          setOverlayStatus('lidarPoints', 'unavailable', 'select a LiDAR AOI');
+        } else if (state.lidarPointEptAvailable) {
+          loadLidarPointOverlay();
+        } else {
+          setOverlayStatus('lidarPoints', 'unavailable', 'ept unavailable');
+        }
+      } else {
+        setOverlayStatus('lidarPoints', 'off', '');
+      }
+      updateLidarMetaUI();
+    }
+      updateImageryPanelUI();
+      updateMapLegendUI();
+    });
+  });
+
+  document.querySelectorAll('[data-overlay-opacity]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const overlay = input.dataset.overlayOpacity;
+      const value = Math.max(0, Math.min(100, Number(input.value))) / 100;
+      state.settings.mapOverlayOpacity[overlay] = value;
+      saveSettings();
+      syncMapRasterOverlays();
+      updateImageryPanelUI();
+    });
+  });
+
+  if (elements.customFeedToggle) {
+    elements.customFeedToggle.addEventListener('click', () => {
+      const isHidden = elements.customFeedForm?.classList.contains('hidden');
+      if (isHidden) {
+        resetCustomFeedForm();
+      }
+      toggleCustomFeedForm(isHidden);
+    });
+  }
+  if (elements.customFeedExport) {
+    elements.customFeedExport.addEventListener('click', () => {
+      exportCustomFeedsJson();
+    });
+  }
+  if (elements.customFeedDownload) {
+    elements.customFeedDownload.addEventListener('click', () => {
+      const jsonText = elements.customFeedJson?.value?.trim() || getCustomFeedsExportString();
+      const blob = new Blob([jsonText], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'custom-feeds.json';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      if (elements.customFeedJsonStatus) {
+        elements.customFeedJsonStatus.textContent = 'Downloaded custom feeds JSON.';
+      }
+    });
+  }
+  if (elements.customFeedOpen) {
+    elements.customFeedOpen.addEventListener('click', () => {
+      const url = getAssetUrl('data/feeds.json');
+      window.open(url, '_blank', 'noopener');
+    });
+  }
+  if (elements.customFeedImportToggle) {
+    elements.customFeedImportToggle.addEventListener('click', () => {
+      const isHidden = elements.customFeedJsonPanel?.classList.contains('hidden');
+      toggleCustomFeedJsonPanel(isHidden);
+    });
+  }
+  if (elements.customFeedJsonCopy) {
+    elements.customFeedJsonCopy.addEventListener('click', async () => {
+      if (!elements.customFeedJson) return;
+      try {
+        await navigator.clipboard.writeText(elements.customFeedJson.value || '');
+        if (elements.customFeedStatus) elements.customFeedStatus.textContent = 'Copied feed JSON to clipboard.';
+      } catch (error) {
+        if (elements.customFeedStatus) elements.customFeedStatus.textContent = 'Copy failed. Select and copy manually.';
+      }
+    });
+  }
+  if (elements.customFeedJsonApply) {
+    elements.customFeedJsonApply.addEventListener('click', () => {
+      applyCustomFeedsJson();
+    });
+  }
+  if (elements.customFeedCancel) {
+    elements.customFeedCancel.addEventListener('click', () => {
+      toggleCustomFeedForm(false);
+    });
+  }
+  if (elements.customFeedSave) {
+    elements.customFeedSave.addEventListener('click', () => {
+      const { feed, error } = collectCustomFeedForm();
+      if (error) {
+        if (elements.customFeedStatus) {
+          elements.customFeedStatus.textContent = error;
+        }
+        return;
+      }
+      if (editingCustomFeedId) {
+        state.customFeeds = state.customFeeds.filter((entry) => entry.id !== editingCustomFeedId);
+      }
+      if (!feed.id) {
+        feed.id = `custom-${hashString(feed.url || feed.name)}`;
+      }
+      state.customFeeds = [...state.customFeeds, feed];
+      saveCustomFeeds();
+      state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
+      buildCustomFeedList();
+      buildFeedOptions();
+      buildKeyManager();
+      toggleCustomFeedForm(false);
+      refreshAll(true);
+    });
+  }
+
+  if (elements.customFeedRequiresKey) {
+    elements.customFeedRequiresKey.addEventListener('change', () => {
+      const enabled = elements.customFeedRequiresKey.checked;
+      elements.customFeedKeyParam.disabled = !enabled;
+      elements.customFeedKeyHeader.disabled = !enabled;
+    });
+  }
+  if (elements.customFeedSupportsQuery) {
+    elements.customFeedSupportsQuery.addEventListener('change', () => {
+      elements.customFeedDefaultQuery.disabled = !elements.customFeedSupportsQuery.checked;
+    });
+  }
+  if (elements.mapDetailClose) {
+    elements.mapDetailClose.addEventListener('click', hideMapDetail);
+  }
+  if (elements.flightFocusClear) {
+    elements.flightFocusClear.addEventListener('click', clearFlightFocus);
+  }
+  if (elements.flightFocusTrack) {
+    elements.flightFocusTrack.addEventListener('click', () => {
+      if (state.flightFocus?.icao24) {
+        fetchFlightTrack(state.flightFocus.icao24, true);
+      }
+    });
+  }
+  if (elements.flightFocusOpen) {
+    elements.flightFocusOpen.addEventListener('click', () => {
+      const icao24 = state.flightFocus?.icao24;
+      if (!icao24) return;
+      window.open(`https://opensky-network.org/api/tracks/all?icao24=${encodeURIComponent(icao24)}`, '_blank', 'noopener');
+    });
+  }
+  if (elements.searchResultsClose) {
+    elements.searchResultsClose.addEventListener('click', hideSearchResults);
+  }
+
+  const mapTarget = elements.mapBase || elements.mapCanvas;
+  mapTarget.addEventListener('mousemove', updateMapTooltip);
+  mapTarget.addEventListener('mouseleave', () => {
+    elements.mapTooltip.style.display = 'none';
+  });
+  mapTarget.addEventListener('click', handleMapClick);
+
+  elements.analysisRun.addEventListener('click', runAiAnalysis);
+
+  elements.resetLayout.addEventListener('click', resetLayout);
+
+  elements.chatSend.addEventListener('click', sendChatMessage);
+  elements.chatInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') sendChatMessage();
+  });
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (state.settings.theme === 'system') {
+      applyTheme('system');
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (state.map) {
+      state.map.invalidateSize();
+    }
+    if (state.energyMap) {
+      state.energyMap.invalidateSize();
+    }
+    drawMap();
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      toggleAbout(false);
+      toggleAttribution(false);
+      toggleListModal(false);
+      toggleSettings(false);
+      setNavOpen(false);
+    }
+  });
+}
+
+async function init() {
+  sanitizeSensitiveParams();
+  loadSettings();
+  loadKeys();
+  loadKeyGroups();
+  loadKeyStatus();
+  loadGeoCache();
+  state.customFeeds = loadCustomFeeds();
+  applyTheme(state.settings.theme);
+  updateSettingsUI();
+  await initCountrySelect();
+  updateSettingsUI();
+  loadPanelState();
+  state.panels.defaultOrder = getPanelRegistry().map((panel) => panel.id);
+  if (state.panels.order.length && state.panels.order.length !== state.panels.defaultOrder.length) {
+    state.panels.order = [...state.panels.defaultOrder];
+    savePanelState();
+  }
+  applyPanelOrder();
+  applyPanelVisibility();
+  applyPanelSizes();
+  buildPanelToggles();
+  renderAboutSources();
+  updateCategoryFilters();
+  initPanelDrag();
+  initPanelResize();
+  document.querySelectorAll('.key-chip').forEach((el) => el.remove());
+
+  let payload;
+  try {
+    const result = await apiJson('/api/feeds');
+    payload = result.data;
+    if (result.error || !payload) {
+      throw new Error('Feed API unreachable');
+    }
+  } catch (err) {
+    setHealth('API offline');
+    if (elements.feedHealth) {
+      elements.feedHealth.innerHTML = isStaticMode()
+        ? '<div class="settings-note">Static snapshot mode: feeds load from the latest published cache.</div>'
+        : '<div class="settings-note">Feed API unreachable. Check proxy configuration.</div>';
+    }
+    payload = { feeds: [] };
+  }
+  state.baseFeeds = (payload.feeds || []).filter((feed) => feed.url || feed.requiresKey || feed.requiresConfig);
+  state.feeds = mergeCustomFeeds(state.baseFeeds, state.customFeeds);
+  applyOpenSkyProxyOverride();
+  applyAcledProxyOverride();
+  feedManager = createFeedManager({
+    state,
+    elements,
+    helpers: {
+      setRefreshing,
+      setHealth,
+      updateProxyHealth,
+      isStaticMode,
+      loadStaticAnalysis,
+      loadStaticBuild,
+      translateQuery,
+      shouldFetchLiveInStatic,
+      fetchCustomFeedDirect,
+      fetchFeed,
+      isFeedStale,
+      canonicalUrl,
+      isNonEnglish,
+      enrichItem,
+      applyScope,
+      clusterNews,
+      updateDataFreshBadge,
+      countCriticalIssues,
+      renderAllPanels,
+      renderSignals,
+      renderFeedHealth,
+      drawMap,
+      generateAnalysis,
+      maybeAutoRunAnalysis,
+      refreshCustomTickers,
+      renderTicker,
+      renderFinanceSpotlight,
+      geocodeItems,
+      renderLocal,
+      updatePanelErrors
+    }
+  });
+
+  buildFeedOptions();
+  populateCustomFeedCategories();
+  buildCustomFeedList();
+  buildKeyManager();
+  updateChatStatus();
+  attachKeyButtons();
+  initMap();
+  updateMapDateUI();
+  initEvents();
+  searchController = initSearchUI({
+    state,
+    elements,
+    helpers: {
+      showSearchResults,
+      updateSearchHint,
+      isStaticMode,
+      getLiveSearchFeeds,
+      translateQueryAsync,
+      fetchCustomFeedDirect,
+      applySearchFilters,
+      CATEGORY_LABELS,
+      fetchFeed,
+      getSearchStateFilter,
+      hasAssistantAccess,
+      updateCategoryFilters
+    }
+  });
+  initSettingsUI({
+    elements,
+    handlers: {
+      onSettingsToggle: () => {
+        const isOpen = elements.settingsPanel?.classList.contains('open');
+        toggleSettings(!isOpen);
+      },
+      onSettingsScrim: () => toggleSettings(false),
+      onSidebarSettings: () => {
+        const isOpen = elements.settingsPanel?.classList.contains('open');
+        toggleSettings(!isOpen);
+        setNavOpen(false);
+      },
+      onStatusToggle: () => {
+        state.settings.showStatus = !state.settings.showStatus;
+        saveSettings();
+        updateSettingsUI();
+      },
+      onKeyToggle: () => {
+        state.settings.showKeys = !state.settings.showKeys;
+        saveSettings();
+        updateSettingsUI();
+      },
+      onMcpToggle: () => {
+        state.settings.showMcp = !state.settings.showMcp;
+        saveSettings();
+        updateSettingsUI();
+      },
+      onTravelTickerToggle: () => {
+        state.settings.showTravelTicker = !state.settings.showTravelTicker;
+        saveSettings();
+        updateSettingsUI();
+        renderTravelTicker();
+      },
+      onRefreshRange: (event) => {
+        state.settings.refreshMinutes = Number(event.target.value);
+        saveSettings();
+        updateSettingsUI();
+        startAutoRefresh();
+      },
+      onRadiusRange: (event) => {
+        state.settings.radiusKm = Number(event.target.value);
+        saveSettings();
+        updateSettingsUI();
+        renderLocal();
+        drawMap();
+        maybeAutoRunAnalysis();
+      },
+      onMaxAgeRange: (event) => {
+        state.settings.maxAgeDays = Number(event.target.value);
+        saveSettings();
+        updateSettingsUI();
+        state.scopedItems = applyScope(state.items);
+        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+        renderAllPanels();
+        renderSignals();
+        drawMap();
+        maybeAutoRunAnalysis();
+      },
+      onLanguageToggle: (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        state.settings.languageMode = btn.dataset.language;
+        saveSettings();
+        updateSettingsUI();
+        state.scopedItems = applyScope(state.items);
+        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+        renderAllPanels();
+        renderSignals();
+        drawMap();
+        maybeAutoRunAnalysis();
+      },
+      onThemeToggle: (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        applyTheme(btn.dataset.theme);
+        saveSettings();
+        updateSettingsUI();
+      },
+      onAgeToggle: (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        const age = Number(btn.dataset.age);
+        if (!Number.isFinite(age)) return;
+        state.settings.maxAgeDays = age;
+        saveSettings();
+        updateSettingsUI();
+        state.scopedItems = applyScope(state.items);
+        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+        renderAllPanels();
+        renderSignals();
+        drawMap();
+      },
+      onScopeToggle: (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        state.settings.scope = btn.dataset.scope;
+        state.scopedItems = applyScope(state.items);
+        state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
+        updateScopeButtons();
+        updateMapViewForScope();
+        renderAllPanels();
+        renderSignals();
+        drawMap();
+        maybeAutoRunAnalysis();
+      },
+      onAiTranslateToggle: (event) => {
+        state.settings.aiTranslate = event.target.checked;
+        saveSettings();
+        updateSettingsUI();
+        maybeAutoRunAnalysis();
+      },
+      onSuperMonitorToggle: (event) => {
+        state.settings.superMonitor = event.target.checked;
+        saveSettings();
+        updateSettingsUI();
+        updateChatStatus();
+        maybeAutoRunAnalysis();
+      }
+    }
+  });
+  initPanelScroll({
+    state,
+    helpers: {
+      buildNewsItems,
+      getCombinedItems,
+      getCategoryItems,
+      getFederalPolicyItems,
+      getStateGovernmentItems,
+      getPredictionItems,
+      getLocalItemsForPanel,
+      getCongressItems,
+      getEnergyNewsItems,
+      getCriticalAlertsItems,
+      renderList,
+      getListLimit,
+      LIST_PAGE_SIZE
+    }
+  });
+  initListAutoSizing({
+    state,
+    helpers: {
+      buildNewsItems,
+      getCombinedItems,
+      getCategoryItems,
+      getFederalPolicyItems,
+      getStateGovernmentItems,
+      getPredictionItems,
+      getLocalItemsForPanel,
+      getCongressItems,
+      getEnergyNewsItems,
+      getCriticalAlertsItems,
+      renderListWithLimit
+    }
+  });
+  initListModal();
+  initDetailModal();
+  focusController.initFocusModal();
+  initCommunityEmbed();
+  initWorldClocks();
+  initSidebarNav();
+  initCommandSections();
+  mcpTrendsController = initMcpTrendsController({
+    state,
+    elements,
+    mcpClient,
+    helpers: {
+      toRelativeTime,
+      truncateText,
+      stripHtml
+    }
+  });
+  loadDenarioSummary();
+  ensurePanelUpdateBadges();
+  renderWatchlistChips();
+  requestLocation();
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('about') || window.location.hash === '#about') {
+    toggleAbout(true);
+  }
+  if (typeof window !== 'undefined') {
+    window.__SR_READY__ = true;
+  }
+  await loadStaticAnalysis();
+  await refreshAll();
+  startAutoRefresh();
+}
+
+const __SR_DEBUG_FLAG__ = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).has('debug');
+if (__SR_DEBUG_FLAG__) {
+  window.__SR_DEBUG__ = {
+    state,
+    getMapItems,
+    getLocalItems,
+    applyScope
+  };
+}
+
+init();

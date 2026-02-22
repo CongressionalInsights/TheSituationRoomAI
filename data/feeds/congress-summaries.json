@@ -1,0 +1,7 @@
+{
+  "id": "congress-summaries",
+  "fetchedAt": 1771776590013,
+  "contentType": "application/json",
+  "body": "{\n    \"pagination\": {\n        \"count\": 0\n    },\n    \"request\": {\n        \"contentType\": \"application/json\",\n        \"format\": \"json\"\n    },\n    \"summaries\": []\n}",
+  "httpStatus": 200
+}

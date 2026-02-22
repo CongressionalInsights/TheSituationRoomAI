@@ -1,0 +1,7 @@
+{
+  "id": "arcgis-kinetic-venezuela",
+  "fetchedAt": 1771776578278,
+  "contentType": "application/json; charset=utf-8",
+  "body": "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:4326\"}},\"features\":[{\"type\":\"Feature\",\"id\":1,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-66.5113106297768,13.5907202575679]},\"properties\":{\"OBJECTID\":1,\"Date\":null,\"EventType\":\"FastboatSunk\",\"Notes\":null,\"EventSummary\":null,\"GeolocationNotes\":\"Grid approximate, exact position not released.\",\"Research1\":null,\"Research2\":null,\"USFOR_Wounded\":null,\"USFOR_Killed\":null,\"FANB_Wounded\":null,\"FANB_Killed\":null,\"Civilian_Wounded\":null,\"Civilian_Killed\":null,\"Neutral_Wounded\":null,\"Neutral_Killed\":null}}]}",
+  "httpStatus": 200
+}

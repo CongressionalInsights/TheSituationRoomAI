@@ -1,0 +1,7 @@
+{
+  "id": "arcgis-noaa-tornado",
+  "fetchedAt": 1771776578643,
+  "contentType": "application/json; charset=utf-8",
+  "body": "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:4326\"}},\"features\":[]}",
+  "httpStatus": 200
+}

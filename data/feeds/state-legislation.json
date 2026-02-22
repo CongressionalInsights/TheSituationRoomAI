@@ -1,0 +1,6 @@
+{
+  "id": "state-legislation",
+  "fetchedAt": 1771776584081,
+  "error": "missing_server_key",
+  "message": "Server API key required for this feed."
+}

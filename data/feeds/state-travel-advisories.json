@@ -1,0 +1,7 @@
+{
+  "id": "state-travel-advisories",
+  "fetchedAt": 1771776576328,
+  "contentType": "text/xml",
+  "body": "<?xml version='1.0' encoding='utf-8'?>\n<rss xmlns:dc='http://purl.org/dc/elements/1.1/' version='2.0'>\n<channel>\n<title>travel.state.gov: Travel Advisories</title>\n<link>\ntravel.state.gov: Travel Advisories\n</link>\n<description>\nhttp://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html\n</description>\n</channel>\n</rss>\n",
+  "httpStatus": 200
+}
