@@ -1,5 +1,10 @@
 # Repository Guidelines
 
+## Memory
+- Before substantial work, consult the local memory file at `$CODEX_HOME/memories/projects/TheSituationRoom.md` or `$HOME/.codex/memories/projects/TheSituationRoom.md` when present.
+- Use it for durable repo context only: stable workflow decisions, repo-specific conventions, and important follow-ups.
+- Do not store secrets there, and update it when long-lived context changes.
+
 ## Project Structure & Module Organization
 - `public/` contains the client UI (`index.html`, `styles.css`, `app.js`, `services/api.js`, `config.js`) plus static assets and Leaflet styles. The Energy Map uses `public/geo/us-states.geojson`.
 - `data/feeds.json` is the canonical feed registry and default settings (refresh interval, user agent, key groups).
