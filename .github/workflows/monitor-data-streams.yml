@@ -21,7 +21,8 @@ jobs:
           node analysis/monitor/run_full_audit.mjs \
             --base https://situation-room-feed-382918878290.us-central1.run.app \
             --mcp https://situation-room-mcp-382918878290.us-central1.run.app/mcp \
-            --static https://congressionalinsights.github.io/TheSituationRoomAI
+            --static https://congressionalinsights.github.io/TheSituationRoomAI \
+            --allow-alerts
       - name: Upload monitor artifacts
         if: always()
         uses: actions/upload-artifact@v4

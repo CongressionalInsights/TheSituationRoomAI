@@ -119,4 +119,5 @@ jobs:
           node analysis/monitor/run_core_sentinel.mjs \
             --base "$SERVICE_URL" \
             --mcp https://situation-room-mcp-382918878290.us-central1.run.app/mcp \
-            --static https://congressionalinsights.github.io/TheSituationRoomAI
+            --static https://congressionalinsights.github.io/TheSituationRoomAI \
+            --allow-alerts
