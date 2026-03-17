@@ -11,6 +11,9 @@ const LIVE_BASE = process.env.SR_LIVE_BASE
   || (process.env.GITHUB_REPOSITORY
     ? `https://${process.env.GITHUB_REPOSITORY.split('/')[0].toLowerCase()}.github.io/${process.env.GITHUB_REPOSITORY.split('/')[1]}`
     : DEFAULT_LIVE_BASE);
+const DEFAULT_FEED_PROXY_BASE = 'https://situation-room-feed-382918878290.us-central1.run.app';
+const FEED_PROXY_BASE = process.env.SR_FEED_PROXY_BASE || DEFAULT_FEED_PROXY_BASE;
+const OPENSKY_PUBLIC_STATES_URL = 'https://opensky-network.org/api/states/all?extended=1';
 const OPENSKY_CLIENTID = process.env.OPENSKY_CLIENTID;
 const OPENSKY_CLIENTSECRET = process.env.OPENSKY_CLIENTSECRET;
 const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
@@ -40,6 +43,17 @@ function applyProxy(url, proxy) {
     return `https://r.jina.ai/http://${stripped}`;
   }
   return url;
+}
+
+function applyUrlParams(url, params = {}) {
+  if (!url || !params || typeof params !== 'object') return url;
+  const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '');
+  if (!entries.length) return url;
+  const parsed = new URL(url);
+  entries.forEach(([key, value]) => {
+    parsed.searchParams.set(key, String(value));
+  });
+  return parsed.toString();
 }
 
 function normalizeContentType(contentType = '') {
@@ -95,11 +109,18 @@ function buildFetchCandidates(url, proxies = [], { includeHttpFallback = true } 
 
 function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
-  if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') return process.env.EIA;
-  if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
-  if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
-  return null;
+  let value = null;
+  if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
+  if (feed.keyGroup === 'eia') value = process.env.EIA;
+  if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
+  if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
+  if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
+  return typeof value === 'string' ? value.trim() : (value || null);
+}
+
+function isJsonHtmlError(contentType = '', body = '') {
+  return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
 function applyKey(url, feed, key) {
@@ -145,11 +166,17 @@ function parseJsonArray(value) {
 }
 
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
-  if (!Array.isArray(data)) return [];
-  return data.slice(0, 200).map((entry) => {
+  const rows = Array.isArray(data)
+    ? data
+    : (Array.isArray(data?.items) ? data.items : []);
+  return rows.slice(0, 200).map((entry) => {
+    const geoLat = Number(entry?.geo?.lat);
+    const geoLon = Number(entry?.geo?.lon);
     const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
     const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
+    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
+    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
     const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
     const frp = entry.frp ?? entry.fire_radiative_power;
     const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
@@ -173,13 +200,43 @@ function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
     return {
       title: entry.title || 'Fire detection',
       summary: parts.length ? parts.join(' | ') : 'Active fire detection',
-      latitude: lat,
-      longitude: lon,
+      latitude: resolvedLat,
+      longitude: resolvedLon,
       publishedAt,
       source,
       alertType: 'Fire'
     };
   }).filter(Boolean);
+}
+
+function normalizeGovinfoPackages(data = {}) {
+  const packages = Array.isArray(data?.packages) ? data.packages : [];
+  if (!packages.length) return data;
+  return {
+    items: packages.map((entry) => ({
+      id: entry.packageId || entry.id || '',
+      title: entry.title || entry.packageId || 'GovInfo package',
+      url: entry.packageLink || entry.detailsLink || '',
+      summary: entry.docClass || entry.collectionName || '',
+      publishedAt: entry.lastModified || entry.dateIssued || '',
+      source: 'GovInfo'
+    }))
+  };
+}
+
+function normalizeFederalRegisterItems(data = {}) {
+  const results = Array.isArray(data?.results) ? data.results : [];
+  if (!results.length) return data;
+  return {
+    items: results.map((entry) => ({
+      id: entry.document_number || entry.id || '',
+      title: entry.title || entry.document_number || 'Federal Register document',
+      url: entry.html_url || entry.pdf_url || '',
+      summary: entry.abstract || entry.excerpts || '',
+      publishedAt: entry.publication_date || '',
+      source: 'Federal Register'
+    }))
+  };
 }
 
 async function buildArcgisFireFallback() {
@@ -218,8 +275,7 @@ async function buildArcgisFireFallback() {
       fetchedAt: Date.now(),
       contentType: 'application/json',
       body: JSON.stringify({ items }),
-      httpStatus: 200,
-      fallback: 'arcgis-hms-fire'
+      httpStatus: 200
     };
   } catch {
     return null;
@@ -457,6 +513,49 @@ async function fetchLiveFallback(feedId) {
   }
 }
 
+async function fetchFeedProxyFallback(feed, { params = {} } = {}) {
+  if (!FEED_PROXY_BASE || !feed?.id) return null;
+  try {
+    const response = await fetchWithTimeout(`${FEED_PROXY_BASE}/api/feed`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': appConfig.userAgent
+      },
+      body: JSON.stringify({
+        id: feed.id,
+        force: true,
+        ...(params && Object.keys(params).length ? { params } : {})
+      })
+    }, feed.id === 'state-legislation' ? 45000 : 15000);
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return payload && !payload.error ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildFeedProxyFallbackParams(feed) {
+  if (!feed) return {};
+  if (feed.id === 'state-legislation') {
+    return buildStaticRequestParams(feed);
+  }
+  return feed.defaultParams || {};
+}
+
+function buildStaticRequestParams(feed) {
+  if (!feed) return {};
+  if (feed.id === 'state-legislation') {
+    return {
+      jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government',
+      ...(feed.defaultParams || {})
+    };
+  }
+  return {};
+}
+
 function isUsableRssSnapshot(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (payload.error) return false;
@@ -464,12 +563,16 @@ function isUsableRssSnapshot(payload) {
   return isLikelyRssPayload(payload.contentType || '', payload.body);
 }
 
-function isUsableJsonSnapshot(payload) {
+function isUsableJsonSnapshot(payload, feed = null) {
   if (!payload || typeof payload !== 'object') return false;
   if (payload.error) return false;
   if (!payload.body) return false;
+  if (isJsonHtmlError(payload.contentType || '', payload.body)) return false;
   try {
-    JSON.parse(payload.body);
+    const parsed = JSON.parse(payload.body);
+    if (feed?.id === 'nasa-firms') {
+      return buildNasaFirmsItems(parsed).length > 0;
+    }
     return true;
   } catch {
     return false;
@@ -486,7 +589,7 @@ async function loadSeedFeedFallbacks() {
       const payload = JSON.parse(await readFile(filePath, 'utf8'));
       const usable = shouldSeedRss
         ? isUsableRssSnapshot(payload)
-        : isUsableJsonSnapshot(payload);
+        : isUsableJsonSnapshot(payload, feed);
       if (usable) {
         seededFeedFallbacks.set(feed.id, payload);
       }
@@ -523,15 +626,54 @@ async function writeJson(path, payload) {
   await writeFile(path, JSON.stringify(payload, null, 2));
 }
 
+async function loadBestFallbackPayload(feed, { allowSeededJson = false } = {}) {
+  const isRssFeed = feed.format === 'rss';
+  const liveFallback = await fetchLiveFallback(feed.id);
+  const liveUsable = isRssFeed
+    ? isUsableRssSnapshot(liveFallback)
+    : isUsableJsonSnapshot(liveFallback, feed);
+  if (liveUsable) {
+    return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache' };
+  }
+  const proxyFallback = await fetchFeedProxyFallback(feed, { params: buildFeedProxyFallbackParams(feed) });
+  const proxyUsable = isRssFeed
+    ? isUsableRssSnapshot(proxyFallback)
+    : isUsableJsonSnapshot(proxyFallback, feed);
+  if (proxyUsable) {
+    return { ...proxyFallback, fetchedAt: Date.now(), stale: true, fallback: 'feed-proxy' };
+  }
+  if (isRssFeed || allowSeededJson) {
+    const seeded = seededFeedFallbacks.get(feed.id);
+    const seededUsable = isRssFeed
+      ? isUsableRssSnapshot(seeded)
+      : isUsableJsonSnapshot(seeded, feed);
+    if (seededUsable) {
+      return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
+    }
+  }
+  return null;
+}
+
 async function buildFeedPayload(feed) {
+  const isRssFeed = feed.format === 'rss';
+  const supportsSeededJsonFallback = SEEDED_JSON_FALLBACK_IDS.has(feed.id);
+
   if (feed.requiresConfig && !feed.url) {
     if (feed.id !== 'acled-events') {
+      const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+      if (fallback) return fallback;
       return { id: feed.id, fetchedAt: Date.now(), error: 'requires_config', message: 'Feed URL not configured.' };
     }
   }
 
-  const key = feed.requiresKey ? resolveServerKey(feed)?.trim() : null;
+  const key = feed.requiresKey ? resolveServerKey(feed) : null;
   if (feed.requiresKey && !key) {
+    if (feed.id === 'nasa-firms') {
+      const fireFallback = await buildArcgisFireFallback();
+      if (fireFallback) return fireFallback;
+    }
+    const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+    if (fallback) return fallback;
     return {
       id: feed.id,
       fetchedAt: Date.now(),
@@ -550,19 +692,25 @@ async function buildFeedPayload(feed) {
   const fallbackUrl = feed.id === 'acled-events'
     ? 'https://situation-room-acled-382918878290.us-central1.run.app/api/acled/events'
     : '';
+  const transportSourceUrl = feed.id === 'transport-opensky'
+    ? OPENSKY_PUBLIC_STATES_URL
+    : null;
+  const templateUrl = transportSourceUrl || feed.url || fallbackUrl;
   const baseUrl = feed.supportsQuery
-    ? buildUrl(feed.url || fallbackUrl, { query, key, ...dateParams })
-    : buildUrl(feed.url || fallbackUrl, { key, ...dateParams });
-  const applied = applyKey(baseUrl, feed, key);
+    ? buildUrl(templateUrl, { query, key, ...dateParams })
+    : buildUrl(templateUrl, { key, ...dateParams });
+  const applied = applyKey(applyUrlParams(baseUrl, buildStaticRequestParams(feed)), feed, key);
   const headers = {
     'User-Agent': appConfig.userAgent,
     'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.9',
     ...applied.headers
   };
-  if (feed.id === 'transport-opensky') {
+  if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(applied.url)) {
     const token = await getOpenSkyToken();
     if (!token) {
+      const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+      if (fallback) return fallback;
       return {
         id: feed.id,
         fetchedAt: Date.now(),
@@ -574,7 +722,6 @@ async function buildFeedPayload(feed) {
   }
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
-  const isRssFeed = feed.format === 'rss';
   let response;
   let contentType = 'text/plain';
   let body = '';
@@ -592,23 +739,8 @@ async function buildFeedPayload(feed) {
       body = await response.text();
     }
   } catch (error) {
-    const supportsSeededJsonFallback = SEEDED_JSON_FALLBACK_IDS.has(feed.id);
-    if (isRssFeed || supportsSeededJsonFallback) {
-      const liveFallback = await fetchLiveFallback(feed.id);
-      const liveUsable = isRssFeed
-        ? isUsableRssSnapshot(liveFallback)
-        : isUsableJsonSnapshot(liveFallback);
-      if (liveUsable) {
-        return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache' };
-      }
-      const seeded = seededFeedFallbacks.get(feed.id);
-      const seededUsable = isRssFeed
-        ? isUsableRssSnapshot(seeded)
-        : isUsableJsonSnapshot(seeded);
-      if (seededUsable) {
-        return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
-      }
-    }
+    const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+    if (fallback) return fallback;
     throw error;
   }
   let payload = {
@@ -624,6 +756,9 @@ async function buildFeedPayload(feed) {
   } else if (isRssFeed && !rssValid) {
     payload.error = 'invalid_rss';
     payload.message = 'Upstream response was not valid RSS/Atom XML.';
+  } else if (feed.format === 'json' && isJsonHtmlError(contentType, body)) {
+    payload.error = 'invalid_html';
+    payload.message = 'Upstream returned HTML instead of JSON.';
   }
 
   if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
@@ -634,10 +769,41 @@ async function buildFeedPayload(feed) {
         payload.body = JSON.stringify({ items });
         payload.contentType = 'application/json';
         payload.transformed = true;
+      } else {
+        payload.error = 'empty_payload';
+        payload.message = 'NASA FIRMS returned no usable geolocated detections.';
       }
     } catch {
-      // ignore
+      payload.error = 'invalid_json';
+      payload.message = 'NASA FIRMS returned invalid JSON.';
     }
+  }
+
+  if (!payload.error && feed.id === 'govinfo-api' && contentType.includes('json')) {
+    try {
+      payload.body = JSON.stringify(normalizeGovinfoPackages(JSON.parse(payload.body)));
+      payload.contentType = 'application/json';
+      payload.transformed = true;
+    } catch {
+      // keep original payload
+    }
+  }
+
+  if (!payload.error
+    && (feed.id === 'federal-register' || feed.id === 'federal-register-transport')
+    && contentType.includes('json')) {
+    try {
+      payload.body = JSON.stringify(normalizeFederalRegisterItems(JSON.parse(payload.body)));
+      payload.contentType = 'application/json';
+      payload.transformed = true;
+    } catch {
+      // keep original payload
+    }
+  }
+
+  if (payload.error && feed.id === 'nasa-firms') {
+    const fireFallback = await buildArcgisFireFallback();
+    if (fireFallback) return fireFallback;
   }
 
   if (payload.error && (feed.id === 'nasa-firms' || feed.id === 'eonet-events')) {
@@ -670,14 +836,17 @@ async function buildFeedPayload(feed) {
       const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
       const fallbackBody = await fallbackResponse.text();
       if (fallbackResponse.ok && fallbackBody) {
+        const items = buildNasaFirmsItems(JSON.parse(fallbackBody));
+        if (items.length) {
         payload = {
           id: feed.id,
           fetchedAt: Date.now(),
-          contentType: fallbackResponse.headers.get('content-type') || 'text/plain',
-          body: fallbackBody,
+          contentType: 'application/json',
+          body: JSON.stringify({ items }),
           httpStatus: fallbackResponse.status,
           fallback: 'VIIRS_NOAA20_NRT'
         };
+        }
       }
     } catch {
       // keep original payload
@@ -730,11 +899,6 @@ async function buildFeedPayload(feed) {
     if (ckanFallback) {
       return ckanFallback;
     }
-  }
-
-  if (payload.error && feed.id === 'nasa-firms') {
-    const fireFallback = await buildArcgisFireFallback();
-    if (fireFallback) return fireFallback;
   }
 
   if (!payload.error && feed.id === 'polymarket-markets' && contentType.includes('json')) {

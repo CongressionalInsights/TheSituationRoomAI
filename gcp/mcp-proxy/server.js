@@ -24,6 +24,9 @@ const FALLBACK_PROXIES = (process.env.FALLBACK_PROXIES || 'allorigins,jina')
   .filter(Boolean);
 const DEFAULT_LIVE_BASE = 'https://congressionalinsights.github.io/TheSituationRoomAI';
 const LIVE_BASE = process.env.SR_LIVE_BASE || DEFAULT_LIVE_BASE;
+const OPENSKY_CLIENTID = String(process.env.OPENSKY_CLIENTID || '').trim();
+const OPENSKY_CLIENTSECRET = String(process.env.OPENSKY_CLIENTSECRET || '').trim();
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 
 const ACLED_PROXY = process.env.ACLED_PROXY || '';
 const DEFAULT_LOOKBACK_DAYS = Number(process.env.DEFAULT_LOOKBACK_DAYS || 30);
@@ -46,6 +49,8 @@ const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
 
 const samCache = new Map();
+let openSkyToken = null;
+let openSkyTokenExpiresAt = 0;
 
 const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const feeds = Array.isArray(feedsConfig.feeds) ? feedsConfig.feeds : [];
@@ -193,13 +198,14 @@ function stripSecretsFromUrl(rawUrl) {
 
 function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
-  if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') return process.env.EIA;
-  if (feed.keyGroup === 'openstates') return process.env.OPENSTATES;
-  if (feed.keyGroup === 'earthdata') return process.env.EARTHDATA_NASA;
-  if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
-  if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
-  return null;
+  let value = null;
+  if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
+  if (feed.keyGroup === 'eia') value = process.env.EIA;
+  if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
+  if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
+  if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
+  return typeof value === 'string' ? value.trim() : (value || null);
 }
 
 function applyProxy(url, proxy) {
@@ -214,6 +220,114 @@ function applyProxy(url, proxy) {
   return url;
 }
 
+async function getOpenSkyToken() {
+  if (!OPENSKY_CLIENTID || !OPENSKY_CLIENTSECRET) return null;
+  if (openSkyToken && Date.now() < openSkyTokenExpiresAt) {
+    return openSkyToken;
+  }
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: OPENSKY_CLIENTID,
+    client_secret: OPENSKY_CLIENTSECRET
+  });
+  const response = await fetchWithTimeout(OPENSKY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  }, 10000);
+  if (!response.ok) return null;
+  const data = await response.json();
+  if (!data?.access_token) return null;
+  const ttl = Number(data.expires_in) || 1800;
+  openSkyToken = data.access_token;
+  openSkyTokenExpiresAt = Date.now() + Math.max(60, ttl - 60) * 1000;
+  return openSkyToken;
+}
+
+function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
+  const rows = Array.isArray(data)
+    ? data
+    : (Array.isArray(data?.items) ? data.items : []);
+  return rows.slice(0, 200).map((entry) => {
+    const geoLat = Number(entry?.geo?.lat);
+    const geoLon = Number(entry?.geo?.lon);
+    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
+    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
+    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
+    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
+    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
+    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
+    const frp = entry.frp ?? entry.fire_radiative_power;
+    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
+    const parts = [];
+    if (brightness) parts.push(`Brightness ${brightness}`);
+    if (frp) parts.push(`FRP ${frp}`);
+    if (confidence) parts.push(`Confidence ${confidence}`);
+    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
+    let publishedAt = Date.now();
+    if (date) {
+      const time = String(entry.acq_time || '').padStart(4, '0');
+      if (time.length === 4 && /^\d+$/.test(time)) {
+        const parsed = Date.parse(`${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`);
+        if (!Number.isNaN(parsed)) publishedAt = parsed;
+      } else {
+        const parsed = Date.parse(date);
+        if (!Number.isNaN(parsed)) publishedAt = parsed;
+      }
+    }
+    return {
+      title: entry.title || 'Fire detection',
+      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
+      latitude: resolvedLat,
+      longitude: resolvedLon,
+      publishedAt,
+      source,
+      alertType: 'Fire'
+    };
+  }).filter(Boolean);
+}
+
+async function buildArcgisFireFallback() {
+  const fireFeed = feedsConfig.feeds.find((feed) => feed.id === 'arcgis-hms-fire');
+  if (!fireFeed?.url) return null;
+  try {
+    const response = await fetchWithTimeout(fireFeed.url, {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    }, 15000);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const features = Array.isArray(data?.features) ? data.features : [];
+    const items = features.slice(0, 200).map((feature) => {
+      const props = feature.properties || {};
+      const coords = feature.geometry?.coordinates || [];
+      const lon = Number(coords[0]);
+      const lat = Number(coords[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      const publishedAt = props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now();
+      return {
+        title: props.name || props.NAME || props.fire_name || 'Fire detection',
+        summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
+        latitude: lat,
+        longitude: lon,
+        publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
+        source: 'NOAA HMS',
+        alertType: 'Fire'
+      };
+    }).filter(Boolean);
+    if (!items.length) return null;
+    return {
+      id: 'nasa-firms',
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      body: JSON.stringify({ items }),
+      httpStatus: 200,
+      fetchedUrl: fireFeed.url
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeContentType(contentType = '') {
   return String(contentType || '').toLowerCase();
 }
@@ -225,6 +339,10 @@ function looksLikeHtmlDocument(text = '') {
     || sample.startsWith('<html')
     || sample.includes('<html')
     || sample.includes('<body');
+}
+
+function isJsonHtmlError(contentType = '', body = '') {
+  return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
 function looksLikeXmlFeed(text = '') {
@@ -1084,8 +1202,34 @@ function buildCommitteeReportSummary(entry, fallbackSummary) {
 }
 
 function parseGenericJsonFeed(data, feed) {
+  if (feed?.id === 'transport-opensky' && Array.isArray(data?.states)) {
+    const observedAt = Number.isFinite(Number(data?.time)) ? Number(data.time) * 1000 : Date.now();
+    return data.states.slice(0, 200).map((row) => {
+      if (!Array.isArray(row)) return null;
+      const icao24 = String(row[0] || '').trim();
+      const callsign = String(row[1] || '').trim();
+      const lon = Number(row[5]);
+      const lat = Number(row[6]);
+      return {
+        title: callsign || icao24 || 'Aircraft state',
+        url: icao24 ? `https://opensky-network.org/aircraft-profile?icao24=${encodeURIComponent(icao24)}` : 'https://opensky-network.org/',
+        summary: normalizeSummary([
+          row[2] || '',
+          row[8] != null ? `Ground speed ${row[8]}` : '',
+          row[13] != null ? `Altitude ${row[13]}` : ''
+        ].filter(Boolean).join(' • ')),
+        publishedAt: observedAt,
+        source: feed.name,
+        category: feed.category,
+        geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null
+      };
+    }).filter(Boolean);
+  }
+
   const list = Array.isArray(data?.items)
     ? data.items
+    : Array.isArray(data?.packages)
+      ? data.packages
     : Array.isArray(data?.entries)
       ? data.entries
       : Array.isArray(data?.articles)
@@ -1159,7 +1303,7 @@ function parseGenericJsonFeed(data, feed) {
     const title = isCongressHouseVote
       ? voteTitle
       : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
-    const url = congressVoteUrl || entry.url || entry.link || entry.permalink || entry.webUrl || '';
+    const url = congressVoteUrl || entry.url || entry.link || entry.permalink || entry.webUrl || entry.packageLink || entry.detailsLink || '';
     const defaultSummary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || '');
     const voteSummary = normalizeSummary(
       [
@@ -1183,6 +1327,8 @@ function parseGenericJsonFeed(data, feed) {
     const published = entry.publishedAt
       || entry.pubDate
       || entry.date
+      || entry.lastModified
+      || entry.dateIssued
       || entry.updateDate
       || entry.startDate
       || entry.updatedAt
@@ -1372,6 +1518,28 @@ async function fetchRaw(feed, options) {
   }
   const url = buildFeedUrl(feed, { ...options, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
+  if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(keyedUrl)) {
+    const token = await getOpenSkyToken();
+    if (!token) {
+      const fallback = await fetchLiveFallback(feed.id);
+      if (fallback) {
+        return {
+          body: fallback.body,
+          httpStatus: fallback.httpStatus || 200,
+          contentType: fallback.contentType || 'application/json',
+          fetchedUrl: `${LIVE_BASE}/data/feeds/${encodeURIComponent(feed.id)}.json`,
+          proxyUsed: 'live-cache',
+          fallbackUsed: true,
+          responseHeaders: null
+        };
+      }
+      return {
+        error: 'missing_server_key',
+        message: 'OpenSky OAuth token unavailable.'
+      };
+    }
+    headers.Authorization = `Bearer ${token}`;
+  }
   const totalTimeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
   const primaryProxy = feed.proxy || options.proxy || null;
   const requestHeaders = {
@@ -1428,6 +1596,38 @@ async function fetchRaw(feed, options) {
       body = await response.text();
       responseHeaders = extractSafeResponseHeaders(response.headers);
       if (response.ok) {
+        if (feed.format === 'json' && isJsonHtmlError(response.headers.get('content-type') || '', body)) {
+          lastError = {
+            error: 'invalid_response',
+            httpStatus: response.status,
+            message: 'Upstream returned HTML instead of JSON.',
+            body
+          };
+          continue;
+        }
+        if (feed.id === 'nasa-firms' && normalizeContentType(response.headers.get('content-type')).includes('json')) {
+          try {
+            const items = buildNasaFirmsItems(JSON.parse(body));
+            if (!items.length) {
+              lastError = {
+                error: 'fetch_failed',
+                httpStatus: response.status,
+                message: 'NASA FIRMS returned no usable geolocated detections.',
+                body
+              };
+              continue;
+            }
+            body = JSON.stringify({ items });
+          } catch {
+            lastError = {
+              error: 'invalid_response',
+              httpStatus: response.status,
+              message: 'NASA FIRMS returned invalid JSON.',
+              body
+            };
+            continue;
+          }
+        }
         if (isRssFeed && !isLikelyRssPayload(response.headers.get('content-type') || '', body)) {
           lastError = {
             error: 'invalid_rss',
@@ -1457,23 +1657,42 @@ async function fetchRaw(feed, options) {
   }
 
   if (!succeeded) {
+    if (feed.id === 'nasa-firms') {
+      const fireFallback = await buildArcgisFireFallback();
+      if (fireFallback) {
+        return {
+          error: null,
+          status: 200,
+          data: {
+            body: fireFallback.body,
+            contentType: fireFallback.contentType,
+            httpStatus: fireFallback.httpStatus,
+            fetchedUrl: fireFallback.fetchedUrl || null
+          }
+        };
+      }
+    }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
+      const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
+        || feed.id === 'federal-register-transport'
+        || feed.id === 'nasa-firms'
+        || feed.id === 'transport-opensky';
       console.log(JSON.stringify({
         event: 'mcp_raw_fetch',
         feedId: feed.id,
         ok: true,
         httpStatus: fallback.httpStatus || 200,
         elapsedMs: Date.now() - startedAt,
-        proxyUsed: 'live-cache'
+        proxyUsed: shouldPromotePublishedSnapshot ? null : 'live-cache'
       }));
       return {
         body: fallback.body,
         httpStatus: fallback.httpStatus || 200,
         contentType: fallback.contentType || 'application/json',
         fetchedUrl: `${LIVE_BASE}/data/feeds/${encodeURIComponent(feed.id)}.json`,
-        proxyUsed: 'live-cache',
-        fallbackUsed: true,
+        proxyUsed: shouldPromotePublishedSnapshot ? null : 'live-cache',
+        fallbackUsed: shouldPromotePublishedSnapshot ? false : true,
         responseHeaders: null
       };
     }

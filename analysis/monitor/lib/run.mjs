@@ -37,9 +37,10 @@ function buildDocAlerts(docResults = []) {
 export async function runMonitor(mode, argv = []) {
   const cli = parseCliArgs(argv);
   const catalog = loadMonitoringCatalog();
+  const auditableEntries = catalog.entries.filter((entry) => entry.auditEnabled !== false);
   const entries = mode === 'core'
-    ? catalog.entries.filter((entry) => entry.tier === 'core')
-    : catalog.entries;
+    ? auditableEntries.filter((entry) => entry.tier === 'core')
+    : auditableEntries;
 
   ensureDir(cli.outputDir);
   const latestPath = path.join(cli.outputDir, 'latest.json');
@@ -70,7 +71,7 @@ export async function runMonitor(mode, argv = []) {
     notify: deltas.newAlerts.length > 0 || deltas.resolvedAlerts.length > 0,
     summary: {
       ...summary,
-      totalFeeds: catalog.entries.length,
+      totalFeeds: auditableEntries.length,
       checkedFeeds: entries.length,
       checkedDocSurfaces: docResults.length
     },

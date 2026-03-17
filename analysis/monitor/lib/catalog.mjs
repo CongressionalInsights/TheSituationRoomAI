@@ -87,11 +87,13 @@ export function resolveMonitoringEntry(feed, override = {}, appConfig = {}) {
     category: feed.category,
     format: feed.format,
     tier,
+    auditEnabled: override.auditEnabled !== false,
     requiresKey: Boolean(feed.requiresKey),
     requiresConfig: Boolean(feed.requiresConfig),
     supportsParams: Boolean(feed.supportsParams),
     supportsQuery: Boolean(feed.supportsQuery),
     ttlMinutes: Number(feed.ttlMinutes || appConfig.defaultRefreshMinutes || 60),
+    timeoutMs: Number(override.timeoutMs || feed.timeoutMs || appConfig.timeoutMs || 30000),
     docsUrl: Object.prototype.hasOwnProperty.call(override, 'docsUrl')
       ? override.docsUrl
       : (feed.docsUrl || null),

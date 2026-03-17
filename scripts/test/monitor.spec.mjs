@@ -54,10 +54,44 @@ test('monitoring entry derives defaults for feeds without explicit overrides', (
   };
   const entry = resolveMonitoringEntry(feed, {}, { defaultRefreshMinutes: 60 });
   assert.equal(entry.tier, 'standard');
+  assert.equal(entry.auditEnabled, true);
   assert.equal(entry.docsUrl, null);
   assert.equal(entry.freshnessWindowMinutes, 90);
+  assert.equal(entry.timeoutMs, 30000);
   assert.deepEqual(buildDefaultSampleParams(feed), { query: 'alerts' });
   assert.ok(entry.invariants.includes('rss-structure'));
+});
+
+test('monitoring entry honors audit exclusions and per-feed timeout overrides', () => {
+  const feed = {
+    id: 'connector-feed',
+    name: 'Connector Feed',
+    category: 'gov',
+    format: 'json',
+    ttlMinutes: 60
+  };
+  const entry = resolveMonitoringEntry(feed, {
+    auditEnabled: false,
+    timeoutMs: 45000
+  }, { defaultRefreshMinutes: 60 });
+  assert.equal(entry.auditEnabled, false);
+  assert.equal(entry.timeoutMs, 45000);
+});
+
+test('feed proxy deploy workflow injects OpenSky credentials', () => {
+  const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-feed-proxy.yml'), 'utf8');
+  assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);
+  assert.match(workflow, /OPENSKY_CLIENTSECRET:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTSECRET\s*\}\}/);
+  assert.match(workflow, /OPENSKY_CLIENTID=opensky-clientid:latest/);
+  assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
+});
+
+test('mcp proxy deploy workflow injects OpenSky credentials', () => {
+  const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-mcp-proxy.yml'), 'utf8');
+  assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);
+  assert.match(workflow, /OPENSKY_CLIENTSECRET:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTSECRET\s*\}\}/);
+  assert.match(workflow, /OPENSKY_CLIENTID=opensky-clientid:latest/);
+  assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
 });
 
 test('document helpers normalize content, extract dates, and classify contract changes', () => {
@@ -119,6 +153,26 @@ test('RSS fixture is summarized correctly', () => {
   assert.ok(summary.newestTimestamp);
 });
 
+test('GovInfo package arrays are summarized as raw items', () => {
+  const feed = { id: 'govinfo-api', format: 'json' };
+  const summary = summarizeProxyPayload(feed, {
+    body: JSON.stringify({
+      packages: [
+        {
+          packageId: 'CMR-1',
+          title: 'Mandated report',
+          lastModified: '2026-03-16T14:22:40Z'
+        }
+      ]
+    }),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(summary.rawItemCount, 1);
+  assert.equal(summary.parseError, null);
+  assert.ok(summary.newestTimestamp);
+});
+
 test('deep-core invariants pass on valid fixtures and fail on state mismatch', () => {
   const openaqFeed = { id: 'openaq-api', format: 'json' };
   const openaqEntry = {
@@ -150,6 +204,28 @@ test('deep-core invariants pass on valid fixtures and fail on state mismatch', (
     httpStatus: 200
   }, {});
   assert.equal(evaluateInvariant('nws-alert-geometry', buildContext(nwsEntry, nwsSummary)), null);
+
+  const nasaFeed = { id: 'nasa-firms', format: 'json' };
+  const nasaEntry = { id: 'nasa-firms', tier: 'core', sampleParams: {} };
+  const nasaSummary = summarizeProxyPayload(nasaFeed, {
+    body: JSON.stringify({
+      items: [
+        {
+          title: 'Fire detection',
+          geo: { lat: 34.1, lon: -118.2 },
+          publishedAt: '2026-03-15T12:00:00Z'
+        }
+      ]
+    }),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(evaluateInvariant('geo-coordinates', buildContext(nasaEntry, nasaSummary, {
+    error: null,
+    count: 1,
+    items: [{ geo: { lat: 34.1, lon: -118.2 }, publishedAt: '2026-03-15T12:00:00Z' }],
+    newestTimestamp: Date.parse('2026-03-15T12:00:00Z')
+  })), null);
 
   const stateSignals = parseFixture('state-legislation-signals.json').items;
   const stateEntry = {

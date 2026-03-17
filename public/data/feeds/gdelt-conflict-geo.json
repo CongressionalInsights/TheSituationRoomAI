@@ -1,0 +1,9 @@
+{
+  "id": "gdelt-conflict-geo",
+  "fetchedAt": 1773769363774,
+  "contentType": "text/html; charset=iso-8859-1",
+  "body": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\">\n<html><head>\n<title>404 Not Found</title>\n</head><body>\n<h1>Not Found</h1>\n<p>The requested URL was not found on this server.</p>\n</body></html>\n",
+  "httpStatus": 404,
+  "error": "http_404",
+  "message": "HTTP 404"
+}

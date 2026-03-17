@@ -114,7 +114,7 @@
       "name": "Federal Register",
       "category": "gov",
       "format": "json",
-      "url": "https://www.federalregister.gov/api/v1/documents.json?per_page=20&order=newest",
+      "url": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
       "ttlMinutes": 180,
       "tags": [
         "us",
@@ -126,7 +126,7 @@
       "name": "Federal Register (Transportation)",
       "category": "transport",
       "format": "json",
-      "url": "https://www.federalregister.gov/api/v1/documents.json?per_page=20&order=newest&conditions%5Bagencies%5D%5B%5D=transportation-department",
+      "url": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest&conditions%5Bagencies%5D%5B%5D=transportation-department",
       "ttlMinutes": 180,
       "tags": [
         "us",
@@ -374,7 +374,6 @@
       "name": "FDA MedWatch RSS",
       "category": "health",
       "format": "rss",
-      "proxy": "allorigins",
       "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml",
       "timeoutMs": 30000,
       "ttlMinutes": 180,
@@ -487,7 +486,7 @@
       "name": "OpenSky Air Traffic",
       "category": "transport",
       "format": "json",
-      "url": "https://opensky-network.org/api/states/all?extended=1",
+      "url": "https://situation-room-opensky-382918878290.us-central1.run.app/api/opensky/states?extended=1",
       "ttlMinutes": 20,
       "tags": [
         "global",

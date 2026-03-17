@@ -42,6 +42,7 @@ jobs:
           DATA_GOV: ${{ secrets.DATA_GOV }}
           EIA: ${{ secrets.EIA }}
           NASA_FIRMS: ${{ secrets.NASA_FIRMS }}
+          OPENSTATES: ${{ secrets.OPENSTATES }}
           OPEN_AQ: ${{ secrets.OPEN_AQ }}
           OPEN_AI: ${{ secrets.OPEN_AI }}
           OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}

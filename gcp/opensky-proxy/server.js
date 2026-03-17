@@ -92,18 +92,32 @@ async function proxyOpenSky(req, res, origin) {
   if (!endpoint) {
     return sendJson(res, 404, { error: 'not_found' }, origin);
   }
-  const token = await getToken();
-  if (!token) {
-    return sendJson(res, 401, { error: 'missing_api_key', message: 'OpenSky credentials missing.' }, origin);
-  }
   const upstream = `${OPENSKY_BASE}${endpoint}${url.search}`;
-  try {
-    const response = await fetch(upstream, {
+
+  async function fetchUpstream(headers) {
+    return fetch(upstream, {
       headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        ...headers
       }
     });
+  }
+
+  try {
+    const token = await getToken();
+    let response = null;
+    if (token) {
+      try {
+        response = await fetchUpstream({
+          'Authorization': `Bearer ${token}`
+        });
+      } catch {
+        response = null;
+      }
+    }
+    if (!response || !response.ok) {
+      response = await fetchUpstream({});
+    }
     const body = await response.text();
     setCors(res, origin);
     res.writeHead(response.status, {

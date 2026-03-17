@@ -24,6 +24,9 @@ const cache = new Map();
 const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
 const DEFAULT_LIVE_BASE = 'https://congressionalinsights.github.io/TheSituationRoomAI';
 const LIVE_BASE = process.env.SR_LIVE_BASE || DEFAULT_LIVE_BASE;
+const OPENSKY_CLIENTID = String(process.env.OPENSKY_CLIENTID || '').trim();
+const OPENSKY_CLIENTSECRET = String(process.env.OPENSKY_CLIENTSECRET || '').trim();
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 const GPSJAM_ID = 'gpsjam';
 const GPSJAM_CACHE_KEY = 'gpsjam:data';
 const EIA_RETRY_ATTEMPTS = 5;
@@ -46,6 +49,8 @@ const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
 
 const samCache = new Map();
+let openSkyToken = null;
+let openSkyTokenExpiresAt = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -149,13 +154,14 @@ function readBody(req) {
 
 function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
-  if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') return process.env.EIA;
-  if (feed.keyGroup === 'openstates') return process.env.OPENSTATES;
-  if (feed.keyGroup === 'earthdata') return process.env.EARTHDATA_NASA;
-  if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
-  if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
-  return null;
+  let value = null;
+  if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
+  if (feed.keyGroup === 'eia') value = process.env.EIA;
+  if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
+  if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
+  if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
+  return typeof value === 'string' ? value.trim() : (value || null);
 }
 
 function formatIsoDate(value) {
@@ -416,6 +422,30 @@ function buildEiaLegacyUrl(feed, apiKey) {
   }
 }
 
+async function getOpenSkyToken() {
+  if (!OPENSKY_CLIENTID || !OPENSKY_CLIENTSECRET) return null;
+  if (openSkyToken && Date.now() < openSkyTokenExpiresAt) {
+    return openSkyToken;
+  }
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: OPENSKY_CLIENTID,
+    client_secret: OPENSKY_CLIENTSECRET
+  });
+  const response = await fetchWithTimeout(OPENSKY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  }, 10000);
+  if (!response.ok) return null;
+  const data = await response.json();
+  if (!data?.access_token) return null;
+  const ttl = Number(data.expires_in) || 1800;
+  openSkyToken = data.access_token;
+  openSkyTokenExpiresAt = Date.now() + Math.max(60, ttl - 60) * 1000;
+  return openSkyToken;
+}
+
 function normalizeEiaSeriesUrl(rawUrl) {
   try {
     const parsed = new URL(rawUrl);
@@ -635,8 +665,119 @@ function applyProxy(url, proxy) {
   return url;
 }
 
+function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
+  const rows = Array.isArray(data)
+    ? data
+    : (Array.isArray(data?.items) ? data.items : []);
+  return rows.slice(0, 200).map((entry) => {
+    const geoLat = Number(entry?.geo?.lat);
+    const geoLon = Number(entry?.geo?.lon);
+    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
+    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
+    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
+    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
+    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
+    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
+    const frp = entry.frp ?? entry.fire_radiative_power;
+    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
+    const parts = [];
+    if (brightness) parts.push(`Brightness ${brightness}`);
+    if (frp) parts.push(`FRP ${frp}`);
+    if (confidence) parts.push(`Confidence ${confidence}`);
+    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
+    let publishedAt = Date.now();
+    if (date) {
+      const time = String(entry.acq_time || '').padStart(4, '0');
+      if (time.length === 4 && /^\d+$/.test(time)) {
+        const parsed = Date.parse(`${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`);
+        if (!Number.isNaN(parsed)) publishedAt = parsed;
+      } else {
+        const parsed = Date.parse(date);
+        if (!Number.isNaN(parsed)) publishedAt = parsed;
+      }
+    }
+    return {
+      title: entry.title || 'Fire detection',
+      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
+      latitude: resolvedLat,
+      longitude: resolvedLon,
+      publishedAt,
+      source,
+      alertType: 'Fire'
+    };
+  }).filter(Boolean);
+}
+
+async function buildArcgisFireFallback() {
+  const fireFeed = feedsConfig.feeds.find((feed) => feed.id === 'arcgis-hms-fire');
+  if (!fireFeed?.url) return null;
+  try {
+    const response = await fetchWithFallbacks(fireFeed.url, { 'User-Agent': appConfig.userAgent }, [], FETCH_TIMEOUT_MS);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const features = Array.isArray(data?.features) ? data.features : [];
+    const items = features.slice(0, 200).map((feature) => {
+      const props = feature.properties || {};
+      const coords = feature.geometry?.coordinates || [];
+      const lon = Number(coords[0]);
+      const lat = Number(coords[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      const publishedAt = props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now();
+      return {
+        title: props.name || props.NAME || props.fire_name || 'Fire detection',
+        summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
+        latitude: lat,
+        longitude: lon,
+        publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
+        source: 'NOAA HMS',
+        alertType: 'Fire'
+      };
+    }).filter(Boolean);
+    if (!items.length) return null;
+    return {
+      id: 'nasa-firms',
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      body: JSON.stringify({ items }),
+      httpStatus: 200
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeContentType(contentType = '') {
   return String(contentType || '').toLowerCase();
+}
+
+function normalizeFederalRegisterItems(data = {}) {
+  const results = Array.isArray(data?.results) ? data.results : [];
+  if (!results.length) return data;
+  return {
+    items: results.map((entry) => ({
+      id: entry.document_number || entry.id || '',
+      title: entry.title || entry.document_number || 'Federal Register document',
+      url: entry.html_url || entry.pdf_url || '',
+      summary: entry.abstract || entry.excerpts || '',
+      publishedAt: entry.publication_date || '',
+      source: 'Federal Register'
+    }))
+  };
+}
+
+function normalizeGovinfoPackages(data = {}) {
+  const packages = Array.isArray(data?.packages) ? data.packages : [];
+  if (!packages.length) return data;
+  return {
+    items: packages.map((entry) => ({
+      id: entry.packageId || entry.id || '',
+      title: entry.title || entry.packageId || 'GovInfo package',
+      url: entry.packageLink || entry.detailsLink || '',
+      summary: entry.docClass || entry.collectionName || '',
+      publishedAt: entry.lastModified || entry.dateIssued || '',
+      source: 'GovInfo'
+    }))
+  };
 }
 
 function looksLikeHtmlDocument(text = '') {
@@ -646,6 +787,10 @@ function looksLikeHtmlDocument(text = '') {
     || sample.startsWith('<html')
     || sample.includes('<html')
     || sample.includes('<body');
+}
+
+function isJsonHtmlError(contentType = '', body = '') {
+  return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
 function looksLikeXmlFeed(text = '') {
@@ -854,7 +999,12 @@ async function fetchLiveFallback(feedId) {
 }
 
 function canUseLiveFeedFallback(feed, isRssFeed) {
-  return Boolean(isRssFeed || feed?.id === 'eonet-events');
+  return Boolean(
+    isRssFeed
+    || feed?.id === 'eonet-events'
+    || feed?.id === 'federal-register'
+    || feed?.id === 'federal-register-transport'
+  );
 }
 
 function isUsableStaleFeedPayload(feed, payload) {
@@ -1138,6 +1288,33 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   const isRssFeed = feed.format === 'rss';
   const allowLiveFallback = canUseLiveFeedFallback(feed, isRssFeed);
+  if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(applied.url)) {
+    const token = await getOpenSkyToken();
+    if (!token) {
+      if (isUsableStaleFeedPayload(feed, staleCache)) {
+        return { ...staleCache, stale: true, fetchedAt: Date.now() };
+      }
+      const fallback = await fetchLiveFallback(feed.id);
+      if (fallback) {
+        const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+        cache.set(cacheKey, fallbackPayload);
+        return fallbackPayload;
+      }
+      return {
+        id: feed.id,
+        fetchedAt: Date.now(),
+        contentType: 'application/json',
+        httpStatus: 200,
+        error: 'missing_server_key',
+        message: 'OpenSky OAuth token unavailable.',
+        body: JSON.stringify({
+          error: 'missing_server_key',
+          message: 'OpenSky OAuth token unavailable.'
+        })
+      };
+    }
+    headers.Authorization = `Bearer ${token}`;
+  }
   if (isStateLegislationAllStatesRequest(feed, mergedParams)) {
     const aggregatePayload = await fetchAllStatesLegislation(
       feed,
@@ -1190,6 +1367,38 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         // ignore JSON parsing failures
       }
     }
+    if (feed.format === 'json' && responseOk && isJsonHtmlError(contentType, body)) {
+      responseOk = false;
+    }
+    if (feed.id === 'nasa-firms' && responseOk && typeof body === 'string' && contentType.includes('json')) {
+      try {
+        const items = buildNasaFirmsItems(JSON.parse(body));
+        if (items.length) {
+          body = JSON.stringify({ items });
+          contentType = 'application/json';
+        } else {
+          responseOk = false;
+        }
+      } catch {
+        responseOk = false;
+      }
+    }
+    if ((feed.id === 'federal-register' || feed.id === 'federal-register-transport') && responseOk && typeof body === 'string' && contentType.includes('json')) {
+      try {
+        body = JSON.stringify(normalizeFederalRegisterItems(JSON.parse(body)));
+        contentType = 'application/json';
+      } catch {
+        responseOk = false;
+      }
+    }
+    if (feed.id === 'govinfo-api' && responseOk && typeof body === 'string' && contentType.includes('json')) {
+      try {
+        body = JSON.stringify(normalizeGovinfoPackages(JSON.parse(body)));
+        contentType = 'application/json';
+      } catch {
+        responseOk = false;
+      }
+    }
     if (isEiaSeries && responseOk && typeof body === 'string' && body.includes('Something unexpected happened')) {
       responseOk = false;
     }
@@ -1236,6 +1445,14 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     throw new Error('fetch_failed');
   }
 
+  if (feed.id === 'nasa-firms' && !responseOk) {
+    const fireFallback = await buildArcgisFireFallback();
+    if (fireFallback) {
+      cache.set(cacheKey, fireFallback);
+      return fireFallback;
+    }
+  }
+
   if (feed.id === 'ucdp-candidate-events' && response.ok) {
     try {
       const parsed = JSON.parse(body || '{}');
@@ -1268,9 +1485,15 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   if (!response.ok) {
     payload.error = `http_${response.status}`;
     payload.message = `HTTP ${response.status}`;
+  } else if (feed.format === 'json' && isJsonHtmlError(contentType, body)) {
+    payload.error = 'invalid_html';
+    payload.message = 'Upstream returned HTML instead of JSON.';
   } else if (isRssFeed && !responseOk) {
     payload.error = 'invalid_rss';
     payload.message = 'Upstream response was not valid RSS/Atom XML.';
+  } else if (feed.id === 'nasa-firms' && !responseOk) {
+    payload.error = 'empty_payload';
+    payload.message = 'NASA FIRMS returned no usable geolocated detections.';
   }
   const shouldCache = isEiaSeries
     ? responseOk
@@ -1284,7 +1507,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
-      const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+      const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
+        || feed.id === 'federal-register-transport'
+        || feed.id === 'transport-opensky';
+      const fallbackPayload = shouldPromotePublishedSnapshot
+        ? { ...fallback, fetchedAt: Date.now() }
+        : { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
       cache.set(cacheKey, fallbackPayload);
       return fallbackPayload;
     }

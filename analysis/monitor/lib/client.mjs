@@ -292,7 +292,7 @@ export async function callCongressDetail(base, targetUrl, timeoutMs = 30000) {
 }
 
 export async function fetchStaticFeed(staticBase, feedId, timeoutMs = 30000) {
-  const url = `${normalizeBase(staticBase)}/data/feeds/${encodeURIComponent(feedId)}.json`;
+  const url = `${normalizeBase(staticBase)}/data/feeds/${encodeURIComponent(feedId)}.json?ts=${Date.now()}`;
   return fetchJson(url, {
     headers: { 'Accept': 'application/json' },
     timeoutMs

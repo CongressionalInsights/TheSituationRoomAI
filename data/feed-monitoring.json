@@ -59,7 +59,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://www.federalregister.gov/developers/documentation/api/v1",
-    "freshnessWindowMinutes": 540,
+    "freshnessWindowMinutes": 1440,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -93,7 +93,7 @@
     "docsUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://earthquake.usgs.gov/fdsnws/event/1/",
+    "supportUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "freshnessWindowMinutes": 60,
     "sampleParams": {},
     "invariants": [
@@ -111,7 +111,7 @@
     "docsUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://earthquake.usgs.gov/fdsnws/event/1/",
+    "supportUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "freshnessWindowMinutes": 180,
     "sampleParams": {},
     "invariants": [
@@ -141,10 +141,10 @@
   },
   "swpc-json": {
     "tier": "standard",
-    "docsUrl": "https://services.swpc.noaa.gov/json/",
+    "docsUrl": "https://www.swpc.noaa.gov/products-and-data",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://services.swpc.noaa.gov/products/",
+    "supportUrl": "https://www.swpc.noaa.gov/products-and-data",
     "freshnessWindowMinutes": 90,
     "sampleParams": {},
     "invariants": [
@@ -157,10 +157,10 @@
   },
   "swpc-kp": {
     "tier": "standard",
-    "docsUrl": "https://services.swpc.noaa.gov/json/",
+    "docsUrl": "https://www.swpc.noaa.gov/products-and-data",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://services.swpc.noaa.gov/products/",
+    "supportUrl": "https://www.swpc.noaa.gov/products-and-data",
     "freshnessWindowMinutes": 90,
     "sampleParams": {},
     "invariants": [
@@ -191,10 +191,10 @@
   },
   "arxiv-rss-ai": {
     "tier": "standard",
-    "docsUrl": "https://info.arxiv.org/help/rss/index.html",
+    "docsUrl": "https://info.arxiv.org/help/api/user-manual.html#rss_feeds",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://info.arxiv.org/help/rss/index.html",
+    "supportUrl": "https://info.arxiv.org/help/api/user-manual.html#rss_feeds",
     "freshnessWindowMinutes": 540,
     "sampleParams": {},
     "invariants": [
@@ -244,7 +244,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://fiscaldata.treasury.gov/api-documentation/",
-    "freshnessWindowMinutes": 180,
+    "freshnessWindowMinutes": 10080,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -291,10 +291,10 @@
   },
   "fda-medwatch": {
     "tier": "standard",
-    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-e-list-and-rss-feed-information",
+    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-e-list-and-rss-feed-information",
+    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program",
     "freshnessWindowMinutes": 540,
     "sampleParams": {},
     "invariants": [
@@ -311,7 +311,7 @@
     "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
     "statusUrl": null,
     "supportUrl": "https://www.eia.gov/opendata/",
-    "freshnessWindowMinutes": 10080,
+    "freshnessWindowMinutes": 20160,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -328,7 +328,7 @@
     "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
     "statusUrl": null,
     "supportUrl": "https://www.eia.gov/opendata/",
-    "freshnessWindowMinutes": 10080,
+    "freshnessWindowMinutes": 20160,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -345,7 +345,7 @@
     "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
     "statusUrl": null,
     "supportUrl": "https://www.eia.gov/opendata/",
-    "freshnessWindowMinutes": 10080,
+    "freshnessWindowMinutes": 20160,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -378,6 +378,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://openskynetwork.github.io/opensky-api/",
+    "timeoutMs": 45000,
     "freshnessWindowMinutes": 60,
     "sampleParams": {},
     "invariants": [
@@ -390,10 +391,11 @@
   },
   "acled-events": {
     "tier": "standard",
-    "docsUrl": "https://acleddata.com/knowledge-base/acled-api/",
+    "auditEnabled": false,
+    "docsUrl": "https://acleddata.com/acled-api-documentation",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://acleddata.com/knowledge-base/acled-api/",
+    "supportUrl": "https://acleddata.com/conflict-data/knowledge-base",
     "freshnessWindowMinutes": 180,
     "sampleParams": {},
     "invariants": [
@@ -401,6 +403,86 @@
       "signal-normalization",
       "freshness",
       "json-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "gdelt-conflict-geo": {
+    "tier": "standard",
+    "auditEnabled": false,
+    "docsUrl": "https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.gdeltproject.org/",
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {
+      "query": "(protest OR riot OR attack OR bombing OR clash OR violence OR explosion OR battle)"
+    },
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "ucdp-candidate-events": {
+    "tier": "standard",
+    "auditEnabled": false,
+    "docsUrl": "https://ucdp.uu.se/downloads/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://ucdp.uu.se/downloads/",
+    "freshnessWindowMinutes": 4320,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "state-rulemaking": {
+    "tier": "standard",
+    "auditEnabled": false,
+    "docsUrl": null,
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": null,
+    "freshnessWindowMinutes": 720,
+    "sampleParams": {
+      "state": "CA",
+      "signalType": "rulemaking"
+    },
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "param-acceptance"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "state-executive-orders": {
+    "tier": "standard",
+    "auditEnabled": false,
+    "docsUrl": null,
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": null,
+    "freshnessWindowMinutes": 720,
+    "sampleParams": {
+      "state": "CA",
+      "signalType": "executive_order"
+    },
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "param-acceptance"
     ],
     "knownUpstreamQuirks": []
   },
@@ -441,7 +523,7 @@
     "docsUrl": "https://docs.openstates.org/api-v3/",
     "changelogUrl": "https://docs.openstates.org/api-v3/changelog/",
     "statusUrl": null,
-    "supportUrl": "https://github.com/openstates/openstates/issues",
+    "supportUrl": "https://docs.openstates.org/api-v3/",
     "freshnessWindowMinutes": 360,
     "sampleParams": {
       "jurisdiction": "ocd-jurisdiction/country:us/state:ny/government",
