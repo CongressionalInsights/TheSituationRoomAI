@@ -12,6 +12,7 @@ const PRIMARY_ARRAY_PATHS = [
   ['packages'],
   ['results'],
   ['data'],
+  ['states'],
   ['features'],
   ['events'],
   ['alerts'],

@@ -1202,6 +1202,30 @@ function buildCommitteeReportSummary(entry, fallbackSummary) {
 }
 
 function parseGenericJsonFeed(data, feed) {
+  if (feed?.id === 'transport-opensky' && Array.isArray(data?.states)) {
+    const observedAt = Number.isFinite(Number(data?.time)) ? Number(data.time) * 1000 : Date.now();
+    return data.states.slice(0, 200).map((row) => {
+      if (!Array.isArray(row)) return null;
+      const icao24 = String(row[0] || '').trim();
+      const callsign = String(row[1] || '').trim();
+      const lon = Number(row[5]);
+      const lat = Number(row[6]);
+      return {
+        title: callsign || icao24 || 'Aircraft state',
+        url: icao24 ? `https://opensky-network.org/aircraft-profile?icao24=${encodeURIComponent(icao24)}` : 'https://opensky-network.org/',
+        summary: normalizeSummary([
+          row[2] || '',
+          row[8] != null ? `Ground speed ${row[8]}` : '',
+          row[13] != null ? `Altitude ${row[13]}` : ''
+        ].filter(Boolean).join(' • ')),
+        publishedAt: observedAt,
+        source: feed.name,
+        category: feed.category,
+        geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null
+      };
+    }).filter(Boolean);
+  }
+
   const list = Array.isArray(data?.items)
     ? data.items
     : Array.isArray(data?.packages)

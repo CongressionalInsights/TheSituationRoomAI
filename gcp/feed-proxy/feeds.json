@@ -487,6 +487,7 @@
       "category": "transport",
       "format": "json",
       "url": "https://situation-room-opensky-382918878290.us-central1.run.app/api/opensky/states?extended=1",
+      "timeoutMs": 30000,
       "ttlMinutes": 20,
       "tags": [
         "global",
