@@ -13,6 +13,7 @@ const LIVE_BASE = process.env.SR_LIVE_BASE
     : DEFAULT_LIVE_BASE);
 const DEFAULT_FEED_PROXY_BASE = 'https://situation-room-feed-382918878290.us-central1.run.app';
 const FEED_PROXY_BASE = process.env.SR_FEED_PROXY_BASE || DEFAULT_FEED_PROXY_BASE;
+const OPENSKY_PUBLIC_STATES_URL = 'https://opensky-network.org/api/states/all?extended=1';
 const OPENSKY_CLIENTID = process.env.OPENSKY_CLIENTID;
 const OPENSKY_CLIENTSECRET = process.env.OPENSKY_CLIENTSECRET;
 const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
@@ -527,7 +528,7 @@ async function fetchFeedProxyFallback(feed, { params = {} } = {}) {
         force: true,
         ...(params && Object.keys(params).length ? { params } : {})
       })
-    }, 15000);
+    }, feed.id === 'state-legislation' ? 45000 : 15000);
     if (!response.ok) return null;
     const payload = await response.json();
     return payload && !payload.error ? payload : null;
@@ -691,9 +692,13 @@ async function buildFeedPayload(feed) {
   const fallbackUrl = feed.id === 'acled-events'
     ? 'https://situation-room-acled-382918878290.us-central1.run.app/api/acled/events'
     : '';
+  const transportSourceUrl = feed.id === 'transport-opensky'
+    ? OPENSKY_PUBLIC_STATES_URL
+    : null;
+  const templateUrl = transportSourceUrl || feed.url || fallbackUrl;
   const baseUrl = feed.supportsQuery
-    ? buildUrl(feed.url || fallbackUrl, { query, key, ...dateParams })
-    : buildUrl(feed.url || fallbackUrl, { key, ...dateParams });
+    ? buildUrl(templateUrl, { query, key, ...dateParams })
+    : buildUrl(templateUrl, { key, ...dateParams });
   const applied = applyKey(applyUrlParams(baseUrl, buildStaticRequestParams(feed)), feed, key);
   const headers = {
     'User-Agent': appConfig.userAgent,

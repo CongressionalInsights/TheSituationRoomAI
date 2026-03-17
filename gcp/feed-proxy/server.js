@@ -1507,7 +1507,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
-      const shouldPromotePublishedSnapshot = feed.id === 'federal-register' || feed.id === 'federal-register-transport';
+      const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
+        || feed.id === 'federal-register-transport'
+        || feed.id === 'transport-opensky';
       const fallbackPayload = shouldPromotePublishedSnapshot
         ? { ...fallback, fetchedAt: Date.now() }
         : { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };

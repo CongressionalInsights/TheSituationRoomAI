@@ -59,7 +59,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://www.federalregister.gov/developers/documentation/api/v1",
-    "freshnessWindowMinutes": 540,
+    "freshnessWindowMinutes": 1440,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",

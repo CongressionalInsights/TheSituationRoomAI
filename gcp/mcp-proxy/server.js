@@ -1674,7 +1674,10 @@ async function fetchRaw(feed, options) {
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
-      const shouldPromotePublishedSnapshot = feed.id === 'federal-register' || feed.id === 'federal-register-transport';
+      const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
+        || feed.id === 'federal-register-transport'
+        || feed.id === 'nasa-firms'
+        || feed.id === 'transport-opensky';
       console.log(JSON.stringify({
         event: 'mcp_raw_fetch',
         feedId: feed.id,
