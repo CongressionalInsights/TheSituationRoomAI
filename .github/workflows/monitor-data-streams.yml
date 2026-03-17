@@ -12,10 +12,10 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
       - name: Run full data-stream audit
         run: |
           node analysis/monitor/run_full_audit.mjs \
@@ -25,7 +25,7 @@ jobs:
             --allow-alerts
       - name: Upload monitor artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: data-monitor-${{ github.run_id }}
           path: |

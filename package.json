@@ -2,6 +2,9 @@
   "name": "situation-room-ai",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "build:frontend": "node scripts/build_frontend.mjs",
     "monitor:core": "node analysis/monitor/run_core_sentinel.mjs",
