@@ -107,9 +107,13 @@ async function proxyOpenSky(req, res, origin) {
     const token = await getToken();
     let response = null;
     if (token) {
-      response = await fetchUpstream({
-        'Authorization': `Bearer ${token}`
-      });
+      try {
+        response = await fetchUpstream({
+          'Authorization': `Bearer ${token}`
+        });
+      } catch {
+        response = null;
+      }
     }
     if (!response || !response.ok) {
       response = await fetchUpstream({});
