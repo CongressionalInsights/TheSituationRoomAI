@@ -223,3 +223,12 @@ jobs:
           echo "MCP proxy URL: ${SERVICE_URL}"
           curl -fsS "${SERVICE_URL}/health" >/dev/null
           curl -fsS "${SERVICE_URL}/.well-known/mcp.json" >/dev/null
+      - name: Run core sentinel after MCP deploy
+        if: steps.deploy.outputs.deploy_succeeded == 'true'
+        run: |
+          set -euo pipefail
+          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
+          node analysis/monitor/run_core_sentinel.mjs \
+            --base https://situation-room-feed-382918878290.us-central1.run.app \
+            --mcp "${SERVICE_URL}/mcp" \
+            --static https://congressionalinsights.github.io/TheSituationRoomAI

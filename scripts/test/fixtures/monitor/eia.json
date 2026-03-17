@@ -1,0 +1,16 @@
+{
+  "response": {
+    "data": [
+      {
+        "period": "2026-03-13",
+        "value": "67.81",
+        "series-description": "WTI spot price"
+      },
+      {
+        "period": "2026-03-12",
+        "value": "66.12",
+        "series-description": "WTI spot price"
+      }
+    ]
+  }
+}

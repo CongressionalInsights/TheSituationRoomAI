@@ -1,0 +1,570 @@
+{
+  "gdelt-doc": {
+    "tier": "standard",
+    "docsUrl": "https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.gdeltproject.org/",
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {
+      "query": "global monitoring"
+    },
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "google-news-us": {
+    "tier": "core",
+    "docsUrl": null,
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": null,
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "google-news-search": {
+    "tier": "standard",
+    "docsUrl": null,
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": null,
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {
+      "query": "breaking news"
+    },
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "federal-register": {
+    "tier": "standard",
+    "docsUrl": "https://www.federalregister.gov/developers/documentation/api/v1",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.federalregister.gov/developers/documentation/api/v1",
+    "freshnessWindowMinutes": 540,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "nws-alerts": {
+    "tier": "core",
+    "docsUrl": "https://www.weather.gov/documentation/services-web-api",
+    "changelogUrl": "https://www.weather.gov/documentation/services-web-api",
+    "statusUrl": "https://weather-gov.github.io/api/planned-outages",
+    "supportUrl": "https://weather-gov.github.io/api/general-faqs",
+    "freshnessWindowMinutes": 60,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "geojson-features",
+      "nws-alert-geometry",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "usgs-quakes-hour": {
+    "tier": "core",
+    "docsUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://earthquake.usgs.gov/fdsnws/event/1/",
+    "freshnessWindowMinutes": 60,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "geojson-features",
+      "newest-descending",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "usgs-quakes-day": {
+    "tier": "standard",
+    "docsUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://earthquake.usgs.gov/fdsnws/event/1/",
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "geojson-features"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "eonet-events": {
+    "tier": "core",
+    "docsUrl": "https://eonet.gsfc.nasa.gov/docs/v3",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://eonet.gsfc.nasa.gov/",
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "nasa-eonet-events",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "swpc-json": {
+    "tier": "standard",
+    "docsUrl": "https://services.swpc.noaa.gov/json/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://services.swpc.noaa.gov/products/",
+    "freshnessWindowMinutes": 90,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "swpc-kp": {
+    "tier": "standard",
+    "docsUrl": "https://services.swpc.noaa.gov/json/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://services.swpc.noaa.gov/products/",
+    "freshnessWindowMinutes": 90,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "arxiv-ai": {
+    "tier": "standard",
+    "docsUrl": "https://info.arxiv.org/help/api/index.html",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://info.arxiv.org/help/api/index.html",
+    "freshnessWindowMinutes": 540,
+    "sampleParams": {
+      "query": "artificial intelligence"
+    },
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "arxiv-rss-ai": {
+    "tier": "standard",
+    "docsUrl": "https://info.arxiv.org/help/rss/index.html",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://info.arxiv.org/help/rss/index.html",
+    "freshnessWindowMinutes": 540,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "coinpaprika-global": {
+    "tier": "core",
+    "docsUrl": "https://api.coinpaprika.com/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://api.coinpaprika.com/",
+    "freshnessWindowMinutes": 60,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "coinpaprika-schema"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "coinpaprika-tickers": {
+    "tier": "core",
+    "docsUrl": "https://api.coinpaprika.com/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://api.coinpaprika.com/",
+    "freshnessWindowMinutes": 60,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "coinpaprika-schema",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "treasury-debt": {
+    "tier": "core",
+    "docsUrl": "https://fiscaldata.treasury.gov/api-documentation/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://fiscaldata.treasury.gov/api-documentation/",
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "bls-cpi": {
+    "tier": "core",
+    "docsUrl": "https://www.bls.gov/developers/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.bls.gov/developers/",
+    "freshnessWindowMinutes": 4320,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "cisa-kev": {
+    "tier": "core",
+    "docsUrl": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+    "freshnessWindowMinutes": 10080,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "kev-schema",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "fda-medwatch": {
+    "tier": "standard",
+    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-e-list-and-rss-feed-information",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-e-list-and-rss-feed-information",
+    "freshnessWindowMinutes": 540,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "energy-eia": {
+    "tier": "core",
+    "docsUrl": "https://www.eia.gov/opendata/",
+    "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
+    "statusUrl": null,
+    "supportUrl": "https://www.eia.gov/opendata/",
+    "freshnessWindowMinutes": 10080,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "eia-response-data",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "energy-eia-brent": {
+    "tier": "core",
+    "docsUrl": "https://www.eia.gov/opendata/",
+    "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
+    "statusUrl": null,
+    "supportUrl": "https://www.eia.gov/opendata/",
+    "freshnessWindowMinutes": 10080,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "eia-response-data",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "energy-eia-ng": {
+    "tier": "core",
+    "docsUrl": "https://www.eia.gov/opendata/",
+    "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
+    "statusUrl": null,
+    "supportUrl": "https://www.eia.gov/opendata/",
+    "freshnessWindowMinutes": 10080,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "eia-response-data",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "eia-today": {
+    "tier": "core",
+    "docsUrl": "https://www.eia.gov/todayinenergy/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.eia.gov/todayinenergy/",
+    "freshnessWindowMinutes": 4320,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "transport-opensky": {
+    "tier": "standard",
+    "docsUrl": "https://openskynetwork.github.io/opensky-api/rest.html",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://openskynetwork.github.io/opensky-api/",
+    "freshnessWindowMinutes": 60,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "acled-events": {
+    "tier": "standard",
+    "docsUrl": "https://acleddata.com/knowledge-base/acled-api/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://acleddata.com/knowledge-base/acled-api/",
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "cdc-travel-notices": {
+    "tier": "core",
+    "docsUrl": "https://wwwnc.cdc.gov/travel/notices",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://wwwnc.cdc.gov/travel/notices",
+    "freshnessWindowMinutes": 10080,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "state-travel-advisories": {
+    "tier": "standard",
+    "docsUrl": "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html",
+    "freshnessWindowMinutes": 720,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "state-legislation": {
+    "tier": "core",
+    "docsUrl": "https://docs.openstates.org/api-v3/",
+    "changelogUrl": "https://docs.openstates.org/api-v3/changelog/",
+    "statusUrl": null,
+    "supportUrl": "https://github.com/openstates/openstates/issues",
+    "freshnessWindowMinutes": 360,
+    "sampleParams": {
+      "jurisdiction": "ocd-jurisdiction/country:us/state:ny/government",
+      "classification": "",
+      "per_page": 20
+    },
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "state-param-roundtrip",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "foia-api": {
+    "tier": "core",
+    "docsUrl": "https://www.foia.gov/developer/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.foia.gov/developer/",
+    "freshnessWindowMinutes": 4320,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "govinfo-api": {
+    "tier": "core",
+    "docsUrl": "https://api.govinfo.gov/docs/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://api.govinfo.gov/docs/",
+    "freshnessWindowMinutes": 10080,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "congress-api": {
+    "tier": "core",
+    "docsUrl": "https://api.congress.gov/",
+    "changelogUrl": "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md",
+    "statusUrl": null,
+    "supportUrl": "https://github.com/LibraryOfCongress/api.congress.gov",
+    "freshnessWindowMinutes": 1440,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "descending-update-sort",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "congress-reports": {
+    "tier": "core",
+    "docsUrl": "https://api.congress.gov/",
+    "changelogUrl": "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md",
+    "statusUrl": null,
+    "supportUrl": "https://github.com/LibraryOfCongress/api.congress.gov",
+    "freshnessWindowMinutes": 1440,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "committee-report-sort-health",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": [
+      {
+        "id": "committee-report-sort-degraded",
+        "regressionClass": "committee-report-sort-health",
+        "severity": "warning",
+        "suppressNew": true,
+        "note": "Congress.gov may ignore updateDate sorting for committee reports upstream; keep tracking it without reopening a new critical issue every run."
+      }
+    ]
+  },
+  "openaq-api": {
+    "tier": "core",
+    "docsUrl": "https://docs.openaq.org/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://docs.openaq.org/using-the-api/rate-limits",
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "openaq-meta-results",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  },
+  "nasa-firms": {
+    "tier": "core",
+    "docsUrl": "https://firms.modaps.eosdis.nasa.gov/api/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://firms.modaps.eosdis.nasa.gov/",
+    "freshnessWindowMinutes": 180,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "geo-coordinates",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
+  }
+}

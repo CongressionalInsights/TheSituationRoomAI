@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "name": "openaq-api",
+    "page": 1,
+    "limit": 20
+  },
+  "results": [
+    {
+      "id": 101,
+      "name": "Central Site",
+      "datetimeFirst": {
+        "utc": "2026-03-15T10:00:00Z"
+      }
+    },
+    {
+      "id": 102,
+      "name": "North Site",
+      "datetimeFirst": {
+        "utc": "2026-03-14T10:00:00Z"
+      }
+    }
+  ]
+}

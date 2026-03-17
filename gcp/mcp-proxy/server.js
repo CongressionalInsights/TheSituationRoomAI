@@ -182,9 +182,12 @@ function stripSecretsFromUrl(rawUrl) {
         parsed.searchParams.set(param, 'REDACTED');
       }
     });
+    parsed.pathname = parsed.pathname.replace(/\/api\/area\/json\/[^/]+/i, '/api/area/json/REDACTED');
     return parsed.toString();
   } catch {
-    return rawUrl.replace(/(api_key=)[^&]+/gi, '$1REDACTED');
+    return rawUrl
+      .replace(/(api_key=)[^&]+/gi, '$1REDACTED')
+      .replace(/(\/api\/area\/json\/)[^/]+/i, '$1REDACTED');
   }
 }
 
@@ -1219,6 +1222,28 @@ function normalizeSignals(text, feed) {
   return [];
 }
 
+function extractSafeResponseHeaders(headers) {
+  if (!headers || typeof headers.get !== 'function') return null;
+  const allowed = [
+    'cache-control',
+    'content-type',
+    'etag',
+    'last-modified',
+    'ratelimit-limit',
+    'ratelimit-remaining',
+    'ratelimit-reset',
+    'x-ratelimit-limit',
+    'x-ratelimit-remaining',
+    'x-ratelimit-reset'
+  ];
+  const selected = {};
+  allowed.forEach((key) => {
+    const value = headers.get(key);
+    if (value) selected[key] = value;
+  });
+  return Object.keys(selected).length ? selected : null;
+}
+
 function translateQueryForFeed(feed, query) {
   if (!feed || !query) return query;
   if (feed.id === 'gdelt-doc') return query;
@@ -1375,6 +1400,7 @@ async function fetchRaw(feed, options) {
   let body = null;
   let usedProxy = null;
   let fetchedUrl = null;
+  let responseHeaders = null;
   let succeeded = false;
   const isEonetFeed = feed?.id === 'eonet-events';
   const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
@@ -1400,6 +1426,7 @@ async function fetchRaw(feed, options) {
     try {
       response = await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
       body = await response.text();
+      responseHeaders = extractSafeResponseHeaders(response.headers);
       if (response.ok) {
         if (isRssFeed && !isLikelyRssPayload(response.headers.get('content-type') || '', body)) {
           lastError = {
@@ -1446,7 +1473,8 @@ async function fetchRaw(feed, options) {
         contentType: fallback.contentType || 'application/json',
         fetchedUrl: `${LIVE_BASE}/data/feeds/${encodeURIComponent(feed.id)}.json`,
         proxyUsed: 'live-cache',
-        fallbackUsed: true
+        fallbackUsed: true,
+        responseHeaders: null
       };
     }
     console.log(JSON.stringify({
@@ -1461,7 +1489,8 @@ async function fetchRaw(feed, options) {
       ...lastError,
       fetchedUrl: stripSecretsFromUrl(fetchedUrl),
       proxyUsed: usedProxy,
-      fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy)
+      fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy),
+      responseHeaders
     };
   }
 
@@ -1479,7 +1508,8 @@ async function fetchRaw(feed, options) {
     contentType: response.headers.get('content-type') || null,
     fetchedUrl: stripSecretsFromUrl(fetchedUrl),
     proxyUsed: usedProxy,
-    fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy)
+    fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy),
+    responseHeaders
   };
 }
 
@@ -1921,6 +1951,7 @@ server.registerTool(
         fetchedUrl: result.fetchedUrl || null,
         proxyUsed: result.proxyUsed || null,
         fallbackUsed: Boolean(result.fallbackUsed),
+        responseHeaders: result.responseHeaders || null,
         body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
         data: parsed
       }
@@ -1978,6 +2009,7 @@ server.registerTool(
         fetchedUrl: result.fetchedUrl || null,
         proxyUsed: result.proxyUsed || null,
         fallbackUsed: Boolean(result.fallbackUsed),
+        responseHeaders: result.responseHeaders || null,
         body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
         data: parsed
       }

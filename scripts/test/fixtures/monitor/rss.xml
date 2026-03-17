@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Feed</title>
+    <item>
+      <title>New advisory posted</title>
+      <link>https://example.com/advisory/1</link>
+      <pubDate>Mon, 15 Mar 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Earlier advisory</title>
+      <link>https://example.com/advisory/2</link>
+      <pubDate>Sun, 14 Mar 2026 11:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
