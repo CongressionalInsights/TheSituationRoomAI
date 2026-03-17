@@ -507,6 +507,17 @@ function buildFeedProxyFallbackParams(feed) {
   return feed.defaultParams || {};
 }
 
+function buildStaticRequestParams(feed) {
+  if (!feed) return {};
+  if (feed.id === 'state-legislation') {
+    return {
+      jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government',
+      ...(feed.defaultParams || {})
+    };
+  }
+  return {};
+}
+
 function isUsableRssSnapshot(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (payload.error) return false;
@@ -646,7 +657,7 @@ async function buildFeedPayload(feed) {
   const baseUrl = feed.supportsQuery
     ? buildUrl(feed.url || fallbackUrl, { query, key, ...dateParams })
     : buildUrl(feed.url || fallbackUrl, { key, ...dateParams });
-  const applied = applyKey(baseUrl, feed, key);
+  const applied = applyKey(applyUrlParams(baseUrl, buildStaticRequestParams(feed)), feed, key);
   const headers = {
     'User-Agent': appConfig.userAgent,
     'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
