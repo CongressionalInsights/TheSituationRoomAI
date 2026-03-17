@@ -8,6 +8,8 @@ A clean, high‑signal situational awareness dashboard with a unified news layer
 - SAM.gov now supports a dedicated secret (`SAMGOV_API_KEY`) for authenticated access.
 
 ## Run locally
+Requires Node `24.x` (`.nvmrc` is pinned to `24`).
+
 ```bash
 cd "~codex/projects/TheSituationRoom"
 DATA_GOV="your_data_gov_key" \
