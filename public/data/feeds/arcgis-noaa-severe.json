@@ -1,6 +1,6 @@
 {
   "id": "arcgis-noaa-severe",
-  "fetchedAt": 1773765460971,
+  "fetchedAt": 1773766493640,
   "contentType": "application/json; charset=utf-8",
   "body": "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:4326\"}},\"features\":[]}",
   "httpStatus": 200

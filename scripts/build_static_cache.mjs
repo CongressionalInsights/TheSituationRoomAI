@@ -44,6 +44,17 @@ function applyProxy(url, proxy) {
   return url;
 }
 
+function applyUrlParams(url, params = {}) {
+  if (!url || !params || typeof params !== 'object') return url;
+  const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '');
+  if (!entries.length) return url;
+  const parsed = new URL(url);
+  entries.forEach(([key, value]) => {
+    parsed.searchParams.set(key, String(value));
+  });
+  return parsed.toString();
+}
+
 function normalizeContentType(contentType = '') {
   return String(contentType || '').toLowerCase();
 }
