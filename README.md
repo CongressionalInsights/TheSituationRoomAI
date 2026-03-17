@@ -229,9 +229,18 @@ If you later add a full runtime backend, you can disable static mode and point t
 - The server geocodes inferred locations via OpenStreetMap Nominatim (`/api/geocode`).
 - Results are cached in `analysis/geo/geocode_cache.json` and in browser storage.
 
-## Source monitor (optional)
-- Use `analysis/monitor/monitor_sources.mjs` to track API/dev‑page changes and log diffs.
-- See `analysis/monitor/README.md` for setup.
+## Source monitor
+- Hourly deep-core sentinel: `npm run monitor:core`
+- Daily full audit: `npm run monitor:all`
+- Docs/changelog/status diff only: `npm run monitor:docs`
+- Rebuild the Markdown summary from the latest JSON report: `npm run monitor:report`
+- Outputs:
+  - `analysis/monitor/latest.json`
+  - `analysis/monitor/latest.md`
+  - `analysis/monitor/history/*.json`
+  - `analysis/monitor/doc-watch.json`
+- The daily GitHub workflow lives at `.github/workflows/monitor-data-streams.yml`.
+- See `analysis/monitor/README.md` for endpoint overrides and report behavior.
 
 ## Notes
 - News dedupe is enabled across all news sources to avoid repeated headlines. Coverage is shown as a visual indicator.

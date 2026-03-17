@@ -1,0 +1,25 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "NWS-1",
+        "event": "Severe Thunderstorm Warning",
+        "sent": "2026-03-15T11:30:00Z"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-82.4, 35.5],
+            [-82.3, 35.5],
+            [-82.3, 35.6],
+            [-82.4, 35.6],
+            [-82.4, 35.5]
+          ]
+        ]
+      }
+    }
+  ]
+}

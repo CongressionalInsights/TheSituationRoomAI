@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "id": "bill-ny-1",
+      "title": "New York Bill 1",
+      "publishedAt": "2026-03-15T12:00:00Z",
+      "jurisdictionCode": "NY",
+      "signalType": "legislation"
+    },
+    {
+      "id": "bill-ny-2",
+      "title": "New York Bill 2",
+      "publishedAt": "2026-03-14T12:00:00Z",
+      "jurisdictionCode": "NY",
+      "signalType": "legislation"
+    }
+  ]
+}
