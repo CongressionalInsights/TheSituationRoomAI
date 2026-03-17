@@ -208,6 +208,21 @@ function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
   }).filter(Boolean);
 }
 
+function normalizeGovinfoPackages(data = {}) {
+  const packages = Array.isArray(data?.packages) ? data.packages : [];
+  if (!packages.length) return data;
+  return {
+    items: packages.map((entry) => ({
+      id: entry.packageId || entry.id || '',
+      title: entry.title || entry.packageId || 'GovInfo package',
+      url: entry.packageLink || entry.detailsLink || '',
+      summary: entry.docClass || entry.collectionName || '',
+      publishedAt: entry.lastModified || entry.dateIssued || '',
+      source: 'GovInfo'
+    }))
+  };
+}
+
 async function buildArcgisFireFallback() {
   const fireFeed = feedsConfig.feeds.find((feed) => feed.id === 'arcgis-hms-fire');
   if (!fireFeed?.url) return null;
@@ -244,8 +259,7 @@ async function buildArcgisFireFallback() {
       fetchedAt: Date.now(),
       contentType: 'application/json',
       body: JSON.stringify({ items }),
-      httpStatus: 200,
-      fallback: 'arcgis-hms-fire'
+      httpStatus: 200
     };
   } catch {
     return null;
@@ -509,23 +523,11 @@ async function fetchFeedProxyFallback(feed, { params = {} } = {}) {
 
 function buildFeedProxyFallbackParams(feed) {
   if (!feed) return {};
-  if (feed.id === 'state-legislation') {
-    return {
-      jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government',
-      ...(feed.defaultParams || {})
-    };
-  }
   return feed.defaultParams || {};
 }
 
 function buildStaticRequestParams(feed) {
   if (!feed) return {};
-  if (feed.id === 'state-legislation') {
-    return {
-      jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government',
-      ...(feed.defaultParams || {})
-    };
-  }
   return {};
 }
 
@@ -641,12 +643,12 @@ async function buildFeedPayload(feed) {
 
   const key = feed.requiresKey ? resolveServerKey(feed) : null;
   if (feed.requiresKey && !key) {
-    const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
-    if (fallback) return fallback;
     if (feed.id === 'nasa-firms') {
       const fireFallback = await buildArcgisFireFallback();
       if (fireFallback) return fireFallback;
     }
+    const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+    if (fallback) return fallback;
     return {
       id: feed.id,
       fetchedAt: Date.now(),
@@ -748,6 +750,21 @@ async function buildFeedPayload(feed) {
     }
   }
 
+  if (!payload.error && feed.id === 'govinfo-api' && contentType.includes('json')) {
+    try {
+      payload.body = JSON.stringify(normalizeGovinfoPackages(JSON.parse(payload.body)));
+      payload.contentType = 'application/json';
+      payload.transformed = true;
+    } catch {
+      // keep original payload
+    }
+  }
+
+  if (payload.error && feed.id === 'nasa-firms') {
+    const fireFallback = await buildArcgisFireFallback();
+    if (fireFallback) return fireFallback;
+  }
+
   if (payload.error && (feed.id === 'nasa-firms' || feed.id === 'eonet-events')) {
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
@@ -841,11 +858,6 @@ async function buildFeedPayload(feed) {
     if (ckanFallback) {
       return ckanFallback;
     }
-  }
-
-  if (payload.error && feed.id === 'nasa-firms') {
-    const fireFallback = await buildArcgisFireFallback();
-    if (fireFallback) return fireFallback;
   }
 
   if (!payload.error && feed.id === 'polymarket-markets' && contentType.includes('json')) {

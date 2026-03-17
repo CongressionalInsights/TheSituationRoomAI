@@ -86,6 +86,14 @@ test('feed proxy deploy workflow injects OpenSky credentials', () => {
   assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
 });
 
+test('mcp proxy deploy workflow injects OpenSky credentials', () => {
+  const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-mcp-proxy.yml'), 'utf8');
+  assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);
+  assert.match(workflow, /OPENSKY_CLIENTSECRET:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTSECRET\s*\}\}/);
+  assert.match(workflow, /OPENSKY_CLIENTID=opensky-clientid:latest/);
+  assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
+});
+
 test('document helpers normalize content, extract dates, and classify contract changes', () => {
   const html = fixture('docs-contract.html');
   const normalized = normalizeDocText(html, 'text/html');
@@ -142,6 +150,26 @@ test('RSS fixture is summarized correctly', () => {
   }, {});
   assert.equal(summary.rawItemCount, 2);
   assert.equal(summary.error, null);
+  assert.ok(summary.newestTimestamp);
+});
+
+test('GovInfo package arrays are summarized as raw items', () => {
+  const feed = { id: 'govinfo-api', format: 'json' };
+  const summary = summarizeProxyPayload(feed, {
+    body: JSON.stringify({
+      packages: [
+        {
+          packageId: 'CMR-1',
+          title: 'Mandated report',
+          lastModified: '2026-03-16T14:22:40Z'
+        }
+      ]
+    }),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(summary.rawItemCount, 1);
+  assert.equal(summary.parseError, null);
   assert.ok(summary.newestTimestamp);
 });
 

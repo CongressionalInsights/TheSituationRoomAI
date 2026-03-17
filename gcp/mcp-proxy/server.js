@@ -24,6 +24,9 @@ const FALLBACK_PROXIES = (process.env.FALLBACK_PROXIES || 'allorigins,jina')
   .filter(Boolean);
 const DEFAULT_LIVE_BASE = 'https://congressionalinsights.github.io/TheSituationRoomAI';
 const LIVE_BASE = process.env.SR_LIVE_BASE || DEFAULT_LIVE_BASE;
+const OPENSKY_CLIENTID = String(process.env.OPENSKY_CLIENTID || '').trim();
+const OPENSKY_CLIENTSECRET = String(process.env.OPENSKY_CLIENTSECRET || '').trim();
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 
 const ACLED_PROXY = process.env.ACLED_PROXY || '';
 const DEFAULT_LOOKBACK_DAYS = Number(process.env.DEFAULT_LOOKBACK_DAYS || 30);
@@ -46,6 +49,8 @@ const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
 
 const samCache = new Map();
+let openSkyToken = null;
+let openSkyTokenExpiresAt = 0;
 
 const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const feeds = Array.isArray(feedsConfig.feeds) ? feedsConfig.feeds : [];
@@ -213,6 +218,30 @@ function applyProxy(url, proxy) {
     return `https://r.jina.ai/http://${stripped}`;
   }
   return url;
+}
+
+async function getOpenSkyToken() {
+  if (!OPENSKY_CLIENTID || !OPENSKY_CLIENTSECRET) return null;
+  if (openSkyToken && Date.now() < openSkyTokenExpiresAt) {
+    return openSkyToken;
+  }
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: OPENSKY_CLIENTID,
+    client_secret: OPENSKY_CLIENTSECRET
+  });
+  const response = await fetchWithTimeout(OPENSKY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  }, 10000);
+  if (!response.ok) return null;
+  const data = await response.json();
+  if (!data?.access_token) return null;
+  const ttl = Number(data.expires_in) || 1800;
+  openSkyToken = data.access_token;
+  openSkyTokenExpiresAt = Date.now() + Math.max(60, ttl - 60) * 1000;
+  return openSkyToken;
 }
 
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
@@ -1175,6 +1204,8 @@ function buildCommitteeReportSummary(entry, fallbackSummary) {
 function parseGenericJsonFeed(data, feed) {
   const list = Array.isArray(data?.items)
     ? data.items
+    : Array.isArray(data?.packages)
+      ? data.packages
     : Array.isArray(data?.entries)
       ? data.entries
       : Array.isArray(data?.articles)
@@ -1248,7 +1279,7 @@ function parseGenericJsonFeed(data, feed) {
     const title = isCongressHouseVote
       ? voteTitle
       : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
-    const url = congressVoteUrl || entry.url || entry.link || entry.permalink || entry.webUrl || '';
+    const url = congressVoteUrl || entry.url || entry.link || entry.permalink || entry.webUrl || entry.packageLink || entry.detailsLink || '';
     const defaultSummary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || '');
     const voteSummary = normalizeSummary(
       [
@@ -1272,6 +1303,8 @@ function parseGenericJsonFeed(data, feed) {
     const published = entry.publishedAt
       || entry.pubDate
       || entry.date
+      || entry.lastModified
+      || entry.dateIssued
       || entry.updateDate
       || entry.startDate
       || entry.updatedAt
@@ -1461,6 +1494,28 @@ async function fetchRaw(feed, options) {
   }
   const url = buildFeedUrl(feed, { ...options, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
+  if (feed.id === 'transport-opensky') {
+    const token = await getOpenSkyToken();
+    if (!token) {
+      const fallback = await fetchLiveFallback(feed.id);
+      if (fallback) {
+        return {
+          body: fallback.body,
+          httpStatus: fallback.httpStatus || 200,
+          contentType: fallback.contentType || 'application/json',
+          fetchedUrl: `${LIVE_BASE}/data/feeds/${encodeURIComponent(feed.id)}.json`,
+          proxyUsed: 'live-cache',
+          fallbackUsed: true,
+          responseHeaders: null
+        };
+      }
+      return {
+        error: 'missing_server_key',
+        message: 'OpenSky OAuth token unavailable.'
+      };
+    }
+    headers.Authorization = `Bearer ${token}`;
+  }
   const totalTimeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
   const primaryProxy = feed.proxy || options.proxy || null;
   const requestHeaders = {

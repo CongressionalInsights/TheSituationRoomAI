@@ -24,6 +24,9 @@ const cache = new Map();
 const FETCH_TIMEOUT_MS = feedsConfig.app?.fetchTimeoutMs || 12000;
 const DEFAULT_LIVE_BASE = 'https://congressionalinsights.github.io/TheSituationRoomAI';
 const LIVE_BASE = process.env.SR_LIVE_BASE || DEFAULT_LIVE_BASE;
+const OPENSKY_CLIENTID = String(process.env.OPENSKY_CLIENTID || '').trim();
+const OPENSKY_CLIENTSECRET = String(process.env.OPENSKY_CLIENTSECRET || '').trim();
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 const GPSJAM_ID = 'gpsjam';
 const GPSJAM_CACHE_KEY = 'gpsjam:data';
 const EIA_RETRY_ATTEMPTS = 5;
@@ -46,6 +49,8 @@ const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
 
 const samCache = new Map();
+let openSkyToken = null;
+let openSkyTokenExpiresAt = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -415,6 +420,30 @@ function buildEiaLegacyUrl(feed, apiKey) {
   } catch {
     return null;
   }
+}
+
+async function getOpenSkyToken() {
+  if (!OPENSKY_CLIENTID || !OPENSKY_CLIENTSECRET) return null;
+  if (openSkyToken && Date.now() < openSkyTokenExpiresAt) {
+    return openSkyToken;
+  }
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: OPENSKY_CLIENTID,
+    client_secret: OPENSKY_CLIENTSECRET
+  });
+  const response = await fetchWithTimeout(OPENSKY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  }, 10000);
+  if (!response.ok) return null;
+  const data = await response.json();
+  if (!data?.access_token) return null;
+  const ttl = Number(data.expires_in) || 1800;
+  openSkyToken = data.access_token;
+  openSkyTokenExpiresAt = Date.now() + Math.max(60, ttl - 60) * 1000;
+  return openSkyToken;
 }
 
 function normalizeEiaSeriesUrl(rawUrl) {
@@ -1224,6 +1253,33 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   const isRssFeed = feed.format === 'rss';
   const allowLiveFallback = canUseLiveFeedFallback(feed, isRssFeed);
+  if (feed.id === 'transport-opensky') {
+    const token = await getOpenSkyToken();
+    if (!token) {
+      if (isUsableStaleFeedPayload(feed, staleCache)) {
+        return { ...staleCache, stale: true, fetchedAt: Date.now() };
+      }
+      const fallback = await fetchLiveFallback(feed.id);
+      if (fallback) {
+        const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+        cache.set(cacheKey, fallbackPayload);
+        return fallbackPayload;
+      }
+      return {
+        id: feed.id,
+        fetchedAt: Date.now(),
+        contentType: 'application/json',
+        httpStatus: 200,
+        error: 'missing_server_key',
+        message: 'OpenSky OAuth token unavailable.',
+        body: JSON.stringify({
+          error: 'missing_server_key',
+          message: 'OpenSky OAuth token unavailable.'
+        })
+      };
+    }
+    headers.Authorization = `Bearer ${token}`;
+  }
   if (isStateLegislationAllStatesRequest(feed, mergedParams)) {
     const aggregatePayload = await fetchAllStatesLegislation(
       feed,

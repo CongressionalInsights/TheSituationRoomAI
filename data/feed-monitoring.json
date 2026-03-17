@@ -244,7 +244,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://fiscaldata.treasury.gov/api-documentation/",
-    "freshnessWindowMinutes": 180,
+    "freshnessWindowMinutes": 10080,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -311,7 +311,7 @@
     "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
     "statusUrl": null,
     "supportUrl": "https://www.eia.gov/opendata/",
-    "freshnessWindowMinutes": 10080,
+    "freshnessWindowMinutes": 20160,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -328,7 +328,7 @@
     "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
     "statusUrl": null,
     "supportUrl": "https://www.eia.gov/opendata/",
-    "freshnessWindowMinutes": 10080,
+    "freshnessWindowMinutes": 20160,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -345,7 +345,7 @@
     "changelogUrl": "https://www.eia.gov/opendata/documentation.php",
     "statusUrl": null,
     "supportUrl": "https://www.eia.gov/opendata/",
-    "freshnessWindowMinutes": 10080,
+    "freshnessWindowMinutes": 20160,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",

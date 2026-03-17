@@ -9,6 +9,7 @@ import { createAlert, applyKnownUpstreamQuirks, dedupeAlerts } from './reporting
 
 const PRIMARY_ARRAY_PATHS = [
   ['items'],
+  ['packages'],
   ['results'],
   ['data'],
   ['features'],
