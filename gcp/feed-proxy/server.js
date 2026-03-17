@@ -750,6 +750,36 @@ function normalizeContentType(contentType = '') {
   return String(contentType || '').toLowerCase();
 }
 
+function normalizeFederalRegisterItems(data = {}) {
+  const results = Array.isArray(data?.results) ? data.results : [];
+  if (!results.length) return data;
+  return {
+    items: results.map((entry) => ({
+      id: entry.document_number || entry.id || '',
+      title: entry.title || entry.document_number || 'Federal Register document',
+      url: entry.html_url || entry.pdf_url || '',
+      summary: entry.abstract || entry.excerpts || '',
+      publishedAt: entry.publication_date || '',
+      source: 'Federal Register'
+    }))
+  };
+}
+
+function normalizeGovinfoPackages(data = {}) {
+  const packages = Array.isArray(data?.packages) ? data.packages : [];
+  if (!packages.length) return data;
+  return {
+    items: packages.map((entry) => ({
+      id: entry.packageId || entry.id || '',
+      title: entry.title || entry.packageId || 'GovInfo package',
+      url: entry.packageLink || entry.detailsLink || '',
+      summary: entry.docClass || entry.collectionName || '',
+      publishedAt: entry.lastModified || entry.dateIssued || '',
+      source: 'GovInfo'
+    }))
+  };
+}
+
 function looksLikeHtmlDocument(text = '') {
   const sample = String(text || '').slice(0, 2048).trim().toLowerCase();
   if (!sample) return false;
@@ -1258,7 +1288,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   const isRssFeed = feed.format === 'rss';
   const allowLiveFallback = canUseLiveFeedFallback(feed, isRssFeed);
-  if (feed.id === 'transport-opensky') {
+  if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(applied.url)) {
     const token = await getOpenSkyToken();
     if (!token) {
       if (isUsableStaleFeedPayload(feed, staleCache)) {
@@ -1349,6 +1379,22 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         } else {
           responseOk = false;
         }
+      } catch {
+        responseOk = false;
+      }
+    }
+    if ((feed.id === 'federal-register' || feed.id === 'federal-register-transport') && responseOk && typeof body === 'string' && contentType.includes('json')) {
+      try {
+        body = JSON.stringify(normalizeFederalRegisterItems(JSON.parse(body)));
+        contentType = 'application/json';
+      } catch {
+        responseOk = false;
+      }
+    }
+    if (feed.id === 'govinfo-api' && responseOk && typeof body === 'string' && contentType.includes('json')) {
+      try {
+        body = JSON.stringify(normalizeGovinfoPackages(JSON.parse(body)));
+        contentType = 'application/json';
       } catch {
         responseOk = false;
       }

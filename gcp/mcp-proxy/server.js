@@ -1518,7 +1518,7 @@ async function fetchRaw(feed, options) {
   }
   const url = buildFeedUrl(feed, { ...options, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
-  if (feed.id === 'transport-opensky') {
+  if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(keyedUrl)) {
     const token = await getOpenSkyToken();
     if (!token) {
       const fallback = await fetchLiveFallback(feed.id);

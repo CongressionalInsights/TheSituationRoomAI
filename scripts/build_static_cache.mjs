@@ -223,6 +223,21 @@ function normalizeGovinfoPackages(data = {}) {
   };
 }
 
+function normalizeFederalRegisterItems(data = {}) {
+  const results = Array.isArray(data?.results) ? data.results : [];
+  if (!results.length) return data;
+  return {
+    items: results.map((entry) => ({
+      id: entry.document_number || entry.id || '',
+      title: entry.title || entry.document_number || 'Federal Register document',
+      url: entry.html_url || entry.pdf_url || '',
+      summary: entry.abstract || entry.excerpts || '',
+      publishedAt: entry.publication_date || '',
+      source: 'Federal Register'
+    }))
+  };
+}
+
 async function buildArcgisFireFallback() {
   const fireFeed = feedsConfig.feeds.find((feed) => feed.id === 'arcgis-hms-fire');
   if (!fireFeed?.url) return null;
@@ -523,6 +538,9 @@ async function fetchFeedProxyFallback(feed, { params = {} } = {}) {
 
 function buildFeedProxyFallbackParams(feed) {
   if (!feed) return {};
+  if (feed.id === 'state-legislation') {
+    return buildStaticRequestParams(feed);
+  }
   return feed.defaultParams || {};
 }
 
@@ -683,7 +701,7 @@ async function buildFeedPayload(feed) {
     'Accept-Language': 'en-US,en;q=0.9',
     ...applied.headers
   };
-  if (feed.id === 'transport-opensky') {
+  if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(applied.url)) {
     const token = await getOpenSkyToken();
     if (!token) {
       const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
@@ -759,6 +777,18 @@ async function buildFeedPayload(feed) {
   if (!payload.error && feed.id === 'govinfo-api' && contentType.includes('json')) {
     try {
       payload.body = JSON.stringify(normalizeGovinfoPackages(JSON.parse(payload.body)));
+      payload.contentType = 'application/json';
+      payload.transformed = true;
+    } catch {
+      // keep original payload
+    }
+  }
+
+  if (!payload.error
+    && (feed.id === 'federal-register' || feed.id === 'federal-register-transport')
+    && contentType.includes('json')) {
+    try {
+      payload.body = JSON.stringify(normalizeFederalRegisterItems(JSON.parse(payload.body)));
       payload.contentType = 'application/json';
       payload.transformed = true;
     } catch {
