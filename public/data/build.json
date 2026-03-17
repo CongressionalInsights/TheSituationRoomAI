@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-03-17T17:36:24.545Z",
+  "generatedAt": "2026-03-17T17:43:04.218Z",
   "feeds": [
     {
       "id": "gdelt-doc",
-      "ok": false
+      "ok": true
     },
     {
       "id": "google-news-us",

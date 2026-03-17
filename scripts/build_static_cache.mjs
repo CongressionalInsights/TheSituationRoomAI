@@ -528,6 +528,12 @@ function buildFeedProxyFallbackParams(feed) {
 
 function buildStaticRequestParams(feed) {
   if (!feed) return {};
+  if (feed.id === 'state-legislation') {
+    return {
+      jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government',
+      ...(feed.defaultParams || {})
+    };
+  }
   return {};
 }
 

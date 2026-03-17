@@ -1,7 +1,7 @@
 {
   "id": "coinpaprika-global",
-  "fetchedAt": 1773768937999,
+  "fetchedAt": 1773769349799,
   "contentType": "application/json; charset=UTF-8",
-  "body": "{\"market_cap_usd\":2651126920804,\"volume_24h_usd\":180608247808,\"bitcoin_dominance_percentage\":56.05,\"cryptocurrencies_number\":12640,\"market_cap_ath_value\":4823580636226,\"market_cap_ath_date\":\"2025-10-05T10:10:00Z\",\"volume_24h_ath_value\":2461621335224,\"volume_24h_ath_date\":\"2022-03-26T03:05:00Z\",\"volume_24h_percent_from_ath\":-92.66,\"volume_24h_percent_to_ath\":1262.96,\"market_cap_change_24h\":0.7,\"volume_24h_change_24h\":-2.95,\"last_updated\":1773768745}\n",
+  "body": "{\"market_cap_usd\":2650613261359,\"volume_24h_usd\":172500573096,\"bitcoin_dominance_percentage\":56.05,\"cryptocurrencies_number\":12638,\"market_cap_ath_value\":4823580636226,\"market_cap_ath_date\":\"2025-10-05T10:10:00Z\",\"volume_24h_ath_value\":2461621335224,\"volume_24h_ath_date\":\"2022-03-26T03:05:00Z\",\"volume_24h_percent_from_ath\":-92.99,\"volume_24h_percent_to_ath\":1327.02,\"market_cap_change_24h\":0.4,\"volume_24h_change_24h\":-8.96,\"last_updated\":1773769046}\n",
   "httpStatus": 200
 }

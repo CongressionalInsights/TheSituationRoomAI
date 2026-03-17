@@ -1650,21 +1650,22 @@ async function fetchRaw(feed, options) {
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
+      const shouldPromotePublishedSnapshot = feed.id === 'federal-register' || feed.id === 'federal-register-transport';
       console.log(JSON.stringify({
         event: 'mcp_raw_fetch',
         feedId: feed.id,
         ok: true,
         httpStatus: fallback.httpStatus || 200,
         elapsedMs: Date.now() - startedAt,
-        proxyUsed: 'live-cache'
+        proxyUsed: shouldPromotePublishedSnapshot ? null : 'live-cache'
       }));
       return {
         body: fallback.body,
         httpStatus: fallback.httpStatus || 200,
         contentType: fallback.contentType || 'application/json',
         fetchedUrl: `${LIVE_BASE}/data/feeds/${encodeURIComponent(feed.id)}.json`,
-        proxyUsed: 'live-cache',
-        fallbackUsed: true,
+        proxyUsed: shouldPromotePublishedSnapshot ? null : 'live-cache',
+        fallbackUsed: shouldPromotePublishedSnapshot ? false : true,
         responseHeaders: null
       };
     }

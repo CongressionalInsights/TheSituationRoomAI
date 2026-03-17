@@ -969,7 +969,12 @@ async function fetchLiveFallback(feedId) {
 }
 
 function canUseLiveFeedFallback(feed, isRssFeed) {
-  return Boolean(isRssFeed || feed?.id === 'eonet-events');
+  return Boolean(
+    isRssFeed
+    || feed?.id === 'eonet-events'
+    || feed?.id === 'federal-register'
+    || feed?.id === 'federal-register-transport'
+  );
 }
 
 function isUsableStaleFeedPayload(feed, payload) {
@@ -1456,7 +1461,10 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
-      const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+      const shouldPromotePublishedSnapshot = feed.id === 'federal-register' || feed.id === 'federal-register-transport';
+      const fallbackPayload = shouldPromotePublishedSnapshot
+        ? { ...fallback, fetchedAt: Date.now() }
+        : { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
       cache.set(cacheKey, fallbackPayload);
       return fallbackPayload;
     }
