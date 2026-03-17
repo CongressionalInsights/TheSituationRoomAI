@@ -564,7 +564,8 @@ function shouldCompareStatic(entry) {
 }
 
 async function auditEntry(entry, options) {
-  const proxyTransport = await callFeedProxy(options.base, entry.id, entry.sampleParams, options.timeoutMs);
+  const timeoutMs = Number(entry.timeoutMs || options.timeoutMs);
+  const proxyTransport = await callFeedProxy(options.base, entry.id, entry.sampleParams, timeoutMs);
   const proxySummary = summarizeProxyPayload(entry, proxyTransport.data || {}, proxyTransport);
 
   const { query, ...params } = entry.sampleParams || {};
@@ -574,7 +575,7 @@ async function auditEntry(entry, options) {
     ...(query ? { query } : {}),
     ...(Object.keys(params).length ? { params } : {}),
     format: rawFormat
-  }, options.timeoutMs);
+  }, timeoutMs);
   const rawSummary = summarizeMcpRaw(entry, rawResult);
 
   const signalResult = await callMcpTool(options.mcp, 'signals.list', {
@@ -582,19 +583,19 @@ async function auditEntry(entry, options) {
     ...(query ? { query } : {}),
     ...(Object.keys(params).length ? { params } : {}),
     limit: 25
-  }, options.timeoutMs);
+  }, timeoutMs);
   const signalSummary = summarizeSignals(signalResult);
 
   let staticSummary = { skipped: true };
   if (options.includeStatic && options.staticBase && shouldCompareStatic(entry)) {
-    const staticResult = await fetchStaticFeed(options.staticBase, entry.id, options.timeoutMs);
+    const staticResult = await fetchStaticFeed(options.staticBase, entry.id, timeoutMs);
     staticSummary = summarizeStatic(entry, staticResult);
   }
 
   const alerts = [];
   for (const invariant of entry.invariants) {
     if (invariant === 'committee-report-sort-health') {
-      const sortCheck = await evaluateCommitteeReportSortHealth(options.base, options.timeoutMs);
+      const sortCheck = await evaluateCommitteeReportSortHealth(options.base, timeoutMs);
       if (!sortCheck.ok) {
         alerts.push(createAlert({
           feedId: entry.id,

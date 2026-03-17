@@ -974,6 +974,49 @@ function applyProxy(url, proxy) {
   return url;
 }
 
+function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
+  const rows = Array.isArray(data)
+    ? data
+    : (Array.isArray(data?.items) ? data.items : []);
+  return rows.slice(0, 200).map((entry) => {
+    const geoLat = Number(entry?.geo?.lat);
+    const geoLon = Number(entry?.geo?.lon);
+    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
+    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
+    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
+    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
+    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
+    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
+    const frp = entry.frp ?? entry.fire_radiative_power;
+    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
+    const parts = [];
+    if (brightness) parts.push(`Brightness ${brightness}`);
+    if (frp) parts.push(`FRP ${frp}`);
+    if (confidence) parts.push(`Confidence ${confidence}`);
+    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
+    let publishedAt = Date.now();
+    if (date) {
+      const time = String(entry.acq_time || '').padStart(4, '0');
+      if (time.length === 4 && /^\d+$/.test(time)) {
+        const parsed = Date.parse(`${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`);
+        if (!Number.isNaN(parsed)) publishedAt = parsed;
+      } else {
+        const parsed = Date.parse(date);
+        if (!Number.isNaN(parsed)) publishedAt = parsed;
+      }
+    }
+    return {
+      title: entry.title || 'Fire detection',
+      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
+      latitude: resolvedLat,
+      longitude: resolvedLon,
+      publishedAt,
+      source,
+      alertType: 'Fire'
+    };
+  }).filter(Boolean);
+}
+
 function isStateConnectorFeed(feed) {
   return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
 }
@@ -1352,8 +1395,8 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     return aggregatePayload;
   }
   const response = await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList);
-  const contentType = response.headers.get('content-type') || 'text/plain';
-  const body = await response.text();
+  let contentType = response.headers.get('content-type') || 'text/plain';
+  let body = await response.text();
 
   const payload = {
     id: feed.id,
@@ -1365,6 +1408,23 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   if (!response.ok) {
     payload.error = `http_${response.status}`;
     payload.message = `HTTP ${response.status}`;
+  }
+  if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
+    try {
+      const items = buildNasaFirmsItems(JSON.parse(body));
+      if (items.length) {
+        body = JSON.stringify({ items });
+        contentType = 'application/json';
+        payload.body = body;
+        payload.contentType = contentType;
+      } else {
+        payload.error = 'empty_payload';
+        payload.message = 'NASA FIRMS returned no usable geolocated detections.';
+      }
+    } catch {
+      payload.error = 'invalid_json';
+      payload.message = 'NASA FIRMS returned invalid JSON.';
+    }
   }
   if (!payload.error) {
     cache.set(cacheKey, payload);

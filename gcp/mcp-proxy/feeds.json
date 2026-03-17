@@ -114,7 +114,7 @@
       "name": "Federal Register",
       "category": "gov",
       "format": "json",
-      "url": "https://www.federalregister.gov/api/v1/documents.json?per_page=20&order=newest",
+      "url": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
       "ttlMinutes": 180,
       "tags": [
         "us",
@@ -126,7 +126,7 @@
       "name": "Federal Register (Transportation)",
       "category": "transport",
       "format": "json",
-      "url": "https://www.federalregister.gov/api/v1/documents.json?per_page=20&order=newest&conditions%5Bagencies%5D%5B%5D=transportation-department",
+      "url": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest&conditions%5Bagencies%5D%5B%5D=transportation-department",
       "ttlMinutes": 180,
       "tags": [
         "us",

@@ -54,10 +54,28 @@ test('monitoring entry derives defaults for feeds without explicit overrides', (
   };
   const entry = resolveMonitoringEntry(feed, {}, { defaultRefreshMinutes: 60 });
   assert.equal(entry.tier, 'standard');
+  assert.equal(entry.auditEnabled, true);
   assert.equal(entry.docsUrl, null);
   assert.equal(entry.freshnessWindowMinutes, 90);
+  assert.equal(entry.timeoutMs, 30000);
   assert.deepEqual(buildDefaultSampleParams(feed), { query: 'alerts' });
   assert.ok(entry.invariants.includes('rss-structure'));
+});
+
+test('monitoring entry honors audit exclusions and per-feed timeout overrides', () => {
+  const feed = {
+    id: 'connector-feed',
+    name: 'Connector Feed',
+    category: 'gov',
+    format: 'json',
+    ttlMinutes: 60
+  };
+  const entry = resolveMonitoringEntry(feed, {
+    auditEnabled: false,
+    timeoutMs: 45000
+  }, { defaultRefreshMinutes: 60 });
+  assert.equal(entry.auditEnabled, false);
+  assert.equal(entry.timeoutMs, 45000);
 });
 
 test('document helpers normalize content, extract dates, and classify contract changes', () => {

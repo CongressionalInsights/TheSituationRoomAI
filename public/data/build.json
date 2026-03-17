@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-01-15T20:13:21.528Z",
+  "generatedAt": "2026-03-17T14:56:50.044Z",
   "feeds": [
     {
       "id": "gdelt-doc",
@@ -39,7 +39,7 @@
     },
     {
       "id": "nws-alerts",
-      "ok": true
+      "ok": false
     },
     {
       "id": "usgs-quakes-hour",
@@ -139,14 +139,34 @@
     },
     {
       "id": "transport-opensky",
-      "ok": false
+      "ok": true
     },
     {
       "id": "acled-events",
+      "ok": true
+    },
+    {
+      "id": "warspotting-losses",
+      "ok": true
+    },
+    {
+      "id": "gdelt-conflict-geo",
       "ok": false
     },
     {
+      "id": "ucdp-candidate-events",
+      "ok": false
+    },
+    {
+      "id": "gpsjam",
+      "ok": true
+    },
+    {
       "id": "cdc-travel-notices",
+      "ok": true
+    },
+    {
+      "id": "state-travel-advisories",
       "ok": true
     },
     {
@@ -266,16 +286,100 @@
       "ok": true
     },
     {
-      "id": "foia-api",
+      "id": "govinfo-plaw-rss",
+      "ok": true
+    },
+    {
+      "id": "govinfo-cmr-rss",
+      "ok": true
+    },
+    {
+      "id": "govinfo-crpt-rss",
+      "ok": true
+    },
+    {
+      "id": "govinfo-chrg-rss",
+      "ok": true
+    },
+    {
+      "id": "state-legislation",
       "ok": false
+    },
+    {
+      "id": "state-rulemaking",
+      "ok": false
+    },
+    {
+      "id": "state-executive-orders",
+      "ok": false
+    },
+    {
+      "id": "foia-api",
+      "ok": true
     },
     {
       "id": "govinfo-api",
-      "ok": false
+      "ok": true
+    },
+    {
+      "id": "congress-api",
+      "ok": true
+    },
+    {
+      "id": "congress-amendments",
+      "ok": true
+    },
+    {
+      "id": "congress-reports",
+      "ok": true
+    },
+    {
+      "id": "congress-hearings",
+      "ok": true
+    },
+    {
+      "id": "congress-nominations",
+      "ok": true
+    },
+    {
+      "id": "congress-treaties",
+      "ok": true
+    },
+    {
+      "id": "congress-record",
+      "ok": true
+    },
+    {
+      "id": "congress-summaries",
+      "ok": true
+    },
+    {
+      "id": "congress-house-votes",
+      "ok": true
+    },
+    {
+      "id": "congress-committees",
+      "ok": true
+    },
+    {
+      "id": "congress-committee-prints",
+      "ok": true
+    },
+    {
+      "id": "congress-committee-meetings",
+      "ok": true
+    },
+    {
+      "id": "congress-house-communications",
+      "ok": true
+    },
+    {
+      "id": "congress-senate-communications",
+      "ok": true
     },
     {
       "id": "openaq-api",
-      "ok": false
+      "ok": true
     },
     {
       "id": "nasa-firms",

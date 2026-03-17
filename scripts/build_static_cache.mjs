@@ -145,11 +145,17 @@ function parseJsonArray(value) {
 }
 
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
-  if (!Array.isArray(data)) return [];
-  return data.slice(0, 200).map((entry) => {
+  const rows = Array.isArray(data)
+    ? data
+    : (Array.isArray(data?.items) ? data.items : []);
+  return rows.slice(0, 200).map((entry) => {
+    const geoLat = Number(entry?.geo?.lat);
+    const geoLon = Number(entry?.geo?.lon);
     const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
     const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
+    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
+    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
     const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
     const frp = entry.frp ?? entry.fire_radiative_power;
     const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
@@ -173,8 +179,8 @@ function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
     return {
       title: entry.title || 'Fire detection',
       summary: parts.length ? parts.join(' | ') : 'Active fire detection',
-      latitude: lat,
-      longitude: lon,
+      latitude: resolvedLat,
+      longitude: resolvedLon,
       publishedAt,
       source,
       alertType: 'Fire'
@@ -523,15 +529,43 @@ async function writeJson(path, payload) {
   await writeFile(path, JSON.stringify(payload, null, 2));
 }
 
+async function loadBestFallbackPayload(feed, { allowSeededJson = false } = {}) {
+  const isRssFeed = feed.format === 'rss';
+  const liveFallback = await fetchLiveFallback(feed.id);
+  const liveUsable = isRssFeed
+    ? isUsableRssSnapshot(liveFallback)
+    : isUsableJsonSnapshot(liveFallback);
+  if (liveUsable) {
+    return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache' };
+  }
+  if (isRssFeed || allowSeededJson) {
+    const seeded = seededFeedFallbacks.get(feed.id);
+    const seededUsable = isRssFeed
+      ? isUsableRssSnapshot(seeded)
+      : isUsableJsonSnapshot(seeded);
+    if (seededUsable) {
+      return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
+    }
+  }
+  return null;
+}
+
 async function buildFeedPayload(feed) {
+  const isRssFeed = feed.format === 'rss';
+  const supportsSeededJsonFallback = SEEDED_JSON_FALLBACK_IDS.has(feed.id);
+
   if (feed.requiresConfig && !feed.url) {
     if (feed.id !== 'acled-events') {
+      const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+      if (fallback) return fallback;
       return { id: feed.id, fetchedAt: Date.now(), error: 'requires_config', message: 'Feed URL not configured.' };
     }
   }
 
   const key = feed.requiresKey ? resolveServerKey(feed)?.trim() : null;
   if (feed.requiresKey && !key) {
+    const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+    if (fallback) return fallback;
     return {
       id: feed.id,
       fetchedAt: Date.now(),
@@ -563,6 +597,8 @@ async function buildFeedPayload(feed) {
   if (feed.id === 'transport-opensky') {
     const token = await getOpenSkyToken();
     if (!token) {
+      const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+      if (fallback) return fallback;
       return {
         id: feed.id,
         fetchedAt: Date.now(),
@@ -574,7 +610,6 @@ async function buildFeedPayload(feed) {
   }
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
-  const isRssFeed = feed.format === 'rss';
   let response;
   let contentType = 'text/plain';
   let body = '';
@@ -592,23 +627,8 @@ async function buildFeedPayload(feed) {
       body = await response.text();
     }
   } catch (error) {
-    const supportsSeededJsonFallback = SEEDED_JSON_FALLBACK_IDS.has(feed.id);
-    if (isRssFeed || supportsSeededJsonFallback) {
-      const liveFallback = await fetchLiveFallback(feed.id);
-      const liveUsable = isRssFeed
-        ? isUsableRssSnapshot(liveFallback)
-        : isUsableJsonSnapshot(liveFallback);
-      if (liveUsable) {
-        return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache' };
-      }
-      const seeded = seededFeedFallbacks.get(feed.id);
-      const seededUsable = isRssFeed
-        ? isUsableRssSnapshot(seeded)
-        : isUsableJsonSnapshot(seeded);
-      if (seededUsable) {
-        return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
-      }
-    }
+    const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+    if (fallback) return fallback;
     throw error;
   }
   let payload = {
@@ -634,6 +654,9 @@ async function buildFeedPayload(feed) {
         payload.body = JSON.stringify({ items });
         payload.contentType = 'application/json';
         payload.transformed = true;
+      } else {
+        payload.error = 'empty_payload';
+        payload.message = 'NASA FIRMS returned no usable geolocated detections.';
       }
     } catch {
       // ignore
@@ -670,14 +693,17 @@ async function buildFeedPayload(feed) {
       const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
       const fallbackBody = await fallbackResponse.text();
       if (fallbackResponse.ok && fallbackBody) {
+        const items = buildNasaFirmsItems(JSON.parse(fallbackBody));
+        if (items.length) {
         payload = {
           id: feed.id,
           fetchedAt: Date.now(),
-          contentType: fallbackResponse.headers.get('content-type') || 'text/plain',
-          body: fallbackBody,
+          contentType: 'application/json',
+          body: JSON.stringify({ items }),
           httpStatus: fallbackResponse.status,
           fallback: 'VIIRS_NOAA20_NRT'
         };
+        }
       }
     } catch {
       // keep original payload
