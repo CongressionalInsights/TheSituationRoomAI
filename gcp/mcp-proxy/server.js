@@ -258,6 +258,47 @@ function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
   }).filter(Boolean);
 }
 
+async function buildArcgisFireFallback() {
+  const fireFeed = feedsConfig.feeds.find((feed) => feed.id === 'arcgis-hms-fire');
+  if (!fireFeed?.url) return null;
+  try {
+    const response = await fetchWithTimeout(fireFeed.url, {
+      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+    }, 15000);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const features = Array.isArray(data?.features) ? data.features : [];
+    const items = features.slice(0, 200).map((feature) => {
+      const props = feature.properties || {};
+      const coords = feature.geometry?.coordinates || [];
+      const lon = Number(coords[0]);
+      const lat = Number(coords[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      const publishedAt = props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now();
+      return {
+        title: props.name || props.NAME || props.fire_name || 'Fire detection',
+        summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
+        latitude: lat,
+        longitude: lon,
+        publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
+        source: 'NOAA HMS',
+        alertType: 'Fire'
+      };
+    }).filter(Boolean);
+    if (!items.length) return null;
+    return {
+      id: 'nasa-firms',
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      body: JSON.stringify({ items }),
+      httpStatus: 200,
+      fetchedUrl: fireFeed.url
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeContentType(contentType = '') {
   return String(contentType || '').toLowerCase();
 }
@@ -1537,6 +1578,21 @@ async function fetchRaw(feed, options) {
   }
 
   if (!succeeded) {
+    if (feed.id === 'nasa-firms') {
+      const fireFallback = await buildArcgisFireFallback();
+      if (fireFallback) {
+        return {
+          error: null,
+          status: 200,
+          data: {
+            body: fireFallback.body,
+            contentType: fireFallback.contentType,
+            httpStatus: fireFallback.httpStatus,
+            fetchedUrl: fireFallback.fetchedUrl || null
+          }
+        };
+      }
+    }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
       console.log(JSON.stringify({

@@ -496,6 +496,17 @@ async function fetchFeedProxyFallback(feed, { params = {} } = {}) {
   }
 }
 
+function buildFeedProxyFallbackParams(feed) {
+  if (!feed) return {};
+  if (feed.id === 'state-legislation') {
+    return {
+      jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government',
+      ...(feed.defaultParams || {})
+    };
+  }
+  return feed.defaultParams || {};
+}
+
 function isUsableRssSnapshot(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (payload.error) return false;
@@ -575,7 +586,7 @@ async function loadBestFallbackPayload(feed, { allowSeededJson = false } = {}) {
   if (liveUsable) {
     return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache' };
   }
-  const proxyFallback = await fetchFeedProxyFallback(feed, { params: feed.defaultParams || {} });
+  const proxyFallback = await fetchFeedProxyFallback(feed, { params: buildFeedProxyFallbackParams(feed) });
   const proxyUsable = isRssFeed
     ? isUsableRssSnapshot(proxyFallback)
     : isUsableJsonSnapshot(proxyFallback, feed);

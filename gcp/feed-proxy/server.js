@@ -679,6 +679,44 @@ function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
   }).filter(Boolean);
 }
 
+async function buildArcgisFireFallback() {
+  const fireFeed = feedsConfig.feeds.find((feed) => feed.id === 'arcgis-hms-fire');
+  if (!fireFeed?.url) return null;
+  try {
+    const response = await fetchWithFallbacks(fireFeed.url, { 'User-Agent': appConfig.userAgent }, [], FETCH_TIMEOUT_MS);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const features = Array.isArray(data?.features) ? data.features : [];
+    const items = features.slice(0, 200).map((feature) => {
+      const props = feature.properties || {};
+      const coords = feature.geometry?.coordinates || [];
+      const lon = Number(coords[0]);
+      const lat = Number(coords[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      const publishedAt = props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now();
+      return {
+        title: props.name || props.NAME || props.fire_name || 'Fire detection',
+        summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
+        latitude: lat,
+        longitude: lon,
+        publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
+        source: 'NOAA HMS',
+        alertType: 'Fire'
+      };
+    }).filter(Boolean);
+    if (!items.length) return null;
+    return {
+      id: 'nasa-firms',
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      body: JSON.stringify({ items }),
+      httpStatus: 200
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeContentType(contentType = '') {
   return String(contentType || '').toLowerCase();
 }
@@ -1298,6 +1336,14 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
   if (!response) {
     throw new Error('fetch_failed');
+  }
+
+  if (feed.id === 'nasa-firms' && !responseOk) {
+    const fireFallback = await buildArcgisFireFallback();
+    if (fireFallback) {
+      cache.set(cacheKey, fireFallback);
+      return fireFallback;
+    }
   }
 
   if (feed.id === 'ucdp-candidate-events' && response.ok) {
