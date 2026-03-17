@@ -31,7 +31,8 @@ export function parseCliArgs(argv = []) {
     timeoutMs: Number(process.env.SR_MONITOR_TIMEOUT_MS || 30000),
     includeDocs: true,
     includeStatic: true,
-    writeLatest: true
+    writeLatest: true,
+    allowAlerts: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -64,6 +65,9 @@ export function parseCliArgs(argv = []) {
         break;
       case '--no-write':
         options.writeLatest = false;
+        break;
+      case '--allow-alerts':
+        options.allowAlerts = true;
         break;
       default: {
         const key = flag.replace(/^--/, '');

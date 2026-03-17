@@ -1,6 +1,9 @@
+import { parseCliArgs } from './lib/client.mjs';
 import { runMonitor } from './lib/run.mjs';
 
-const report = await runMonitor('full', process.argv.slice(2));
+const argv = process.argv.slice(2);
+const options = parseCliArgs(argv);
+const report = await runMonitor('full', argv);
 console.log(JSON.stringify({
   mode: report.mode,
   generatedAt: report.generatedAt,
@@ -10,6 +13,6 @@ console.log(JSON.stringify({
   resolvedAlerts: report.deltas.resolvedAlerts.length
 }, null, 2));
 
-if (report.summary.critical > 0) {
+if (!options.allowAlerts && report.summary.critical > 0) {
   process.exitCode = 1;
 }

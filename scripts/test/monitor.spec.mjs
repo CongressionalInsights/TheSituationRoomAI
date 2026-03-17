@@ -7,6 +7,7 @@ import {
   buildDefaultSampleParams,
   resolveMonitoringEntry
 } from '../../analysis/monitor/lib/catalog.mjs';
+import { parseCliArgs } from '../../analysis/monitor/lib/client.mjs';
 import {
   normalizeDocText,
   extractDatedEntries,
@@ -35,6 +36,11 @@ function buildContext(entry, proxySummary, signalSummary = { error: null, items:
     signalSummary
   };
 }
+
+test('CLI can allow alerts without failing workflow runs', () => {
+  assert.equal(parseCliArgs([]).allowAlerts, false);
+  assert.equal(parseCliArgs(['--allow-alerts']).allowAlerts, true);
+});
 
 test('monitoring entry derives defaults for feeds without explicit overrides', () => {
   const feed = {
