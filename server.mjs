@@ -1017,6 +1017,19 @@ function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
   }).filter(Boolean);
 }
 
+function looksLikeHtmlDocument(text = '') {
+  const sample = String(text || '').slice(0, 2048).trim().toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith('<!doctype html')
+    || sample.startsWith('<html')
+    || sample.includes('<html')
+    || sample.includes('<body');
+}
+
+function isJsonHtmlError(contentType = '', body = '') {
+  return String(contentType || '').toLowerCase().includes('html') || looksLikeHtmlDocument(body);
+}
+
 function isStateConnectorFeed(feed) {
   return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
 }
@@ -1184,13 +1197,14 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
 
 function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
-  if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') return process.env.EIA;
-  if (feed.keyGroup === 'openstates') return process.env.OPENSTATES;
-  if (feed.keyGroup === 'earthdata') return process.env.EARTHDATA_NASA;
-  if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
-  if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
-  return null;
+  let value = null;
+  if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
+  if (feed.keyGroup === 'eia') value = process.env.EIA;
+  if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
+  if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
+  if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
+  return typeof value === 'string' ? value.trim() : (value || null);
 }
 
 async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS) {
@@ -1408,6 +1422,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   if (!response.ok) {
     payload.error = `http_${response.status}`;
     payload.message = `HTTP ${response.status}`;
+  } else if (feed.format === 'json' && isJsonHtmlError(contentType, body)) {
+    payload.error = 'invalid_html';
+    payload.message = 'Upstream returned HTML instead of JSON.';
   }
   if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
     try {

@@ -149,13 +149,14 @@ function readBody(req) {
 
 function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
-  if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') return process.env.EIA;
-  if (feed.keyGroup === 'openstates') return process.env.OPENSTATES;
-  if (feed.keyGroup === 'earthdata') return process.env.EARTHDATA_NASA;
-  if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
-  if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
-  return null;
+  let value = null;
+  if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
+  if (feed.keyGroup === 'eia') value = process.env.EIA;
+  if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
+  if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
+  if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
+  return typeof value === 'string' ? value.trim() : (value || null);
 }
 
 function formatIsoDate(value) {
@@ -689,6 +690,10 @@ function looksLikeHtmlDocument(text = '') {
     || sample.startsWith('<html')
     || sample.includes('<html')
     || sample.includes('<body');
+}
+
+function isJsonHtmlError(contentType = '', body = '') {
+  return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
 function looksLikeXmlFeed(text = '') {
@@ -1233,6 +1238,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         // ignore JSON parsing failures
       }
     }
+    if (feed.format === 'json' && responseOk && isJsonHtmlError(contentType, body)) {
+      responseOk = false;
+    }
     if (feed.id === 'nasa-firms' && responseOk && typeof body === 'string' && contentType.includes('json')) {
       try {
         const items = buildNasaFirmsItems(JSON.parse(body));
@@ -1324,6 +1332,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   if (!response.ok) {
     payload.error = `http_${response.status}`;
     payload.message = `HTTP ${response.status}`;
+  } else if (feed.format === 'json' && isJsonHtmlError(contentType, body)) {
+    payload.error = 'invalid_html';
+    payload.message = 'Upstream returned HTML instead of JSON.';
   } else if (isRssFeed && !responseOk) {
     payload.error = 'invalid_rss';
     payload.message = 'Upstream response was not valid RSS/Atom XML.';

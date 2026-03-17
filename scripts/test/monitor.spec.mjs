@@ -78,6 +78,14 @@ test('monitoring entry honors audit exclusions and per-feed timeout overrides', 
   assert.equal(entry.timeoutMs, 45000);
 });
 
+test('feed proxy deploy workflow injects OpenSky credentials', () => {
+  const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-feed-proxy.yml'), 'utf8');
+  assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);
+  assert.match(workflow, /OPENSKY_CLIENTSECRET:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTSECRET\s*\}\}/);
+  assert.match(workflow, /OPENSKY_CLIENTID=opensky-clientid:latest/);
+  assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
+});
+
 test('document helpers normalize content, extract dates, and classify contract changes', () => {
   const html = fixture('docs-contract.html');
   const normalized = normalizeDocText(html, 'text/html');
@@ -168,6 +176,28 @@ test('deep-core invariants pass on valid fixtures and fail on state mismatch', (
     httpStatus: 200
   }, {});
   assert.equal(evaluateInvariant('nws-alert-geometry', buildContext(nwsEntry, nwsSummary)), null);
+
+  const nasaFeed = { id: 'nasa-firms', format: 'json' };
+  const nasaEntry = { id: 'nasa-firms', tier: 'core', sampleParams: {} };
+  const nasaSummary = summarizeProxyPayload(nasaFeed, {
+    body: JSON.stringify({
+      items: [
+        {
+          title: 'Fire detection',
+          geo: { lat: 34.1, lon: -118.2 },
+          publishedAt: '2026-03-15T12:00:00Z'
+        }
+      ]
+    }),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(evaluateInvariant('geo-coordinates', buildContext(nasaEntry, nasaSummary, {
+    error: null,
+    count: 1,
+    items: [{ geo: { lat: 34.1, lon: -118.2 }, publishedAt: '2026-03-15T12:00:00Z' }],
+    newestTimestamp: Date.parse('2026-03-15T12:00:00Z')
+  })), null);
 
   const stateSignals = parseFixture('state-legislation-signals.json').items;
   const stateEntry = {

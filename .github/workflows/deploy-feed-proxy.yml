@@ -43,6 +43,8 @@ jobs:
           OPEN_AQ: ${{ secrets.OPEN_AQ }}
           OPENSTATES: ${{ secrets.OPENSTATES }}
           EARTHDATA_NASA: ${{ secrets.EARTHDATA_NASA }}
+          OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
+          OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
           SAMGOV_API_KEY: ${{ secrets.SAMGOV_API_KEY }}
           STATE_CONNECTOR_API_KEY: ${{ secrets.STATE_CONNECTOR_API_KEY }}
         run: |
@@ -64,6 +66,12 @@ jobs:
           if ! gcloud secrets describe earthdata-nasa-key --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create earthdata-nasa-key --replication-policy=automatic
           fi
+          if ! gcloud secrets describe opensky-clientid --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create opensky-clientid --replication-policy=automatic
+          fi
+          if ! gcloud secrets describe opensky-clientsecret --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud secrets create opensky-clientsecret --replication-policy=automatic
+          fi
           if ! gcloud secrets describe samgov-key --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create samgov-key --replication-policy=automatic
           fi
@@ -76,6 +84,8 @@ jobs:
           if [ -n "$OPEN_AQ" ]; then echo -n "$OPEN_AQ" | gcloud secrets versions add openaq-key --data-file=-; fi
           if [ -n "$OPENSTATES" ]; then echo -n "$OPENSTATES" | gcloud secrets versions add openstates-key --data-file=-; fi
           if [ -n "$EARTHDATA_NASA" ]; then echo -n "$EARTHDATA_NASA" | gcloud secrets versions add earthdata-nasa-key --data-file=-; fi
+          if [ -n "$OPENSKY_CLIENTID" ]; then echo -n "$OPENSKY_CLIENTID" | gcloud secrets versions add opensky-clientid --data-file=-; fi
+          if [ -n "$OPENSKY_CLIENTSECRET" ]; then echo -n "$OPENSKY_CLIENTSECRET" | gcloud secrets versions add opensky-clientsecret --data-file=-; fi
           if [ -n "$SAMGOV_API_KEY" ]; then echo -n "$SAMGOV_API_KEY" | gcloud secrets versions add samgov-key --data-file=-; fi
           if [ -n "$STATE_CONNECTOR_API_KEY" ]; then echo -n "$STATE_CONNECTOR_API_KEY" | gcloud secrets versions add state-connector-key --data-file=-; fi
       - name: Deploy feed proxy service
@@ -86,7 +96,7 @@ jobs:
           STATE_CONNECTOR_BASE_URL: "${STATE_CONNECTOR_BASE_URL}"
           STATE_CONNECTOR_KEY_HEADER: "${STATE_CONNECTOR_KEY_HEADER}"
           EOF
-          SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,SAMGOV_API_KEY=samgov-key:latest"
+          SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,OPENSKY_CLIENTID=opensky-clientid:latest,OPENSKY_CLIENTSECRET=opensky-clientsecret:latest,SAMGOV_API_KEY=samgov-key:latest"
           OPENSTATES_VERSION=$(gcloud secrets versions list openstates-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
           if [ -n "$OPENSTATES_VERSION" ]; then
             SECRET_BINDINGS="${SECRET_BINDINGS},OPENSTATES=openstates-key:latest"

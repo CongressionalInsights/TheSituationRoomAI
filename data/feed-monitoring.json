@@ -93,7 +93,7 @@
     "docsUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://earthquake.usgs.gov/fdsnws/event/1/",
+    "supportUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "freshnessWindowMinutes": 60,
     "sampleParams": {},
     "invariants": [
@@ -111,7 +111,7 @@
     "docsUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://earthquake.usgs.gov/fdsnws/event/1/",
+    "supportUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "freshnessWindowMinutes": 180,
     "sampleParams": {},
     "invariants": [
@@ -141,10 +141,10 @@
   },
   "swpc-json": {
     "tier": "standard",
-    "docsUrl": "https://services.swpc.noaa.gov/json/",
+    "docsUrl": "https://www.swpc.noaa.gov/products-and-data",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://services.swpc.noaa.gov/products/",
+    "supportUrl": "https://www.swpc.noaa.gov/products-and-data",
     "freshnessWindowMinutes": 90,
     "sampleParams": {},
     "invariants": [
@@ -157,10 +157,10 @@
   },
   "swpc-kp": {
     "tier": "standard",
-    "docsUrl": "https://services.swpc.noaa.gov/json/",
+    "docsUrl": "https://www.swpc.noaa.gov/products-and-data",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://services.swpc.noaa.gov/products/",
+    "supportUrl": "https://www.swpc.noaa.gov/products-and-data",
     "freshnessWindowMinutes": 90,
     "sampleParams": {},
     "invariants": [
@@ -523,7 +523,7 @@
     "docsUrl": "https://docs.openstates.org/api-v3/",
     "changelogUrl": "https://docs.openstates.org/api-v3/changelog/",
     "statusUrl": null,
-    "supportUrl": "https://github.com/openstates/openstates/issues",
+    "supportUrl": "https://docs.openstates.org/api-v3/",
     "freshnessWindowMinutes": 360,
     "sampleParams": {
       "jurisdiction": "ocd-jurisdiction/country:us/state:ny/government",

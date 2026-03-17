@@ -11,6 +11,8 @@ const LIVE_BASE = process.env.SR_LIVE_BASE
   || (process.env.GITHUB_REPOSITORY
     ? `https://${process.env.GITHUB_REPOSITORY.split('/')[0].toLowerCase()}.github.io/${process.env.GITHUB_REPOSITORY.split('/')[1]}`
     : DEFAULT_LIVE_BASE);
+const DEFAULT_FEED_PROXY_BASE = 'https://situation-room-feed-382918878290.us-central1.run.app';
+const FEED_PROXY_BASE = process.env.SR_FEED_PROXY_BASE || DEFAULT_FEED_PROXY_BASE;
 const OPENSKY_CLIENTID = process.env.OPENSKY_CLIENTID;
 const OPENSKY_CLIENTSECRET = process.env.OPENSKY_CLIENTSECRET;
 const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
@@ -95,11 +97,18 @@ function buildFetchCandidates(url, proxies = [], { includeHttpFallback = true } 
 
 function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
-  if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') return process.env.EIA;
-  if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
-  if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
-  return null;
+  let value = null;
+  if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
+  if (feed.keyGroup === 'eia') value = process.env.EIA;
+  if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
+  if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
+  if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
+  return typeof value === 'string' ? value.trim() : (value || null);
+}
+
+function isJsonHtmlError(contentType = '', body = '') {
+  return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
 function applyKey(url, feed, key) {
@@ -463,6 +472,30 @@ async function fetchLiveFallback(feedId) {
   }
 }
 
+async function fetchFeedProxyFallback(feed, { params = {} } = {}) {
+  if (!FEED_PROXY_BASE || !feed?.id) return null;
+  try {
+    const response = await fetchWithTimeout(`${FEED_PROXY_BASE}/api/feed`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': appConfig.userAgent
+      },
+      body: JSON.stringify({
+        id: feed.id,
+        force: true,
+        ...(params && Object.keys(params).length ? { params } : {})
+      })
+    }, 15000);
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return payload && !payload.error ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 function isUsableRssSnapshot(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (payload.error) return false;
@@ -470,12 +503,16 @@ function isUsableRssSnapshot(payload) {
   return isLikelyRssPayload(payload.contentType || '', payload.body);
 }
 
-function isUsableJsonSnapshot(payload) {
+function isUsableJsonSnapshot(payload, feed = null) {
   if (!payload || typeof payload !== 'object') return false;
   if (payload.error) return false;
   if (!payload.body) return false;
+  if (isJsonHtmlError(payload.contentType || '', payload.body)) return false;
   try {
-    JSON.parse(payload.body);
+    const parsed = JSON.parse(payload.body);
+    if (feed?.id === 'nasa-firms') {
+      return buildNasaFirmsItems(parsed).length > 0;
+    }
     return true;
   } catch {
     return false;
@@ -492,7 +529,7 @@ async function loadSeedFeedFallbacks() {
       const payload = JSON.parse(await readFile(filePath, 'utf8'));
       const usable = shouldSeedRss
         ? isUsableRssSnapshot(payload)
-        : isUsableJsonSnapshot(payload);
+        : isUsableJsonSnapshot(payload, feed);
       if (usable) {
         seededFeedFallbacks.set(feed.id, payload);
       }
@@ -534,15 +571,22 @@ async function loadBestFallbackPayload(feed, { allowSeededJson = false } = {}) {
   const liveFallback = await fetchLiveFallback(feed.id);
   const liveUsable = isRssFeed
     ? isUsableRssSnapshot(liveFallback)
-    : isUsableJsonSnapshot(liveFallback);
+    : isUsableJsonSnapshot(liveFallback, feed);
   if (liveUsable) {
     return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache' };
+  }
+  const proxyFallback = await fetchFeedProxyFallback(feed, { params: feed.defaultParams || {} });
+  const proxyUsable = isRssFeed
+    ? isUsableRssSnapshot(proxyFallback)
+    : isUsableJsonSnapshot(proxyFallback, feed);
+  if (proxyUsable) {
+    return { ...proxyFallback, fetchedAt: Date.now(), stale: true, fallback: 'feed-proxy' };
   }
   if (isRssFeed || allowSeededJson) {
     const seeded = seededFeedFallbacks.get(feed.id);
     const seededUsable = isRssFeed
       ? isUsableRssSnapshot(seeded)
-      : isUsableJsonSnapshot(seeded);
+      : isUsableJsonSnapshot(seeded, feed);
     if (seededUsable) {
       return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
     }
@@ -562,10 +606,14 @@ async function buildFeedPayload(feed) {
     }
   }
 
-  const key = feed.requiresKey ? resolveServerKey(feed)?.trim() : null;
+  const key = feed.requiresKey ? resolveServerKey(feed) : null;
   if (feed.requiresKey && !key) {
     const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
     if (fallback) return fallback;
+    if (feed.id === 'nasa-firms') {
+      const fireFallback = await buildArcgisFireFallback();
+      if (fireFallback) return fireFallback;
+    }
     return {
       id: feed.id,
       fetchedAt: Date.now(),
@@ -644,6 +692,9 @@ async function buildFeedPayload(feed) {
   } else if (isRssFeed && !rssValid) {
     payload.error = 'invalid_rss';
     payload.message = 'Upstream response was not valid RSS/Atom XML.';
+  } else if (feed.format === 'json' && isJsonHtmlError(contentType, body)) {
+    payload.error = 'invalid_html';
+    payload.message = 'Upstream returned HTML instead of JSON.';
   }
 
   if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
@@ -659,7 +710,8 @@ async function buildFeedPayload(feed) {
         payload.message = 'NASA FIRMS returned no usable geolocated detections.';
       }
     } catch {
-      // ignore
+      payload.error = 'invalid_json';
+      payload.message = 'NASA FIRMS returned invalid JSON.';
     }
   }
 

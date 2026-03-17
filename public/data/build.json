@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-03-17T14:56:50.044Z",
+  "generatedAt": "2026-03-17T16:37:48.950Z",
   "feeds": [
     {
       "id": "gdelt-doc",
-      "ok": true
+      "ok": false
     },
     {
       "id": "google-news-us",
@@ -39,7 +39,7 @@
     },
     {
       "id": "nws-alerts",
-      "ok": false
+      "ok": true
     },
     {
       "id": "usgs-quakes-hour",
@@ -115,15 +115,15 @@
     },
     {
       "id": "energy-eia",
-      "ok": false
+      "ok": true
     },
     {
       "id": "energy-eia-brent",
-      "ok": false
+      "ok": true
     },
     {
       "id": "energy-eia-ng",
-      "ok": false
+      "ok": true
     },
     {
       "id": "eia-today",
@@ -303,7 +303,7 @@
     },
     {
       "id": "state-legislation",
-      "ok": false
+      "ok": true
     },
     {
       "id": "state-rulemaking",
@@ -383,7 +383,7 @@
     },
     {
       "id": "nasa-firms",
-      "ok": false
+      "ok": true
     }
   ]
 }

@@ -193,13 +193,14 @@ function stripSecretsFromUrl(rawUrl) {
 
 function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
-  if (feed.keyGroup === 'api.data.gov') return process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') return process.env.EIA;
-  if (feed.keyGroup === 'openstates') return process.env.OPENSTATES;
-  if (feed.keyGroup === 'earthdata') return process.env.EARTHDATA_NASA;
-  if (feed.id === 'openaq-api') return process.env.OPEN_AQ;
-  if (feed.id === 'nasa-firms') return process.env.NASA_FIRMS;
-  return null;
+  let value = null;
+  if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
+  if (feed.keyGroup === 'eia') value = process.env.EIA;
+  if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
+  if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
+  if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
+  return typeof value === 'string' ? value.trim() : (value || null);
 }
 
 function applyProxy(url, proxy) {
@@ -268,6 +269,10 @@ function looksLikeHtmlDocument(text = '') {
     || sample.startsWith('<html')
     || sample.includes('<html')
     || sample.includes('<body');
+}
+
+function isJsonHtmlError(contentType = '', body = '') {
+  return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
 function looksLikeXmlFeed(text = '') {
@@ -1471,6 +1476,15 @@ async function fetchRaw(feed, options) {
       body = await response.text();
       responseHeaders = extractSafeResponseHeaders(response.headers);
       if (response.ok) {
+        if (feed.format === 'json' && isJsonHtmlError(response.headers.get('content-type') || '', body)) {
+          lastError = {
+            error: 'invalid_response',
+            httpStatus: response.status,
+            message: 'Upstream returned HTML instead of JSON.',
+            body
+          };
+          continue;
+        }
         if (feed.id === 'nasa-firms' && normalizeContentType(response.headers.get('content-type')).includes('json')) {
           try {
             const items = buildNasaFirmsItems(JSON.parse(body));
