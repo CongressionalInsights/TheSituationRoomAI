@@ -1,4 +1,5 @@
 import http from 'http';
+import { pathToFileURL } from 'url';
 
 const PORT = process.env.PORT || 8080;
 const OPENSKY_BASE = 'https://opensky-network.org/api';
@@ -140,18 +141,98 @@ function resolveEndpoint(pathname) {
   return null;
 }
 
-async function proxyOpenSky(req, res, origin) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+export function buildOpenSkyCandidates(reqUrl, token) {
+  const url = new URL(reqUrl, 'http://localhost');
   const endpoint = resolveEndpoint(url.pathname);
-  if (!endpoint) {
-    return sendJson(res, 404, { error: 'not_found' }, origin);
-  }
+  if (!endpoint) return null;
+
   const requestedUrl = new URL(`${OPENSKY_BASE}${endpoint}${url.search}`);
   const boundedUrl = new URL(requestedUrl.toString());
   if (url.pathname === '/api/opensky/states') {
     for (const [key, value] of Object.entries(DEFAULT_STATES_BBOX)) {
       if (!boundedUrl.searchParams.get(key)) boundedUrl.searchParams.set(key, value);
     }
+  }
+
+  const candidates = [
+    {
+      label: 'bounded-anonymous',
+      targetUrl: boundedUrl.toString(),
+      headers: {},
+      timeoutMs: BOUNDED_TIMEOUT_MS
+    },
+    {
+      label: 'requested-anonymous',
+      targetUrl: requestedUrl.toString(),
+      headers: {},
+      timeoutMs: REQUESTED_TIMEOUT_MS
+    }
+  ];
+  if (token) {
+    candidates.push({
+      label: 'requested-authenticated',
+      targetUrl: requestedUrl.toString(),
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      timeoutMs: AUTH_TIMEOUT_MS
+    });
+  }
+  return candidates;
+}
+
+export async function executeOpenSkyCandidates(candidates, {
+  fetchUpstream,
+  now = () => Date.now(),
+  logAttempt = logUpstreamAttempt
+}) {
+  const attempts = [];
+  let response = null;
+  let selectedAttempt = null;
+
+  for (const candidate of candidates) {
+    const startedAt = now();
+    try {
+      const attemptResponse = await fetchUpstream(candidate.targetUrl, candidate.headers, candidate.timeoutMs);
+      const attemptInfo = {
+        label: candidate.label,
+        targetUrl: candidate.targetUrl,
+        authenticated: Boolean(candidate.headers.Authorization),
+        timeoutMs: candidate.timeoutMs,
+        durationMs: now() - startedAt,
+        status: attemptResponse.status,
+        ok: attemptResponse.ok
+      };
+      attempts.push(attemptInfo);
+      logAttempt(attemptInfo);
+      if (attemptResponse.ok) {
+        response = attemptResponse;
+        selectedAttempt = attemptInfo;
+        break;
+      }
+    } catch (error) {
+      const details = buildErrorDetails(error, candidate.timeoutMs);
+      const attemptInfo = {
+        label: candidate.label,
+        targetUrl: candidate.targetUrl,
+        authenticated: Boolean(candidate.headers.Authorization),
+        timeoutMs: candidate.timeoutMs,
+        durationMs: now() - startedAt,
+        ok: false,
+        ...details
+      };
+      attempts.push(attemptInfo);
+      logAttempt(attemptInfo);
+    }
+  }
+
+  return { attempts, response, selectedAttempt };
+}
+
+async function proxyOpenSky(req, res, origin) {
+  const candidates = buildOpenSkyCandidates(req.url, await getToken());
+  if (!candidates) {
+    return sendJson(res, 404, { error: 'not_found' }, origin);
   }
 
   async function fetchUpstream(targetUrl, headers, timeoutMs) {
@@ -164,70 +245,7 @@ async function proxyOpenSky(req, res, origin) {
   }
 
   try {
-    const token = await getToken();
-    const attempts = [];
-    const candidates = [
-      {
-        label: 'bounded-anonymous',
-        targetUrl: boundedUrl.toString(),
-        headers: {},
-        timeoutMs: BOUNDED_TIMEOUT_MS
-      },
-      {
-        label: 'requested-anonymous',
-        targetUrl: requestedUrl.toString(),
-        headers: {},
-        timeoutMs: REQUESTED_TIMEOUT_MS
-      }
-    ];
-    if (token) {
-      candidates.push({
-        label: 'requested-authenticated',
-        targetUrl: requestedUrl.toString(),
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        timeoutMs: AUTH_TIMEOUT_MS
-      });
-    }
-
-    let response = null;
-    let selectedAttempt = null;
-    for (const candidate of candidates) {
-      const startedAt = Date.now();
-      try {
-        const attemptResponse = await fetchUpstream(candidate.targetUrl, candidate.headers, candidate.timeoutMs);
-        const attemptInfo = {
-          label: candidate.label,
-          targetUrl: candidate.targetUrl,
-          authenticated: Boolean(candidate.headers.Authorization),
-          timeoutMs: candidate.timeoutMs,
-          durationMs: Date.now() - startedAt,
-          status: attemptResponse.status,
-          ok: attemptResponse.ok
-        };
-        attempts.push(attemptInfo);
-        logUpstreamAttempt(attemptInfo);
-        if (attemptResponse.ok) {
-          response = attemptResponse;
-          selectedAttempt = attemptInfo;
-          break;
-        }
-      } catch (error) {
-        const details = buildErrorDetails(error, candidate.timeoutMs);
-        const attemptInfo = {
-          label: candidate.label,
-          targetUrl: candidate.targetUrl,
-          authenticated: Boolean(candidate.headers.Authorization),
-          timeoutMs: candidate.timeoutMs,
-          durationMs: Date.now() - startedAt,
-          ok: false,
-          ...details
-        };
-        attempts.push(attemptInfo);
-        logUpstreamAttempt(attemptInfo);
-      }
-    }
+    const { attempts, response, selectedAttempt } = await executeOpenSkyCandidates(candidates, { fetchUpstream });
     if (!response) {
       return sendJson(res, 502, {
         error: 'proxy_error',
@@ -270,6 +288,8 @@ const server = http.createServer(async (req, res) => {
   return sendJson(res, 404, { error: 'not_found' }, origin);
 });
 
-server.listen(PORT, () => {
-  console.log(`OpenSky proxy listening on ${PORT}`);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  server.listen(PORT, () => {
+    console.log(`OpenSky proxy listening on ${PORT}`);
+  });
+}
