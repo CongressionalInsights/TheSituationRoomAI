@@ -61,30 +61,41 @@ async function getToken() {
   if (tokenInFlight) return tokenInFlight;
 
   tokenInFlight = (async () => {
-    const body = new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET
-    });
-    const response = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString()
-    });
-    if (!response.ok) {
+    try {
+      const body = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET
+      });
+      const response = await fetch(TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      });
+      if (!response.ok) {
+        tokenInFlight = null;
+        return null;
+      }
+      const data = await response.json();
+      if (!data?.access_token) {
+        tokenInFlight = null;
+        return null;
+      }
+      const ttl = Number(data.expires_in) || 1800;
+      tokenCache = data.access_token;
+      tokenExpiresAt = Date.now() + Math.max(60, ttl - 60) * 1000;
+      tokenInFlight = null;
+      return tokenCache;
+    } catch (error) {
+      console.log(JSON.stringify({
+        severity: 'ERROR',
+        message: 'opensky_token_fetch_failed',
+        error: error?.message || 'fetch failed',
+        code: error?.code || null
+      }));
       tokenInFlight = null;
       return null;
     }
-    const data = await response.json();
-    if (!data?.access_token) {
-      tokenInFlight = null;
-      return null;
-    }
-    const ttl = Number(data.expires_in) || 1800;
-    tokenCache = data.access_token;
-    tokenExpiresAt = Date.now() + Math.max(60, ttl - 60) * 1000;
-    tokenInFlight = null;
-    return tokenCache;
   })();
 
   return tokenInFlight;
