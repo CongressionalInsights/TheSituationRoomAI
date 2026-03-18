@@ -121,8 +121,8 @@ jobs:
           SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
           echo "Feed proxy URL: ${SERVICE_URL}"
           curl -fsS "${SERVICE_URL}/health" >/dev/null
-          FEED_RESP=$(curl -s -X POST "${SERVICE_URL}/api/feed" -H "Content-Type: application/json" -d '{"id":"gdelt-doc"}')
-          node -e 'const data = JSON.parse(process.argv[1]); const ok = !!data.body && (!data.error || data.error === "http_429"); if (!ok) { console.error(data); process.exit(1); }' "$FEED_RESP"
+          FEED_RESP=$(curl -s -X POST "${SERVICE_URL}/api/feed" -H "Content-Type: application/json" -d '{"id":"federal-register"}')
+          node -e 'const data = JSON.parse(process.argv[1]); if (data.error || !data.body) { console.error(data); process.exit(1); } const parsed = JSON.parse(data.body); if (!Array.isArray(parsed.items) || parsed.items.length === 0) { console.error(parsed); process.exit(1); }' "$FEED_RESP"
           CONGRESS_RESP=$(curl -s -X POST "${SERVICE_URL}/api/feed" -H "Content-Type: application/json" -d '{"id":"congress-api"}')
           node -e 'const data = JSON.parse(process.argv[1]); if (data.error || !data.body) { console.error(data); process.exit(1); }' "$CONGRESS_RESP"
       - name: Run core sentinel after feed deploy
