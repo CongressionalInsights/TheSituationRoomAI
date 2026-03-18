@@ -116,15 +116,19 @@ export function collectDocumentSurfaces(entries) {
         surfaceType,
         url,
         feedIds: [],
-        tiers: {}
+        tiers: {},
+        acceptedHashes: []
       };
       existing.feedIds.push(entry.id);
       existing.tiers[entry.id] = entry.tier;
+      const acceptedHash = entry.acceptedSurfaceHashes?.[surfaceType]?.[url];
+      if (acceptedHash) existing.acceptedHashes.push(acceptedHash);
       surfaces.set(key, existing);
     }
   }
   return [...surfaces.values()].map((surface) => ({
     ...surface,
+    acceptedHashes: [...new Set(surface.acceptedHashes.filter(Boolean))],
     representativeFeedId: pickRepresentativeFeedId(surface)
   }));
 }
@@ -165,13 +169,18 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
         generatedAt: new Date().toISOString()
       };
       const previous = previousDocs[surface.key] || null;
+      const accepted = response.ok && Array.isArray(surface.acceptedHashes) && current.hash
+        ? surface.acceptedHashes.includes(current.hash)
+        : false;
       const classification = response.ok
-        ? classifyDocChange({
-          previous,
-          current,
-          surfaceType: surface.surfaceType,
-          tier: surface.feedIds.some((feedId) => surface.tiers[feedId] === 'core') ? 'core' : 'standard'
-        })
+        ? (accepted
+            ? null
+            : classifyDocChange({
+              previous,
+              current,
+              surfaceType: surface.surfaceType,
+              tier: surface.feedIds.some((feedId) => surface.tiers[feedId] === 'core') ? 'core' : 'standard'
+            }))
         : {
           regressionClass: 'docs-fetch-failed',
           severity: surface.feedIds.some((feedId) => surface.tiers[feedId] === 'core') ? 'warning' : 'info',
@@ -180,6 +189,7 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
       results.push({
         ...current,
         changed: Boolean(classification),
+        acceptedBaseline: accepted,
         classification
       });
     }

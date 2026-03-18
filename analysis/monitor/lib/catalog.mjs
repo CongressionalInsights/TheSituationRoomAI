@@ -106,6 +106,9 @@ export function resolveMonitoringEntry(feed, override = {}, appConfig = {}) {
     supportUrl: Object.prototype.hasOwnProperty.call(override, 'supportUrl')
       ? override.supportUrl
       : null,
+    acceptedSurfaceHashes: override.acceptedSurfaceHashes && typeof override.acceptedSurfaceHashes === 'object'
+      ? override.acceptedSurfaceHashes
+      : {},
     freshnessWindowMinutes: Number(override.freshnessWindowMinutes || deriveFreshnessWindowMinutes(feed, appConfig)),
     sampleParams: {
       ...buildDefaultSampleParams(feed),

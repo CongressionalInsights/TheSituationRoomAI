@@ -78,6 +78,25 @@ test('monitoring entry honors audit exclusions and per-feed timeout overrides', 
   assert.equal(entry.timeoutMs, 45000);
 });
 
+test('monitoring entry carries accepted doc surface hashes into document surfaces', () => {
+  const entry = resolveMonitoringEntry({
+    id: 'cisa-kev',
+    name: 'CISA KEV',
+    category: 'cyber',
+    format: 'json',
+    ttlMinutes: 60
+  }, {
+    docsUrl: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+    acceptedSurfaceHashes: {
+      docs: {
+        'https://www.cisa.gov/known-exploited-vulnerabilities-catalog': 'abc123'
+      }
+    }
+  }, { defaultRefreshMinutes: 60 });
+  const surfaces = collectDocumentSurfaces([entry]);
+  assert.deepEqual(surfaces[0].acceptedHashes, ['abc123']);
+});
+
 test('feed proxy deploy workflow injects OpenSky credentials', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-feed-proxy.yml'), 'utf8');
   assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);
@@ -92,6 +111,12 @@ test('mcp proxy deploy workflow injects OpenSky credentials', () => {
   assert.match(workflow, /OPENSKY_CLIENTSECRET:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTSECRET\s*\}\}/);
   assert.match(workflow, /OPENSKY_CLIENTID=opensky-clientid:latest/);
   assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
+});
+
+test('pages deploy workflow validates required static build secrets', () => {
+  const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-pages.yml'), 'utf8');
+  assert.match(workflow, /Missing required secret: EIA/);
+  assert.match(workflow, /Missing required secret: OPENSTATES/);
 });
 
 test('document helpers normalize content, extract dates, and classify contract changes', () => {

@@ -1326,6 +1326,7 @@ function parseGenericJsonFeed(data, feed) {
     const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
     const published = entry.publishedAt
       || entry.pubDate
+      || (isEonetEvent ? (latestEonetGeometry?.date || '') : '')
       || entry.date
       || entry.lastModified
       || entry.dateIssued
