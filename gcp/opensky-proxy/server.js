@@ -9,6 +9,10 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://congressionalin
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const TOKEN_TIMEOUT_MS = Number(process.env.OPENSKY_TOKEN_TIMEOUT_MS || 4000);
+const BOUNDED_TIMEOUT_MS = Number(process.env.OPENSKY_BOUNDED_TIMEOUT_MS || 5000);
+const REQUESTED_TIMEOUT_MS = Number(process.env.OPENSKY_REQUESTED_TIMEOUT_MS || 5000);
+const AUTH_TIMEOUT_MS = Number(process.env.OPENSKY_AUTH_TIMEOUT_MS || 6000);
 const DEFAULT_STATES_BBOX = {
   lamin: '46.5',
   lamax: '49.9',
@@ -55,6 +59,30 @@ function logUpstreamAttempt(attempt) {
   }));
 }
 
+function buildErrorDetails(error, timeoutMs = 0) {
+  const message = error?.message || 'fetch failed';
+  const code = error?.code || error?.cause?.code || null;
+  const timedOut = message === 'This operation was aborted' || code === 'ABORT_ERR';
+  return {
+    error: timedOut ? `timeout after ${timeoutMs}ms` : message,
+    code: timedOut ? 'TIMEOUT' : code,
+    timedOut
+  };
+}
+
+async function fetchWithTimeout(targetUrl, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(targetUrl, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function getToken() {
   if (!CLIENT_ID || !CLIENT_SECRET) return null;
   if (tokenCache && Date.now() < tokenExpiresAt) return tokenCache;
@@ -67,11 +95,11 @@ async function getToken() {
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET
       });
-      const response = await fetch(TOKEN_URL, {
+      const response = await fetchWithTimeout(TOKEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString()
-      });
+      }, TOKEN_TIMEOUT_MS);
       if (!response.ok) {
         tokenInFlight = null;
         return null;
@@ -87,11 +115,12 @@ async function getToken() {
       tokenInFlight = null;
       return tokenCache;
     } catch (error) {
+      const details = buildErrorDetails(error, TOKEN_TIMEOUT_MS);
       console.log(JSON.stringify({
         severity: 'ERROR',
         message: 'opensky_token_fetch_failed',
-        error: error?.message || 'fetch failed',
-        code: error?.code || null
+        timeoutMs: TOKEN_TIMEOUT_MS,
+        ...details
       }));
       tokenInFlight = null;
       return null;
@@ -125,13 +154,13 @@ async function proxyOpenSky(req, res, origin) {
     }
   }
 
-  async function fetchUpstream(targetUrl, headers) {
-    return fetch(targetUrl, {
+  async function fetchUpstream(targetUrl, headers, timeoutMs) {
+    return fetchWithTimeout(targetUrl, {
       headers: {
         'Accept': 'application/json',
         ...headers
       }
-    });
+    }, timeoutMs);
   }
 
   try {
@@ -141,12 +170,14 @@ async function proxyOpenSky(req, res, origin) {
       {
         label: 'bounded-anonymous',
         targetUrl: boundedUrl.toString(),
-        headers: {}
+        headers: {},
+        timeoutMs: BOUNDED_TIMEOUT_MS
       },
       {
         label: 'requested-anonymous',
         targetUrl: requestedUrl.toString(),
-        headers: {}
+        headers: {},
+        timeoutMs: REQUESTED_TIMEOUT_MS
       }
     ];
     if (token) {
@@ -155,19 +186,23 @@ async function proxyOpenSky(req, res, origin) {
         targetUrl: requestedUrl.toString(),
         headers: {
           'Authorization': `Bearer ${token}`
-        }
+        },
+        timeoutMs: AUTH_TIMEOUT_MS
       });
     }
 
     let response = null;
     let selectedAttempt = null;
     for (const candidate of candidates) {
+      const startedAt = Date.now();
       try {
-        const attemptResponse = await fetchUpstream(candidate.targetUrl, candidate.headers);
+        const attemptResponse = await fetchUpstream(candidate.targetUrl, candidate.headers, candidate.timeoutMs);
         const attemptInfo = {
           label: candidate.label,
           targetUrl: candidate.targetUrl,
           authenticated: Boolean(candidate.headers.Authorization),
+          timeoutMs: candidate.timeoutMs,
+          durationMs: Date.now() - startedAt,
           status: attemptResponse.status,
           ok: attemptResponse.ok
         };
@@ -179,13 +214,15 @@ async function proxyOpenSky(req, res, origin) {
           break;
         }
       } catch (error) {
+        const details = buildErrorDetails(error, candidate.timeoutMs);
         const attemptInfo = {
           label: candidate.label,
           targetUrl: candidate.targetUrl,
           authenticated: Boolean(candidate.headers.Authorization),
+          timeoutMs: candidate.timeoutMs,
+          durationMs: Date.now() - startedAt,
           ok: false,
-          error: error?.message || 'fetch failed',
-          code: error?.code || null
+          ...details
         };
         attempts.push(attemptInfo);
         logUpstreamAttempt(attemptInfo);
