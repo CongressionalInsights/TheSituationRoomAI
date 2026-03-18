@@ -76,6 +76,14 @@
     "changelogUrl": "https://www.weather.gov/documentation/services-web-api",
     "statusUrl": "https://weather-gov.github.io/api/planned-outages",
     "supportUrl": "https://weather-gov.github.io/api/general-faqs",
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://www.weather.gov/documentation/services-web-api": "ded2b67f8150f0eee664c129df0a9390d62e396525ca55f9699ffea8472ff6b5"
+      },
+      "changelog": {
+        "https://www.weather.gov/documentation/services-web-api": "ded2b67f8150f0eee664c129df0a9390d62e396525ca55f9699ffea8472ff6b5"
+      }
+    },
     "freshnessWindowMinutes": 60,
     "sampleParams": {},
     "invariants": [
@@ -278,6 +286,14 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://www.cisa.gov/known-exploited-vulnerabilities-catalog": "33162314140284e50878080679cd9ab4a6f38c7df9f828557de709dac60cbea1"
+      },
+      "support": {
+        "https://www.cisa.gov/known-exploited-vulnerabilities-catalog": "33162314140284e50878080679cd9ab4a6f38c7df9f828557de709dac60cbea1"
+      }
+    },
     "freshnessWindowMinutes": 10080,
     "sampleParams": {},
     "invariants": [

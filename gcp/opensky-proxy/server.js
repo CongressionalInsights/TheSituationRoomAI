@@ -9,6 +9,12 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://congressionalin
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const DEFAULT_STATES_BBOX = {
+  lamin: '46.5',
+  lamax: '49.9',
+  lomin: '-1.4',
+  lomax: '6.8'
+};
 
 let tokenCache = null;
 let tokenExpiresAt = 0;
@@ -39,6 +45,14 @@ function sendJson(res, status, payload, origin) {
   setCors(res, origin);
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
+}
+
+function logUpstreamAttempt(attempt) {
+  console.log(JSON.stringify({
+    severity: attempt.ok ? 'INFO' : 'ERROR',
+    message: 'opensky_upstream_attempt',
+    ...attempt
+  }));
 }
 
 async function getToken() {
@@ -92,10 +106,16 @@ async function proxyOpenSky(req, res, origin) {
   if (!endpoint) {
     return sendJson(res, 404, { error: 'not_found' }, origin);
   }
-  const upstream = `${OPENSKY_BASE}${endpoint}${url.search}`;
+  const requestedUrl = new URL(`${OPENSKY_BASE}${endpoint}${url.search}`);
+  const boundedUrl = new URL(requestedUrl.toString());
+  if (url.pathname === '/api/opensky/states') {
+    for (const [key, value] of Object.entries(DEFAULT_STATES_BBOX)) {
+      if (!boundedUrl.searchParams.get(key)) boundedUrl.searchParams.set(key, value);
+    }
+  }
 
-  async function fetchUpstream(headers) {
-    return fetch(upstream, {
+  async function fetchUpstream(targetUrl, headers) {
+    return fetch(targetUrl, {
       headers: {
         'Accept': 'application/json',
         ...headers
@@ -105,24 +125,74 @@ async function proxyOpenSky(req, res, origin) {
 
   try {
     const token = await getToken();
-    let response = null;
+    const attempts = [];
+    const candidates = [
+      {
+        label: 'bounded-anonymous',
+        targetUrl: boundedUrl.toString(),
+        headers: {}
+      },
+      {
+        label: 'requested-anonymous',
+        targetUrl: requestedUrl.toString(),
+        headers: {}
+      }
+    ];
     if (token) {
-      try {
-        response = await fetchUpstream({
+      candidates.push({
+        label: 'requested-authenticated',
+        targetUrl: requestedUrl.toString(),
+        headers: {
           'Authorization': `Bearer ${token}`
-        });
-      } catch {
-        response = null;
+        }
+      });
+    }
+
+    let response = null;
+    let selectedAttempt = null;
+    for (const candidate of candidates) {
+      try {
+        const attemptResponse = await fetchUpstream(candidate.targetUrl, candidate.headers);
+        const attemptInfo = {
+          label: candidate.label,
+          targetUrl: candidate.targetUrl,
+          authenticated: Boolean(candidate.headers.Authorization),
+          status: attemptResponse.status,
+          ok: attemptResponse.ok
+        };
+        attempts.push(attemptInfo);
+        logUpstreamAttempt(attemptInfo);
+        if (attemptResponse.ok) {
+          response = attemptResponse;
+          selectedAttempt = attemptInfo;
+          break;
+        }
+      } catch (error) {
+        const attemptInfo = {
+          label: candidate.label,
+          targetUrl: candidate.targetUrl,
+          authenticated: Boolean(candidate.headers.Authorization),
+          ok: false,
+          error: error?.message || 'fetch failed',
+          code: error?.code || null
+        };
+        attempts.push(attemptInfo);
+        logUpstreamAttempt(attemptInfo);
       }
     }
-    if (!response || !response.ok) {
-      response = await fetchUpstream({});
+    if (!response) {
+      return sendJson(res, 502, {
+        error: 'proxy_error',
+        message: 'OpenSky upstream fetch failed.',
+        attempts
+      }, origin);
     }
     const body = await response.text();
     setCors(res, origin);
     res.writeHead(response.status, {
       'Content-Type': response.headers.get('content-type') || 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'no-store',
+      'X-OpenSky-Upstream-Attempt': selectedAttempt?.label || 'unknown'
     });
     res.end(body);
   } catch (err) {

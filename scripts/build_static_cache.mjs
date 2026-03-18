@@ -657,6 +657,7 @@ async function loadBestFallbackPayload(feed, { allowSeededJson = false } = {}) {
 async function buildFeedPayload(feed) {
   const isRssFeed = feed.format === 'rss';
   const supportsSeededJsonFallback = SEEDED_JSON_FALLBACK_IDS.has(feed.id);
+  const feedProxyFallback = async () => fetchFeedProxyFallback(feed, { params: buildFeedProxyFallbackParams(feed) });
 
   if (feed.requiresConfig && !feed.url) {
     if (feed.id !== 'acled-events') {
@@ -680,6 +681,16 @@ async function buildFeedPayload(feed) {
       error: feed.keySource === 'server' ? 'missing_server_key' : 'requires_key',
       message: feed.keySource === 'server' ? 'Server API key required for this feed.' : 'API key required for this feed.'
     };
+  }
+
+  if (feed.id === 'state-legislation') {
+    const proxySnapshot = await feedProxyFallback();
+    if (proxySnapshot?.body) {
+      return {
+        ...proxySnapshot,
+        fetchedAt: proxySnapshot.fetchedAt || new Date().toISOString()
+      };
+    }
   }
 
   const query = feed.supportsQuery ? (feed.defaultQuery || '') : undefined;
@@ -877,6 +888,17 @@ async function buildFeedPayload(feed) {
       } catch {
         // keep original payload
       }
+    }
+  }
+
+  if (payload.error && feed.id === 'state-legislation') {
+    const fallback = await feedProxyFallback();
+    if (fallback?.body) {
+      return {
+        ...fallback,
+        fetchedAt: fallback.fetchedAt || new Date().toISOString(),
+        fallback: fallback.fallback || 'feed-proxy'
+      };
     }
   }
 
