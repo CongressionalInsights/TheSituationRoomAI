@@ -34,3 +34,13 @@ test('feeds have required keys', () => {
     }
   });
 });
+
+test('EIA feeds carry the extended timeout budget', () => {
+  const raw = fs.readFileSync(feedsPath, 'utf8');
+  const data = JSON.parse(raw);
+  ['energy-eia', 'energy-eia-brent', 'energy-eia-ng'].forEach((feedId) => {
+    const feed = data.feeds.find((entry) => entry.id === feedId);
+    assert.ok(feed, `missing feed ${feedId}`);
+    assert.equal(feed.timeoutMs, 45000, `${feedId} should use the EIA timeout override`);
+  });
+});

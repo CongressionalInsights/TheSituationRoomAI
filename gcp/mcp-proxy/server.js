@@ -1260,6 +1260,12 @@ function parseGenericJsonFeed(data, feed) {
                           ? data.treaties
                           : Array.isArray(data?.congressionalRecord)
                             ? data.congressionalRecord
+                            : Array.isArray(data?.response?.data)
+                              ? data.response.data
+                              : Array.isArray(data?.response?.items)
+                                ? data.response.items
+                                : Array.isArray(data?.response?.results)
+                                  ? data.response.results
             : [];
 
   return list.slice(0, 50).map((entry) => {
