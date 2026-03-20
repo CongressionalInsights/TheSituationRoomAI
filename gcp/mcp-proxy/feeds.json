@@ -396,6 +396,7 @@
       "keyParam": "api_key",
       "lockKeyParam": true,
       "lockKeyHeader": true,
+      "timeoutMs": 45000,
       "url": "https://api.eia.gov/v2/seriesid/PET.RWTC.D",
       "ttlMinutes": 180,
       "tags": [
@@ -416,6 +417,7 @@
       "keyParam": "api_key",
       "lockKeyParam": true,
       "lockKeyHeader": true,
+      "timeoutMs": 45000,
       "url": "https://api.eia.gov/v2/seriesid/PET.RBRTE.W",
       "ttlMinutes": 180,
       "tags": [
@@ -436,6 +438,7 @@
       "keyParam": "api_key",
       "lockKeyParam": true,
       "lockKeyHeader": true,
+      "timeoutMs": 45000,
       "url": "https://api.eia.gov/v2/seriesid/NG.RNGWHHD.W",
       "ttlMinutes": 180,
       "tags": [
