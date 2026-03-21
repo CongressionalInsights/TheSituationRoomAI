@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { extractGenericJsonFeedEntries } from '../../gcp/mcp-proxy/feed-parsing.js';
 
 const root = process.cwd();
 const feedsPath = path.join(root, 'data', 'feeds.json');
@@ -43,4 +44,21 @@ test('EIA feeds carry the extended timeout budget', () => {
     assert.ok(feed, `missing feed ${feedId}`);
     assert.equal(feed.timeoutMs, 45000, `${feedId} should use the EIA timeout override`);
   });
+});
+
+test('MCP generic JSON entry selection reads response.data arrays', () => {
+  const entries = extractGenericJsonFeedEntries({
+    response: {
+      data: [
+        {
+          title: 'Grid demand tightens',
+          description: 'Power burn remains elevated.'
+        }
+      ]
+    }
+  }, 'energy-eia');
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].title, 'Grid demand tightens');
+  assert.equal(entries[0].description, 'Power burn remains elevated.');
 });
