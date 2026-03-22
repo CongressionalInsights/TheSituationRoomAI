@@ -5,9 +5,31 @@ import path from 'node:path';
 
 const root = process.cwd();
 const feedsPath = path.join(root, 'data', 'feeds.json');
+const mcpServerPath = path.join(root, 'gcp', 'mcp-proxy', 'server.js');
 
 function isKebabCase(value) {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+function loadMcpJsonParser() {
+  const source = fs.readFileSync(mcpServerPath, 'utf8');
+  const match = source.match(/function parseGenericJsonFeed\(data, feed\) \{[\s\S]*?\n\}\n\nfunction normalizeSignals/);
+  assert.ok(match, 'parseGenericJsonFeed should exist in the MCP server');
+  const parserSource = match[0].replace(/\n\nfunction normalizeSignals$/, '');
+  return Function(
+    'normalizeSummary',
+    'isCommitteeReportEntry',
+    'buildCommitteeReportTitle',
+    'buildCommitteeReportSummary',
+    'extractStateMetadata',
+    `${parserSource}; return parseGenericJsonFeed;`
+  )(
+    (value = '') => String(value).trim(),
+    () => false,
+    (_entry, fallbackTitle) => fallbackTitle,
+    (_entry, defaultSummary) => defaultSummary,
+    () => ({})
+  );
 }
 
 test('feeds.json parses and has feeds', () => {
@@ -43,4 +65,41 @@ test('EIA feeds carry the extended timeout budget', () => {
     assert.ok(feed, `missing feed ${feedId}`);
     assert.equal(feed.timeoutMs, 45000, `${feedId} should use the EIA timeout override`);
   });
+});
+
+test('MCP JSON parser normalizes nested response arrays from recent feed payloads', () => {
+  const parseGenericJsonFeed = loadMcpJsonParser();
+  const feed = { id: 'energy-eia', name: 'EIA', category: 'energy' };
+
+  const responseDataItems = parseGenericJsonFeed({
+    response: {
+      data: [
+        {
+          title: 'WTI Crude',
+          summary: 'Daily close',
+          publishedAt: '2026-03-19T00:00:00Z'
+        }
+      ]
+    }
+  }, feed);
+  assert.equal(responseDataItems.length, 1);
+  assert.equal(responseDataItems[0].title, 'WTI Crude');
+  assert.equal(responseDataItems[0].summary, 'Daily close');
+  assert.equal(responseDataItems[0].source, 'EIA');
+
+  const responseResultsItems = parseGenericJsonFeed({
+    response: {
+      results: [
+        {
+          title: 'Henry Hub',
+          description: 'Natural gas benchmark',
+          updatedAt: '2026-03-19T12:30:00Z'
+        }
+      ]
+    }
+  }, feed);
+  assert.equal(responseResultsItems.length, 1);
+  assert.equal(responseResultsItems[0].title, 'Henry Hub');
+  assert.equal(responseResultsItems[0].summary, 'Natural gas benchmark');
+  assert.equal(responseResultsItems[0].category, 'energy');
 });
