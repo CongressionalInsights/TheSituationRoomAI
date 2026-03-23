@@ -28,6 +28,39 @@ import {
 const fixture = (name) => fs.readFileSync(path.join(process.cwd(), 'scripts', 'test', 'fixtures', 'monitor', name), 'utf8');
 const parseFixture = (name) => JSON.parse(fixture(name));
 
+function loadParseGenericJsonFeed() {
+  const serverPath = path.join(process.cwd(), 'gcp', 'mcp-proxy', 'server.js');
+  const source = fs.readFileSync(serverPath, 'utf8');
+  const start = source.indexOf('function parseGenericJsonFeed(data, feed) {');
+  const end = source.indexOf('\n\nfunction normalizeSignals(text, feed) {');
+  assert.notEqual(start, -1, 'parseGenericJsonFeed should exist in the MCP proxy');
+  assert.notEqual(end, -1, 'normalizeSignals should follow parseGenericJsonFeed in the MCP proxy');
+  const functionSource = source.slice(start, end);
+  return new Function(
+    'normalizeSummary',
+    'isCommitteeReportEntry',
+    'buildCommitteeReportTitle',
+    'buildCommitteeReportSummary',
+    'extractStateMetadata',
+    `return (${functionSource});`
+  )(
+    (text = '') => String(text).replace(/\s+/g, ' ').trim(),
+    () => false,
+    (_entry, fallbackTitle) => fallbackTitle,
+    (_entry, fallbackSummary) => fallbackSummary,
+    () => ({
+      jurisdictionLevel: null,
+      jurisdictionCode: null,
+      jurisdictionName: null,
+      signalType: null,
+      docId: null,
+      status: null,
+      agency: null,
+      effectiveDate: null
+    })
+  );
+}
+
 function buildContext(entry, proxySummary, signalSummary = { error: null, items: [], count: 0, newestTimestamp: null }) {
   return {
     entry,
@@ -289,4 +322,20 @@ test('deep-core invariants pass on valid fixtures and fail on state mismatch', (
     newestTimestamp: Date.parse('2026-03-15T12:00:00Z')
   }));
   assert.equal(sortAlert.regressionClass, 'descending-sort-broken');
+});
+
+test('generic JSON parser reads nested response array payloads', () => {
+  const parseGenericJsonFeed = loadParseGenericJsonFeed();
+  const feed = { id: 'energy-eia', name: 'EIA', category: 'energy' };
+  [
+    { key: 'data', payload: { response: { data: [{ title: 'WTI crude', summary: 'Front month', publishedAt: '2026-03-19T00:00:00Z' }] } } },
+    { key: 'items', payload: { response: { items: [{ title: 'Brent crude', summary: 'Weekly series', publishedAt: '2026-03-19T00:00:00Z' }] } } },
+    { key: 'results', payload: { response: { results: [{ title: 'Henry Hub', summary: 'Natural gas', publishedAt: '2026-03-19T00:00:00Z' }] } } }
+  ].forEach(({ key, payload }) => {
+    const items = parseGenericJsonFeed(payload, feed);
+    assert.equal(items.length, 1, `response.${key} should be parsed as a signal list`);
+    assert.equal(items[0].title.length > 0, true);
+    assert.equal(items[0].source, 'EIA');
+    assert.equal(items[0].category, 'energy');
+  });
 });
