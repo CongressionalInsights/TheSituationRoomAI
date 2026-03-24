@@ -28,6 +28,52 @@ import {
 const fixture = (name) => fs.readFileSync(path.join(process.cwd(), 'scripts', 'test', 'fixtures', 'monitor', name), 'utf8');
 const parseFixture = (name) => JSON.parse(fixture(name));
 
+function extractNamedFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `missing function ${name} in MCP proxy source`);
+  const bodyStart = source.indexOf('{', start);
+  assert.notEqual(bodyStart, -1, `missing function body for ${name}`);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '{') depth += 1;
+    if (char === '}') depth -= 1;
+    if (depth === 0) {
+      return source.slice(start, index + 1);
+    }
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
+function loadParseGenericJsonFeed() {
+  const serverPath = path.join(process.cwd(), 'gcp', 'mcp-proxy', 'server.js');
+  const source = fs.readFileSync(serverPath, 'utf8');
+  const parseFnSource = extractNamedFunction(source, 'parseGenericJsonFeed');
+  return new Function(
+    'normalizeSummary',
+    'extractStateMetadata',
+    'isCommitteeReportEntry',
+    'buildCommitteeReportTitle',
+    'buildCommitteeReportSummary',
+    `${parseFnSource}; return parseGenericJsonFeed;`
+  )(
+    (text = '') => String(text || '').replace(/\s+/g, ' ').trim(),
+    () => ({
+      jurisdictionLevel: null,
+      jurisdictionCode: null,
+      jurisdictionName: null,
+      signalType: null,
+      docId: null,
+      status: null,
+      agency: null,
+      effectiveDate: null
+    }),
+    () => false,
+    (_entry, fallbackTitle) => fallbackTitle,
+    (_entry, fallbackSummary) => fallbackSummary
+  );
+}
+
 function buildContext(entry, proxySummary, signalSummary = { error: null, items: [], count: 0, newestTimestamp: null }) {
   return {
     entry,
@@ -196,6 +242,19 @@ test('GovInfo package arrays are summarized as raw items', () => {
   assert.equal(summary.rawItemCount, 1);
   assert.equal(summary.parseError, null);
   assert.ok(summary.newestTimestamp);
+});
+
+test('MCP generic JSON parser normalizes response-wrapped arrays', () => {
+  const parseGenericJsonFeed = loadParseGenericJsonFeed();
+  const feed = { id: 'energy-eia', name: 'EIA', category: 'energy' };
+  const wrappers = [
+    { response: { data: [{ title: 'response-data', date: '2026-03-19T12:00:00Z', url: 'https://example.test/data' }] } },
+    { response: { items: [{ title: 'response-items', date: '2026-03-19T12:05:00Z', url: 'https://example.test/items' }] } },
+    { response: { results: [{ title: 'response-results', date: '2026-03-19T12:10:00Z', url: 'https://example.test/results' }] } }
+  ];
+
+  const normalizedTitles = wrappers.flatMap((payload) => parseGenericJsonFeed(payload, feed).map((item) => item.title));
+  assert.deepEqual(normalizedTitles, ['response-data', 'response-items', 'response-results']);
 });
 
 test('deep-core invariants pass on valid fixtures and fail on state mismatch', () => {
