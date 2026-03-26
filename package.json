@@ -11,7 +11,7 @@
     "monitor:all": "node analysis/monitor/run_full_audit.mjs",
     "monitor:docs": "node analysis/monitor/run_doc_watch.mjs",
     "monitor:report": "node analysis/monitor/report_latest.mjs",
-    "test": "node scripts/verify_feeds_sync.mjs && node --test scripts/test/feeds.spec.mjs scripts/test/monitor.spec.mjs",
+    "test": "node scripts/verify_feeds_sync.mjs && node --test scripts/test/feeds.spec.mjs scripts/test/monitor.spec.mjs scripts/test/mcp-proxy.spec.mjs",
     "test:feeds-sync": "node scripts/verify_feeds_sync.mjs",
     "test:ui": "playwright test"
   },
