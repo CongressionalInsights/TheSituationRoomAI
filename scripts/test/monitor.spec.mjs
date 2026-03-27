@@ -27,6 +27,49 @@ import {
 
 const fixture = (name) => fs.readFileSync(path.join(process.cwd(), 'scripts', 'test', 'fixtures', 'monitor', name), 'utf8');
 const parseFixture = (name) => JSON.parse(fixture(name));
+const mcpProxyPath = path.join(process.cwd(), 'gcp', 'mcp-proxy', 'server.js');
+
+function extractNamedFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `missing function ${name}`);
+  const bodyStart = source.indexOf('{', start);
+  assert.notEqual(bodyStart, -1, `missing body for ${name}`);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, index + 1);
+      }
+    }
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
+function loadGenericJsonFeedParser() {
+  const source = fs.readFileSync(mcpProxyPath, 'utf8');
+  const normalizeSummary = extractNamedFunction(source, 'normalizeSummary');
+  const parseGenericJsonFeed = extractNamedFunction(source, 'parseGenericJsonFeed');
+  const prelude = `
+function isCommitteeReportEntry() { return false; }
+function buildCommitteeReportTitle(_entry, fallbackTitle) { return fallbackTitle; }
+function buildCommitteeReportSummary(_entry, fallbackSummary) { return fallbackSummary; }
+function extractStateMetadata() {
+  return {
+    jurisdictionLevel: null,
+    jurisdictionCode: null,
+    jurisdictionName: null,
+    signalType: null,
+    docId: null,
+    status: null,
+    agency: null,
+    effectiveDate: null
+  };
+}`;
+  return Function(`${normalizeSummary}\n${prelude}\n${parseGenericJsonFeed}\nreturn parseGenericJsonFeed;`)();
+}
 
 function buildContext(entry, proxySummary, signalSummary = { error: null, items: [], count: 0, newestTimestamp: null }) {
   return {
@@ -196,6 +239,24 @@ test('GovInfo package arrays are summarized as raw items', () => {
   assert.equal(summary.rawItemCount, 1);
   assert.equal(summary.parseError, null);
   assert.ok(summary.newestTimestamp);
+});
+
+test('MCP generic JSON parser reads nested response arrays', () => {
+  const parseGenericJsonFeed = loadGenericJsonFeedParser();
+  const feed = { id: 'energy-eia', name: 'EIA', category: 'energy' };
+  [
+    { label: 'response.data', payload: { response: { data: [{ name: 'WTI', description: 'West Texas Intermediate', publishedAt: '2026-03-19T00:00:00Z' }] } } },
+    { label: 'response.items', payload: { response: { items: [{ title: 'Brent', summary: 'Brent crude', publishedAt: '2026-03-19T00:00:00Z' }] } } },
+    { label: 'response.results', payload: { response: { results: [{ headline: 'Henry Hub', body: 'Natural gas benchmark', publishedAt: '2026-03-19T00:00:00Z' }] } } }
+  ].forEach(({ label, payload }) => {
+    const parsed = parseGenericJsonFeed(payload, feed);
+    assert.equal(parsed.length, 1, `${label} should yield one parsed item`);
+    assert.equal(parsed[0].source, 'EIA');
+    assert.equal(parsed[0].category, 'energy');
+    assert.ok(parsed[0].title, `${label} should preserve a title-ish field`);
+    assert.ok(parsed[0].summary, `${label} should preserve summary text`);
+    assert.equal(parsed[0].publishedAt, Date.parse('2026-03-19T00:00:00Z'));
+  });
 });
 
 test('deep-core invariants pass on valid fixtures and fail on state mismatch', () => {
