@@ -44,3 +44,22 @@ test('EIA feeds carry the extended timeout budget', () => {
     assert.equal(feed.timeoutMs, 45000, `${feedId} should use the EIA timeout override`);
   });
 });
+
+test('MCP generic feed parser accepts nested response arrays', async () => {
+  const { parseGenericJsonFeed } = await import('../../gcp/mcp-proxy/feed-parsers.js');
+  const feed = { id: 'energy-eia', name: 'EIA Market Signals', category: 'energy' };
+  const cases = [
+    ['response.data', { response: { data: [{ title: 'Crude drawdown', url: 'https://example.com/data' }] } }],
+    ['response.items', { response: { items: [{ title: 'Brent uptick', url: 'https://example.com/items' }] } }],
+    ['response.results', { response: { results: [{ title: 'Gas storage', url: 'https://example.com/results' }] } }]
+  ];
+
+  cases.forEach(([label, payload]) => {
+    const items = parseGenericJsonFeed(payload, feed);
+    assert.equal(items.length, 1, `${label} should yield one parsed item`);
+    assert.equal(items[0].title, payload.response[Object.keys(payload.response)[0]][0].title, `${label} should preserve the title`);
+    assert.equal(items[0].url, payload.response[Object.keys(payload.response)[0]][0].url, `${label} should preserve the URL`);
+    assert.equal(items[0].source, feed.name, `${label} should preserve the feed source`);
+    assert.equal(items[0].category, feed.category, `${label} should preserve the feed category`);
+  });
+});
