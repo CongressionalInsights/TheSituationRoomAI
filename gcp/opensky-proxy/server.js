@@ -1,4 +1,5 @@
 import http from 'http';
+import { buildOpenSkyRequestCandidates } from './request-planning.js';
 
 const PORT = process.env.PORT || 8080;
 const OPENSKY_BASE = 'https://opensky-network.org/api';
@@ -13,12 +14,6 @@ const TOKEN_TIMEOUT_MS = Number(process.env.OPENSKY_TOKEN_TIMEOUT_MS || 4000);
 const BOUNDED_TIMEOUT_MS = Number(process.env.OPENSKY_BOUNDED_TIMEOUT_MS || 5000);
 const REQUESTED_TIMEOUT_MS = Number(process.env.OPENSKY_REQUESTED_TIMEOUT_MS || 5000);
 const AUTH_TIMEOUT_MS = Number(process.env.OPENSKY_AUTH_TIMEOUT_MS || 6000);
-const DEFAULT_STATES_BBOX = {
-  lamin: '46.5',
-  lamax: '49.9',
-  lomin: '-1.4',
-  lomax: '6.8'
-};
 
 let tokenCache = null;
 let tokenExpiresAt = 0;
@@ -147,12 +142,6 @@ async function proxyOpenSky(req, res, origin) {
     return sendJson(res, 404, { error: 'not_found' }, origin);
   }
   const requestedUrl = new URL(`${OPENSKY_BASE}${endpoint}${url.search}`);
-  const boundedUrl = new URL(requestedUrl.toString());
-  if (url.pathname === '/api/opensky/states') {
-    for (const [key, value] of Object.entries(DEFAULT_STATES_BBOX)) {
-      if (!boundedUrl.searchParams.get(key)) boundedUrl.searchParams.set(key, value);
-    }
-  }
 
   async function fetchUpstream(targetUrl, headers, timeoutMs) {
     return fetchWithTimeout(targetUrl, {
@@ -166,30 +155,16 @@ async function proxyOpenSky(req, res, origin) {
   try {
     const token = await getToken();
     const attempts = [];
-    const candidates = [
-      {
-        label: 'bounded-anonymous',
-        targetUrl: boundedUrl.toString(),
-        headers: {},
-        timeoutMs: BOUNDED_TIMEOUT_MS
-      },
-      {
-        label: 'requested-anonymous',
-        targetUrl: requestedUrl.toString(),
-        headers: {},
-        timeoutMs: REQUESTED_TIMEOUT_MS
+    const candidates = buildOpenSkyRequestCandidates({
+      pathname: url.pathname,
+      requestedUrl,
+      token,
+      timeouts: {
+        bounded: BOUNDED_TIMEOUT_MS,
+        requested: REQUESTED_TIMEOUT_MS,
+        auth: AUTH_TIMEOUT_MS
       }
-    ];
-    if (token) {
-      candidates.push({
-        label: 'requested-authenticated',
-        targetUrl: requestedUrl.toString(),
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        timeoutMs: AUTH_TIMEOUT_MS
-      });
-    }
+    });
 
     let response = null;
     let selectedAttempt = null;
