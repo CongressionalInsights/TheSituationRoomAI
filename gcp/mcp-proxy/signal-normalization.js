@@ -239,6 +239,9 @@ export function parseGenericJsonFeed(data, feed) {
       || entry.dateIssued
       || entry.updateDate
       || entry.startDate
+      || entry.effectiveDate
+      || entry.effective_date
+      || entry.latest_action_date
       || entry.updatedAt
       || entry.updated
       || (latestEonetGeometry?.date || '');
