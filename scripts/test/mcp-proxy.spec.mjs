@@ -27,3 +27,27 @@ const feed = {
     assert.ok(item.jurisdictionCode, `expected jurisdiction metadata for ${shape}`);
   });
 });
+
+test('normalizeJsonSignals uses snake_case state dates for timestamps and metadata', () => {
+  const latestActionDate = '2026-04-01T12:34:56Z';
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    response: {
+      data: [{
+        title: 'State bill with snake_case fields',
+        state_code: 'wa',
+        state_name: 'Washington',
+        summary: 'Tracks normalized state metadata',
+        effective_date: '2026-05-01',
+        latest_action_date: latestActionDate,
+        latest_action_description: 'Signed by governor'
+      }]
+    }
+  }), feed);
+
+  assert.ok(item);
+  assert.equal(item.jurisdictionCode, 'WA');
+  assert.equal(item.jurisdictionName, 'Washington');
+  assert.equal(item.effectiveDate, '2026-05-01');
+  assert.equal(item.status, 'Signed by governor');
+  assert.equal(item.publishedAt, Date.parse(latestActionDate));
+});

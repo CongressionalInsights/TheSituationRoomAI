@@ -232,15 +232,20 @@ export function parseGenericJsonFeed(data, feed) {
     );
     const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
     const published = entry.publishedAt
+      || entry.published_at
       || entry.pubDate
       || (isEonetEvent ? (latestEonetGeometry?.date || '') : '')
       || entry.date
       || entry.lastModified
       || entry.dateIssued
       || entry.updateDate
+      || entry.updated_at
       || entry.startDate
       || entry.updatedAt
       || entry.updated
+      || entry.latest_action_date
+      || entry.effectiveDate
+      || entry.effective_date
       || (latestEonetGeometry?.date || '');
     const publishedAt = published ? Date.parse(published) : Date.now();
     const eventCoords = Array.isArray(latestEonetGeometry?.coordinates) ? latestEonetGeometry.coordinates : [];
