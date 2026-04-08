@@ -68,19 +68,30 @@ function extractTimestamp(item) {
   const candidates = [
     item.publishedAt,
     item.updatedAt,
+    item.updated_at,
     item.updated,
+    item.updateDate,
+    item.updateDateIncludingText,
+    item.updateDateTime,
+    item.updatedDate,
     item.pubDate,
     item.date,
     item.datetime,
     item.timestamp,
     item.createdAt,
+    item.created_at,
     item.dateAdded,
     item.effectiveDate,
+    item.effective_date,
     item.latest_action_date,
+    item.latest_action_at,
     item.record_date,
     item.period,
     item.acq_date,
-    item.lastModified
+    item.lastModified,
+    item.last_modified,
+    item.dateIssued,
+    item.date_issued
   ];
   for (const candidate of candidates) {
     const parsed = coerceTimestamp(candidate);

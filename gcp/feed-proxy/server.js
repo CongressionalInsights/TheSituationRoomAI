@@ -793,6 +793,18 @@ function isJsonHtmlError(contentType = '', body = '') {
   return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
+function isEonetBackpressurePayload(contentType = '', body = '') {
+  if (!normalizeContentType(contentType).includes('json')) return false;
+  try {
+    const parsed = JSON.parse(body);
+    const message = String(parsed?.message || '').toLowerCase();
+    return Boolean(parsed?.retry_after !== undefined)
+      || (message.includes('high demand') && message.includes('try again'));
+  } catch {
+    return false;
+  }
+}
+
 function looksLikeXmlFeed(text = '') {
   const sample = String(text || '').slice(0, 4096).trim().toLowerCase();
   if (!sample) return false;
@@ -918,8 +930,11 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false } = {}) {
-  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: true });
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false, skipDirect = false } = {}) {
+  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: !skipDirect });
+  if (skipDirect) {
+    while (candidates[0] === url) candidates.shift();
+  }
   const perAttemptTimeout = budgetAttempts
     ? Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)))
     : timeoutMs;
@@ -1356,6 +1371,26 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         responseOk = response.ok;
         contentType = response.headers.get('content-type') || 'text/plain';
         body = await response.text();
+        if (feed.id === 'eonet-events' && responseOk && isEonetBackpressurePayload(contentType, body)) {
+          try {
+            const retryResponse = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
+              budgetAttempts,
+              skipDirect: true
+            });
+            const retryContentType = retryResponse.headers.get('content-type') || 'text/plain';
+            const retryBody = await retryResponse.text();
+            if (retryResponse.ok && !isEonetBackpressurePayload(retryContentType, retryBody)) {
+              response = retryResponse;
+              responseOk = true;
+              contentType = retryContentType;
+              body = retryBody;
+            } else {
+              responseOk = false;
+            }
+          } catch {
+            responseOk = false;
+          }
+        }
       }
     }
     if (isEiaSeries && typeof body === 'string' && body.trim().startsWith('{')) {
@@ -1443,6 +1478,20 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
   if (!response) {
     throw new Error('fetch_failed');
+  }
+
+  if (feed.id === 'eonet-events' && !responseOk) {
+    if (isUsableStaleFeedPayload(feed, staleCache)) {
+      return { ...staleCache, stale: true, fetchedAt: Date.now() };
+    }
+    if (allowLiveFallback) {
+      const fallback = await fetchLiveFallback(feed.id);
+      if (fallback) {
+        const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+        cache.set(cacheKey, fallbackPayload);
+        return fallbackPayload;
+      }
+    }
   }
 
   if (feed.id === 'nasa-firms' && !responseOk) {

@@ -135,6 +135,22 @@ test('document helpers normalize content, extract dates, and classify contract c
   assert.equal(classification.severity, 'critical');
 });
 
+test('document contract-change classifier ignores unchanged keyword text', () => {
+  const classification = classifyDocChange({
+    previous: {
+      hash: 'old',
+      normalizedText: 'API overview\nrequired parameter: api_key\nstable section'
+    },
+    current: {
+      hash: 'new',
+      normalizedText: 'API overview\nrequired parameter: api_key\nstable section\nAdded footer link'
+    },
+    surfaceType: 'docs',
+    tier: 'core'
+  });
+  assert.equal(classification?.regressionClass, 'docs-surface-updated');
+});
+
 test('document surfaces dedupe shared URLs across feeds', () => {
   const surfaces = collectDocumentSurfaces([
     { id: 'congress-api', tier: 'core', docsUrl: 'https://api.congress.gov/', changelogUrl: null, statusUrl: null, supportUrl: null },
@@ -196,6 +212,30 @@ test('GovInfo package arrays are summarized as raw items', () => {
   assert.equal(summary.rawItemCount, 1);
   assert.equal(summary.parseError, null);
   assert.ok(summary.newestTimestamp);
+});
+
+test('summarizeProxyPayload recognizes monitor timestamp variants', () => {
+  const stateSummary = summarizeProxyPayload({ id: 'state-legislation', format: 'json' }, {
+    body: JSON.stringify({
+      results: [
+        { id: 'bill-1', updated_at: '2026-04-07T13:27:54.379311+00:00' }
+      ]
+    }),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(stateSummary.newestTimestamp, Date.parse('2026-04-07T13:27:54.379311+00:00'));
+
+  const congressSummary = summarizeProxyPayload({ id: 'congress-api', format: 'json' }, {
+    body: JSON.stringify({
+      bills: [
+        { title: 'Test Bill', updateDate: '2026-04-07', updateDateIncludingText: '2026-04-07' }
+      ]
+    }),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(congressSummary.newestTimestamp, Date.parse('2026-04-07'));
 });
 
 test('deep-core invariants pass on valid fixtures and fail on state mismatch', () => {

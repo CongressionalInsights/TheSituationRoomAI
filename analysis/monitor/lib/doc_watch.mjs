@@ -58,6 +58,26 @@ export function extractDatedEntries(text = '') {
   }).slice(0, 20);
 }
 
+function extractChangedText(previousText = '', currentText = '') {
+  const previousLines = new Set(
+    normalizeDocText(previousText)
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+  );
+  const currentLines = normalizeDocText(currentText)
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const changed = [];
+  for (const line of currentLines) {
+    if (previousLines.has(line)) continue;
+    changed.push(line);
+    if (changed.length >= 20) break;
+  }
+  return changed.join('\n');
+}
+
 export function classifyDocChange({ previous = null, current, surfaceType, tier = 'standard' }) {
   if (!current?.hash) return null;
   if (!previous?.hash) return null;
@@ -77,7 +97,8 @@ export function classifyDocChange({ previous = null, current, surfaceType, tier 
       message: 'Official status surface changed.'
     };
   }
-  if (BREAKING_CHANGE_PATTERN.test(latestText)) {
+  const changedText = extractChangedText(previous?.normalizedText || '', latestText);
+  if (changedText && BREAKING_CHANGE_PATTERN.test(changedText)) {
     return {
       regressionClass: 'docs-contract-change',
       severity: tier === 'core' ? 'critical' : 'warning',

@@ -1030,6 +1030,18 @@ function isJsonHtmlError(contentType = '', body = '') {
   return String(contentType || '').toLowerCase().includes('html') || looksLikeHtmlDocument(body);
 }
 
+function isEonetBackpressurePayload(contentType = '', body = '') {
+  if (!String(contentType || '').toLowerCase().includes('json')) return false;
+  try {
+    const parsed = JSON.parse(body);
+    const message = String(parsed?.message || '').toLowerCase();
+    return Boolean(parsed?.retry_after !== undefined)
+      || (message.includes('high demand') && message.includes('try again'));
+  } catch {
+    return false;
+  }
+}
+
 function isStateConnectorFeed(feed) {
   return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
 }
@@ -1207,17 +1219,19 @@ function resolveServerKey(feed) {
   return typeof value === 'string' ? value.trim() : (value || null);
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { skipDirect = false } = {}) {
   let primaryResponse = null;
-  try {
-    primaryResponse = await fetchWithTimeout(url, { headers }, timeoutMs);
-    if (primaryResponse.ok) return primaryResponse;
-  } catch (err) {
-    primaryResponse = null;
+  if (!skipDirect) {
+    try {
+      primaryResponse = await fetchWithTimeout(url, { headers }, timeoutMs);
+      if (primaryResponse.ok) return primaryResponse;
+    } catch (err) {
+      primaryResponse = null;
+    }
   }
 
   const fallbackUrls = [];
-  if (url.startsWith('https://')) {
+  if (!skipDirect && url.startsWith('https://')) {
     fallbackUrls.push(`http://${url.slice('https://'.length)}`);
   }
   proxies.forEach((proxy) => {
@@ -1408,9 +1422,14 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     }
     return aggregatePayload;
   }
-  const response = await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList);
+  let response = await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList);
   let contentType = response.headers.get('content-type') || 'text/plain';
   let body = await response.text();
+  if (feed.id === 'eonet-events' && response.ok && isEonetBackpressurePayload(contentType, body)) {
+    response = await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList, FETCH_TIMEOUT_MS, { skipDirect: true });
+    contentType = response.headers.get('content-type') || 'text/plain';
+    body = await response.text();
+  }
 
   const payload = {
     id: feed.id,
