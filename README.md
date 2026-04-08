@@ -2,6 +2,10 @@
 
 A clean, high‑signal situational awareness dashboard with a unified news layer, geo‑tagged incidents, finance & crypto pulses, and an analysis panel.
 
+## Release notes (Apr 2026)
+- Added regression coverage for OpenSky proxy request planning and extracted the request-planning logic into [`gcp/opensky-proxy/request-planning.js`](gcp/opensky-proxy/request-planning.js) ([#57](https://github.com/CongressionalInsights/TheSituationRoomAI/pull/57)).
+- Added MCP normalization regression coverage, moved normalization into [`gcp/mcp-proxy/signal-normalization.js`](gcp/mcp-proxy/signal-normalization.js), and covered it with [`scripts/test/mcp-proxy.spec.mjs`](scripts/test/mcp-proxy.spec.mjs) ([#56](https://github.com/CongressionalInsights/TheSituationRoomAI/pull/56)).
+
 ## Release notes (Jan 2026)
 - Added **Money Flows** panel aggregating USAspending, LDA, OpenFEC, and SAM.gov results.
 - New MCP tool: `money.flows` (JSON‑RPC via `/mcp`, use `tools/call` and `Accept: application/json, text/event-stream`).
