@@ -239,6 +239,7 @@ export function parseGenericJsonFeed(data, feed) {
       || entry.lastModified
       || entry.dateIssued
       || entry.updateDate
+      || entry.updateDateIncludingText
       || entry.updated_at
       || entry.startDate
       || entry.updatedAt

@@ -51,3 +51,21 @@ test('normalizeJsonSignals uses snake_case state dates for timestamps and metada
   assert.equal(item.status, 'Signed by governor');
   assert.equal(item.publishedAt, Date.parse(latestActionDate));
 });
+
+test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the only timestamp', () => {
+  const updateDateIncludingText = '2026-04-02';
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    bills: [{
+      title: 'Congress bill with updateDateIncludingText only',
+      updateDateIncludingText
+    }]
+  }), {
+    id: 'congress-bills',
+    name: 'Congress Bills',
+    category: 'federal',
+    format: 'json'
+  });
+
+  assert.ok(item);
+  assert.equal(item.publishedAt, Date.parse(updateDateIncludingText));
+});
