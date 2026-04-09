@@ -11,7 +11,10 @@
       "name": "GDELT Global News",
       "category": "news",
       "format": "json",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "supportsQuery": true,
       "defaultQuery": "global",
       "url": "https://api.gdeltproject.org/api/v2/doc/doc?query={{query}}&mode=artlist&maxrecords=75&format=json&sort=HybridRel&timespan=1day",
@@ -27,7 +30,10 @@
       "name": "Google News (US Headlines)",
       "category": "news",
       "format": "rss",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
       "timeoutMs": 30000,
       "ttlMinutes": 60,
@@ -44,7 +50,10 @@
       "format": "rss",
       "supportsQuery": true,
       "defaultQuery": "breaking",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://news.google.com/rss/search?q={{query}}&hl=en-US&gl=US&ceid=US:en",
       "ttlMinutes": 60,
       "tags": [
@@ -59,7 +68,10 @@
       "name": "BBC World",
       "category": "news",
       "format": "rss",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
       "ttlMinutes": 60,
       "tags": [
@@ -73,7 +85,10 @@
       "name": "The Guardian World",
       "category": "news",
       "format": "rss",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://www.theguardian.com/world/rss",
       "ttlMinutes": 60,
       "tags": [
@@ -87,7 +102,10 @@
       "name": "PBS NewsHour Headlines",
       "category": "news",
       "format": "rss",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://www.pbs.org/newshour/feeds/rss/headlines",
       "ttlMinutes": 60,
       "tags": [
@@ -375,7 +393,10 @@
       "name": "FDA MedWatch RSS",
       "category": "health",
       "format": "rss",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml",
       "timeoutMs": 30000,
       "ttlMinutes": 180,
@@ -587,7 +608,10 @@
       "name": "CDC Travel Notices",
       "category": "travel",
       "format": "rss",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://wwwnc.cdc.gov/travel/rss/notices.xml",
       "ttlMinutes": 180,
       "tags": [

@@ -1264,7 +1264,10 @@ async function fetchRaw(feed, options) {
       message: feed.keySource === 'server' ? 'Server API key required for this feed.' : 'API key required for this feed.'
     };
   }
-  const url = buildFeedUrl(feed, { ...options, key });
+  const translatedQuery = feed.supportsQuery
+    ? translateQueryForFeed(feed, options.query || feed.defaultQuery || '')
+    : options.query;
+  const url = buildFeedUrl(feed, { ...options, query: translatedQuery, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
   if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(keyedUrl)) {
     const token = await getOpenSkyToken();

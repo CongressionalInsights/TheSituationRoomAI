@@ -1,7 +1,7 @@
 {
   "id": "arcgis-noaa-severe",
-  "fetchedAt": 1773769370478,
+  "fetchedAt": 1775686774289,
   "contentType": "application/json; charset=utf-8",
-  "body": "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:4326\"}},\"features\":[]}",
+  "body": "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:4326\"}},\"features\":[{\"type\":\"Feature\",\"id\":1,\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[-99.0400009165887,38.8600006101567],[-98.8499984736268,38.8600006101567],[-98.8099975594268,38.7000007625916],[-98.9000015266441,38.5999984740272],[-99.0299987786696,38.5999984740272],[-99.0400009165887,38.6199989324378],[-99.0299987786696,38.6199989324378],[-99.0299987786696,38.7000007625916],[-99.0400009165887,38.7000007625916],[-99.0400009165887,38.8600006101567]]]},\"properties\":{\"OBJECTID\":1,\"WFO\":\"KICT\",\"ETN\":\"0038\",\"UGC\":\" \",\"WFILE\":\"site=ICT&issuedby=ICT&product=SVR\",\"UTC_EXPIRE\":1775690100000,\"UTC_ISSUE\":1775686080000,\"Shape__Area\":813391723.9609375,\"Shape__Length\":115861.6836077676}}]}",
   "httpStatus": 200
 }

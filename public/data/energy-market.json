@@ -1,28 +1,28 @@
 {
-  "fetchedAt": 1773769384192,
+  "fetchedAt": 1775686787296,
   "items": {
     "wti": {
       "label": "WTI Crude",
-      "value": 94.65,
-      "delta": 0.6165621345806448,
+      "value": 97.18,
+      "delta": 0.3925619834710844,
       "url": "https://stooq.com/q/?s=cl.f",
-      "asOf": "2026-03-17 18:43:01",
+      "asOf": "2026-04-09 00:19:44",
       "symbol": "CL.F"
     },
     "gas": {
       "label": "Nat Gas",
-      "value": 3.027,
-      "delta": -0.16490765171503607,
+      "value": 2.733,
+      "delta": 0.10989010989011405,
       "url": "https://stooq.com/q/?s=ng.f",
-      "asOf": "2026-03-17 18:42:49",
+      "asOf": "2026-04-09 00:18:53",
       "symbol": "NG.F"
     },
     "gold": {
       "label": "Gold",
-      "value": 5001.74,
-      "delta": -0.015592141560666519,
+      "value": 4711.655,
+      "delta": -0.29129685826868995,
       "url": "https://stooq.com/q/?s=xauusd",
-      "asOf": "2026-03-17 18:43:00",
+      "asOf": "2026-04-09 00:19:44",
       "symbol": "XAUUSD"
     }
   }
