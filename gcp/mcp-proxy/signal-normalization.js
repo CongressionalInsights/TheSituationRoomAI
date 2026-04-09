@@ -5,6 +5,15 @@ function normalizeSummary(text = '') {
   return cleaned.length > 500 ? `${cleaned.slice(0, 497)}...` : cleaned;
 }
 
+function parseFirstValidTimestamp(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '') continue;
+    const parsed = Date.parse(candidate);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return Date.now();
+}
+
 function extractStateMetadata(entry, feed) {
   const jurisdictionCode = normalizeJurisdictionCode(
     entry.jurisdictionCode
@@ -231,24 +240,25 @@ export function parseGenericJsonFeed(data, feed) {
       ].filter(Boolean).join(' • ')
     );
     const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
-    const published = entry.publishedAt
-      || entry.published_at
-      || entry.pubDate
-      || (isEonetEvent ? (latestEonetGeometry?.date || '') : '')
-      || entry.date
-      || entry.lastModified
-      || entry.dateIssued
-      || entry.updateDate
-      || entry.updateDateIncludingText
-      || entry.updated_at
-      || entry.startDate
-      || entry.updatedAt
-      || entry.updated
-      || entry.latest_action_date
-      || entry.effectiveDate
-      || entry.effective_date
-      || (latestEonetGeometry?.date || '');
-    const publishedAt = published ? Date.parse(published) : Date.now();
+    const publishedAt = parseFirstValidTimestamp(
+      entry.publishedAt,
+      entry.published_at,
+      entry.pubDate,
+      isEonetEvent ? (latestEonetGeometry?.date || '') : '',
+      entry.date,
+      entry.lastModified,
+      entry.dateIssued,
+      entry.updateDate,
+      entry.updateDateIncludingText,
+      entry.updated_at,
+      entry.startDate,
+      entry.updatedAt,
+      entry.updated,
+      entry.latest_action_date,
+      entry.effectiveDate,
+      entry.effective_date,
+      latestEonetGeometry?.date || ''
+    );
     const eventCoords = Array.isArray(latestEonetGeometry?.coordinates) ? latestEonetGeometry.coordinates : [];
     const geo = entry.geo
       || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null)

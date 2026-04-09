@@ -69,3 +69,22 @@ test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the 
   assert.ok(item);
   assert.equal(item.publishedAt, Date.parse(updateDateIncludingText));
 });
+
+test('normalizeJsonSignals skips invalid earlier timestamps and falls back to later valid Congress dates', () => {
+  const updateDateIncludingText = '2026-04-03';
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    bills: [{
+      title: 'Congress bill with invalid earlier timestamp',
+      updateDate: 'not-a-date',
+      updateDateIncludingText
+    }]
+  }), {
+    id: 'congress-bills',
+    name: 'Congress Bills',
+    category: 'federal',
+    format: 'json'
+  });
+
+  assert.ok(item);
+  assert.equal(item.publishedAt, Date.parse(updateDateIncludingText));
+});
