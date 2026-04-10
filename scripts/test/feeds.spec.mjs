@@ -52,3 +52,9 @@ test('FDA MedWatch feed keeps both proxy fallbacks', () => {
   assert.ok(feed, 'missing fda-medwatch feed');
   assert.deepEqual(feed.proxy, ['allorigins', 'jina']);
 });
+
+test('transport OpenSky feed can use published snapshot fallback', () => {
+  const source = fs.readFileSync(path.join(root, 'gcp', 'feed-proxy', 'server.js'), 'utf8');
+  assert.match(source, /feed\?\.[\s\S]*id === 'transport-opensky'/);
+  assert.match(source, /shouldPromotePublishedSnapshot[\s\S]*transport-opensky/);
+});

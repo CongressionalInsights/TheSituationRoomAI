@@ -78,10 +78,10 @@
     "supportUrl": "https://weather-gov.github.io/api/general-faqs",
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://www.weather.gov/documentation/services-web-api": "ded2b67f8150f0eee664c129df0a9390d62e396525ca55f9699ffea8472ff6b5"
+        "https://www.weather.gov/documentation/services-web-api": "90c8fde225b692535590b567edfd098c82e1bfafc143ef9555b36b7305af1901"
       },
       "changelog": {
-        "https://www.weather.gov/documentation/services-web-api": "ded2b67f8150f0eee664c129df0a9390d62e396525ca55f9699ffea8472ff6b5"
+        "https://www.weather.gov/documentation/services-web-api": "90c8fde225b692535590b567edfd098c82e1bfafc143ef9555b36b7305af1901"
       }
     },
     "freshnessWindowMinutes": 60,
@@ -136,7 +136,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://eonet.gsfc.nasa.gov/",
-    "freshnessWindowMinutes": 720,
+    "freshnessWindowMinutes": 2880,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -145,7 +145,15 @@
       "nasa-eonet-events",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://eonet.gsfc.nasa.gov/docs/v3": "91662f8a1947252fc73a40a41671b20e0949107ddc6cf07e3d95370686505f37"
+      },
+      "support": {
+        "https://eonet.gsfc.nasa.gov/": "cdd9c0aa9b053476bfb84776e1241e19a74c0cd1ee88f813c9cf2bd501a04acc"
+      }
+    }
   },
   "swpc-json": {
     "tier": "standard",
@@ -311,7 +319,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program",
-    "freshnessWindowMinutes": 540,
+    "freshnessWindowMinutes": 4320,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -319,7 +327,15 @@
       "freshness",
       "rss-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program": "8e59541ab5bfb0508f7663033737575e044e222211941d88b2de1b3a29340670"
+      },
+      "support": {
+        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program": "8e59541ab5bfb0508f7663033737575e044e222211941d88b2de1b3a29340670"
+      }
+    }
   },
   "energy-eia": {
     "tier": "core",
@@ -336,7 +352,18 @@
       "eia-response-data",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "acceptedSurfaceHashes": {
+      "changelog": {
+        "https://www.eia.gov/opendata/documentation.php": "997ec271acdd19b0a54a33955ce62f4b27ca15e8ad0108d040b080cc0cc168ae"
+      },
+      "docs": {
+        "https://www.eia.gov/opendata/": "5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13"
+      },
+      "support": {
+        "https://www.eia.gov/opendata/": "5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13"
+      }
+    }
   },
   "energy-eia-brent": {
     "tier": "core",
@@ -386,7 +413,15 @@
       "freshness",
       "rss-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://www.eia.gov/todayinenergy/": "9898c59d0c0255b607483092fd6c3d171e84b4095005327962d16ad091d5ded5"
+      },
+      "support": {
+        "https://www.eia.gov/todayinenergy/": "9898c59d0c0255b607483092fd6c3d171e84b4095005327962d16ad091d5ded5"
+      }
+    }
   },
   "transport-opensky": {
     "tier": "standard",
@@ -532,7 +567,15 @@
       "freshness",
       "rss-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html": "099ef9ee24f842a9e19392c6c36a4ec640495cce4d1caf22ba982cfa3de5433b"
+      },
+      "support": {
+        "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html": "099ef9ee24f842a9e19392c6c36a4ec640495cce4d1caf22ba982cfa3de5433b"
+      }
+    }
   },
   "state-legislation": {
     "tier": "core",
@@ -604,7 +647,15 @@
       "descending-update-sort",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "acceptedSurfaceHashes": {
+      "changelog": {
+        "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md": "7953b65bc44184a1fa509d409b29fd6ec9a532c08cdfeddfb45a618a0b75f54d"
+      },
+      "support": {
+        "https://github.com/LibraryOfCongress/api.congress.gov": "e1d782f8fcdb06ac6a507503adff19f0dbdc910c5a64f05e988c93dc0ccc51e8"
+      }
+    }
   },
   "congress-reports": {
     "tier": "core",
