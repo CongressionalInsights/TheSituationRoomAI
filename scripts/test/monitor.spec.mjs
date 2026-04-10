@@ -78,6 +78,13 @@ test('monitoring entry honors audit exclusions and per-feed timeout overrides', 
   assert.equal(entry.timeoutMs, 45000);
 });
 
+test('monitoring overrides pin widened freshness windows for known slow-cadence feeds', () => {
+  const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
+  assert.equal(monitoring['cdc-travel-notices'].freshnessWindowMinutes, 30240);
+  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 720);
+  assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 720);
+});
+
 test('monitoring entry carries accepted doc surface hashes into document surfaces', () => {
   const entry = resolveMonitoringEntry({
     id: 'cisa-kev',

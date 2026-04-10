@@ -44,3 +44,11 @@ test('EIA feeds carry the extended timeout budget', () => {
     assert.equal(feed.timeoutMs, 45000, `${feedId} should use the EIA timeout override`);
   });
 });
+
+test('FDA MedWatch feed keeps both proxy fallbacks', () => {
+  const raw = fs.readFileSync(feedsPath, 'utf8');
+  const data = JSON.parse(raw);
+  const feed = data.feeds.find((entry) => entry.id === 'fda-medwatch');
+  assert.ok(feed, 'missing fda-medwatch feed');
+  assert.deepEqual(feed.proxy, ['allorigins', 'jina']);
+});

@@ -1147,6 +1147,15 @@ function translateQueryForFeed(feed, query) {
   return query;
 }
 
+function hasUsableJsonSignals(body, feed) {
+  if (feed?.format !== 'json' || !body) return false;
+  try {
+    return normalizeJsonSignals(body, feed).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function includesAny(text, list) {
   return list.some((term) => text.includes(term));
 }
@@ -1353,6 +1362,15 @@ async function fetchRaw(feed, options) {
           };
           continue;
         }
+        if (feed.id === 'gdelt-doc' && !hasUsableJsonSignals(body, feed)) {
+          lastError = {
+            error: 'invalid_response',
+            httpStatus: response.status,
+            message: 'GDELT returned a non-normalizable payload.',
+            body
+          };
+          continue;
+        }
         if (feed.id === 'nasa-firms' && normalizeContentType(response.headers.get('content-type')).includes('json')) {
           try {
             const items = buildNasaFirmsItems(JSON.parse(body));
@@ -1396,7 +1414,7 @@ async function fetchRaw(feed, options) {
         body
       };
       // Client-side upstream errors are not recoverable via proxy fallback.
-      if (!isRssFeed && response.status >= 400 && response.status < 500 && response.status !== 429) {
+      if (!isRssFeed && response.status >= 400 && response.status < 500 && response.status !== 429 && feed.id !== 'gdelt-doc') {
         break;
       }
     } catch (error) {
