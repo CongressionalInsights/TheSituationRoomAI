@@ -1298,7 +1298,11 @@ async function fetchRaw(feed, options) {
     headers.Authorization = `Bearer ${token}`;
   }
   const totalTimeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
-  const primaryProxy = feed.proxy || options.proxy || null;
+  const configuredProxies = Array.isArray(feed.proxy)
+    ? feed.proxy
+    : (feed.proxy ? [feed.proxy] : []);
+  const optionProxy = options.proxy || null;
+  const primaryProxy = configuredProxies[0] || optionProxy || null;
   const requestHeaders = {
     ...headers,
     'Accept': feed.format === 'rss'
@@ -1310,7 +1314,7 @@ async function fetchRaw(feed, options) {
   if (isStateLegislationAllStatesRequest(feed, options.params)) {
     return fetchAllStatesLegislationRaw(feed, keyedUrl, requestHeaders, primaryProxy, totalTimeoutMs);
   }
-  const attemptList = [null, primaryProxy, ...FALLBACK_PROXIES];
+  const attemptList = [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
   const isRssFeed = feed.format === 'rss';
   const seen = new Set();
   const attempts = attemptList.filter((proxy) => {
@@ -1476,7 +1480,7 @@ async function fetchRaw(feed, options) {
       ...lastError,
       fetchedUrl: stripSecretsFromUrl(fetchedUrl),
       proxyUsed: usedProxy,
-      fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy),
+      fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy && !configuredProxies.includes(usedProxy)),
       responseHeaders
     };
   }
@@ -1495,7 +1499,7 @@ async function fetchRaw(feed, options) {
     contentType: response.headers.get('content-type') || null,
     fetchedUrl: stripSecretsFromUrl(fetchedUrl),
     proxyUsed: usedProxy,
-    fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy),
+    fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy && !configuredProxies.includes(usedProxy)),
     responseHeaders
   };
 }

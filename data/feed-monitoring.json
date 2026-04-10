@@ -659,7 +659,10 @@
         "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md": "7953b65bc44184a1fa509d409b29fd6ec9a532c08cdfeddfb45a618a0b75f54d"
       },
       "support": {
-        "https://github.com/LibraryOfCongress/api.congress.gov": "a565701ba8551e0d96f1096c386034ca5b2dd26147ed0bacb24ae1f237144e20"
+        "https://github.com/LibraryOfCongress/api.congress.gov": [
+          "a565701ba8551e0d96f1096c386034ca5b2dd26147ed0bacb24ae1f237144e20",
+          "e1d782f8fcdb06ac6a507503adff19f0dbdc910c5a64f05e988c93dc0ccc51e8"
+        ]
       }
     }
   },
