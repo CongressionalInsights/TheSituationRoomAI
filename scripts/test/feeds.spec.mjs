@@ -74,3 +74,9 @@ test('static OpenSky build can seed anonymous published snapshots', () => {
   assert.match(source, /SEEDED_JSON_FALLBACK_IDS[\s\S]*transport-opensky/);
   assert.doesNotMatch(source, /OpenSky OAuth token unavailable/);
 });
+
+test('MCP proxy does not flag configured feed proxies as fallback paths', () => {
+  const source = fs.readFileSync(path.join(root, 'gcp', 'mcp-proxy', 'server.js'), 'utf8');
+  assert.match(source, /const configuredProxies = Array\.isArray\(feed\.proxy\)/);
+  assert.match(source, /fallbackUsed: Boolean\(usedProxy[\s\S]*!configuredProxies\.includes\(usedProxy\)\)/);
+});
