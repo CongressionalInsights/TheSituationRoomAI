@@ -81,8 +81,9 @@ test('monitoring entry honors audit exclusions and per-feed timeout overrides', 
 test('monitoring overrides pin widened freshness windows for known slow-cadence feeds', () => {
   const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
   assert.equal(monitoring['cdc-travel-notices'].freshnessWindowMinutes, 30240);
-  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 720);
+  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 2880);
   assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 720);
+  assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
 });
 
 test('monitoring entry carries accepted doc surface hashes into document surfaces', () => {
@@ -203,6 +204,26 @@ test('GovInfo package arrays are summarized as raw items', () => {
   assert.equal(summary.rawItemCount, 1);
   assert.equal(summary.parseError, null);
   assert.ok(summary.newestTimestamp);
+});
+
+test('monitor summaries honor snake_case update timestamps', () => {
+  const feed = { id: 'state-legislation', format: 'json' };
+  const updatedAt = '2026-04-10T06:13:39.839413+00:00';
+  const latestActionDate = '2026-04-01';
+  const summary = summarizeProxyPayload(feed, {
+    body: JSON.stringify({
+      results: [
+        {
+          title: 'State bill with newer update timestamp',
+          updated_at: updatedAt,
+          latest_action_date: latestActionDate
+        }
+      ]
+    }),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(summary.newestTimestamp, Date.parse(updatedAt));
 });
 
 test('deep-core invariants pass on valid fixtures and fail on state mismatch', () => {

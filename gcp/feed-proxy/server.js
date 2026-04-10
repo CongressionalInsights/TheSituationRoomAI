@@ -1004,7 +1004,14 @@ function canUseLiveFeedFallback(feed, isRssFeed) {
     || feed?.id === 'eonet-events'
     || feed?.id === 'federal-register'
     || feed?.id === 'federal-register-transport'
+    || feed?.id === 'transport-opensky'
   );
+}
+
+function shouldPromotePublishedSnapshot(feed) {
+  return feed?.id === 'federal-register'
+    || feed?.id === 'federal-register-transport'
+    || feed?.id === 'transport-opensky';
 }
 
 function isUsableStaleFeedPayload(feed, payload) {
@@ -1410,7 +1417,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       if (allowLiveFallback) {
         const fallback = await fetchLiveFallback(feed.id);
         if (fallback) {
-          const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+          const fallbackPayload = shouldPromotePublishedSnapshot(feed)
+            ? { ...fallback, fetchedAt: Date.now() }
+            : { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
           cache.set(cacheKey, fallbackPayload);
           return fallbackPayload;
         }
@@ -1507,10 +1516,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
-      const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
-        || feed.id === 'federal-register-transport'
-        || feed.id === 'transport-opensky';
-      const fallbackPayload = shouldPromotePublishedSnapshot
+      const fallbackPayload = shouldPromotePublishedSnapshot(feed)
         ? { ...fallback, fetchedAt: Date.now() }
         : { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
       cache.set(cacheKey, fallbackPayload);
