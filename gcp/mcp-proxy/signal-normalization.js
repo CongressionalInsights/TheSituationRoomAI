@@ -272,6 +272,14 @@ export function normalizeJsonSignals(text, feed) {
   try {
     return parseGenericJsonFeed(JSON.parse(text), feed);
   } catch {
-    return [];
+    const trimmed = String(text || '').trim();
+    const objectStart = trimmed.indexOf('{');
+    const objectEnd = trimmed.lastIndexOf('}');
+    if (objectStart === -1 || objectEnd <= objectStart) return [];
+    try {
+      return parseGenericJsonFeed(JSON.parse(trimmed.slice(objectStart, objectEnd + 1)), feed);
+    } catch {
+      return [];
+    }
   }
 }

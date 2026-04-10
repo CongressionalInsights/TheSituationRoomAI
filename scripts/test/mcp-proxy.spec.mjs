@@ -69,3 +69,16 @@ test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the 
   assert.ok(item);
   assert.equal(item.publishedAt, Date.parse(updateDateIncludingText));
 });
+
+test('normalizeJsonSignals extracts wrapped JSON payloads from Jina-style text responses', () => {
+  const [item] = normalizeJsonSignals(`Title: URL Source: http://example.com\nMarkdown Content:\n{"articles":[{"title":"Wrapped GDELT article","seendate":"2026-04-09T10:00:00Z","url":"https://example.com/story"}]}`, {
+    id: 'gdelt-doc',
+    name: 'GDELT Global News',
+    category: 'news',
+    format: 'json'
+  });
+
+  assert.ok(item);
+  assert.equal(item.title, 'Wrapped GDELT article');
+  assert.equal(item.url, 'https://example.com/story');
+});

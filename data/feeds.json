@@ -375,7 +375,10 @@
       "name": "FDA MedWatch RSS",
       "category": "health",
       "format": "rss",
-      "proxy": "allorigins",
+      "proxy": [
+        "allorigins",
+        "jina"
+      ],
       "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml",
       "timeoutMs": 30000,
       "ttlMinutes": 180,

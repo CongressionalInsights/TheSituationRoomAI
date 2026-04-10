@@ -23,16 +23,23 @@ test('state requests prepend a bounded anonymous attempt and add auth last', () 
   assert.deepEqual(candidates.map((candidate) => candidate.label), [
     'bounded-anonymous',
     'requested-anonymous',
+    'bounded-authenticated',
     'requested-authenticated'
   ]);
   assert.equal(candidates[0].timeoutMs, TIMEOUTS.bounded);
   assert.equal(candidates[1].timeoutMs, TIMEOUTS.requested);
   assert.equal(candidates[2].timeoutMs, TIMEOUTS.auth);
+  assert.equal(candidates[3].timeoutMs, TIMEOUTS.auth);
   assert.equal(candidates[2].headers.Authorization, 'Bearer test-token');
+  assert.equal(candidates[3].headers.Authorization, 'Bearer test-token');
 
   const boundedUrl = new URL(candidates[0].targetUrl);
   Object.entries(DEFAULT_STATES_BBOX).forEach(([key, value]) => {
     assert.equal(boundedUrl.searchParams.get(key), value, `missing default ${key}`);
+  });
+  const boundedAuthUrl = new URL(candidates[2].targetUrl);
+  Object.entries(DEFAULT_STATES_BBOX).forEach(([key, value]) => {
+    assert.equal(boundedAuthUrl.searchParams.get(key), value, `missing auth default ${key}`);
   });
   assert.equal(boundedUrl.searchParams.get('extended'), '1');
   assert.equal(candidates[1].targetUrl, 'https://opensky-network.org/api/states/all?extended=1');

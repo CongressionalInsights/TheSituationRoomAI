@@ -32,6 +32,14 @@ function buildOpenSkyRequestCandidates({ pathname, requestedUrl, token, timeouts
   ];
   if (token) {
     candidates.push({
+      label: 'bounded-authenticated',
+      targetUrl: boundedUrl.toString(),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      timeoutMs: timeouts.auth
+    });
+    candidates.push({
       label: 'requested-authenticated',
       targetUrl: requestedUrl.toString(),
       headers: {

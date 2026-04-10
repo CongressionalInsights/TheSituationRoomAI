@@ -136,7 +136,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://eonet.gsfc.nasa.gov/",
-    "freshnessWindowMinutes": 180,
+    "freshnessWindowMinutes": 720,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -508,7 +508,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://wwwnc.cdc.gov/travel/notices",
-    "freshnessWindowMinutes": 10080,
+    "freshnessWindowMinutes": 30240,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -540,7 +540,7 @@
     "changelogUrl": "https://docs.openstates.org/api-v3/changelog/",
     "statusUrl": null,
     "supportUrl": "https://docs.openstates.org/api-v3/",
-    "freshnessWindowMinutes": 360,
+    "freshnessWindowMinutes": 720,
     "sampleParams": {
       "jurisdiction": "ocd-jurisdiction/country:us/state:ny/government",
       "classification": "",
