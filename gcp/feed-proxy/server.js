@@ -1011,7 +1011,20 @@ function canUseLiveFeedFallback(feed, isRssFeed) {
 function shouldPromotePublishedSnapshot(feed) {
   return feed?.id === 'federal-register'
     || feed?.id === 'federal-register-transport'
+    || feed?.id === 'fda-medwatch'
     || feed?.id === 'transport-opensky';
+}
+
+function markSnapshotFallback(feed, payload) {
+  return shouldPromotePublishedSnapshot(feed)
+    ? { ...payload, fetchedAt: Date.now() }
+    : { ...payload, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+}
+
+function markStaleFeedPayload(feed, payload) {
+  return shouldPromotePublishedSnapshot(feed)
+    ? { ...payload, fetchedAt: Date.now() }
+    : { ...payload, stale: true, fetchedAt: Date.now() };
 }
 
 function isUsableStaleFeedPayload(feed, payload) {
@@ -1299,11 +1312,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     const token = await getOpenSkyToken();
     if (!token) {
       if (isUsableStaleFeedPayload(feed, staleCache)) {
-        return { ...staleCache, stale: true, fetchedAt: Date.now() };
+        return markStaleFeedPayload(feed, staleCache);
       }
       const fallback = await fetchLiveFallback(feed.id);
       if (fallback) {
-        const fallbackPayload = { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+        const fallbackPayload = markSnapshotFallback(feed, fallback);
         cache.set(cacheKey, fallbackPayload);
         return fallbackPayload;
       }
@@ -1412,14 +1425,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   } catch (error) {
     if (!isEiaSeries) {
       if (isUsableStaleFeedPayload(feed, staleCache)) {
-        return { ...staleCache, stale: true, fetchedAt: Date.now() };
+        return markStaleFeedPayload(feed, staleCache);
       }
       if (allowLiveFallback) {
         const fallback = await fetchLiveFallback(feed.id);
         if (fallback) {
-          const fallbackPayload = shouldPromotePublishedSnapshot(feed)
-            ? { ...fallback, fetchedAt: Date.now() }
-            : { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+          const fallbackPayload = markSnapshotFallback(feed, fallback);
           cache.set(cacheKey, fallbackPayload);
           return fallbackPayload;
         }
@@ -1512,13 +1523,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
   if (payload.error && allowLiveFallback) {
     if (isUsableStaleFeedPayload(feed, staleCache)) {
-      return { ...staleCache, stale: true, fetchedAt: Date.now() };
+      return markStaleFeedPayload(feed, staleCache);
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
-      const fallbackPayload = shouldPromotePublishedSnapshot(feed)
-        ? { ...fallback, fetchedAt: Date.now() }
-        : { ...fallback, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
+      const fallbackPayload = markSnapshotFallback(feed, fallback);
       cache.set(cacheKey, fallbackPayload);
       return fallbackPayload;
     }

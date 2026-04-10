@@ -58,3 +58,11 @@ test('transport OpenSky feed can use published snapshot fallback', () => {
   assert.match(source, /feed\?\.[\s\S]*id === 'transport-opensky'/);
   assert.match(source, /shouldPromotePublishedSnapshot[\s\S]*transport-opensky/);
 });
+
+test('known published snapshots are not classified as stale live-cache failures', () => {
+  const source = fs.readFileSync(path.join(root, 'gcp', 'feed-proxy', 'server.js'), 'utf8');
+  assert.match(source, /function markSnapshotFallback[\s\S]*shouldPromotePublishedSnapshot/);
+  assert.match(source, /function markStaleFeedPayload[\s\S]*shouldPromotePublishedSnapshot/);
+  assert.match(source, /shouldPromotePublishedSnapshot[\s\S]*fda-medwatch/);
+  assert.match(source, /shouldPromotePublishedSnapshot[\s\S]*federal-register[\s\S]*transport-opensky/);
+});
