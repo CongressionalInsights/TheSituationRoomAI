@@ -105,6 +105,25 @@ test('monitoring entry carries accepted doc surface hashes into document surface
   assert.deepEqual(surfaces[0].acceptedHashes, ['abc123']);
 });
 
+test('document surfaces accept multiple known hashes for nondeterministic docs pages', () => {
+  const entry = resolveMonitoringEntry({
+    id: 'nws-alerts',
+    name: 'NWS Alerts',
+    category: 'weather',
+    format: 'json',
+    ttlMinutes: 60
+  }, {
+    docsUrl: 'https://www.weather.gov/documentation/services-web-api',
+    acceptedSurfaceHashes: {
+      docs: {
+        'https://www.weather.gov/documentation/services-web-api': ['hash-a', 'hash-b']
+      }
+    }
+  }, { defaultRefreshMinutes: 60 });
+  const surfaces = collectDocumentSurfaces([entry]);
+  assert.deepEqual(surfaces[0].acceptedHashes, ['hash-a', 'hash-b']);
+});
+
 test('feed proxy deploy workflow injects OpenSky credentials', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-feed-proxy.yml'), 'utf8');
   assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);

@@ -20,7 +20,7 @@ const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-
 let openSkyToken = null;
 let openSkyTokenExpiresAt = 0;
 const seededFeedFallbacks = new Map();
-const SEEDED_JSON_FALLBACK_IDS = new Set(['eonet-events', 'nasa-firms']);
+const SEEDED_JSON_FALLBACK_IDS = new Set(['eonet-events', 'nasa-firms', 'transport-opensky']);
 
 const feedsConfig = JSON.parse(await readFile(FEEDS_PATH, 'utf8'));
 const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
@@ -719,17 +719,9 @@ async function buildFeedPayload(feed) {
   };
   if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(applied.url)) {
     const token = await getOpenSkyToken();
-    if (!token) {
-      const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
-      if (fallback) return fallback;
-      return {
-        id: feed.id,
-        fetchedAt: Date.now(),
-        error: 'missing_server_key',
-        message: 'OpenSky OAuth token unavailable.'
-      };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
     }
-    headers.Authorization = `Bearer ${token}`;
   }
 
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);

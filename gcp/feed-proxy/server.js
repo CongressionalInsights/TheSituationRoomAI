@@ -793,6 +793,15 @@ function isJsonHtmlError(contentType = '', body = '') {
   return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
+function hasUsableGdeltPayload(body = '') {
+  try {
+    const parsed = JSON.parse(body);
+    return Array.isArray(parsed?.articles) && parsed.articles.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function looksLikeXmlFeed(text = '') {
   const sample = String(text || '').slice(0, 4096).trim().toLowerCase();
   if (!sample) return false;
@@ -1002,6 +1011,7 @@ function canUseLiveFeedFallback(feed, isRssFeed) {
   return Boolean(
     isRssFeed
     || feed?.id === 'eonet-events'
+    || feed?.id === 'gdelt-doc'
     || feed?.id === 'federal-register'
     || feed?.id === 'federal-register-transport'
     || feed?.id === 'transport-opensky'
@@ -1012,18 +1022,19 @@ function shouldPromotePublishedSnapshot(feed) {
   return feed?.id === 'federal-register'
     || feed?.id === 'federal-register-transport'
     || feed?.id === 'fda-medwatch'
+    || feed?.id === 'gdelt-doc'
     || feed?.id === 'transport-opensky';
 }
 
 function markSnapshotFallback(feed, payload) {
   return shouldPromotePublishedSnapshot(feed)
-    ? { ...payload, fetchedAt: Date.now() }
+    ? { ...payload, stale: false, fallback: null, fetchedAt: Date.now() }
     : { ...payload, stale: true, fetchedAt: Date.now(), fallback: 'live-cache' };
 }
 
 function markStaleFeedPayload(feed, payload) {
   return shouldPromotePublishedSnapshot(feed)
-    ? { ...payload, fetchedAt: Date.now() }
+    ? { ...payload, stale: false, fallback: null, fetchedAt: Date.now() }
     : { ...payload, stale: true, fetchedAt: Date.now() };
 }
 
@@ -1390,6 +1401,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     if (feed.format === 'json' && responseOk && isJsonHtmlError(contentType, body)) {
       responseOk = false;
     }
+    if (feed.id === 'gdelt-doc' && responseOk && !hasUsableGdeltPayload(body)) {
+      responseOk = false;
+    }
     if (feed.id === 'nasa-firms' && responseOk && typeof body === 'string' && contentType.includes('json')) {
       try {
         const items = buildNasaFirmsItems(JSON.parse(body));
@@ -1508,6 +1522,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   } else if (feed.format === 'json' && isJsonHtmlError(contentType, body)) {
     payload.error = 'invalid_html';
     payload.message = 'Upstream returned HTML instead of JSON.';
+  } else if (feed.id === 'gdelt-doc' && !responseOk) {
+    payload.error = 'invalid_response';
+    payload.message = 'GDELT returned a non-normalizable payload.';
   } else if (isRssFeed && !responseOk) {
     payload.error = 'invalid_rss';
     payload.message = 'Upstream response was not valid RSS/Atom XML.';

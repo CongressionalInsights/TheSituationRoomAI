@@ -1442,6 +1442,8 @@ async function fetchRaw(feed, options) {
     if (fallback) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'
+        || feed.id === 'fda-medwatch'
+        || feed.id === 'gdelt-doc'
         || feed.id === 'nasa-firms'
         || feed.id === 'transport-opensky';
       console.log(JSON.stringify({

@@ -122,7 +122,11 @@ export function collectDocumentSurfaces(entries) {
       existing.feedIds.push(entry.id);
       existing.tiers[entry.id] = entry.tier;
       const acceptedHash = entry.acceptedSurfaceHashes?.[surfaceType]?.[url];
-      if (acceptedHash) existing.acceptedHashes.push(acceptedHash);
+      if (Array.isArray(acceptedHash)) {
+        existing.acceptedHashes.push(...acceptedHash);
+      } else if (acceptedHash) {
+        existing.acceptedHashes.push(acceptedHash);
+      }
       surfaces.set(key, existing);
     }
   }
