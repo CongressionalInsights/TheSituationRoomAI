@@ -78,10 +78,16 @@
     "supportUrl": "https://weather-gov.github.io/api/general-faqs",
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://www.weather.gov/documentation/services-web-api": "37b3338319ebcf0d29a7be97e5c086254afa1da3ccf63569c25285e3584abe81"
+        "https://www.weather.gov/documentation/services-web-api": [
+          "37b3338319ebcf0d29a7be97e5c086254afa1da3ccf63569c25285e3584abe81",
+          "90c8fde225b692535590b567edfd098c82e1bfafc143ef9555b36b7305af1901"
+        ]
       },
       "changelog": {
-        "https://www.weather.gov/documentation/services-web-api": "37b3338319ebcf0d29a7be97e5c086254afa1da3ccf63569c25285e3584abe81"
+        "https://www.weather.gov/documentation/services-web-api": [
+          "37b3338319ebcf0d29a7be97e5c086254afa1da3ccf63569c25285e3584abe81",
+          "90c8fde225b692535590b567edfd098c82e1bfafc143ef9555b36b7305af1901"
+        ]
       }
     },
     "freshnessWindowMinutes": 60,

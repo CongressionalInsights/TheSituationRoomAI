@@ -64,5 +64,13 @@ test('known published snapshots are not classified as stale live-cache failures'
   assert.match(source, /function markSnapshotFallback[\s\S]*shouldPromotePublishedSnapshot/);
   assert.match(source, /function markStaleFeedPayload[\s\S]*shouldPromotePublishedSnapshot/);
   assert.match(source, /shouldPromotePublishedSnapshot[\s\S]*fda-medwatch/);
+  assert.match(source, /shouldPromotePublishedSnapshot[\s\S]*gdelt-doc/);
   assert.match(source, /shouldPromotePublishedSnapshot[\s\S]*federal-register[\s\S]*transport-opensky/);
+  assert.match(source, /stale: false, fallback: null/);
+});
+
+test('static OpenSky build can seed anonymous published snapshots', () => {
+  const source = fs.readFileSync(path.join(root, 'scripts', 'build_static_cache.mjs'), 'utf8');
+  assert.match(source, /SEEDED_JSON_FALLBACK_IDS[\s\S]*transport-opensky/);
+  assert.doesNotMatch(source, /OpenSky OAuth token unavailable/);
 });
