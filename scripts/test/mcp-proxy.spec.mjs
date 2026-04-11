@@ -52,6 +52,24 @@ test('normalizeJsonSignals uses snake_case state dates for timestamps and metada
   assert.equal(item.publishedAt, Date.parse(latestActionDate));
 });
 
+test('normalizeJsonSignals uses effective_date as a state timestamp fallback', () => {
+  const effectiveDate = '2026-05-01';
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    response: {
+      data: [{
+        title: 'State bill with effective date only',
+        state_code: 'or',
+        effective_date: effectiveDate
+      }]
+    }
+  }), feed);
+
+  assert.ok(item);
+  assert.equal(item.jurisdictionCode, 'OR');
+  assert.equal(item.effectiveDate, effectiveDate);
+  assert.equal(item.publishedAt, Date.parse(effectiveDate));
+});
+
 test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the only timestamp', () => {
   const updateDateIncludingText = '2026-04-02';
   const [item] = normalizeJsonSignals(JSON.stringify({
