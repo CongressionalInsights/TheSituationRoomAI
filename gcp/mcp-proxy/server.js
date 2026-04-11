@@ -755,11 +755,13 @@ function toPositiveInt(value, fallback) {
   return Math.round(parsed);
 }
 
-function getStateBillSortTimestamp(entry) {
+export function getStateBillSortTimestamp(entry) {
   const candidates = [
     entry?.updated_at,
     entry?.latest_action_date,
     entry?.latest_action_at,
+    entry?.effective_date,
+    entry?.effectiveDate,
     entry?.created_at,
     entry?.first_action_date
   ];
