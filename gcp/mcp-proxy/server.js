@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
 import { normalizeJsonSignals } from './signal-normalization.js';
+import { getStateBillSortTimestamp } from './state-legislation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -753,21 +754,6 @@ function toPositiveInt(value, fallback) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.round(parsed);
-}
-
-function getStateBillSortTimestamp(entry) {
-  const candidates = [
-    entry?.updated_at,
-    entry?.latest_action_date,
-    entry?.latest_action_at,
-    entry?.created_at,
-    entry?.first_action_date
-  ];
-  for (const value of candidates) {
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return 0;
 }
 
 async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, timeoutMs = FETCH_TIMEOUT_MS) {

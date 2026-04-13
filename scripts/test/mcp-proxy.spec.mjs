@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+const { getStateBillSortTimestamp } = await import('../../gcp/mcp-proxy/state-legislation.js');
 const { normalizeJsonSignals } = await import('../../gcp/mcp-proxy/signal-normalization.js');
 
 const feed = {
@@ -68,6 +69,20 @@ test('normalizeJsonSignals uses effective_date as a state timestamp fallback', (
   assert.equal(item.jurisdictionCode, 'OR');
   assert.equal(item.effectiveDate, effectiveDate);
   assert.equal(item.publishedAt, Date.parse(effectiveDate));
+});
+
+test('getStateBillSortTimestamp falls back to effective date fields', () => {
+  const snakeCaseDate = '2026-05-02';
+  const camelCaseDate = '2026-05-03';
+
+  assert.equal(
+    getStateBillSortTimestamp({ effective_date: snakeCaseDate }),
+    Date.parse(snakeCaseDate)
+  );
+  assert.equal(
+    getStateBillSortTimestamp({ effectiveDate: camelCaseDate }),
+    Date.parse(camelCaseDate)
+  );
 });
 
 test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the only timestamp', () => {
