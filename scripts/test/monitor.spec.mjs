@@ -83,8 +83,19 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['gdelt-doc'].timeoutMs, 60000);
   assert.equal(monitoring['cdc-travel-notices'].freshnessWindowMinutes, 30240);
   assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 4320);
+  assert.equal(monitoring['bbc-world'].freshnessWindowMinutes, 240);
   assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 1440);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
+  assert.equal(monitoring['gdelt-doc'].knownUpstreamQuirks[0].id, 'gdelt-signals-http403-transient');
+  assert.equal(monitoring['transport-opensky'].knownUpstreamQuirks[0].id, 'opensky-signals-timeout-transient');
+  assert.equal(monitoring['nws-alerts'].knownUpstreamQuirks[0].id, 'nws-docs-contract-keyword-noise');
+  assert.deepEqual(
+    monitoring['energy-eia'].acceptedSurfaceHashes.support['https://www.eia.gov/opendata/'],
+    [
+      '5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13',
+      '99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46'
+    ]
+  );
 });
 
 test('monitoring entry carries accepted doc surface hashes into document surfaces', () => {
@@ -145,6 +156,12 @@ test('pages deploy workflow validates required static build secrets', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-pages.yml'), 'utf8');
   assert.match(workflow, /Missing required secret: EIA/);
   assert.match(workflow, /Missing required secret: OPENSTATES/);
+});
+
+test('doc alerts apply per-feed known upstream quirks', () => {
+  const runSource = fs.readFileSync(path.join(process.cwd(), 'analysis', 'monitor', 'lib', 'run.mjs'), 'utf8');
+  assert.match(runSource, /applyKnownUpstreamQuirks\(createAlert\(/);
+  assert.match(runSource, /const docAlerts = buildDocAlerts\(docResults, entriesById\)/);
 });
 
 test('document helpers normalize content, extract dates, and classify contract changes', () => {

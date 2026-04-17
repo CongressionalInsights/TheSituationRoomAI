@@ -16,7 +16,15 @@
       "json-structure",
       "non-empty"
     ],
-    "knownUpstreamQuirks": [],
+    "knownUpstreamQuirks": [
+      {
+        "id": "gdelt-signals-http403-transient",
+        "regressionClass": "signal-normalization-failed",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "GDELT signals endpoint intermittently returns 403 from upstream; treat as informational while monitoring feed health via proxy/raw paths."
+      }
+    ],
     "timeoutMs": 60000
   },
   "google-news-us": {
@@ -101,7 +109,15 @@
       "nws-alert-geometry",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [
+      {
+        "id": "nws-docs-contract-keyword-noise",
+        "regressionClass": "docs-contract-change",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "NWS docs surface hash/content is highly dynamic and can repeatedly match contract keywords without an actionable API break; keep as informational watch signal."
+      }
+    ]
   },
   "usgs-quakes-hour": {
     "tier": "core",
@@ -368,7 +384,10 @@
         "https://www.eia.gov/opendata/": "5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13"
       },
       "support": {
-        "https://www.eia.gov/opendata/": "5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13"
+        "https://www.eia.gov/opendata/": [
+          "5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13",
+          "99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46"
+        ]
       }
     }
   },
@@ -445,7 +464,15 @@
       "freshness",
       "json-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [
+      {
+        "id": "opensky-signals-timeout-transient",
+        "regressionClass": "signal-normalization-failed",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "OpenSky signal normalization can time out intermittently due upstream reachability; keep visible as info while fallback paths are monitored."
+      }
+    ]
   },
   "acled-events": {
     "tier": "standard",
@@ -725,5 +752,8 @@
       "non-empty"
     ],
     "knownUpstreamQuirks": []
+  },
+  "bbc-world": {
+    "freshnessWindowMinutes": 240
   }
 }

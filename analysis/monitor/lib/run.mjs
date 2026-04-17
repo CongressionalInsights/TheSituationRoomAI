@@ -4,6 +4,7 @@ import { parseCliArgs, readJson, writeJson, writeText, ensureDir } from './clien
 import { watchDocumentation } from './doc_watch.mjs';
 import { runFeedAudit } from './audit.mjs';
 import {
+  applyKnownUpstreamQuirks,
   buildMarkdownReport,
   createAlert,
   dedupeAlerts,
@@ -15,23 +16,27 @@ function toHistoryStamp(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, '-');
 }
 
-function buildDocAlerts(docResults = []) {
+function buildDocAlerts(docResults = [], entriesById = new Map()) {
   return docResults
     .filter((result) => result.classification)
-    .map((result) => createAlert({
-      feedId: result.representativeFeedId || 'docs',
-      regressionClass: result.classification.regressionClass,
-      severity: result.classification.severity,
-      message: `${result.classification.message} ${result.url}`,
-      docsHash: result.hash || null,
-      metadata: {
-        identity: result.key,
-        url: result.url,
-        surfaceKey: result.key,
-        surfaceType: result.surfaceType,
-        affectedFeedIds: result.feedIds
-      }
-    }));
+    .map((result) => {
+      const feedId = result.representativeFeedId || 'docs';
+      const entry = entriesById.get(feedId);
+      return applyKnownUpstreamQuirks(createAlert({
+        feedId,
+        regressionClass: result.classification.regressionClass,
+        severity: result.classification.severity,
+        message: `${result.classification.message} ${result.url}`,
+        docsHash: result.hash || null,
+        metadata: {
+          identity: result.key,
+          url: result.url,
+          surfaceKey: result.key,
+          surfaceType: result.surfaceType,
+          affectedFeedIds: result.feedIds
+        }
+      }), entry?.knownUpstreamQuirks || []);
+    });
 }
 
 export async function runMonitor(mode, argv = []) {
@@ -55,9 +60,10 @@ export async function runMonitor(mode, argv = []) {
   const docResults = cli.includeDocs
     ? await watchDocumentation({ entries, previousDocs, timeoutMs: cli.timeoutMs })
     : [];
+  const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
 
   const feedAlerts = feedResults.flatMap((result) => result.alerts);
-  const docAlerts = buildDocAlerts(docResults);
+  const docAlerts = buildDocAlerts(docResults, entriesById);
   const alerts = dedupeAlerts([...feedAlerts, ...docAlerts]);
   const deltas = diffAlerts(alerts, previousReport?.alerts || []);
   const summary = summarizeAlerts(alerts);
