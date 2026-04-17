@@ -80,8 +80,9 @@ test('monitoring entry honors audit exclusions and per-feed timeout overrides', 
 
 test('monitoring overrides pin widened freshness windows for known slow-cadence feeds', () => {
   const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
+  assert.equal(monitoring['gdelt-doc'].timeoutMs, 60000);
   assert.equal(monitoring['cdc-travel-notices'].freshnessWindowMinutes, 30240);
-  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 2880);
+  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 1440);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
 });

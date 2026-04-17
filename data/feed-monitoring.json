@@ -16,7 +16,8 @@
       "json-structure",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "timeoutMs": 60000
   },
   "google-news-us": {
     "tier": "core",
@@ -142,7 +143,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://eonet.gsfc.nasa.gov/",
-    "freshnessWindowMinutes": 2880,
+    "freshnessWindowMinutes": 4320,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
