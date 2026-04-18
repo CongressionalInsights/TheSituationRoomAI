@@ -82,11 +82,15 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
   assert.equal(monitoring['gdelt-doc'].timeoutMs, 60000);
   assert.equal(monitoring['cdc-travel-notices'].freshnessWindowMinutes, 30240);
-  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 4320);
+  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 5760);
+  assert.equal(monitoring['pbs-headlines'].freshnessWindowMinutes, 1440);
   assert.equal(monitoring['bbc-world'].freshnessWindowMinutes, 240);
   assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 1440);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['gdelt-doc'].knownUpstreamQuirks[0].id, 'gdelt-signals-http403-transient');
+  assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-http500-transient'));
+  assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-html-json-parse-transient'));
+  assert.equal(monitoring['blockstream-mempool'].knownUpstreamQuirks[0].id, 'blockstream-fallback-engaged-transient');
   assert.equal(monitoring['transport-opensky'].knownUpstreamQuirks[0].id, 'opensky-signals-timeout-transient');
   assert.equal(monitoring['nws-alerts'].knownUpstreamQuirks[0].id, 'nws-docs-contract-keyword-noise');
   assert.deepEqual(
