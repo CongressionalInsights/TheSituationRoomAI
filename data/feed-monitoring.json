@@ -56,7 +56,15 @@
       "rss-structure",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [
+      {
+        "id": "google-news-us-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Google News frequently serves through the published live-cache snapshot; treat fallback-only fetches as informational while freshness remains healthy."
+      }
+    ]
   },
   "google-news-search": {
     "tier": "standard",
@@ -74,7 +82,15 @@
       "freshness",
       "rss-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [
+      {
+        "id": "google-news-search-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Google News frequently serves through the published live-cache snapshot; treat fallback-only fetches as informational while freshness remains healthy."
+      }
+    ]
   },
   "federal-register": {
     "tier": "standard",
