@@ -416,7 +416,8 @@
       "support": {
         "https://www.eia.gov/opendata/": [
           "5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13",
-          "99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46"
+          "99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46",
+          "4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0"
         ]
       }
     }
@@ -703,7 +704,15 @@
       "descending-update-sort",
       "non-empty"
     ],
-    "knownUpstreamQuirks": [],
+    "knownUpstreamQuirks": [
+      {
+        "id": "congress-github-docs-fetch-transient",
+        "regressionClass": "docs-fetch-failed",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "GitHub-rendered Congress API support and changelog pages intermittently return 5xx; treat doc fetch failures there as informational unless the primary api.congress.gov docs surface also regresses."
+      }
+    ],
     "acceptedSurfaceHashes": {
       "changelog": {
         "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md": "7953b65bc44184a1fa509d409b29fd6ec9a532c08cdfeddfb45a618a0b75f54d"
