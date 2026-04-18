@@ -5,6 +5,23 @@ function normalizeSummary(text = '') {
   return cleaned.length > 500 ? `${cleaned.slice(0, 497)}...` : cleaned;
 }
 
+export function getStateBillSortTimestamp(entry) {
+  const candidates = [
+    entry?.updated_at,
+    entry?.latest_action_date,
+    entry?.latest_action_at,
+    entry?.effective_date,
+    entry?.effectiveDate,
+    entry?.created_at,
+    entry?.first_action_date
+  ];
+  for (const value of candidates) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
 function extractStateMetadata(entry, feed) {
   const jurisdictionCode = normalizeJurisdictionCode(
     entry.jurisdictionCode
