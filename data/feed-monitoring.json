@@ -441,10 +441,10 @@
   },
   "eia-today": {
     "tier": "core",
-    "docsUrl": "https://www.eia.gov/todayinenergy/",
+    "docsUrl": null,
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.eia.gov/todayinenergy/",
+    "supportUrl": null,
     "freshnessWindowMinutes": 4320,
     "sampleParams": {},
     "invariants": [
@@ -453,15 +453,7 @@
       "freshness",
       "rss-structure"
     ],
-    "knownUpstreamQuirks": [],
-    "acceptedSurfaceHashes": {
-      "docs": {
-        "https://www.eia.gov/todayinenergy/": "9898c59d0c0255b607483092fd6c3d171e84b4095005327962d16ad091d5ded5"
-      },
-      "support": {
-        "https://www.eia.gov/todayinenergy/": "9898c59d0c0255b607483092fd6c3d171e84b4095005327962d16ad091d5ded5"
-      }
-    }
+    "knownUpstreamQuirks": []
   },
   "transport-opensky": {
     "tier": "standard",
@@ -772,10 +764,10 @@
   },
   "pbs-headlines": {
     "tier": "standard",
-    "docsUrl": "https://www.pbs.org/newshour/feeds",
+    "docsUrl": null,
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.pbs.org/newshour/feeds",
+    "supportUrl": null,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
