@@ -90,6 +90,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['gdelt-doc'].knownUpstreamQuirks[0].id, 'gdelt-signals-http403-transient');
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-http500-transient'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-html-json-parse-transient'));
+  assert.equal(monitoring['congress-api'].knownUpstreamQuirks[0].id, 'congress-github-docs-fetch-transient');
   assert.equal(monitoring['google-news-us'].knownUpstreamQuirks[0].id, 'google-news-us-fallback-engaged-transient');
   assert.equal(monitoring['google-news-search'].knownUpstreamQuirks[0].id, 'google-news-search-fallback-engaged-transient');
   assert.equal(monitoring['blockstream-mempool'].knownUpstreamQuirks[0].id, 'blockstream-fallback-engaged-transient');
@@ -99,7 +100,8 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
     monitoring['energy-eia'].acceptedSurfaceHashes.support['https://www.eia.gov/opendata/'],
     [
       '5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13',
-      '99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46'
+      '99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46',
+      '4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0'
     ]
   );
 });
