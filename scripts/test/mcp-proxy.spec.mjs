@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { normalizeJsonSignals } = await import('../../gcp/mcp-proxy/signal-normalization.js');
-const { getStateBillSortTimestamp } = await import('../../gcp/mcp-proxy/server.js');
+const { getStateBillSortTimestamp, normalizeJsonSignals } = await import('../../gcp/mcp-proxy/signal-normalization.js');
 
 const feed = {
   id: 'state-legislation',
