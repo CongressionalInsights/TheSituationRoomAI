@@ -23,6 +23,20 @@
         "severity": "info",
         "suppressNew": true,
         "note": "GDELT signals endpoint intermittently returns 403 from upstream; treat as informational while monitoring feed health via proxy/raw paths."
+      },
+      {
+        "id": "gdelt-feed-http500-transient",
+        "regressionClass": "feed-fetch-failed",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "GDELT DOC intermittently returns upstream HTTP 500; treat as informational while signal and fallback paths remain available."
+      },
+      {
+        "id": "gdelt-feed-html-json-parse-transient",
+        "regressionClass": "json-parse-failed",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Transient upstream HTML error pages can surface in place of JSON for GDELT DOC; monitor but suppress new warning noise."
       }
     ],
     "timeoutMs": 60000
@@ -159,7 +173,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://eonet.gsfc.nasa.gov/",
-    "freshnessWindowMinutes": 4320,
+    "freshnessWindowMinutes": 5760,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -755,5 +769,44 @@
   },
   "bbc-world": {
     "freshnessWindowMinutes": 240
+  },
+  "pbs-headlines": {
+    "tier": "standard",
+    "docsUrl": "https://www.pbs.org/newshour/feeds",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://www.pbs.org/newshour/feeds",
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure"
+    ],
+    "freshnessWindowMinutes": 1440,
+    "knownUpstreamQuirks": []
+  },
+  "blockstream-mempool": {
+    "tier": "standard",
+    "docsUrl": "https://mempool.space/docs/api/rest",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://mempool.space/",
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "json-structure"
+    ],
+    "knownUpstreamQuirks": [
+      {
+        "id": "blockstream-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Primary mempool endpoint intermittently rate-limits; fallback path remains healthy and should be informational unless sustained."
+      }
+    ]
   }
 }
