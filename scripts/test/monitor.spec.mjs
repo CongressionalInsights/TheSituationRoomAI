@@ -90,6 +90,8 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['gdelt-doc'].knownUpstreamQuirks[0].id, 'gdelt-signals-http403-transient');
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-http500-transient'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-html-json-parse-transient'));
+  assert.equal(monitoring['google-news-us'].knownUpstreamQuirks[0].id, 'google-news-us-fallback-engaged-transient');
+  assert.equal(monitoring['google-news-search'].knownUpstreamQuirks[0].id, 'google-news-search-fallback-engaged-transient');
   assert.equal(monitoring['blockstream-mempool'].knownUpstreamQuirks[0].id, 'blockstream-fallback-engaged-transient');
   assert.equal(monitoring['transport-opensky'].knownUpstreamQuirks[0].id, 'opensky-signals-timeout-transient');
   assert.equal(monitoring['nws-alerts'].knownUpstreamQuirks[0].id, 'nws-docs-contract-keyword-noise');
