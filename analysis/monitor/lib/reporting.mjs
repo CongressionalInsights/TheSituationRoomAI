@@ -99,6 +99,16 @@ export function summarizeAlerts(alerts = []) {
 export function buildMarkdownReport(report) {
   const { summary = {}, alerts = [], deltas = {}, feedResults = [], docResults = [] } = report || {};
   const lines = [];
+  const docAlertsBySurfaceKey = new Map(
+    alerts
+      .filter((alert) => alert.metadata?.surfaceKey)
+      .map((alert) => [alert.metadata.surfaceKey, alert])
+  );
+  const docAlertsByUrl = new Map(
+    alerts
+      .filter((alert) => alert.metadata?.url)
+      .map((alert) => [alert.metadata.url, alert])
+  );
   lines.push(`# Data Monitor: ${report.mode}`);
   lines.push('');
   lines.push(`Generated: ${report.generatedAt}`);
@@ -125,11 +135,16 @@ export function buildMarkdownReport(report) {
     lines.push('');
   }
 
-  const changedDocs = docResults.filter((result) => result.changed);
+  const changedDocs = docResults
+    .filter((result) => result.changed)
+    .map((result) => ({
+      result,
+      alert: docAlertsBySurfaceKey.get(result.key) || docAlertsByUrl.get(result.url) || null
+    }));
   if (changedDocs.length) {
     lines.push('## Official Surface Changes');
-    changedDocs.slice(0, 10).forEach((result) => {
-      lines.push(`- ${result.surfaceType} ${result.url} (${result.classification?.severity || 'info'})`);
+    changedDocs.slice(0, 10).forEach(({ result, alert }) => {
+      lines.push(`- ${result.surfaceType} ${result.url} (${alert?.severity || result.classification?.severity || 'info'})`);
     });
     lines.push('');
   }

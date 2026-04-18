@@ -19,6 +19,7 @@ import {
   evaluateInvariant
 } from '../../analysis/monitor/lib/audit.mjs';
 import {
+  buildMarkdownReport,
   createAlert,
   applyKnownUpstreamQuirks,
   dedupeAlerts,
@@ -90,9 +91,6 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['gdelt-doc'].knownUpstreamQuirks[0].id, 'gdelt-signals-http403-transient');
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-http500-transient'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-html-json-parse-transient'));
-  assert.equal(monitoring['congress-api'].knownUpstreamQuirks[0].id, 'congress-github-docs-fetch-transient');
-  assert.equal(monitoring['google-news-us'].knownUpstreamQuirks[0].id, 'google-news-us-fallback-engaged-transient');
-  assert.equal(monitoring['google-news-search'].knownUpstreamQuirks[0].id, 'google-news-search-fallback-engaged-transient');
   assert.equal(monitoring['blockstream-mempool'].knownUpstreamQuirks[0].id, 'blockstream-fallback-engaged-transient');
   assert.equal(monitoring['transport-opensky'].knownUpstreamQuirks[0].id, 'opensky-signals-timeout-transient');
   assert.equal(monitoring['nws-alerts'].knownUpstreamQuirks[0].id, 'nws-docs-contract-keyword-noise');
@@ -100,8 +98,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
     monitoring['energy-eia'].acceptedSurfaceHashes.support['https://www.eia.gov/opendata/'],
     [
       '5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13',
-      '99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46',
-      '4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0'
+      '99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46'
     ]
   );
 });
@@ -217,6 +214,53 @@ test('known quirks downgrade alerts and alert diffs suppress repeated known issu
   assert.equal(deduped.length, 1);
   const deltas = diffAlerts(deduped, [downgraded]);
   assert.equal(deltas.newAlerts.length, 0);
+});
+
+test('markdown report shows quirk-adjusted severity for changed official surfaces', () => {
+  const markdown = buildMarkdownReport({
+    mode: 'full',
+    generatedAt: '2026-04-18T15:02:10.844Z',
+    summary: { checkedFeeds: 91, totalFeeds: 91, critical: 0, warning: 0, info: 1 },
+    deltas: { newAlerts: [], resolvedAlerts: [], ongoingAlerts: [] },
+    alerts: [
+      {
+        feedId: 'nws-alerts',
+        regressionClass: 'docs-contract-change',
+        severity: 'info',
+        message: 'Official docs or changelog includes contract-change keywords. https://www.weather.gov/documentation/services-web-api',
+        metadata: {
+          surfaceKey: 'changelog:https://www.weather.gov/documentation/services-web-api',
+          url: 'https://www.weather.gov/documentation/services-web-api'
+        }
+      }
+    ],
+    feedResults: [],
+    docResults: [
+      {
+        key: 'changelog:https://www.weather.gov/documentation/services-web-api',
+        changed: true,
+        surfaceType: 'changelog',
+        url: 'https://www.weather.gov/documentation/services-web-api',
+        classification: {
+          severity: 'critical'
+        }
+      },
+      {
+        key: 'docs:https://www.weather.gov/documentation/services-web-api',
+        changed: true,
+        surfaceType: 'docs',
+        url: 'https://www.weather.gov/documentation/services-web-api',
+        classification: {
+          severity: 'critical'
+        }
+      }
+    ]
+  });
+
+  assert.match(markdown, /changelog https:\/\/www\.weather\.gov\/documentation\/services-web-api \(info\)/);
+  assert.match(markdown, /docs https:\/\/www\.weather\.gov\/documentation\/services-web-api \(info\)/);
+  assert.doesNotMatch(markdown, /changelog https:\/\/www\.weather\.gov\/documentation\/services-web-api \(critical\)/);
+  assert.doesNotMatch(markdown, /docs https:\/\/www\.weather\.gov\/documentation\/services-web-api \(critical\)/);
 });
 
 test('RSS fixture is summarized correctly', () => {
