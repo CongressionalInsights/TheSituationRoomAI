@@ -88,6 +88,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['bbc-world'].freshnessWindowMinutes, 240);
   assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 2880);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
+  assert.equal(monitoring['energy-eia'].knownUpstreamQuirks[0].id, 'energy-eia-docs-contract-keyword-noise');
   assert.equal(monitoring['gdelt-doc'].knownUpstreamQuirks[0].id, 'gdelt-signals-http403-transient');
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-http500-transient'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-html-json-parse-transient'));
@@ -99,7 +100,8 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
     [
       '5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13',
       '99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46',
-      '4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0'
+      '4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0',
+      'b594c1084497aab341e240ad2237b7beb73a98fe0a6590093ae6c154a5cef099'
     ]
   );
 });

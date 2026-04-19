@@ -405,7 +405,15 @@
       "eia-response-data",
       "non-empty"
     ],
-    "knownUpstreamQuirks": [],
+    "knownUpstreamQuirks": [
+      {
+        "id": "energy-eia-docs-contract-keyword-noise",
+        "regressionClass": "docs-contract-change",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "EIA documentation pages frequently rotate wording and can match contract keywords without a breaking API change; keep as informational watch signal."
+      }
+    ],
     "acceptedSurfaceHashes": {
       "changelog": {
         "https://www.eia.gov/opendata/documentation.php": "997ec271acdd19b0a54a33955ce62f4b27ca15e8ad0108d040b080cc0cc168ae"
@@ -417,7 +425,8 @@
         "https://www.eia.gov/opendata/": [
           "5062524fcefa96b4d9dbff29c6c99469ca704224501a36c7e2ef2035228f9f13",
           "99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46",
-          "4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0"
+          "4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0",
+          "b594c1084497aab341e240ad2237b7beb73a98fe0a6590093ae6c154a5cef099"
         ]
       }
     }
