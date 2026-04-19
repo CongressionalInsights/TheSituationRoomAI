@@ -86,7 +86,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 5760);
   assert.equal(monitoring['pbs-headlines'].freshnessWindowMinutes, 1440);
   assert.equal(monitoring['bbc-world'].freshnessWindowMinutes, 240);
-  assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 1440);
+  assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 2880);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['gdelt-doc'].knownUpstreamQuirks[0].id, 'gdelt-signals-http403-transient');
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-http500-transient'));
