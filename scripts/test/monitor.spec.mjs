@@ -219,6 +219,38 @@ test('known quirks downgrade alerts and alert diffs suppress repeated known issu
   assert.equal(deltas.newAlerts.length, 0);
 });
 
+test('monitoring config quirks downgrade recent Google News and Congress doc noise', () => {
+  const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
+
+  const googleNewsAlert = createAlert({
+    feedId: 'google-news-us',
+    regressionClass: 'fallback-engaged',
+    severity: 'warning',
+    message: 'Published live-cache snapshot satisfied the request.'
+  });
+  const downgradedGoogleNewsAlert = applyKnownUpstreamQuirks(
+    googleNewsAlert,
+    monitoring['google-news-us'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedGoogleNewsAlert.severity, 'info');
+  assert.equal(downgradedGoogleNewsAlert.suppressNew, true);
+  assert.match(downgradedGoogleNewsAlert.message, /live-cache snapshot/i);
+
+  const congressDocsAlert = createAlert({
+    feedId: 'congress-api',
+    regressionClass: 'docs-fetch-failed',
+    severity: 'warning',
+    message: 'Failed to fetch Congress API support page.'
+  });
+  const downgradedCongressDocsAlert = applyKnownUpstreamQuirks(
+    congressDocsAlert,
+    monitoring['congress-api'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedCongressDocsAlert.severity, 'info');
+  assert.equal(downgradedCongressDocsAlert.suppressNew, true);
+  assert.match(downgradedCongressDocsAlert.message, /informational unless the primary api\.congress\.gov docs surface also regresses/i);
+});
+
 test('markdown report shows quirk-adjusted severity for changed official surfaces', () => {
   const markdown = buildMarkdownReport({
     mode: 'full',
