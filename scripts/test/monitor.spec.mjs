@@ -259,6 +259,20 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedCongressDocsAlert.severity, 'info');
   assert.equal(downgradedCongressDocsAlert.suppressNew, true);
   assert.match(downgradedCongressDocsAlert.message, /informational unless the primary api\.congress\.gov docs surface also regresses/i);
+
+  const openSkyFetchAlert = createAlert({
+    feedId: 'transport-opensky',
+    regressionClass: 'feed-fetch-failed',
+    severity: 'warning',
+    message: 'HTTP 502'
+  });
+  const downgradedOpenSkyFetchAlert = applyKnownUpstreamQuirks(
+    openSkyFetchAlert,
+    monitoring['transport-opensky'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedOpenSkyFetchAlert.severity, 'info');
+  assert.equal(downgradedOpenSkyFetchAlert.suppressNew, true);
+  assert.equal(downgradedOpenSkyFetchAlert.knownQuirkId, 'opensky-feed-http502-transient');
 });
 
 test('markdown report shows quirk-adjusted severity for changed official surfaces', () => {
