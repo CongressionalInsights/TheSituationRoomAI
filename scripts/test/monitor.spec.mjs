@@ -93,7 +93,8 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-http500-transient'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-html-json-parse-transient'));
   assert.equal(monitoring['blockstream-mempool'].knownUpstreamQuirks[0].id, 'blockstream-fallback-engaged-transient');
-  assert.equal(monitoring['transport-opensky'].knownUpstreamQuirks[0].id, 'opensky-signals-timeout-transient');
+  assert.ok(monitoring['transport-opensky'].knownUpstreamQuirks.some((quirk) => quirk.id === 'opensky-feed-fetch-transient'));
+  assert.ok(monitoring['transport-opensky'].knownUpstreamQuirks.some((quirk) => quirk.id === 'opensky-signals-timeout-transient'));
   assert.equal(monitoring['nws-alerts'].knownUpstreamQuirks[0].id, 'nws-docs-contract-keyword-noise');
   assert.deepEqual(
     monitoring['energy-eia'].acceptedSurfaceHashes.support['https://www.eia.gov/opendata/'],
@@ -249,6 +250,20 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedCongressDocsAlert.severity, 'info');
   assert.equal(downgradedCongressDocsAlert.suppressNew, true);
   assert.match(downgradedCongressDocsAlert.message, /informational unless the primary api\.congress\.gov docs surface also regresses/i);
+
+  const openSkyFetchAlert = createAlert({
+    feedId: 'transport-opensky',
+    regressionClass: 'feed-fetch-failed',
+    severity: 'warning',
+    message: 'HTTP 502'
+  });
+  const downgradedOpenSkyFetchAlert = applyKnownUpstreamQuirks(
+    openSkyFetchAlert,
+    monitoring['transport-opensky'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedOpenSkyFetchAlert.severity, 'info');
+  assert.equal(downgradedOpenSkyFetchAlert.suppressNew, true);
+  assert.equal(downgradedOpenSkyFetchAlert.knownQuirkId, 'opensky-feed-fetch-transient');
 });
 
 test('markdown report shows quirk-adjusted severity for changed official surfaces', () => {

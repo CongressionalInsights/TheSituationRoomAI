@@ -498,6 +498,13 @@
     ],
     "knownUpstreamQuirks": [
       {
+        "id": "opensky-feed-fetch-transient",
+        "regressionClass": "feed-fetch-failed",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "OpenSky upstream intermittently returns transient 5xx/timeout failures from hyperscaler egress paths; keep feed-fetch failures visible as informational while proxy fallback coverage is monitored."
+      },
+      {
         "id": "opensky-signals-timeout-transient",
         "regressionClass": "signal-normalization-failed",
         "severity": "info",
