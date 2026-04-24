@@ -18,6 +18,13 @@
     ],
     "knownUpstreamQuirks": [
       {
+        "id": "gdelt-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "GDELT DOC can intermittently require jina proxy fallback while upstream remains healthy; keep as informational unless feed fetch failures persist."
+      },
+      {
         "id": "gdelt-signals-http403-transient",
         "regressionClass": "signal-normalization-failed",
         "severity": "info",
@@ -189,7 +196,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://eonet.gsfc.nasa.gov/",
-    "freshnessWindowMinutes": 5760,
+    "freshnessWindowMinutes": 7200,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -409,6 +416,13 @@
     ],
     "knownUpstreamQuirks": [
       {
+        "id": "energy-eia-support-surface-volatility",
+        "regressionClass": "support-surface-updated",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "EIA Open Data support surface includes frequently changing whats-new content; track updates as informational unless docs-contract alerts also fire."
+      },
+      {
         "id": "energy-eia-docs-contract-keyword-noise",
         "regressionClass": "docs-contract-change",
         "severity": "info",
@@ -429,7 +443,8 @@
           "99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46",
           "4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0",
           "b594c1084497aab341e240ad2237b7beb73a98fe0a6590093ae6c154a5cef099",
-          "d580c34939a932c392e6c6bb3ec5872827b6a3996ed841c13fbc260918266c31"
+          "d580c34939a932c392e6c6bb3ec5872827b6a3996ed841c13fbc260918266c31",
+          "4f012b4d41bbe2b16ebfbc5ef435b2970c153be448b202e207ff50249238753c"
         ]
       }
     }
@@ -513,6 +528,13 @@
         "severity": "info",
         "suppressNew": true,
         "note": "OpenSky feed requests can intermittently return HTTP 502 due upstream reachability; keep as informational while fallback behavior is monitored."
+      },
+      {
+        "id": "opensky-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "OpenSky occasionally requires fallback transport due upstream reachability; keep fallback-only runs informational while freshness remains healthy."
       }
     ]
   },
