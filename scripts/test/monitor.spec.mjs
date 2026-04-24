@@ -83,7 +83,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
   assert.equal(monitoring['gdelt-doc'].timeoutMs, 60000);
   assert.equal(monitoring['cdc-travel-notices'].freshnessWindowMinutes, 30240);
-  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 5760);
+  assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 7200);
   assert.equal(monitoring['pbs-headlines'].freshnessWindowMinutes, 1440);
   assert.equal(monitoring['bbc-world'].freshnessWindowMinutes, 240);
   assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 2880);
@@ -96,13 +96,16 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['eia-today'].freshnessWindowMinutes, 10080);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['fda-medwatch'].timeoutMs, 60000);
-  assert.equal(monitoring['energy-eia'].knownUpstreamQuirks[0].id, 'energy-eia-docs-contract-keyword-noise');
-  assert.equal(monitoring['gdelt-doc'].knownUpstreamQuirks[0].id, 'gdelt-signals-http403-transient');
+  assert.ok(monitoring['energy-eia'].knownUpstreamQuirks.some((quirk) => quirk.id === 'energy-eia-support-surface-volatility'));
+  assert.ok(monitoring['energy-eia'].knownUpstreamQuirks.some((quirk) => quirk.id === 'energy-eia-docs-contract-keyword-noise'));
+  assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-signals-http403-transient'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-http500-transient'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-feed-html-json-parse-transient'));
+  assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-fallback-engaged-transient'));
   assert.equal(monitoring['blockstream-mempool'].knownUpstreamQuirks[0].id, 'blockstream-fallback-engaged-transient');
   assert.equal(monitoring['transport-opensky'].knownUpstreamQuirks[0].id, 'opensky-signals-timeout-transient');
   assert.ok(monitoring['transport-opensky'].knownUpstreamQuirks.some((quirk) => quirk.id === 'opensky-feed-http502-transient'));
+  assert.ok(monitoring['transport-opensky'].knownUpstreamQuirks.some((quirk) => quirk.id === 'opensky-fallback-engaged-transient'));
   assert.equal(monitoring['nws-alerts'].knownUpstreamQuirks[0].id, 'nws-docs-contract-keyword-noise');
   assert.deepEqual(
     monitoring['energy-eia'].acceptedSurfaceHashes.support['https://www.eia.gov/opendata/'],
@@ -111,7 +114,8 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
       '99e7f6ebd194c4723639d07a8b184c92835039cbb602ca746e2fda21db1d4d46',
       '4998fe189750185f982d1b96e65ed006e3603738a02c8e1e13e5a6152d24deb0',
       'b594c1084497aab341e240ad2237b7beb73a98fe0a6590093ae6c154a5cef099',
-      'd580c34939a932c392e6c6bb3ec5872827b6a3996ed841c13fbc260918266c31'
+      'd580c34939a932c392e6c6bb3ec5872827b6a3996ed841c13fbc260918266c31',
+      '4f012b4d41bbe2b16ebfbc5ef435b2970c153be448b202e207ff50249238753c'
     ]
   );
 });
@@ -260,6 +264,20 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedCongressDocsAlert.suppressNew, true);
   assert.match(downgradedCongressDocsAlert.message, /informational unless the primary api\.congress\.gov docs surface also regresses/i);
 
+  const energyEiaSupportAlert = createAlert({
+    feedId: 'energy-eia',
+    regressionClass: 'support-surface-updated',
+    severity: 'warning',
+    message: 'Official support surface changed.'
+  });
+  const downgradedEnergyEiaSupportAlert = applyKnownUpstreamQuirks(
+    energyEiaSupportAlert,
+    monitoring['energy-eia'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedEnergyEiaSupportAlert.severity, 'info');
+  assert.equal(downgradedEnergyEiaSupportAlert.suppressNew, true);
+  assert.equal(downgradedEnergyEiaSupportAlert.knownQuirkId, 'energy-eia-support-surface-volatility');
+
   const openSkyFetchAlert = createAlert({
     feedId: 'transport-opensky',
     regressionClass: 'feed-fetch-failed',
@@ -273,6 +291,33 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedOpenSkyFetchAlert.severity, 'info');
   assert.equal(downgradedOpenSkyFetchAlert.suppressNew, true);
   assert.equal(downgradedOpenSkyFetchAlert.knownQuirkId, 'opensky-feed-http502-transient');
+  const openSkyFallbackAlert = createAlert({
+    feedId: 'transport-opensky',
+    regressionClass: 'fallback-engaged',
+    severity: 'warning',
+    message: 'Fallback data path was used for this feed.'
+  });
+  const downgradedOpenSkyFallbackAlert = applyKnownUpstreamQuirks(
+    openSkyFallbackAlert,
+    monitoring['transport-opensky'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedOpenSkyFallbackAlert.severity, 'info');
+  assert.equal(downgradedOpenSkyFallbackAlert.suppressNew, true);
+  assert.equal(downgradedOpenSkyFallbackAlert.knownQuirkId, 'opensky-fallback-engaged-transient');
+
+  const gdeltFallbackAlert = createAlert({
+    feedId: 'gdelt-doc',
+    regressionClass: 'fallback-engaged',
+    severity: 'warning',
+    message: 'Fallback data path was used for this feed.'
+  });
+  const downgradedGdeltFallbackAlert = applyKnownUpstreamQuirks(
+    gdeltFallbackAlert,
+    monitoring['gdelt-doc'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedGdeltFallbackAlert.severity, 'info');
+  assert.equal(downgradedGdeltFallbackAlert.suppressNew, true);
+  assert.equal(downgradedGdeltFallbackAlert.knownQuirkId, 'gdelt-fallback-engaged-transient');
 });
 
 test('markdown report shows quirk-adjusted severity for changed official surfaces', () => {
