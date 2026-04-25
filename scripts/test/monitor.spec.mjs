@@ -318,6 +318,22 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedGdeltFallbackAlert.severity, 'info');
   assert.equal(downgradedGdeltFallbackAlert.suppressNew, true);
   assert.equal(downgradedGdeltFallbackAlert.knownQuirkId, 'gdelt-fallback-engaged-transient');
+
+  const googleNewsSearchStaleAlert = createAlert({
+    feedId: 'google-news-search',
+    regressionClass: 'feed-stale',
+    severity: 'warning',
+    message: 'Feed proxy returned stale data.'
+  });
+  const downgradedGoogleNewsSearchStaleAlert = applyKnownUpstreamQuirks(
+    googleNewsSearchStaleAlert,
+    monitoring['google-news-search'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedGoogleNewsSearchStaleAlert.severity, 'info');
+  assert.equal(downgradedGoogleNewsSearchStaleAlert.suppressNew, true);
+  assert.equal(downgradedGoogleNewsSearchStaleAlert.knownQuirkId, 'google-news-search-feed-stale-transient');
+
+  assert.equal(monitoring['guardian-world'].freshnessWindowMinutes, 240);
 });
 
 test('markdown report shows quirk-adjusted severity for changed official surfaces', () => {

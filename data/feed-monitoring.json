@@ -91,6 +91,13 @@
     ],
     "knownUpstreamQuirks": [
       {
+        "id": "google-news-search-feed-stale-transient",
+        "regressionClass": "feed-stale",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Google News search freshness can temporarily lag while feed payloads continue to update; keep stale-marker regressions informational unless fetch or parsing also fails."
+      },
+      {
         "id": "google-news-search-fallback-engaged-transient",
         "regressionClass": "fallback-engaged",
         "severity": "info",
@@ -98,6 +105,23 @@
         "note": "Google News frequently serves through the published live-cache snapshot; treat fallback-only fetches as informational while freshness remains healthy."
       }
     ]
+  },
+  "guardian-world": {
+    "tier": "core",
+    "docsUrl": null,
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": null,
+    "freshnessWindowMinutes": 240,
+    "sampleParams": {},
+    "invariants": [
+      "feed-fetch",
+      "signal-normalization",
+      "freshness",
+      "rss-structure",
+      "non-empty"
+    ],
+    "knownUpstreamQuirks": []
   },
   "federal-register": {
     "tier": "standard",
