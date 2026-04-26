@@ -85,7 +85,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['cdc-travel-notices'].freshnessWindowMinutes, 30240);
   assert.equal(monitoring['eonet-events'].freshnessWindowMinutes, 7200);
   assert.equal(monitoring['pbs-headlines'].freshnessWindowMinutes, 1440);
-  assert.equal(monitoring['bbc-world'].freshnessWindowMinutes, 240);
+  assert.equal(monitoring['bbc-world'].freshnessWindowMinutes, 480);
   assert.equal(monitoring['state-legislation'].freshnessWindowMinutes, 2880);
   assert.equal(monitoring['state-legislation'].timeoutMs, 60000);
   assert.equal(monitoring['bls-cpi'].timeoutMs, 60000);
@@ -333,7 +333,7 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedGoogleNewsSearchStaleAlert.suppressNew, true);
   assert.equal(downgradedGoogleNewsSearchStaleAlert.knownQuirkId, 'google-news-search-feed-stale-transient');
 
-  assert.equal(monitoring['guardian-world'].freshnessWindowMinutes, 240);
+  assert.equal(monitoring['guardian-world'].freshnessWindowMinutes, 480);
 });
 
 test('markdown report shows quirk-adjusted severity for changed official surfaces', () => {

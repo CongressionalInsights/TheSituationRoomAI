@@ -112,7 +112,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": null,
-    "freshnessWindowMinutes": 240,
+    "freshnessWindowMinutes": 480,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -855,7 +855,7 @@
     "knownUpstreamQuirks": []
   },
   "bbc-world": {
-    "freshnessWindowMinutes": 240
+    "freshnessWindowMinutes": 480
   },
   "pbs-headlines": {
     "tier": "standard",
