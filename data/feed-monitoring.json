@@ -65,6 +65,13 @@
     ],
     "knownUpstreamQuirks": [
       {
+        "id": "google-news-us-feed-stale-transient",
+        "regressionClass": "feed-stale",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Google News US proxy freshness can lag while upstream RSS remains current; treat stale proxy snapshots as informational unless fetch or parsing also fails."
+      },
+      {
         "id": "google-news-us-fallback-engaged-transient",
         "regressionClass": "fallback-engaged",
         "severity": "info",
@@ -488,7 +495,15 @@
       "eia-response-data",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [
+      {
+        "id": "energy-eia-brent-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "EIA Brent proxy may serve the published live-cache snapshot while upstream remains healthy; keep fallback-only regressions informational unless fetch fails or freshness regresses."
+      }
+    ]
   },
   "energy-eia-ng": {
     "tier": "core",
