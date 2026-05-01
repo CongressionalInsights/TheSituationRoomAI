@@ -333,6 +333,34 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedGoogleNewsSearchStaleAlert.suppressNew, true);
   assert.equal(downgradedGoogleNewsSearchStaleAlert.knownQuirkId, 'google-news-search-feed-stale-transient');
 
+  const googleNewsUsStaleAlert = createAlert({
+    feedId: 'google-news-us',
+    regressionClass: 'feed-stale',
+    severity: 'warning',
+    message: 'Feed proxy returned stale data.'
+  });
+  const downgradedGoogleNewsUsStaleAlert = applyKnownUpstreamQuirks(
+    googleNewsUsStaleAlert,
+    monitoring['google-news-us'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedGoogleNewsUsStaleAlert.severity, 'info');
+  assert.equal(downgradedGoogleNewsUsStaleAlert.suppressNew, true);
+  assert.equal(downgradedGoogleNewsUsStaleAlert.knownQuirkId, 'google-news-us-feed-stale-transient');
+
+  const energyEiaBrentFallbackAlert = createAlert({
+    feedId: 'energy-eia-brent',
+    regressionClass: 'fallback-engaged',
+    severity: 'warning',
+    message: 'Fallback data path was used for this feed.'
+  });
+  const downgradedEnergyEiaBrentFallbackAlert = applyKnownUpstreamQuirks(
+    energyEiaBrentFallbackAlert,
+    monitoring['energy-eia-brent'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedEnergyEiaBrentFallbackAlert.severity, 'info');
+  assert.equal(downgradedEnergyEiaBrentFallbackAlert.suppressNew, true);
+  assert.equal(downgradedEnergyEiaBrentFallbackAlert.knownQuirkId, 'energy-eia-brent-fallback-engaged-transient');
+
   assert.equal(monitoring['guardian-world'].freshnessWindowMinutes, 480);
 });
 
