@@ -71,6 +71,8 @@ function extractTimestamp(item) {
     item.updatedAt,
     item.updated_at,
     item.updated,
+    item.properties?.time,
+    item.properties?.updated,
     item.pubDate,
     item.date,
     item.dateIssued,
@@ -133,6 +135,87 @@ function parseRssSummary(xml = '') {
   };
 }
 
+function parseCsvRows(text = '') {
+  const rows = [];
+  let row = [];
+  let current = '';
+  let inQuotes = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '"') {
+      const next = text[index + 1];
+      if (inQuotes && next === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      row.push(current);
+      current = '';
+      continue;
+    }
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && text[index + 1] === '\n') index += 1;
+      row.push(current);
+      if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+      row = [];
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current.length || row.length) {
+    row.push(current);
+    if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+  }
+  return rows;
+}
+
+function parseCsvSummary(csv = '') {
+  const rows = parseCsvRows(String(csv || '').trim());
+  if (rows.length < 2) {
+    return {
+      itemCount: 0,
+      newestTimestamp: null,
+      identifiers: rows[0] || [],
+      sampleItems: []
+    };
+  }
+  const headers = rows[0].map((header) => String(header || '').trim());
+  const items = rows.slice(1).map((row) => headers.reduce((acc, header, index) => {
+    acc[header] = row[index] || '';
+    return acc;
+  }, {}));
+  const usableItems = items.filter((item) => {
+    if (item.Close === 'N/D') return false;
+    if (item.Symbol && item.Date && item.Time && item.Close) return true;
+    return Object.values(item).some((value) => String(value || '').trim() && value !== 'N/D');
+  });
+  const newestTimestamp = usableItems
+    .map((item) => {
+      if (item.Date) {
+        const time = item.Time && item.Time !== 'N/D' ? `T${item.Time}Z` : 'T00:00:00Z';
+        const parsed = Date.parse(`${item.Date}${time}`);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return extractTimestamp(item);
+    })
+    .filter(Boolean)
+    .sort((a, b) => b - a)[0] || null;
+  return {
+    itemCount: usableItems.length,
+    newestTimestamp,
+    identifiers: usableItems
+      .map((item) => extractIdentifier(item) || item.Symbol)
+      .filter(Boolean)
+      .slice(0, 5),
+    sampleItems: usableItems.slice(0, 10)
+  };
+}
+
 function parseBody(feed, payload) {
   if (!payload) {
     return { body: null, parseError: 'empty_payload' };
@@ -145,6 +228,9 @@ function parseBody(feed, payload) {
   }
   const bodyText = typeof payload.body === 'string' ? payload.body : '';
   if (feed.format === 'rss') {
+    return { body: bodyText, parseError: null };
+  }
+  if (feed.format === 'csv') {
     return { body: bodyText, parseError: null };
   }
   if (!bodyText) {
@@ -183,6 +269,24 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
       newestTimestamp: rss.newestTimestamp,
       identifiers: rss.identifiers,
       sampleItems: []
+    };
+  }
+  if (feed.format === 'csv') {
+    const csv = parseCsvSummary(typeof body === 'string' ? body : '');
+    return {
+      httpStatus: payload?.httpStatus ?? transport.status ?? null,
+      error: payload?.error || transport.error || null,
+      errorMessage: payload?.message || transport.error || null,
+      stale: Boolean(payload?.stale),
+      fetchedAt: payload?.fetchedAt || null,
+      fallback: payload?.fallback || null,
+      contentType: payload?.contentType || null,
+      parseError,
+      rawItemCount: csv.itemCount,
+      newestTimestamp: csv.newestTimestamp,
+      identifiers: csv.identifiers,
+      sampleItems: csv.sampleItems,
+      parsedBody: null
     };
   }
 

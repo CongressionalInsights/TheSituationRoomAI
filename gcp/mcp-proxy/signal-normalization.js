@@ -5,6 +5,74 @@ function normalizeSummary(text = '') {
   return cleaned.length > 500 ? `${cleaned.slice(0, 497)}...` : cleaned;
 }
 
+function parseTimestamp(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return value < 1e12 ? value * 1000 : value;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseCsvRows(text = '') {
+  const rows = [];
+  let row = [];
+  let current = '';
+  let inQuotes = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '"') {
+      const next = text[index + 1];
+      if (inQuotes && next === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      row.push(current);
+      current = '';
+      continue;
+    }
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && text[index + 1] === '\n') index += 1;
+      row.push(current);
+      if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+      row = [];
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current.length || row.length) {
+    row.push(current);
+    if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+  }
+  return rows;
+}
+
+function toCsvObjects(text = '') {
+  const rows = parseCsvRows(String(text || '').trim());
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((header) => String(header || '').trim());
+  return rows.slice(1).map((row) => headers.reduce((acc, header, index) => {
+    acc[header] = row[index] || '';
+    return acc;
+  }, {}));
+}
+
+function parseStooqTimestamp(row = {}) {
+  const date = String(row.Date || '').trim();
+  const time = String(row.Time || '').trim();
+  if (!date || date === 'N/D') return Date.now();
+  const stamp = time && time !== 'N/D' ? `${date}T${time}Z` : `${date}T00:00:00Z`;
+  const parsed = Date.parse(stamp);
+  return Number.isFinite(parsed) ? parsed : Date.parse(date);
+}
+
 export function getStateBillSortTimestamp(entry) {
   const candidates = [
     entry?.updated_at,
@@ -124,10 +192,12 @@ function selectList(data) {
       ? data.packages
       : Array.isArray(data?.entries)
         ? data.entries
-        : Array.isArray(data?.articles)
-          ? data.articles
-          : Array.isArray(data?.data)
-            ? data.data
+      : Array.isArray(data?.articles)
+        ? data.articles
+        : Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.features)
+            ? data.features
             : Array.isArray(data?.results)
               ? data.results
               : Array.isArray(data?.bills)
@@ -197,6 +267,7 @@ export function parseGenericJsonFeed(data, feed) {
         category: feed.category
       };
     }
+    const properties = entry?.properties && typeof entry.properties === 'object' ? entry.properties : {};
     const voteNumber = entry.voteNumber || entry.rollCall || entry.rollCallNumber || entry.number || '';
     const voteSession = entry.session || entry.sessionNumber || '';
     const isCongressHouseVote = feed?.id === 'congress-house-votes'
@@ -209,7 +280,7 @@ export function parseGenericJsonFeed(data, feed) {
     const congressVoteUrl = (entry.congress && voteSession && voteNumber)
       ? `https://www.congress.gov/roll-call-vote/${entry.congress}th-congress/house-session-${voteSession}/${voteNumber}`
       : '';
-    const fallbackTitle = entry.title || entry.name || entry.headline || entry.label || 'Untitled';
+    const fallbackTitle = properties.title || entry.title || entry.name || entry.headline || entry.label || 'Untitled';
     const isCommitteeReport = !isCongressHouseVote && isCommitteeReportEntry(entry, feed);
     const isEonetEvent = feed?.id === 'eonet-events';
     const eonetCategories = Array.isArray(entry?.categories)
@@ -227,8 +298,8 @@ export function parseGenericJsonFeed(data, feed) {
     const title = isCongressHouseVote
       ? voteTitle
       : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
-    const url = congressVoteUrl || entry.url || entry.link || entry.permalink || entry.webUrl || entry.packageLink || entry.detailsLink || '';
-    const defaultSummary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || '');
+    const url = congressVoteUrl || properties.url || entry.url || entry.link || entry.permalink || entry.webUrl || entry.packageLink || entry.detailsLink || '';
+    const defaultSummary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || properties.status || properties.type || properties.place || '');
     const voteSummary = normalizeSummary(
       [
         entry.voteQuestion || entry.question || '',
@@ -250,6 +321,8 @@ export function parseGenericJsonFeed(data, feed) {
     const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
     const published = entry.publishedAt
       || entry.published_at
+      || properties.time
+      || properties.updated
       || entry.pubDate
       || (isEonetEvent ? (latestEonetGeometry?.date || '') : '')
       || entry.date
@@ -265,10 +338,12 @@ export function parseGenericJsonFeed(data, feed) {
       || entry.effectiveDate
       || entry.effective_date
       || (latestEonetGeometry?.date || '');
-    const publishedAt = published ? Date.parse(published) : Date.now();
+    const publishedAt = parseTimestamp(published) || Date.now();
     const eventCoords = Array.isArray(latestEonetGeometry?.coordinates) ? latestEonetGeometry.coordinates : [];
+    const featureCoords = Array.isArray(entry?.geometry?.coordinates) ? entry.geometry.coordinates : [];
     const geo = entry.geo
       || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null)
+      || (featureCoords.length >= 2 ? { lat: Number(featureCoords[1]), lon: Number(featureCoords[0]) } : null)
       || (eventCoords.length >= 2 ? { lat: Number(eventCoords[1]), lon: Number(eventCoords[0]) } : null);
     const stateMeta = extractStateMetadata(entry, feed);
     const hasStateMeta = Object.values(stateMeta).some((value) => value !== null && value !== '');
@@ -299,4 +374,46 @@ export function normalizeJsonSignals(text, feed) {
       return [];
     }
   }
+}
+
+export function normalizeCsvSignals(text, feed) {
+  const rows = toCsvObjects(text);
+  if (!rows.length) return [];
+  if (feed?.id === 'stooq-quote') {
+    return rows.map((row) => {
+      const symbol = String(row.Symbol || '').trim();
+      const close = Number(row.Close);
+      if (!symbol || row.Close === 'N/D' || !Number.isFinite(close)) return null;
+      const open = Number(row.Open);
+      const deltaPct = Number.isFinite(open) && open ? ((close - open) / open) * 100 : null;
+      const publishedAt = parseStooqTimestamp(row);
+      return {
+        title: `${symbol} Price`,
+        url: `https://stooq.com/q/?s=${encodeURIComponent(symbol.toLowerCase())}`,
+        summary: normalizeSummary(`Close ${close} | ${row.Date || 'Latest'} ${row.Time || ''}`),
+        publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
+        source: feed.name,
+        category: feed.category,
+        value: close,
+        deltaPct,
+        symbol,
+        volume: Number(row.Volume)
+      };
+    }).filter(Boolean);
+  }
+
+  return rows.slice(0, 50).map((row) => {
+    const title = row.title || row.Title || row.name || row.Name || row.Symbol || Object.values(row)[0] || 'CSV row';
+    const url = row.url || row.URL || row.link || row.Link || '';
+    const published = row.publishedAt || row.date || row.Date || row.published || row.Published || '';
+    const publishedAt = published ? Date.parse(published) : Date.now();
+    return {
+      title,
+      url,
+      summary: normalizeSummary(row.summary || row.Summary || row.description || row.Description || ''),
+      publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
+      source: feed.name,
+      category: feed.category
+    };
+  }).filter((item) => item.title);
 }

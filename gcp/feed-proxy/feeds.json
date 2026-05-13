@@ -338,6 +338,7 @@
       "category": "finance",
       "format": "csv",
       "supportsQuery": true,
+      "defaultQuery": "aapl.us",
       "url": "https://stooq.com/q/l/?s={{query}}&f=sd2t2ohlcv&h&e=csv",
       "ttlMinutes": 10,
       "tags": [
