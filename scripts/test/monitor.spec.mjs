@@ -96,6 +96,9 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['eia-today'].freshnessWindowMinutes, 10080);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['fda-medwatch'].timeoutMs, 60000);
+  assert.equal(monitoring['stooq-quote'].sampleParams.query, 'aapl.us');
+  assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-feed-fetch-transient'));
+  assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-fallback-engaged-transient'));
   assert.ok(monitoring['energy-eia'].knownUpstreamQuirks.some((quirk) => quirk.id === 'energy-eia-support-surface-volatility'));
   assert.ok(monitoring['energy-eia'].knownUpstreamQuirks.some((quirk) => quirk.id === 'energy-eia-docs-contract-keyword-noise'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-signals-http403-transient'));
@@ -360,6 +363,34 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedEnergyEiaBrentFallbackAlert.severity, 'info');
   assert.equal(downgradedEnergyEiaBrentFallbackAlert.suppressNew, true);
   assert.equal(downgradedEnergyEiaBrentFallbackAlert.knownQuirkId, 'energy-eia-brent-fallback-engaged-transient');
+
+  const stooqFetchAlert = createAlert({
+    feedId: 'stooq-quote',
+    regressionClass: 'feed-fetch-failed',
+    severity: 'warning',
+    message: 'fetch_failed'
+  });
+  const downgradedStooqFetchAlert = applyKnownUpstreamQuirks(
+    stooqFetchAlert,
+    monitoring['stooq-quote'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedStooqFetchAlert.severity, 'info');
+  assert.equal(downgradedStooqFetchAlert.suppressNew, true);
+  assert.equal(downgradedStooqFetchAlert.knownQuirkId, 'stooq-quote-feed-fetch-transient');
+
+  const stooqFallbackAlert = createAlert({
+    feedId: 'stooq-quote',
+    regressionClass: 'fallback-engaged',
+    severity: 'warning',
+    message: 'Fallback data path was used for this feed.'
+  });
+  const downgradedStooqFallbackAlert = applyKnownUpstreamQuirks(
+    stooqFallbackAlert,
+    monitoring['stooq-quote'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedStooqFallbackAlert.severity, 'info');
+  assert.equal(downgradedStooqFallbackAlert.suppressNew, true);
+  assert.equal(downgradedStooqFallbackAlert.knownQuirkId, 'stooq-quote-fallback-engaged-transient');
 
   assert.equal(monitoring['guardian-world'].freshnessWindowMinutes, 480);
 });
