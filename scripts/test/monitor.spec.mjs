@@ -123,6 +123,13 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   );
 });
 
+test('Stooq feed registry carries a default quote for static and fallback builds', () => {
+  const feeds = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feeds.json'), 'utf8'));
+  const feed = feeds.feeds.find((entry) => entry.id === 'stooq-quote');
+  assert.ok(feed);
+  assert.equal(feed.defaultQuery, 'aapl.us');
+});
+
 test('monitoring entry carries accepted doc surface hashes into document surfaces', () => {
   const entry = resolveMonitoringEntry({
     id: 'cisa-kev',
@@ -492,6 +499,53 @@ test('monitor summaries honor snake_case update timestamps', () => {
     httpStatus: 200
   }, {});
   assert.equal(summary.newestTimestamp, Date.parse(updatedAt));
+});
+
+test('monitor summaries inspect Stooq CSV quote fields', () => {
+  const feed = { id: 'stooq-quote', format: 'csv' };
+  const summary = summarizeProxyPayload(feed, {
+    body: 'Symbol,Date,Time,Open,High,Low,Close,Volume\nAAPL.US,2026-05-13,16:30:22,293.5,297.51,293.5,295.5,6106704\n',
+    contentType: 'text/csv; charset=utf-8',
+    httpStatus: 200
+  }, {});
+  assert.equal(summary.rawItemCount, 1);
+  assert.equal(summary.parseError, null);
+  assert.equal(summary.identifiers[0], 'AAPL.US');
+  assert.equal(summary.newestTimestamp, Date.parse('2026-05-13T16:30:22Z'));
+
+  const missingSummary = summarizeProxyPayload(feed, {
+    body: 'Symbol,Date,Time,Open,High,Low,Close,Volume\nMONITORING,N/D,N/D,N/D,N/D,N/D,N/D,N/D\n',
+    contentType: 'text/csv; charset=utf-8',
+    httpStatus: 200
+  }, {});
+  assert.equal(missingSummary.rawItemCount, 0);
+});
+
+test('monitor summaries inspect GeoJSON feature timestamps', () => {
+  const feed = { id: 'usgs-quakes-hour', format: 'json' };
+  const summary = summarizeProxyPayload(feed, {
+    body: JSON.stringify({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        id: 'nc75360036',
+        properties: {
+          title: 'M 1.2 - 7 km NW of The Geysers, CA',
+          time: 1778683419930,
+          updated: 1778683514046
+        },
+        geometry: {
+          type: 'Point',
+          coordinates: [-122.803833007812, 38.8283348083496, 1.8]
+        }
+      }]
+    }),
+    contentType: 'application/geo+json',
+    httpStatus: 200
+  }, {});
+  assert.equal(summary.rawItemCount, 1);
+  assert.equal(summary.newestTimestamp, 1778683419930);
+  assert.equal(summary.identifiers[0], 'nc75360036');
 });
 
 test('deep-core invariants pass on valid fixtures and fail on state mismatch', () => {

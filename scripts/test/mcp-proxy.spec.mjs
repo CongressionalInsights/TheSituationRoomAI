@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { getStateBillSortTimestamp, normalizeJsonSignals } = await import('../../gcp/mcp-proxy/signal-normalization.js');
+const { getStateBillSortTimestamp, normalizeCsvSignals, normalizeJsonSignals } = await import('../../gcp/mcp-proxy/signal-normalization.js');
 
 const feed = {
   id: 'state-legislation',
@@ -116,4 +116,70 @@ test('normalizeJsonSignals extracts wrapped JSON payloads from Jina-style text r
   assert.ok(item);
   assert.equal(item.title, 'Wrapped GDELT article');
   assert.equal(item.url, 'https://example.com/story');
+});
+
+test('normalizeCsvSignals maps Stooq quote fields into finance signals', () => {
+  const [item] = normalizeCsvSignals(
+    'Symbol,Date,Time,Open,High,Low,Close,Volume\nAAPL.US,2026-05-13,16:30:22,293.5,297.51,293.5,295.5,6106704\n',
+    {
+      id: 'stooq-quote',
+      name: 'Stooq Quote',
+      category: 'finance',
+      format: 'csv'
+    }
+  );
+
+  assert.ok(item);
+  assert.equal(item.title, 'AAPL.US Price');
+  assert.equal(item.symbol, 'AAPL.US');
+  assert.equal(item.value, 295.5);
+  assert.equal(item.volume, 6106704);
+  assert.ok(item.publishedAt > 0);
+});
+
+test('normalizeCsvSignals drops Stooq missing ticker rows', () => {
+  const items = normalizeCsvSignals(
+    'Symbol,Date,Time,Open,High,Low,Close,Volume\nMONITORING,N/D,N/D,N/D,N/D,N/D,N/D,N/D\n',
+    {
+      id: 'stooq-quote',
+      name: 'Stooq Quote',
+      category: 'finance',
+      format: 'csv'
+    }
+  );
+
+  assert.deepEqual(items, []);
+});
+
+test('normalizeJsonSignals maps GeoJSON feature properties into signal fields', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      id: 'nc75360036',
+      properties: {
+        title: 'M 1.2 - 7 km NW of The Geysers, CA',
+        url: 'https://earthquake.usgs.gov/earthquakes/eventpage/nc75360036',
+        time: 1778683419930,
+        updated: 1778683514046,
+        status: 'automatic',
+        type: 'earthquake'
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: [-122.803833007812, 38.8283348083496, 1.8]
+      }
+    }]
+  }), {
+    id: 'usgs-quakes-hour',
+    name: 'USGS Earthquakes (Past Hour)',
+    category: 'disaster',
+    format: 'json'
+  });
+
+  assert.ok(item);
+  assert.equal(item.title, 'M 1.2 - 7 km NW of The Geysers, CA');
+  assert.equal(item.url, 'https://earthquake.usgs.gov/earthquakes/eventpage/nc75360036');
+  assert.equal(item.publishedAt, 1778683419930);
+  assert.deepEqual(item.geo, { lat: 38.8283348083496, lon: -122.803833007812 });
 });

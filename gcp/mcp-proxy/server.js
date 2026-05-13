@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
-import { normalizeJsonSignals } from './signal-normalization.js';
+import { normalizeCsvSignals, normalizeJsonSignals } from './signal-normalization.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1112,6 +1112,7 @@ function parseRss(text, feed) {
 function normalizeSignals(text, feed) {
   if (!text) return [];
   if (feed.format === 'rss') return parseRss(text, feed);
+  if (feed.format === 'csv') return normalizeCsvSignals(text, feed);
   if (feed.format === 'json' || feed.format === 'arcgis') return normalizeJsonSignals(text, feed);
   return [];
 }
