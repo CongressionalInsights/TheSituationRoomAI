@@ -236,7 +236,22 @@
       "nasa-eonet-events",
       "non-empty"
     ],
-    "knownUpstreamQuirks": [],
+    "knownUpstreamQuirks": [
+      {
+        "id": "eonet-events-feed-stale-transient",
+        "regressionClass": "feed-stale",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "EONET feed-proxy snapshots can lag while direct NASA EONET signal normalization remains healthy and within the widened freshness window; keep stale markers informational unless fetch, parsing, or freshness also fails."
+      },
+      {
+        "id": "eonet-events-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "EONET can use published fallback snapshots during feed-proxy lag; keep fallback-only markers informational while direct signal normalization remains healthy."
+      }
+    ],
     "acceptedSurfaceHashes": {
       "docs": {
         "https://eonet.gsfc.nasa.gov/docs/v3": "91662f8a1947252fc73a40a41671b20e0949107ddc6cf07e3d95370686505f37"

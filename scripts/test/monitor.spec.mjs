@@ -99,6 +99,8 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['stooq-quote'].sampleParams.query, 'aapl.us');
   assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-feed-fetch-transient'));
   assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-fallback-engaged-transient'));
+  assert.ok(monitoring['eonet-events'].knownUpstreamQuirks.some((quirk) => quirk.id === 'eonet-events-feed-stale-transient'));
+  assert.ok(monitoring['eonet-events'].knownUpstreamQuirks.some((quirk) => quirk.id === 'eonet-events-fallback-engaged-transient'));
   assert.ok(monitoring['energy-eia'].knownUpstreamQuirks.some((quirk) => quirk.id === 'energy-eia-support-surface-volatility'));
   assert.ok(monitoring['energy-eia'].knownUpstreamQuirks.some((quirk) => quirk.id === 'energy-eia-docs-contract-keyword-noise'));
   assert.ok(monitoring['gdelt-doc'].knownUpstreamQuirks.some((quirk) => quirk.id === 'gdelt-signals-http403-transient'));
@@ -398,6 +400,34 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedStooqFallbackAlert.severity, 'info');
   assert.equal(downgradedStooqFallbackAlert.suppressNew, true);
   assert.equal(downgradedStooqFallbackAlert.knownQuirkId, 'stooq-quote-fallback-engaged-transient');
+
+  const eonetStaleAlert = createAlert({
+    feedId: 'eonet-events',
+    regressionClass: 'feed-stale',
+    severity: 'warning',
+    message: 'Feed proxy returned stale data.'
+  });
+  const downgradedEonetStaleAlert = applyKnownUpstreamQuirks(
+    eonetStaleAlert,
+    monitoring['eonet-events'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedEonetStaleAlert.severity, 'info');
+  assert.equal(downgradedEonetStaleAlert.suppressNew, true);
+  assert.equal(downgradedEonetStaleAlert.knownQuirkId, 'eonet-events-feed-stale-transient');
+
+  const eonetFallbackAlert = createAlert({
+    feedId: 'eonet-events',
+    regressionClass: 'fallback-engaged',
+    severity: 'warning',
+    message: 'Fallback data path was used for this feed.'
+  });
+  const downgradedEonetFallbackAlert = applyKnownUpstreamQuirks(
+    eonetFallbackAlert,
+    monitoring['eonet-events'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedEonetFallbackAlert.severity, 'info');
+  assert.equal(downgradedEonetFallbackAlert.suppressNew, true);
+  assert.equal(downgradedEonetFallbackAlert.knownQuirkId, 'eonet-events-fallback-engaged-transient');
 
   assert.equal(monitoring['guardian-world'].freshnessWindowMinutes, 480);
 });
