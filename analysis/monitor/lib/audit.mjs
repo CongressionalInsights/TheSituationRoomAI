@@ -683,7 +683,7 @@ async function auditEntry(entry, options) {
   const proxySummary = summarizeProxyPayload(entry, proxyTransport.data || {}, proxyTransport);
 
   const { query, ...params } = entry.sampleParams || {};
-  const rawFormat = entry.format === 'rss' ? 'text' : 'json';
+  const rawFormat = entry.format === 'rss' || entry.format === 'csv' ? 'text' : 'json';
   const rawResult = await callMcpTool(options.mcp, 'raw.fetch', {
     sourceId: entry.id,
     ...(query ? { query } : {}),
