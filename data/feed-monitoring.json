@@ -430,6 +430,32 @@
       }
     }
   },
+  "stooq-quote": {
+    "tier": "standard",
+    "docsUrl": "https://stooq.com/q/l/",
+    "changelogUrl": null,
+    "statusUrl": null,
+    "supportUrl": "https://stooq.com/q/l/",
+    "sampleParams": {
+      "query": "aapl.us"
+    },
+    "knownUpstreamQuirks": [
+      {
+        "id": "stooq-quote-feed-fetch-transient",
+        "regressionClass": "feed-fetch-failed",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Stooq quote proxy fetches can intermittently fail from Cloud Run while direct upstream CSV remains reachable; keep as informational unless parsing or raw signal paths also fail."
+      },
+      {
+        "id": "stooq-quote-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Stooq quote monitor can fall back to published/raw paths during proxy reachability failures; keep fallback-only runs informational while quote data remains parseable."
+      }
+    ]
+  },
   "energy-eia": {
     "tier": "core",
     "docsUrl": "https://www.eia.gov/opendata/",
