@@ -359,6 +359,48 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedGoogleNewsUsStaleAlert.suppressNew, true);
   assert.equal(downgradedGoogleNewsUsStaleAlert.knownQuirkId, 'google-news-us-feed-stale-transient');
 
+  const arxivAiStaleAlert = createAlert({
+    feedId: 'arxiv-ai',
+    regressionClass: 'feed-stale',
+    severity: 'warning',
+    message: 'Feed proxy returned stale data.'
+  });
+  const downgradedArxivAiStaleAlert = applyKnownUpstreamQuirks(
+    arxivAiStaleAlert,
+    monitoring['arxiv-ai'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedArxivAiStaleAlert.severity, 'info');
+  assert.equal(downgradedArxivAiStaleAlert.suppressNew, true);
+  assert.equal(downgradedArxivAiStaleAlert.knownQuirkId, 'arxiv-ai-feed-stale-transient');
+
+  const arxivAiFallbackAlert = createAlert({
+    feedId: 'arxiv-ai',
+    regressionClass: 'fallback-engaged',
+    severity: 'warning',
+    message: 'Fallback data path was used for this feed.'
+  });
+  const downgradedArxivAiFallbackAlert = applyKnownUpstreamQuirks(
+    arxivAiFallbackAlert,
+    monitoring['arxiv-ai'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedArxivAiFallbackAlert.severity, 'info');
+  assert.equal(downgradedArxivAiFallbackAlert.suppressNew, true);
+  assert.equal(downgradedArxivAiFallbackAlert.knownQuirkId, 'arxiv-ai-fallback-engaged-transient');
+
+  const arxivAiSignalsAlert = createAlert({
+    feedId: 'arxiv-ai',
+    regressionClass: 'signal-normalization-failed',
+    severity: 'warning',
+    message: 'This operation was aborted'
+  });
+  const downgradedArxivAiSignalsAlert = applyKnownUpstreamQuirks(
+    arxivAiSignalsAlert,
+    monitoring['arxiv-ai'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedArxivAiSignalsAlert.severity, 'info');
+  assert.equal(downgradedArxivAiSignalsAlert.suppressNew, true);
+  assert.equal(downgradedArxivAiSignalsAlert.knownQuirkId, 'arxiv-ai-signals-timeout-transient');
+
   const energyEiaBrentFallbackAlert = createAlert({
     feedId: 'energy-eia-brent',
     regressionClass: 'fallback-engaged',
