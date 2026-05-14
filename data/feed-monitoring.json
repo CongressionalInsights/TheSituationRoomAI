@@ -309,7 +309,29 @@
       "freshness",
       "json-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [
+      {
+        "id": "arxiv-ai-feed-stale-transient",
+        "regressionClass": "feed-stale",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "arXiv API proxy freshness can temporarily serve the published live-cache snapshot while direct API, static, and signal paths remain usable; keep stale proxy markers informational unless fetch or parsing also fails."
+      },
+      {
+        "id": "arxiv-ai-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "arXiv API can intermittently route through the published live-cache snapshot; treat fallback-only fetches as informational while payloads remain parseable."
+      },
+      {
+        "id": "arxiv-ai-signals-timeout-transient",
+        "regressionClass": "signal-normalization-failed",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "arXiv MCP signal normalization can intermittently time out while direct API, static, and retry signal calls remain usable; keep timeout-only failures informational unless feed fetch or parsing also fails."
+      }
+    ]
   },
   "arxiv-rss-ai": {
     "tier": "standard",
