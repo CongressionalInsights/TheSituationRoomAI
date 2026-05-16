@@ -110,6 +110,7 @@ export function resolveMonitoringEntry(feed, override = {}, appConfig = {}) {
       ? override.acceptedSurfaceHashes
       : {},
     freshnessWindowMinutes: Number(override.freshnessWindowMinutes || deriveFreshnessWindowMinutes(feed, appConfig)),
+    staticSnapshotLagWindowMinutes: Number(override.staticSnapshotLagWindowMinutes || override.freshnessWindowMinutes || deriveFreshnessWindowMinutes(feed, appConfig)),
     sampleParams: {
       ...buildDefaultSampleParams(feed),
       ...(override.sampleParams || {})

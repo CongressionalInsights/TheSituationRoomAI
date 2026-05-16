@@ -15,6 +15,7 @@ import {
   collectDocumentSurfaces
 } from '../../analysis/monitor/lib/doc_watch.mjs';
 import {
+  compareStaticSnapshot,
   summarizeProxyPayload,
   evaluateInvariant
 } from '../../analysis/monitor/lib/audit.mjs';
@@ -96,6 +97,9 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['eia-today'].freshnessWindowMinutes, 10080);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['fda-medwatch'].timeoutMs, 60000);
+  assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 120);
+  assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.changelog['https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md'].includes('aa21bebe4a2d1d9e3a85b78c2e28ea3d734e0130e510378c3f46be72d7f218f1'));
+  assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.support['https://github.com/LibraryOfCongress/api.congress.gov'].includes('32f63260708bc83ef3abe549fe0fac68a68759c59cd1bdc7eb9ff73017ef0131'));
   assert.equal(monitoring['stooq-quote'].sampleParams.query, 'aapl.us');
   assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-feed-fetch-transient'));
   assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-fallback-engaged-transient'));
@@ -243,6 +247,26 @@ test('known quirks downgrade alerts and alert diffs suppress repeated known issu
   assert.equal(deduped.length, 1);
   const deltas = diffAlerts(deduped, [downgraded]);
   assert.equal(deltas.newAlerts.length, 0);
+});
+
+test('static snapshot stale severity is bounded by the configured static lag window', () => {
+  const entry = {
+    id: 'usgs-quakes-hour',
+    freshnessWindowMinutes: 60,
+    staticSnapshotLagWindowMinutes: 120
+  };
+  const liveSummary = { newestTimestamp: Date.parse('2026-05-16T13:00:00Z'), rawItemCount: 5 };
+  const normalLagSummary = { newestTimestamp: Date.parse('2026-05-16T11:45:00Z'), rawItemCount: 4 };
+  const stalledSummary = { newestTimestamp: Date.parse('2026-05-16T10:00:00Z'), rawItemCount: 4 };
+
+  const normalLagAlert = compareStaticSnapshot(entry, liveSummary, normalLagSummary);
+  assert.equal(normalLagAlert.regressionClass, 'static-snapshot-stale');
+  assert.equal(normalLagAlert.severity, 'info');
+  assert.equal(normalLagAlert.metadata.staticSnapshotLagWindowMinutes, 120);
+
+  const stalledAlert = compareStaticSnapshot(entry, liveSummary, stalledSummary);
+  assert.equal(stalledAlert.regressionClass, 'static-snapshot-stale');
+  assert.equal(stalledAlert.severity, 'warning');
 });
 
 test('monitoring config quirks downgrade recent Google News and Congress doc noise', () => {

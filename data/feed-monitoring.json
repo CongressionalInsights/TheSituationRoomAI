@@ -194,6 +194,7 @@
     "statusUrl": null,
     "supportUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "freshnessWindowMinutes": 60,
+    "staticSnapshotLagWindowMinutes": 120,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
@@ -860,12 +861,16 @@
     ],
     "acceptedSurfaceHashes": {
       "changelog": {
-        "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md": "7953b65bc44184a1fa509d409b29fd6ec9a532c08cdfeddfb45a618a0b75f54d"
+        "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md": [
+          "7953b65bc44184a1fa509d409b29fd6ec9a532c08cdfeddfb45a618a0b75f54d",
+          "aa21bebe4a2d1d9e3a85b78c2e28ea3d734e0130e510378c3f46be72d7f218f1"
+        ]
       },
       "support": {
         "https://github.com/LibraryOfCongress/api.congress.gov": [
           "a565701ba8551e0d96f1096c386034ca5b2dd26147ed0bacb24ae1f237144e20",
-          "e1d782f8fcdb06ac6a507503adff19f0dbdc910c5a64f05e988c93dc0ccc51e8"
+          "e1d782f8fcdb06ac6a507503adff19f0dbdc910c5a64f05e988c93dc0ccc51e8",
+          "32f63260708bc83ef3abe549fe0fac68a68759c59cd1bdc7eb9ff73017ef0131"
         ]
       }
     }

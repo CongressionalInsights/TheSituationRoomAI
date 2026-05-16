@@ -432,7 +432,7 @@ async function evaluateCommitteeReportSortHealth(base, timeoutMs) {
   };
 }
 
-function compareStaticSnapshot(entry, liveSummary, staticSummary) {
+export function compareStaticSnapshot(entry, liveSummary, staticSummary) {
   if (!staticSummary || staticSummary.skipped) return null;
   if (staticSummary.error) {
     return createAlert({
@@ -455,12 +455,19 @@ function compareStaticSnapshot(entry, liveSummary, staticSummary) {
   if (liveSummary.newestTimestamp && staticSummary.newestTimestamp) {
     const ageDeltaMinutes = (liveSummary.newestTimestamp - staticSummary.newestTimestamp) / (1000 * 60);
     if (ageDeltaMinutes > entry.freshnessWindowMinutes) {
+      const staticSnapshotLagWindowMinutes = Number(entry.staticSnapshotLagWindowMinutes || entry.freshnessWindowMinutes);
+      const withinExpectedLag = Number.isFinite(staticSnapshotLagWindowMinutes)
+        && ageDeltaMinutes <= staticSnapshotLagWindowMinutes;
       return createAlert({
         feedId: entry.id,
         regressionClass: 'static-snapshot-stale',
-        severity: 'warning',
+        severity: withinExpectedLag ? 'info' : 'warning',
         message: 'Published static snapshot lags live data beyond the feed freshness window.',
-        metadata: { identity: 'static-stale' }
+        metadata: {
+          identity: 'static-stale',
+          ageDeltaMinutes: Math.round(ageDeltaMinutes),
+          staticSnapshotLagWindowMinutes
+        }
       });
     }
   }
