@@ -6,8 +6,16 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.3",
-    "fast-xml-parser": "^5.3.4",
-    "zod": "^4.3.6"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "fast-xml-parser": "^5.8.0",
+    "zod": "^4.4.3"
+  },
+  "overrides": {
+    "@hono/node-server": "1.19.14",
+    "hono": "4.12.19",
+    "express-rate-limit": "8.5.2",
+    "ip-address": "10.2.0",
+    "fast-uri": "3.1.2",
+    "path-to-regexp": "8.4.2"
   }
 }
