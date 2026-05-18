@@ -680,6 +680,10 @@ export function evaluateInvariant(name, context) {
   }
 }
 
+export function getRawFetchFormat(format) {
+  return format === 'rss' || format === 'csv' ? 'text' : 'json';
+}
+
 function shouldCompareStatic(entry) {
   return entry.tier === 'core' && !entry.requiresConfig;
 }
@@ -690,7 +694,7 @@ async function auditEntry(entry, options) {
   const proxySummary = summarizeProxyPayload(entry, proxyTransport.data || {}, proxyTransport);
 
   const { query, ...params } = entry.sampleParams || {};
-  const rawFormat = entry.format === 'rss' || entry.format === 'csv' ? 'text' : 'json';
+  const rawFormat = getRawFetchFormat(entry.format);
   const rawResult = await callMcpTool(options.mcp, 'raw.fetch', {
     sourceId: entry.id,
     ...(query ? { query } : {}),

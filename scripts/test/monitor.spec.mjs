@@ -16,6 +16,7 @@ import {
 } from '../../analysis/monitor/lib/doc_watch.mjs';
 import {
   compareStaticSnapshot,
+  getRawFetchFormat,
   summarizeProxyPayload,
   evaluateInvariant
 } from '../../analysis/monitor/lib/audit.mjs';
@@ -267,6 +268,13 @@ test('static snapshot stale severity is bounded by the configured static lag win
   const stalledAlert = compareStaticSnapshot(entry, liveSummary, stalledSummary);
   assert.equal(stalledAlert.regressionClass, 'static-snapshot-stale');
   assert.equal(stalledAlert.severity, 'warning');
+});
+
+test('audit raw fetch format requests text for CSV and RSS feeds only', () => {
+  assert.equal(getRawFetchFormat('csv'), 'text');
+  assert.equal(getRawFetchFormat('rss'), 'text');
+  assert.equal(getRawFetchFormat('json'), 'json');
+  assert.equal(getRawFetchFormat(undefined), 'json');
 });
 
 test('monitoring config quirks downgrade recent Google News and Congress doc noise', () => {
