@@ -92,7 +92,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['bls-cpi'].timeoutMs, 60000);
   assert.equal(monitoring['congress-api'].freshnessWindowMinutes, 2880);
   assert.equal(monitoring['congress-api'].timeoutMs, 60000);
-  assert.equal(monitoring['congress-reports'].freshnessWindowMinutes, 2880);
+  assert.equal(monitoring['congress-reports'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['congress-treaties'].timeoutMs, 60000);
   assert.equal(monitoring['eia-today'].freshnessWindowMinutes, 10080);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);

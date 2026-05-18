@@ -881,7 +881,7 @@
     "changelogUrl": "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md",
     "statusUrl": null,
     "supportUrl": "https://github.com/LibraryOfCongress/api.congress.gov",
-    "freshnessWindowMinutes": 2880,
+    "freshnessWindowMinutes": 4320,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
