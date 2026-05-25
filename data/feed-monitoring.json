@@ -228,7 +228,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://eonet.gsfc.nasa.gov/",
-    "freshnessWindowMinutes": 7200,
+    "freshnessWindowMinutes": 10080,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
