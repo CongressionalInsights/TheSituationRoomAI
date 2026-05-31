@@ -14,11 +14,17 @@
 - `logos/` holds branding assets (favicon, logo, OG image).
 
 ## Build, Test, and Development Commands
+- Use Node 24 (`.nvmrc`; workflows use `actions/setup-node` with `node-version-file: .nvmrc`).
 - `node server.mjs` — run the local server at `http://localhost:5173`.
 - `curl http://localhost:5173/api/feeds` — verify the server is live and feeds load.
 - `curl "http://localhost:5173/api/feed?id=<feed-id>&force=1"` — force-refresh a single feed.
+- `node scripts/sync-feeds.mjs` — sync `data/feeds.json` into public and Cloud Run proxy copies.
+- `node scripts/verify_feeds_sync.mjs` — verify feed registry parity across those copies.
 - `node scripts/build_static_cache.mjs` — rebuild the static cache in `data/`.
 - `node scripts/build_frontend.mjs` — rebuild the versioned frontend bundle (matches `npm run build:frontend`).
+- `node scripts/verify_public.mjs` — verify the built public bundle and basic secret-leak patterns.
+- `npm run monitor:core|monitor:all|monitor:docs|monitor:report` — run the monitor entrypoints under `analysis/monitor/`.
+- `npm audit --prefix gcp/mcp-proxy --audit-level=high` and `npm audit --prefix gcp/acled-proxy --audit-level=high` — audit lockfile-backed Cloud Run proxy packages.
 - `npm test` — run feed sync validation plus the Node test suite.
 - `npm run test:ui` — run Playwright UI tests.
 
@@ -33,6 +39,7 @@
 - Automated tests are limited; prioritize manual verification for UI changes.
 - Use `npm test` for feed sync + Node tests when touching feed registry logic or sync flows.
 - Use `npm run test:ui` for UI regressions that need browser coverage.
+- Use `npm run monitor:all` for full data-stream audits; inspect `analysis/monitor/latest.json` and `analysis/monitor/latest.md` before patching monitor warnings.
 - Validate changes by running the server and checking: map interactivity, feed health, and per‑panel “last updated” stamps.
 - For new feeds, confirm output in `/api/feed` and the in‑app Feed Health status.
 
@@ -45,13 +52,21 @@
 - Client‑side Settings only hold user BYO keys (OpenAI) and local preferences; do not add server keys to the UI.
 - Do not hard‑code secrets in `data/feeds.json`; use `requiresKey`, `keyGroup`, and server proxy routing.
 - The MCP proxy (`gcp/mcp-proxy`) is public read‑only; keep it stateless and avoid persisting upstream data.
+- Keep `gcp/mcp-proxy/package.json` overrides and both proxy lockfiles aligned with dependency changes; `npm test` includes `scripts/test/proxy-dependencies.spec.mjs`.
 
 ## Architecture & Data Flow
 - Browser → `public/services/api.js` → `window.SR_CONFIG.apiBase` (Cloud Run feed proxy) for key‑protected feeds.
 - Agents → MCP endpoint (`/mcp`) for raw + normalized feed access; use `catalog.sources` to enumerate supported feeds.
+- MCP exposes `catalog.sources`, `raw.fetch`, `raw.history`, `money.flows`, `signals.list`, `signals.get`, and `search.smart`; keep feed metadata and state-filter behavior aligned across those tools.
 - Static cache lives in `data/` and is used as a fallback when proxies are unavailable.
 - Map overlays and legend state are driven by settings defaults in `public/app.js`.
 - AI briefings and chat context are assembled in `buildChatContext()` inside `public/app.js` (and mirrored in the versioned bundle). If you add a new feed category or panel, include it in the context so AI analysis and search stay aligned.
+
+## Deployment & Monitoring Notes
+- `.github/workflows/deploy-pages.yml` runs on pushes, manual dispatch, and an hourly `main` schedule; manual branch Pages deploys can be overwritten by the next scheduled `main` run.
+- Deploy workflows run `node scripts/sync-feeds.mjs` before deploying proxies so feed registry copies must stay in sync before commit.
+- Feed and MCP proxy deploy workflows run the core sentinel with `--allow-alerts`; this preserves monitor findings as artifacts/signals without failing otherwise healthy deploys.
+- `.github/workflows/monitor-data-streams.yml` runs the daily full audit against the deployed Feed Proxy, MCP endpoint, and GitHub Pages static snapshot and uploads `analysis/monitor/` artifacts.
 
 ## Safe Change Checklist
 - Add feeds in `data/feeds.json`, then update `public/data/feeds.json` and the Cloud Run copies in `gcp/feed-proxy/feeds.json` and `gcp/mcp-proxy/feeds.json` so UI, search/briefings, and MCP stay aligned.
