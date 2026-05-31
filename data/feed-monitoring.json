@@ -55,6 +55,7 @@
     "statusUrl": null,
     "supportUrl": null,
     "freshnessWindowMinutes": 180,
+    "staticSnapshotLagWindowMinutes": 240,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
