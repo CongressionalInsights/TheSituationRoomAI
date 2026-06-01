@@ -927,7 +927,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://firms.modaps.eosdis.nasa.gov/",
-    "freshnessWindowMinutes": 180,
+    "freshnessWindowMinutes": 240,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",

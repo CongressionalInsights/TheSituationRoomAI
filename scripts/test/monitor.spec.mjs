@@ -97,6 +97,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['eia-today'].freshnessWindowMinutes, 10080);
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['fda-medwatch'].timeoutMs, 60000);
+  assert.equal(monitoring['nasa-firms'].freshnessWindowMinutes, 240);
   assert.equal(monitoring['google-news-us'].staticSnapshotLagWindowMinutes, 240);
   assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 120);
   assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.changelog['https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md'].includes('aa21bebe4a2d1d9e3a85b78c2e28ea3d734e0130e510378c3f46be72d7f218f1'));
