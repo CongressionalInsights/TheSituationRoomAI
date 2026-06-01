@@ -21,6 +21,7 @@
 - `node scripts/sync-feeds.mjs` — sync `data/feeds.json` into public and Cloud Run proxy copies.
 - `node scripts/verify_feeds_sync.mjs` — verify feed registry parity across those copies.
 - `node scripts/build_static_cache.mjs` — rebuild the static cache in `data/`.
+- `node scripts/build_denario.mjs` — build `public/data/denario.json` from MCP `search.smart` (set `MCP_PROXY` to override the endpoint; `DENARIO_MIN_HOURS` defaults to 6).
 - `node scripts/build_frontend.mjs` — rebuild the versioned frontend bundle (matches `npm run build:frontend`).
 - `node scripts/verify_public.mjs` — verify the built public bundle and basic secret-leak patterns.
 - `npm run monitor:core|monitor:all|monitor:docs|monitor:report` — run the monitor entrypoints under `analysis/monitor/`.
@@ -64,6 +65,7 @@
 
 ## Deployment & Monitoring Notes
 - `.github/workflows/deploy-pages.yml` runs on pushes, manual dispatch, and an hourly `main` schedule; manual branch Pages deploys can be overwritten by the next scheduled `main` run.
+- The Pages deploy builds static cache, Denario insights, then the frontend bundle; keep `public/data/denario.json` generation compatible with the public MCP endpoint or set `MCP_PROXY` in the environment.
 - Deploy workflows run `node scripts/sync-feeds.mjs` before deploying proxies so feed registry copies must stay in sync before commit.
 - Feed and MCP proxy deploy workflows run the core sentinel with `--allow-alerts`; this preserves monitor findings as artifacts/signals without failing otherwise healthy deploys.
 - `.github/workflows/monitor-data-streams.yml` runs the daily full audit against the deployed Feed Proxy, MCP endpoint, and GitHub Pages static snapshot and uploads `analysis/monitor/` artifacts.
