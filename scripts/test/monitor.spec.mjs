@@ -270,6 +270,27 @@ test('static snapshot stale severity is bounded by the configured static lag win
   assert.equal(stalledAlert.severity, 'warning');
 });
 
+test('Google News static snapshot lag uses the resolved monitoring override', () => {
+  const feeds = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feeds.json'), 'utf8'));
+  const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
+  const feed = feeds.feeds.find((entry) => entry.id === 'google-news-us');
+  const entry = resolveMonitoringEntry(feed, monitoring['google-news-us'], { defaultRefreshMinutes: feeds.defaultRefreshMinutes });
+  const liveSummary = { newestTimestamp: Date.parse('2026-05-27T13:00:00Z'), rawItemCount: 5 };
+  const expectedLagSummary = { newestTimestamp: Date.parse('2026-05-27T09:30:00Z'), rawItemCount: 5 };
+  const staleSummary = { newestTimestamp: Date.parse('2026-05-27T08:00:00Z'), rawItemCount: 5 };
+
+  assert.equal(entry.staticSnapshotLagWindowMinutes, 240);
+
+  const expectedLagAlert = compareStaticSnapshot(entry, liveSummary, expectedLagSummary);
+  assert.equal(expectedLagAlert.regressionClass, 'static-snapshot-stale');
+  assert.equal(expectedLagAlert.severity, 'info');
+  assert.equal(expectedLagAlert.metadata.staticSnapshotLagWindowMinutes, 240);
+
+  const staleAlert = compareStaticSnapshot(entry, liveSummary, staleSummary);
+  assert.equal(staleAlert.regressionClass, 'static-snapshot-stale');
+  assert.equal(staleAlert.severity, 'warning');
+});
+
 test('monitoring config quirks downgrade recent Google News and Congress doc noise', () => {
   const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
 
