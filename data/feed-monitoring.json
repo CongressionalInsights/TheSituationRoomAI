@@ -195,7 +195,7 @@
     "statusUrl": null,
     "supportUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
     "freshnessWindowMinutes": 60,
-    "staticSnapshotLagWindowMinutes": 120,
+    "staticSnapshotLagWindowMinutes": 180,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
