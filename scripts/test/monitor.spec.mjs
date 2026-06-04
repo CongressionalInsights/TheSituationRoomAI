@@ -99,7 +99,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['fda-medwatch'].timeoutMs, 60000);
   assert.equal(monitoring['nasa-firms'].freshnessWindowMinutes, 240);
   assert.equal(monitoring['google-news-us'].staticSnapshotLagWindowMinutes, 240);
-  assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 120);
+  assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 180);
   assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.changelog['https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md'].includes('aa21bebe4a2d1d9e3a85b78c2e28ea3d734e0130e510378c3f46be72d7f218f1'));
   assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.support['https://github.com/LibraryOfCongress/api.congress.gov'].includes('32f63260708bc83ef3abe549fe0fac68a68759c59cd1bdc7eb9ff73017ef0131'));
   assert.equal(monitoring['stooq-quote'].sampleParams.query, 'aapl.us');
@@ -255,16 +255,16 @@ test('static snapshot stale severity is bounded by the configured static lag win
   const entry = {
     id: 'usgs-quakes-hour',
     freshnessWindowMinutes: 60,
-    staticSnapshotLagWindowMinutes: 120
+    staticSnapshotLagWindowMinutes: 180
   };
   const liveSummary = { newestTimestamp: Date.parse('2026-05-16T13:00:00Z'), rawItemCount: 5 };
   const normalLagSummary = { newestTimestamp: Date.parse('2026-05-16T11:45:00Z'), rawItemCount: 4 };
-  const stalledSummary = { newestTimestamp: Date.parse('2026-05-16T10:00:00Z'), rawItemCount: 4 };
+  const stalledSummary = { newestTimestamp: Date.parse('2026-05-16T09:30:00Z'), rawItemCount: 4 };
 
   const normalLagAlert = compareStaticSnapshot(entry, liveSummary, normalLagSummary);
   assert.equal(normalLagAlert.regressionClass, 'static-snapshot-stale');
   assert.equal(normalLagAlert.severity, 'info');
-  assert.equal(normalLagAlert.metadata.staticSnapshotLagWindowMinutes, 120);
+  assert.equal(normalLagAlert.metadata.staticSnapshotLagWindowMinutes, 180);
 
   const stalledAlert = compareStaticSnapshot(entry, liveSummary, stalledSummary);
   assert.equal(stalledAlert.regressionClass, 'static-snapshot-stale');
