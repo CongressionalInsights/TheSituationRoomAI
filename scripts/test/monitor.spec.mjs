@@ -102,9 +102,15 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 180);
   assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.changelog['https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md'].includes('aa21bebe4a2d1d9e3a85b78c2e28ea3d734e0130e510378c3f46be72d7f218f1'));
   assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.support['https://github.com/LibraryOfCongress/api.congress.gov'].includes('32f63260708bc83ef3abe549fe0fac68a68759c59cd1bdc7eb9ff73017ef0131'));
+  assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.support['https://github.com/LibraryOfCongress/api.congress.gov'].includes('a586cef4e4c62a9378ab52e4e6e24df098ca33d0e4fd033d0fd6765a71ef2faa'));
+  assert.equal(monitoring['stooq-quote'].docsUrl, null);
+  assert.equal(monitoring['stooq-quote'].supportUrl, null);
   assert.equal(monitoring['stooq-quote'].sampleParams.query, 'aapl.us');
   assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-feed-fetch-transient'));
+  assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-source-deprecated-http404'));
   assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-fallback-engaged-transient'));
+  assert.equal(monitoring['state-travel-advisories'].docsUrl, null);
+  assert.equal(monitoring['state-travel-advisories'].supportUrl, null);
   assert.ok(monitoring['eonet-events'].knownUpstreamQuirks.some((quirk) => quirk.id === 'eonet-events-feed-stale-transient'));
   assert.ok(monitoring['eonet-events'].knownUpstreamQuirks.some((quirk) => quirk.id === 'eonet-events-fallback-engaged-transient'));
   assert.ok(monitoring['energy-eia'].knownUpstreamQuirks.some((quirk) => quirk.id === 'energy-eia-support-surface-volatility'));
@@ -475,6 +481,33 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedStooqFetchAlert.severity, 'info');
   assert.equal(downgradedStooqFetchAlert.suppressNew, true);
   assert.equal(downgradedStooqFetchAlert.knownQuirkId, 'stooq-quote-feed-fetch-transient');
+
+  const stooqDeprecatedSignalAlert = createAlert({
+    feedId: 'stooq-quote',
+    regressionClass: 'signal-normalization-failed',
+    severity: 'warning',
+    message: 'HTTP 404'
+  });
+  const downgradedStooqDeprecatedSignalAlert = applyKnownUpstreamQuirks(
+    stooqDeprecatedSignalAlert,
+    monitoring['stooq-quote'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedStooqDeprecatedSignalAlert.severity, 'info');
+  assert.equal(downgradedStooqDeprecatedSignalAlert.suppressNew, true);
+  assert.equal(downgradedStooqDeprecatedSignalAlert.knownQuirkId, 'stooq-quote-source-deprecated-http404');
+
+  const stooqParserSignalAlert = createAlert({
+    feedId: 'stooq-quote',
+    regressionClass: 'signal-normalization-failed',
+    severity: 'warning',
+    message: 'CSV headers missing Symbol and Close'
+  });
+  const retainedStooqParserSignalAlert = applyKnownUpstreamQuirks(
+    stooqParserSignalAlert,
+    monitoring['stooq-quote'].knownUpstreamQuirks
+  );
+  assert.equal(retainedStooqParserSignalAlert.severity, 'warning');
+  assert.equal(retainedStooqParserSignalAlert.knownQuirkId, undefined);
 
   const stooqFallbackAlert = createAlert({
     feedId: 'stooq-quote',

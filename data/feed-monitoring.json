@@ -471,10 +471,10 @@
   },
   "stooq-quote": {
     "tier": "standard",
-    "docsUrl": "https://stooq.com/q/l/",
+    "docsUrl": null,
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://stooq.com/q/l/",
+    "supportUrl": null,
     "sampleParams": {
       "query": "aapl.us"
     },
@@ -484,7 +484,15 @@
         "regressionClass": "feed-fetch-failed",
         "severity": "info",
         "suppressNew": true,
-        "note": "Stooq quote proxy fetches can intermittently fail from Cloud Run while direct upstream CSV remains reachable; keep as informational unless parsing or raw signal paths also fail."
+        "note": "Stooq quote fetches can fail from proxy and direct paths while the current quote endpoint is deprecated; keep fetch-only failures informational while the source remains quarantined."
+      },
+      {
+        "id": "stooq-quote-source-deprecated-http404",
+        "regressionClass": "signal-normalization-failed",
+        "messageIncludes": "HTTP 404",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Stooq current quote CSV now returns HTTP 404 from direct and proxy paths; keep this deprecated feed informational until a first-party or keyed market source replaces it."
       },
       {
         "id": "stooq-quote-fallback-engaged-transient",
@@ -757,10 +765,10 @@
   },
   "state-travel-advisories": {
     "tier": "standard",
-    "docsUrl": "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html",
+    "docsUrl": null,
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html",
+    "supportUrl": null,
     "freshnessWindowMinutes": 720,
     "sampleParams": {},
     "invariants": [
@@ -769,15 +777,7 @@
       "freshness",
       "rss-structure"
     ],
-    "knownUpstreamQuirks": [],
-    "acceptedSurfaceHashes": {
-      "docs": {
-        "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html": "099ef9ee24f842a9e19392c6c36a4ec640495cce4d1caf22ba982cfa3de5433b"
-      },
-      "support": {
-        "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html": "099ef9ee24f842a9e19392c6c36a4ec640495cce4d1caf22ba982cfa3de5433b"
-      }
-    }
+    "knownUpstreamQuirks": []
   },
   "state-legislation": {
     "tier": "core",
@@ -871,7 +871,8 @@
         "https://github.com/LibraryOfCongress/api.congress.gov": [
           "a565701ba8551e0d96f1096c386034ca5b2dd26147ed0bacb24ae1f237144e20",
           "e1d782f8fcdb06ac6a507503adff19f0dbdc910c5a64f05e988c93dc0ccc51e8",
-          "32f63260708bc83ef3abe549fe0fac68a68759c59cd1bdc7eb9ff73017ef0131"
+          "32f63260708bc83ef3abe549fe0fac68a68759c59cd1bdc7eb9ff73017ef0131",
+          "a586cef4e4c62a9378ab52e4e6e24df098ca33d0e4fd033d0fd6765a71ef2faa"
         ]
       }
     }
