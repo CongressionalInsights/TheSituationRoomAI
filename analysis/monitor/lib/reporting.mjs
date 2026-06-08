@@ -39,6 +39,7 @@ export function createAlert({
 export function applyKnownUpstreamQuirks(alert, quirks = []) {
   for (const quirk of quirks) {
     if (!quirk || quirk.regressionClass !== alert.regressionClass) continue;
+    if (quirk.messageIncludes && !String(alert.message || '').includes(quirk.messageIncludes)) continue;
     return {
       ...alert,
       severity: quirk.severity || alert.severity,
