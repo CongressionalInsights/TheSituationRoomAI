@@ -28,7 +28,7 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
 
   assert.deepEqual(manifest.overrides, {
     '@hono/node-server': '1.19.14',
-    hono: '4.12.19',
+    hono: '4.12.23',
     'express-rate-limit': '8.5.2',
     'ip-address': '10.2.0',
     'fast-uri': '3.1.2',
