@@ -144,6 +144,14 @@ test('Stooq feed registry carries a default quote for static and fallback builds
   assert.equal(feed.defaultQuery, 'aapl.us');
 });
 
+test('ArcGIS kinetic Europe feed uses the current published feature layer', () => {
+  const feeds = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feeds.json'), 'utf8'));
+  const feed = feeds.feeds.find((entry) => entry.id === 'arcgis-kinetic-europe');
+  assert.ok(feed);
+  assert.ok(feed.url.includes('Kinetic_Activity_Tracker_Europe/FeatureServer/1/query'));
+  assert.equal(feed.url.includes('FeatureServer/22/query'), false);
+});
+
 test('monitoring entry carries accepted doc surface hashes into document surfaces', () => {
   const entry = resolveMonitoringEntry({
     id: 'cisa-kev',
