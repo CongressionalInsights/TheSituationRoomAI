@@ -136,12 +136,17 @@ export async function fetchResponse(url, { method = 'GET', headers = {}, body, t
 }
 
 export async function fetchText(url, options = {}) {
+  const { method = 'GET', headers = {}, body, timeoutMs = 30000 } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchResponse(url, options);
+    const response = await fetch(url, { method, headers, body, signal: controller.signal });
     const text = await response.text();
     return { ok: response.ok, status: response.status, text, headers: response.headers };
   } catch (error) {
     return { ok: false, status: null, text: '', error: error?.name === 'AbortError' ? 'timeout' : (error?.message || 'fetch_failed'), headers: new Headers() };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -220,15 +225,17 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000) 
 
   let lastError = null;
   for (let attempt = 0; attempt <= RETRY_BACKOFF_MS.length; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetchResponse(endpoint, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/event-stream'
         },
         body: JSON.stringify(payload),
-        timeoutMs
+        signal: controller.signal
       });
       let parsed = null;
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
@@ -260,6 +267,8 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000) 
         error: error?.name === 'AbortError' ? 'timeout' : 'network_error',
         message: error?.message || 'MCP request failed.'
       };
+    } finally {
+      clearTimeout(timer);
     }
     if (attempt < RETRY_BACKOFF_MS.length) {
       await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS[attempt]));

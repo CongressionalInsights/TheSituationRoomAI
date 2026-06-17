@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 
 import {
   buildDefaultSampleParams,
   resolveMonitoringEntry
 } from '../../analysis/monitor/lib/catalog.mjs';
-import { parseCliArgs } from '../../analysis/monitor/lib/client.mjs';
+import { fetchText, parseCliArgs } from '../../analysis/monitor/lib/client.mjs';
 import {
   normalizeDocText,
   extractDatedEntries,
@@ -42,6 +43,24 @@ function buildContext(entry, proxySummary, signalSummary = { error: null, items:
 test('CLI can allow alerts without failing workflow runs', () => {
   assert.equal(parseCliArgs([]).allowAlerts, false);
   assert.equal(parseCliArgs(['--allow-alerts']).allowAlerts, true);
+});
+
+test('monitor fetch text times out while reading a stalled response body', async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.write('partial');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = server.address();
+    const startedAt = Date.now();
+    const result = await fetchText(`http://127.0.0.1:${port}/stall`, { timeoutMs: 50 });
+    assert.equal(result.error, 'timeout');
+    assert.equal(result.text, '');
+    assert.ok(Date.now() - startedAt < 1000);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('monitoring entry derives defaults for feeds without explicit overrides', () => {
