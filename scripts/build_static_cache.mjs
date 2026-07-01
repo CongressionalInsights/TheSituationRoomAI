@@ -123,6 +123,16 @@ function isJsonHtmlError(contentType = '', body = '') {
   return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
 }
 
+function getBlsApiError(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (parsed.status === 'REQUEST_SUCCEEDED') return null;
+  if (typeof parsed.status !== 'string' || !parsed.status) return null;
+  const message = Array.isArray(parsed.message)
+    ? parsed.message.filter(Boolean).join(' ')
+    : String(parsed.message || '').trim();
+  return message || parsed.status;
+}
+
 function applyKey(url, feed, key) {
   if (!key) return { url, headers: {} };
   if (feed.keyHeader) {
@@ -570,6 +580,9 @@ function isUsableJsonSnapshot(payload, feed = null) {
   if (isJsonHtmlError(payload.contentType || '', payload.body)) return false;
   try {
     const parsed = JSON.parse(payload.body);
+    if (feed?.id === 'bls-cpi' && getBlsApiError(parsed)) {
+      return false;
+    }
     if (feed?.id === 'nasa-firms') {
       return buildNasaFirmsItems(parsed).length > 0;
     }
@@ -762,6 +775,25 @@ async function buildFeedPayload(feed) {
   } else if (feed.format === 'json' && isJsonHtmlError(contentType, body)) {
     payload.error = 'invalid_html';
     payload.message = 'Upstream returned HTML instead of JSON.';
+  }
+
+  if (!payload.error && feed.id === 'bls-cpi') {
+    try {
+      const parsed = JSON.parse(body);
+      const blsError = getBlsApiError(parsed);
+      if (blsError) {
+        payload.error = 'bls_api_error';
+        payload.message = blsError;
+      }
+    } catch {
+      payload.error = 'invalid_json';
+      payload.message = 'BLS returned invalid JSON.';
+    }
+  }
+
+  if (payload.error && feed.id === 'bls-cpi') {
+    const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
+    if (fallback) return fallback;
   }
 
   if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {

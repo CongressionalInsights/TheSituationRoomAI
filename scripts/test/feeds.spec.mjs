@@ -75,6 +75,15 @@ test('static OpenSky build can seed anonymous published snapshots', () => {
   assert.doesNotMatch(source, /OpenSky OAuth token unavailable/);
 });
 
+test('static BLS CPI build rejects API quota error snapshots', () => {
+  const source = fs.readFileSync(path.join(root, 'scripts', 'build_static_cache.mjs'), 'utf8');
+  assert.match(source, /function getBlsApiError/);
+  assert.match(source, /parsed\.status === 'REQUEST_SUCCEEDED'/);
+  assert.match(source, /feed\?\.id === 'bls-cpi' && getBlsApiError\(parsed\)/);
+  assert.match(source, /payload\.error = 'bls_api_error'/);
+  assert.match(source, /payload\.error && feed\.id === 'bls-cpi'[\s\S]*loadBestFallbackPayload/);
+});
+
 test('MCP proxy does not flag configured feed proxies as fallback paths', () => {
   const source = fs.readFileSync(path.join(root, 'gcp', 'mcp-proxy', 'server.js'), 'utf8');
   assert.match(source, /const configuredProxies = Array\.isArray\(feed\.proxy\)/);
