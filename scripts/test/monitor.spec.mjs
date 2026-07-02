@@ -17,6 +17,7 @@ import {
 } from '../../analysis/monitor/lib/doc_watch.mjs';
 import {
   compareStaticSnapshot,
+  getRawFetchFormat,
   summarizeProxyPayload,
   evaluateInvariant
 } from '../../analysis/monitor/lib/audit.mjs';
@@ -61,6 +62,13 @@ test('monitor fetch text times out while reading a stalled response body', async
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('audit raw fetch format requests text for CSV and RSS feeds only', () => {
+  assert.equal(getRawFetchFormat('csv'), 'text');
+  assert.equal(getRawFetchFormat('rss'), 'text');
+  assert.equal(getRawFetchFormat('json'), 'json');
+  assert.equal(getRawFetchFormat(undefined), 'json');
 });
 
 test('monitoring entry derives defaults for feeds without explicit overrides', () => {
