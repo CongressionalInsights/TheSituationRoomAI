@@ -52,6 +52,27 @@ test('normalizeJsonSignals uses snake_case state dates for timestamps and metada
   assert.equal(item.publishedAt, Date.parse(latestActionDate));
 });
 
+test('normalizeJsonSignals prefers published_at over later snake_case state fallbacks', () => {
+  const publishedAt = '2026-04-03T08:00:00Z';
+  const latestActionDate = '2026-04-01T12:34:56Z';
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    response: {
+      data: [{
+        title: 'State bill with explicit published_at',
+        state_code: 'or',
+        published_at: publishedAt,
+        latest_action_date: latestActionDate,
+        effective_date: '2026-05-01'
+      }]
+    }
+  }), feed);
+
+  assert.ok(item);
+  assert.equal(item.jurisdictionCode, 'OR');
+  assert.equal(item.effectiveDate, '2026-05-01');
+  assert.equal(item.publishedAt, Date.parse(publishedAt));
+});
+
 test('normalizeJsonSignals uses effective_date as a state timestamp fallback', () => {
   const effectiveDate = '2026-05-01';
   const [item] = normalizeJsonSignals(JSON.stringify({
@@ -92,6 +113,25 @@ test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the 
   const [item] = normalizeJsonSignals(JSON.stringify({
     bills: [{
       title: 'Congress bill with updateDateIncludingText only',
+      updateDateIncludingText
+    }]
+  }), {
+    id: 'congress-bills',
+    name: 'Congress Bills',
+    category: 'federal',
+    format: 'json'
+  });
+
+  assert.ok(item);
+  assert.equal(item.publishedAt, Date.parse(updateDateIncludingText));
+});
+
+test('normalizeJsonSignals skips invalid earlier timestamps and falls back to later valid Congress dates', () => {
+  const updateDateIncludingText = '2026-04-03';
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    bills: [{
+      title: 'Congress bill with invalid earlier timestamp',
+      updateDate: 'not-a-date',
       updateDateIncludingText
     }]
   }), {

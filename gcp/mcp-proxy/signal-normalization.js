@@ -15,6 +15,14 @@ function parseTimestamp(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseFirstValidTimestamp(...values) {
+  for (const value of values) {
+    const parsed = parseTimestamp(value);
+    if (parsed !== null) return parsed;
+  }
+  return Date.now();
+}
+
 function parseCsvRows(text = '') {
   const rows = [];
   let row = [];
@@ -319,26 +327,27 @@ export function parseGenericJsonFeed(data, feed) {
       ].filter(Boolean).join(' • ')
     );
     const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
-    const published = entry.publishedAt
-      || entry.published_at
-      || properties.time
-      || properties.updated
-      || entry.pubDate
-      || (isEonetEvent ? (latestEonetGeometry?.date || '') : '')
-      || entry.date
-      || entry.lastModified
-      || entry.dateIssued
-      || entry.updateDate
-      || entry.updateDateIncludingText
-      || entry.updated_at
-      || entry.startDate
-      || entry.updatedAt
-      || entry.updated
-      || entry.latest_action_date
-      || entry.effectiveDate
-      || entry.effective_date
-      || (latestEonetGeometry?.date || '');
-    const publishedAt = parseTimestamp(published) || Date.now();
+    const publishedAt = parseFirstValidTimestamp(
+      entry.publishedAt,
+      entry.published_at,
+      properties.time,
+      properties.updated,
+      entry.pubDate,
+      isEonetEvent ? latestEonetGeometry?.date : null,
+      entry.date,
+      entry.lastModified,
+      entry.dateIssued,
+      entry.updateDate,
+      entry.updateDateIncludingText,
+      entry.updated_at,
+      entry.startDate,
+      entry.updatedAt,
+      entry.updated,
+      entry.latest_action_date,
+      entry.effectiveDate,
+      entry.effective_date,
+      latestEonetGeometry?.date
+    );
     const eventCoords = Array.isArray(latestEonetGeometry?.coordinates) ? latestEonetGeometry.coordinates : [];
     const featureCoords = Array.isArray(entry?.geometry?.coordinates) ? entry.geometry.coordinates : [];
     const geo = entry.geo
