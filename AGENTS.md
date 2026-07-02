@@ -40,6 +40,7 @@
 - Automated tests are limited; prioritize manual verification for UI changes.
 - Use `npm test` for feed sync + Node tests when touching feed registry logic or sync flows.
 - Use `npm run test:ui` for UI regressions that need browser coverage.
+- When changing static cache fallback/error handling, run `node --test scripts/test/feeds.spec.mjs`; BLS CPI quota/error JSON should fall back instead of publishing as a healthy snapshot.
 - Use `npm run monitor:all` for full data-stream audits; inspect `analysis/monitor/latest.json` and `analysis/monitor/latest.md` before patching monitor warnings.
 - Validate changes by running the server and checking: map interactivity, feed health, and per‑panel “last updated” stamps.
 - For new feeds, confirm output in `/api/feed` and the in‑app Feed Health status.
