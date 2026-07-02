@@ -684,13 +684,17 @@ function shouldCompareStatic(entry) {
   return entry.tier === 'core' && !entry.requiresConfig;
 }
 
+export function getRawFetchFormat(format) {
+  return format === 'rss' || format === 'csv' ? 'text' : 'json';
+}
+
 async function auditEntry(entry, options) {
   const timeoutMs = Number(entry.timeoutMs || options.timeoutMs);
   const proxyTransport = await callFeedProxy(options.base, entry.id, entry.sampleParams, timeoutMs);
   const proxySummary = summarizeProxyPayload(entry, proxyTransport.data || {}, proxyTransport);
 
   const { query, ...params } = entry.sampleParams || {};
-  const rawFormat = entry.format === 'rss' || entry.format === 'csv' ? 'text' : 'json';
+  const rawFormat = getRawFetchFormat(entry.format);
   const rawResult = await callMcpTool(options.mcp, 'raw.fetch', {
     sourceId: entry.id,
     ...(query ? { query } : {}),

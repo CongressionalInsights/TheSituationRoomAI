@@ -21,6 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
       - name: Verify MCP deploy source files
@@ -42,9 +45,6 @@ jobs:
           done
 
           find gcp/mcp-proxy -maxdepth 2 -type f | sort
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
       - name: Dependency preflight
         run: npm ci --prefix gcp/mcp-proxy
       - name: Syntax preflight
