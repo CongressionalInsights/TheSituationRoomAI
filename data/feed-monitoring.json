@@ -399,7 +399,22 @@
       "json-structure",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [
+      {
+        "id": "treasury-debt-feed-stale-transient",
+        "regressionClass": "feed-stale",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Fiscal Data Debt to the Penny proxy snapshots can lag while direct, static, and MCP data remain parseable; keep stale-only markers informational unless fetch, parsing, or freshness also fails."
+      },
+      {
+        "id": "treasury-debt-fallback-engaged-transient",
+        "regressionClass": "fallback-engaged",
+        "severity": "info",
+        "suppressNew": true,
+        "note": "Fiscal Data Debt to the Penny can route through the published fallback path while direct, proxy, static, and MCP data remain parseable; keep fallback-only markers informational unless fetch, parsing, or freshness also fails."
+      }
+    ]
   },
   "bls-cpi": {
     "tier": "core",
@@ -838,9 +853,9 @@
   "congress-api": {
     "tier": "core",
     "docsUrl": "https://api.congress.gov/",
-    "changelogUrl": "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md",
+    "changelogUrl": "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md",
     "statusUrl": null,
-    "supportUrl": "https://github.com/LibraryOfCongress/api.congress.gov",
+    "supportUrl": "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md",
     "timeoutMs": 60000,
     "freshnessWindowMinutes": 2880,
     "sampleParams": {},
@@ -859,30 +874,14 @@
         "suppressNew": true,
         "note": "GitHub-rendered Congress API support and changelog pages intermittently return 5xx; treat doc fetch failures there as informational unless the primary api.congress.gov docs surface also regresses."
       }
-    ],
-    "acceptedSurfaceHashes": {
-      "changelog": {
-        "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md": [
-          "7953b65bc44184a1fa509d409b29fd6ec9a532c08cdfeddfb45a618a0b75f54d",
-          "aa21bebe4a2d1d9e3a85b78c2e28ea3d734e0130e510378c3f46be72d7f218f1"
-        ]
-      },
-      "support": {
-        "https://github.com/LibraryOfCongress/api.congress.gov": [
-          "a565701ba8551e0d96f1096c386034ca5b2dd26147ed0bacb24ae1f237144e20",
-          "e1d782f8fcdb06ac6a507503adff19f0dbdc910c5a64f05e988c93dc0ccc51e8",
-          "32f63260708bc83ef3abe549fe0fac68a68759c59cd1bdc7eb9ff73017ef0131",
-          "a586cef4e4c62a9378ab52e4e6e24df098ca33d0e4fd033d0fd6765a71ef2faa"
-        ]
-      }
-    }
+    ]
   },
   "congress-reports": {
     "tier": "core",
     "docsUrl": "https://api.congress.gov/",
-    "changelogUrl": "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md",
+    "changelogUrl": "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md",
     "statusUrl": null,
-    "supportUrl": "https://github.com/LibraryOfCongress/api.congress.gov",
+    "supportUrl": "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md",
     "freshnessWindowMinutes": 4320,
     "sampleParams": {},
     "invariants": [

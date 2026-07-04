@@ -119,6 +119,10 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['bls-cpi'].timeoutMs, 60000);
   assert.equal(monitoring['congress-api'].freshnessWindowMinutes, 2880);
   assert.equal(monitoring['congress-api'].timeoutMs, 60000);
+  assert.equal(monitoring['congress-api'].changelogUrl, 'https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md');
+  assert.equal(monitoring['congress-api'].supportUrl, 'https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md');
+  assert.equal(monitoring['congress-reports'].changelogUrl, 'https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md');
+  assert.equal(monitoring['congress-reports'].supportUrl, 'https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md');
   assert.equal(monitoring['congress-reports'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['congress-treaties'].timeoutMs, 60000);
   assert.equal(monitoring['eia-today'].freshnessWindowMinutes, 10080);
@@ -127,9 +131,8 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['nasa-firms'].freshnessWindowMinutes, 240);
   assert.equal(monitoring['google-news-us'].staticSnapshotLagWindowMinutes, 240);
   assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 180);
-  assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.changelog['https://github.com/LibraryOfCongress/api.congress.gov/blob/main/ChangeLog.md'].includes('aa21bebe4a2d1d9e3a85b78c2e28ea3d734e0130e510378c3f46be72d7f218f1'));
-  assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.support['https://github.com/LibraryOfCongress/api.congress.gov'].includes('32f63260708bc83ef3abe549fe0fac68a68759c59cd1bdc7eb9ff73017ef0131'));
-  assert.ok(monitoring['congress-api'].acceptedSurfaceHashes.support['https://github.com/LibraryOfCongress/api.congress.gov'].includes('a586cef4e4c62a9378ab52e4e6e24df098ca33d0e4fd033d0fd6765a71ef2faa'));
+  assert.ok(monitoring['treasury-debt'].knownUpstreamQuirks.some((quirk) => quirk.id === 'treasury-debt-feed-stale-transient'));
+  assert.ok(monitoring['treasury-debt'].knownUpstreamQuirks.some((quirk) => quirk.id === 'treasury-debt-fallback-engaged-transient'));
   assert.equal(monitoring['stooq-quote'].docsUrl, null);
   assert.equal(monitoring['stooq-quote'].supportUrl, null);
   assert.equal(monitoring['stooq-quote'].sampleParams.query, 'aapl.us');
@@ -377,6 +380,34 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedEnergyEiaSupportAlert.severity, 'info');
   assert.equal(downgradedEnergyEiaSupportAlert.suppressNew, true);
   assert.equal(downgradedEnergyEiaSupportAlert.knownQuirkId, 'energy-eia-support-surface-volatility');
+
+  const treasuryDebtStaleAlert = createAlert({
+    feedId: 'treasury-debt',
+    regressionClass: 'feed-stale',
+    severity: 'warning',
+    message: 'Feed proxy returned stale data.'
+  });
+  const downgradedTreasuryDebtStaleAlert = applyKnownUpstreamQuirks(
+    treasuryDebtStaleAlert,
+    monitoring['treasury-debt'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedTreasuryDebtStaleAlert.severity, 'info');
+  assert.equal(downgradedTreasuryDebtStaleAlert.suppressNew, true);
+  assert.equal(downgradedTreasuryDebtStaleAlert.knownQuirkId, 'treasury-debt-feed-stale-transient');
+
+  const treasuryDebtFallbackAlert = createAlert({
+    feedId: 'treasury-debt',
+    regressionClass: 'fallback-engaged',
+    severity: 'warning',
+    message: 'Fallback data path was used for this feed.'
+  });
+  const downgradedTreasuryDebtFallbackAlert = applyKnownUpstreamQuirks(
+    treasuryDebtFallbackAlert,
+    monitoring['treasury-debt'].knownUpstreamQuirks
+  );
+  assert.equal(downgradedTreasuryDebtFallbackAlert.severity, 'info');
+  assert.equal(downgradedTreasuryDebtFallbackAlert.suppressNew, true);
+  assert.equal(downgradedTreasuryDebtFallbackAlert.knownQuirkId, 'treasury-debt-fallback-engaged-transient');
 
   const openSkyFetchAlert = createAlert({
     feedId: 'transport-opensky',
