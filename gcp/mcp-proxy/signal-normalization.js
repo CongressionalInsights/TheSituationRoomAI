@@ -176,6 +176,25 @@ function formatCongressChamber(value) {
   return String(value).trim();
 }
 
+function buildCongressHearingTitle(entry) {
+  const chamber = formatCongressChamber(entry?.chamber);
+  const congress = entry?.congress ? String(entry.congress) : '';
+  const hearingNumber = entry?.number ? String(entry.number) : '';
+  const jacketNumber = entry?.jacketNumber ? String(entry.jacketNumber) : '';
+  const type = chamber ? `${chamber} hearing` : 'Congress hearing';
+  const marker = [congress, hearingNumber].filter(Boolean).join('-') || congress || jacketNumber;
+  const jacket = jacketNumber ? ` (jacket ${jacketNumber})` : '';
+  return `${type}${marker ? ` ${marker}` : ''}${jacket}`;
+}
+
+function buildCongressCommitteeMeetingTitle(entry) {
+  const chamber = formatCongressChamber(entry?.chamber);
+  const eventId = entry?.eventId ? String(entry.eventId) : '';
+  const congress = entry?.congress ? String(entry.congress) : '';
+  const type = chamber ? `${chamber} committee meeting` : 'Congress committee meeting';
+  return `${type} ${eventId || congress}`.trim();
+}
+
 function buildCommitteeReportTitle(entry, fallbackTitle) {
   const citation = String(entry?.citation || '').trim();
   if (citation) return citation;
@@ -224,19 +243,21 @@ function selectList(data) {
                             ? data.events
                             : Array.isArray(data?.hearings)
                               ? data.hearings
-                              : Array.isArray(data?.nominations)
-                                ? data.nominations
-                                : Array.isArray(data?.treaties)
-                                  ? data.treaties
-                                  : Array.isArray(data?.congressionalRecord)
-                                    ? data.congressionalRecord
-                                    : Array.isArray(data?.response?.data)
-                                      ? data.response.data
-                                      : Array.isArray(data?.response?.items)
-                                        ? data.response.items
-                                        : Array.isArray(data?.response?.results)
-                                          ? data.response.results
-                                          : [];
+                              : Array.isArray(data?.committeeMeetings)
+                                ? data.committeeMeetings
+                                : Array.isArray(data?.nominations)
+                                  ? data.nominations
+                                  : Array.isArray(data?.treaties)
+                                    ? data.treaties
+                                    : Array.isArray(data?.congressionalRecord)
+                                      ? data.congressionalRecord
+                                      : Array.isArray(data?.response?.data)
+                                        ? data.response.data
+                                        : Array.isArray(data?.response?.items)
+                                          ? data.response.items
+                                          : Array.isArray(data?.response?.results)
+                                            ? data.response.results
+                                            : [];
 }
 
 export function parseGenericJsonFeed(data, feed) {
@@ -290,6 +311,8 @@ export function parseGenericJsonFeed(data, feed) {
       : '';
     const fallbackTitle = properties.title || entry.title || entry.name || entry.headline || entry.label || 'Untitled';
     const isCommitteeReport = !isCongressHouseVote && isCommitteeReportEntry(entry, feed);
+    const isCongressHearing = feed?.id === 'congress-hearings';
+    const isCongressCommitteeMeeting = feed?.id === 'congress-committee-meetings';
     const isEonetEvent = feed?.id === 'eonet-events';
     const eonetCategories = Array.isArray(entry?.categories)
       ? entry.categories.map((cat) => cat?.title || cat?.id).filter(Boolean)
@@ -305,7 +328,11 @@ export function parseGenericJsonFeed(data, feed) {
     }, null);
     const title = isCongressHouseVote
       ? voteTitle
-      : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
+      : isCongressHearing
+        ? buildCongressHearingTitle(entry)
+        : isCongressCommitteeMeeting
+          ? buildCongressCommitteeMeetingTitle(entry)
+          : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
     const url = congressVoteUrl || properties.url || entry.url || entry.link || entry.permalink || entry.webUrl || entry.packageLink || entry.detailsLink || '';
     const defaultSummary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || properties.status || properties.type || properties.place || '');
     const voteSummary = normalizeSummary(

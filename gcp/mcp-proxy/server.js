@@ -35,6 +35,7 @@ const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const MONEY_FLOW_DEFAULT_DAYS = 180;
 const MONEY_FLOW_MAX_LIMIT = 120;
 const MONEY_FLOW_TIMEOUT_MS = 45000;
+const MONEY_MATCH_MIN_SCORE = 0.66;
 const SAM_RETRY_ATTEMPTS = 3;
 const SAM_RETRY_BASE_DELAY_MS = 900;
 const SAM_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -52,6 +53,25 @@ const STATE_CONNECTOR_MAX_LIMIT = 100;
 const samCache = new Map();
 let openSkyToken = null;
 let openSkyTokenExpiresAt = 0;
+
+const MONEY_QUERY_ALIASES = new Map([
+  ['CAPELLA UNIVERSITY', ['CAPELLA EDUCATION COMPANY', 'CAPELLA EDUCATION']],
+  ['STRATEGIC EDUCATION', ['STRATEGIC EDUCATION INC', 'STRATEGIC EDUCATION']]
+]);
+
+const ENTITY_SUFFIX_TOKENS = new Set([
+  'CO',
+  'COMPANY',
+  'CORP',
+  'CORPORATION',
+  'INC',
+  'INCORPORATED',
+  'LLC',
+  'LLP',
+  'LTD',
+  'PLC',
+  'THE'
+]);
 
 const feedsConfig = JSON.parse(readFileSync(FEEDS_PATH, 'utf8'));
 const feeds = Array.isArray(feedsConfig.feeds) ? feedsConfig.feeds : [];
@@ -386,6 +406,47 @@ function formatIsoDate(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function hasHistoryTemplate(feed) {
+  return /\{\{start\}\}|\{\{end\}\}/.test(String(feed?.url || ''));
+}
+
+function applyFederalRegisterHistoryParams(url, startIso, endIso) {
+  const parsed = new URL(url);
+  parsed.searchParams.set('conditions[publication_date][gte]', startIso);
+  parsed.searchParams.set('conditions[publication_date][lte]', endIso);
+  parsed.searchParams.delete('start');
+  parsed.searchParams.delete('end');
+  return parsed.toString();
+}
+
+function getHistoryParamMapper(feed) {
+  if (feed?.id === 'federal-register' || feed?.id === 'federal-register-transport') {
+    return applyFederalRegisterHistoryParams;
+  }
+  return null;
+}
+
+export function supportsHistoryRange(feed) {
+  return Boolean(getHistoryParamMapper(feed) || hasHistoryTemplate(feed));
+}
+
+function applyHistoryRange(url, feed, { start, end, strictHistory = false } = {}) {
+  if (!start || !end) return url;
+  const startIso = formatIsoDate(start);
+  const endIso = formatIsoDate(end);
+  const mapper = getHistoryParamMapper(feed);
+  if (mapper) return mapper(url, startIso, endIso);
+  if (hasHistoryTemplate(feed)) return url;
+  if (strictHistory) return url;
+  if (!url.includes(startIso)) {
+    const parsed = new URL(url);
+    if (!parsed.searchParams.has('start')) parsed.searchParams.set('start', startIso);
+    if (!parsed.searchParams.has('end')) parsed.searchParams.set('end', endIso);
+    return parsed.toString();
+  }
+  return url;
+}
+
 function parseDateParam(value) {
   if (!value) return null;
   const date = new Date(value);
@@ -416,6 +477,161 @@ function normalizeEntityName(value) {
     .replace(/[^A-Z0-9 ]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function tokenizeEntityName(value) {
+  return normalizeEntityName(value)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token && !ENTITY_SUFFIX_TOKENS.has(token));
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  return values
+    .map((value) => String(value || '').trim())
+    .filter((value) => {
+      if (!value) return false;
+      const key = normalizeEntityName(value);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function uniqueItemsBy(items, keyFn) {
+  const seen = new Set();
+  return items.filter((item, index) => {
+    const key = String(keyFn(item) || index);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function buildUsaspendingTransactionKey(item = {}) {
+  return [
+    item['Award ID'],
+    item['Recipient Name'],
+    item['Action Date'],
+    item['Transaction Amount'],
+    item['Transaction Description']
+  ]
+    .map((value) => String(value || '').trim())
+    .join(':');
+}
+
+export async function settleMoneyTasks(tasks) {
+  const settled = await Promise.allSettled(tasks);
+  return settled.map((entry) => (
+    entry.status === 'fulfilled'
+      ? entry.value
+      : { items: [], error: entry.reason?.message || 'fetch_failed' }
+  ));
+}
+
+export function buildMoneyQueryProfile(query) {
+  const normalized = normalizeEntityName(query);
+  const aliases = MONEY_QUERY_ALIASES.get(normalized) || [];
+  const searchTerms = uniqueStrings([query, ...aliases]);
+  const variants = searchTerms
+    .map((term) => ({
+      term,
+      normalized: normalizeEntityName(term),
+      tokens: tokenizeEntityName(term)
+    }))
+    .filter((variant) => variant.tokens.length);
+  return {
+    original: query,
+    normalized,
+    searchTerms: searchTerms.length ? searchTerms : [query],
+    variants
+  };
+}
+
+function scoreTokenMatch(queryTokens, candidateTokens) {
+  if (!queryTokens.length || !candidateTokens.length) return 0;
+  const candidateSet = new Set(candidateTokens);
+  const overlap = queryTokens.filter((token) => candidateSet.has(token)).length;
+  const recall = overlap / queryTokens.length;
+  if (recall < 1) return 0;
+  const precision = overlap / candidateTokens.length;
+  if (precision <= 0) return 0;
+  return (2 * precision * recall) / (precision + recall);
+}
+
+export function findBestMoneyNameMatch(profile, ...fields) {
+  if (!profile?.variants?.length) return null;
+  let best = null;
+  fields.flat(Infinity).forEach((field) => {
+    const name = String(field || '').trim();
+    if (!name) return;
+    const normalizedName = normalizeEntityName(name);
+    const candidateTokens = tokenizeEntityName(name);
+    profile.variants.forEach((variant) => {
+      let score = scoreTokenMatch(variant.tokens, candidateTokens);
+      if (normalizedName === variant.normalized) score = 1;
+      if (score > (best?.score || 0)) {
+        best = {
+          name,
+          normalizedName,
+          score: Number(score.toFixed(3)),
+          query: variant.term
+        };
+      }
+    });
+  });
+  return best && best.score >= MONEY_MATCH_MIN_SCORE ? best : null;
+}
+
+function findMoneyKeywordMatch(profile, ...fields) {
+  if (!profile?.variants?.length) return null;
+  let best = null;
+  fields.flat(Infinity).forEach((field) => {
+    const text = normalizeSearchField(field);
+    if (!text) return;
+    const candidateTokens = tokenizeEntityName(text);
+    profile.variants.forEach((variant) => {
+      if (!variant.tokens.length) return;
+      const candidateSet = new Set(candidateTokens);
+      const overlap = variant.tokens.filter((token) => candidateSet.has(token)).length;
+      if (overlap !== variant.tokens.length) return;
+      const score = Number(Math.min(0.65, overlap / Math.max(candidateTokens.length, variant.tokens.length)).toFixed(3));
+      if (score > (best?.score || 0)) {
+        best = {
+          name: text,
+          normalizedName: normalizeEntityName(text),
+          score,
+          query: variant.term
+        };
+      }
+    });
+  });
+  return best;
+}
+
+export function attachMoneyMatch(profile, item) {
+  const { moneyMatchFields, keywordMatchFields, ...publicItem } = item;
+  const match = findBestMoneyNameMatch(
+    profile,
+    publicItem.entity,
+    publicItem.recipient,
+    publicItem.client,
+    publicItem.registrant,
+    publicItem.donor,
+    publicItem.committee,
+    publicItem.registryEntity,
+    moneyMatchFields
+  );
+  const keywordMatch = match ? null : findMoneyKeywordMatch(profile, keywordMatchFields);
+  const resolvedMatch = match || keywordMatch;
+  if (!resolvedMatch) return null;
+  return {
+    ...publicItem,
+    matchedName: resolvedMatch.name,
+    matchScore: Math.round(resolvedMatch.score * 100),
+    matchType: match ? 'entity' : 'keyword'
+  };
 }
 
 function toNumber(value) {
@@ -466,6 +682,42 @@ function buildStateSignalSearchHaystack(item, feed) {
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
+}
+
+function buildSignalSearchHaystack(item, feed) {
+  return [
+    item?.title,
+    item?.summary,
+    item?.source,
+    item?.sourceName,
+    item?.category,
+    item?.url,
+    item?.jurisdictionName,
+    item?.jurisdictionCode,
+    item?.agency,
+    item?.signalType,
+    item?.status,
+    item?.docId,
+    item?.tags,
+    feed?.name,
+    feed?.category,
+    feed?.tags
+  ]
+    .map((field) => normalizeSearchField(field))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function matchesSignalQuery(item, normalizedQuery, feed) {
+  if (!normalizedQuery) return true;
+  if (isStateSignal(item, feed)) {
+    return matchesStateAwareSignalQuery(item, normalizedQuery, feed);
+  }
+  const haystack = buildSignalSearchHaystack(item, feed);
+  if (haystack.includes(normalizedQuery)) return true;
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  return tokens.length ? tokens.every((token) => haystack.includes(token)) : true;
 }
 
 function matchesStateAwareSignalQuery(item, normalizedQuery, feed) {
@@ -640,7 +892,7 @@ function buildUrl(template, params = {}) {
   return url;
 }
 
-function buildFeedUrl(feed, options) {
+export function buildFeedUrl(feed, options) {
   const query = feed.supportsQuery
     ? (options.query || feed.defaultQuery || '')
     : (options.query || '');
@@ -661,12 +913,7 @@ function buildFeedUrl(feed, options) {
     url = parsed.toString();
   }
 
-  if (start && end && !url.includes(formatIsoDate(start))) {
-    const parsed = new URL(url);
-    if (!parsed.searchParams.has('start')) parsed.searchParams.set('start', formatIsoDate(start));
-    if (!parsed.searchParams.has('end')) parsed.searchParams.set('end', formatIsoDate(end));
-    url = parsed.toString();
-  }
+  url = applyHistoryRange(url, feed, { start, end, strictHistory: Boolean(options.history) });
 
   if (feed.acledMode && ACLED_PROXY) {
     const endpoint = feed.acledMode === 'aggregated' ? 'aggregated' : 'events';
@@ -1141,6 +1388,36 @@ function extractSafeResponseHeaders(headers) {
   return Object.keys(selected).length ? selected : null;
 }
 
+function isJsonContentType(contentType = '') {
+  const normalized = normalizeContentType(contentType);
+  return normalized.includes('application/json') || normalized.includes('+json');
+}
+
+function parseJsonBody(body) {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+export function buildRawStructuredContent({ sourceId, feed, result, responseFormat, range = null }) {
+  const contentIsJson = isJsonContentType(result.contentType);
+  const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body) : null;
+  return {
+    sourceId,
+    ...(range ? { range } : {}),
+    contentType: result.contentType,
+    url: stripSecretsFromUrl(feed.url),
+    fetchedUrl: result.fetchedUrl || null,
+    proxyUsed: result.proxyUsed || null,
+    fallbackUsed: Boolean(result.fallbackUsed),
+    responseHeaders: result.responseHeaders || null,
+    body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
+    data: parsed
+  };
+}
+
 function translateQueryForFeed(feed, query) {
   if (!feed || !query) return query;
   if (feed.id === 'gdelt-doc') return query;
@@ -1216,7 +1493,7 @@ function scoreFeed(feed, classification, query) {
   return score;
 }
 
-function selectSmartFeeds({ query, categories, sources, maxSources }) {
+export function selectSmartFeeds({ query, categories, sources, maxSources }) {
   if (Array.isArray(sources) && sources.length) {
     return sources
       .map((id) => feeds.find((feed) => feed.id === id))
@@ -1228,7 +1505,14 @@ function selectSmartFeeds({ query, categories, sources, maxSources }) {
     categories.forEach((cat) => classification.categories.add(cat));
   }
 
-  const candidates = feeds.filter((feed) => !feed.mapOnly);
+  const requestedCategories = Array.isArray(categories)
+    ? new Set(categories.map((cat) => String(cat || '').trim()).filter(Boolean))
+    : new Set();
+  const candidates = feeds.filter((feed) => {
+    if (feed.mapOnly) return false;
+    if (!requestedCategories.size) return true;
+    return requestedCategories.has(feed.category);
+  });
   const scored = candidates
     .map((feed) => ({ feed, score: scoreFeed(feed, classification, query) }))
     .filter(({ score }) => score > 0)
@@ -1238,6 +1522,12 @@ function selectSmartFeeds({ query, categories, sources, maxSources }) {
   const selected = scored.length ? scored.map(({ feed }) => feed) : defaultFallback;
   const limit = Math.max(1, Number(maxSources) || 12);
   return selected.slice(0, limit);
+}
+
+export function shouldFilterSmartFeedLocally({ feed, query, categories, sources }) {
+  if (!String(query || '').trim() || feed?.supportsQuery) return false;
+  return (Array.isArray(categories) && categories.length > 0)
+    || (Array.isArray(sources) && sources.length > 0);
 }
 
 function dedupeSignals(items) {
@@ -1258,6 +1548,13 @@ function createItemId(item) {
 }
 
 async function fetchRaw(feed, options) {
+  if (options?.history && !supportsHistoryRange(feed)) {
+    return {
+      error: 'history_not_supported',
+      sourceId: feed?.id || null,
+      message: `History ranges are not supported for ${feed?.id || 'this source'}.`
+    };
+  }
   if (isStateConnectorFeed(feed)) {
     return fetchStateConnectorRaw(feed, options);
   }
@@ -1514,6 +1811,8 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
   const safeLimit = Math.min(MONEY_FLOW_MAX_LIMIT, Math.max(20, Number(limit) || 60));
   const perSourceLimit = Math.max(10, Math.floor(safeLimit / 4));
   const range = resolveMoneyFlowRange(start, end);
+  const queryProfile = buildMoneyQueryProfile(query);
+  const queryVariants = queryProfile.searchTerms.slice(0, 3);
   const dataGovKey = process.env.DATA_GOV || '';
   const fecKey = dataGovKey || 'DEMO_KEY';
   const samGovKey = process.env.SAMGOV_API_KEY || dataGovKey;
@@ -1536,10 +1835,9 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
-    const items = (data.results || []).filter((item) => matchesQuery(query,
-      item.client?.name,
-      item.registrant?.name,
-      item.lobbying_activities?.map((act) => act.description).join(' ')
+    const items = (data.results || []).filter((item) => (
+      findBestMoneyNameMatch(queryProfile, item.client?.name, item.registrant?.name)
+      || findMoneyKeywordMatch(queryProfile, item.lobbying_activities?.map((act) => act.description))
     ));
     return { items };
   });
@@ -1552,20 +1850,20 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     if (!response.ok || !data) {
       return { error: `HTTP ${response.status}` };
     }
-    const items = (data.results || []).filter((item) => matchesQuery(query,
+    const items = (data.results || []).filter((item) => findBestMoneyNameMatch(queryProfile,
       item.registrant?.name,
       item.lobbyist?.last_name,
-      item.contribution_items?.map((entry) => `${entry.contributor_name} ${entry.payee_name}`).join(' ')
+      item.contribution_items?.map((entry) => [entry.contributor_name, entry.payee_name].filter(Boolean))
     ));
     return { items };
   });
 
-  const usaTask = (async () => {
+  const usaTasks = queryVariants.map(async (searchTerm) => {
     const url = 'https://api.usaspending.gov/api/v2/search/spending_by_transaction/';
     const awardCodes = ['A', 'B', 'C', 'D', 'IDV_A', 'IDV_B', 'IDV_B_A', 'IDV_B_B', 'IDV_B_C', 'IDV_C', 'IDV_D', 'IDV_E', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11'];
     const payload = {
       filters: {
-        keywords: [query],
+        keywords: [searchTerm],
         time_period: [{ start_date: range.startIso, end_date: range.endIso }],
         award_type_codes: awardCodes
       },
@@ -1584,14 +1882,14 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       return { error: `HTTP ${response.status}` };
     }
     return { items: data.results || [] };
-  })();
+  });
 
-  const fecTask = (async () => {
+  const fecTasks = queryVariants.map(async (searchTerm) => {
     const url = new URL('https://api.open.fec.gov/v1/schedules/schedule_a/');
     url.searchParams.set('api_key', fecKey);
     url.searchParams.set('per_page', String(perSourceLimit));
     url.searchParams.set('sort', '-contribution_receipt_amount');
-    url.searchParams.set('contributor_name', query);
+    url.searchParams.set('contributor_name', searchTerm);
     url.searchParams.set('min_date', range.startIso);
     url.searchParams.set('max_date', range.endIso);
     const { response, data } = await fetchJsonWithTimeout(url.toString(), {
@@ -1601,40 +1899,24 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       return { error: `HTTP ${response.status}` };
     }
     return { items: data.results || [] };
-  })();
-
-  const samTask = fetchSamEntities({
-    query,
-    perSourceLimit,
-    samGovKey
   });
 
-  const [ldaSettled, ldaContribSettled, usaSettled, fecSettled, samSettled] = await Promise.allSettled([
-    Promise.all(ldaTasks),
-    Promise.all(ldaContribTasks),
-    usaTask,
-    fecTask,
-    samTask
+  const samTasks = queryVariants.map((searchTerm) => fetchSamEntities({
+    query: searchTerm,
+    perSourceLimit,
+    samGovKey
+  }));
+
+  const [ldaResults, ldaContribResults, usaResults, fecResults, samResults] = await Promise.all([
+    settleMoneyTasks(ldaTasks),
+    settleMoneyTasks(ldaContribTasks),
+    settleMoneyTasks(usaTasks),
+    settleMoneyTasks(fecTasks),
+    settleMoneyTasks(samTasks)
   ]);
 
-  const ldaResults = ldaSettled.status === 'fulfilled' ? ldaSettled.value : [];
-  const ldaContribResults = ldaContribSettled.status === 'fulfilled' ? ldaContribSettled.value : [];
-  const usaResult = usaSettled.status === 'fulfilled'
-    ? usaSettled.value
-    : { items: [], error: usaSettled.reason?.message || 'fetch_failed' };
-  const fecResult = fecSettled.status === 'fulfilled'
-    ? fecSettled.value
-    : { items: [], error: fecSettled.reason?.message || 'fetch_failed' };
-  const samResult = samSettled.status === 'fulfilled'
-    ? samSettled.value
-    : { items: [], error: samSettled.reason?.message || 'fetch_failed' };
-
-  const ldaErrors = ldaSettled.status === 'rejected'
-    ? (ldaSettled.reason?.message || 'fetch_failed')
-    : (ldaResults.find((entry) => entry.error)?.error || null);
-  const ldaContribErrors = ldaContribSettled.status === 'rejected'
-    ? (ldaContribSettled.reason?.message || 'fetch_failed')
-    : (ldaContribResults.find((entry) => entry.error)?.error || null);
+  const ldaErrors = ldaResults.find((entry) => entry.error)?.error || null;
+  const ldaContribErrors = ldaContribResults.find((entry) => entry.error)?.error || null;
 
   results.sources.lda = {
     count: ldaResults.reduce((acc, entry) => acc + (entry.items?.length || 0), 0),
@@ -1645,21 +1927,33 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     error: ldaContribErrors || null
   };
   results.sources.usaspending = {
-    count: usaResult.items?.length || 0,
-    error: usaResult.error || null
+    count: usaResults.reduce((acc, entry) => acc + (entry.items?.length || 0), 0),
+    error: usaResults.find((entry) => entry.error)?.error || null
   };
   results.sources.fec = {
-    count: fecResult.items?.length || 0,
-    error: fecResult.error || null
+    count: fecResults.reduce((acc, entry) => acc + (entry.items?.length || 0), 0),
+    error: fecResults.find((entry) => entry.error)?.error || null
   };
   results.sources.sam = {
-    count: samResult.items?.length || 0,
-    error: samResult.error || null,
-    retryAfterSeconds: samResult.retryAfterSeconds || null,
-    retryAt: samResult.retryAt || null
+    count: samResults.reduce((acc, entry) => acc + (entry.items?.length || 0), 0),
+    error: samResults.find((entry) => entry.error)?.error || null,
+    retryAfterSeconds: samResults.find((entry) => entry.retryAfterSeconds)?.retryAfterSeconds || null,
+    retryAt: samResults.find((entry) => entry.retryAt)?.retryAt || null
   };
 
   const items = [];
+  const usaItems = uniqueItemsBy(
+    usaResults.flatMap((entry) => entry.items || []),
+    buildUsaspendingTransactionKey
+  );
+  const fecItems = uniqueItemsBy(
+    fecResults.flatMap((entry) => entry.items || []),
+    (item) => item.sub_id || item.contribution_receipt_id
+  );
+  const samItems = uniqueItemsBy(
+    samResults.flatMap((entry) => entry.items || []),
+    (item) => item.entityRegistration?.ueiSAM || item.entityRegistration?.uei || item.entityRegistration?.cageCode || item.entityRegistration?.legalBusinessName
+  );
 
   ldaResults.flatMap((entry) => entry.items || []).forEach((item) => {
     const amount = toNumber(item.income) || 0;
@@ -1682,6 +1976,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       registrant,
       committee: null,
       registryEntity: null,
+      keywordMatchFields: item.lobbying_activities?.map((act) => act.description),
       publishedAt: item.filing_deadline || item.dt_posted || item.filing_date || new Date().toISOString(),
       externalUrl: canonicalUrl,
       canonicalUrl,
@@ -1717,6 +2012,11 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       registrant: item.registrant?.name || null,
       committee: null,
       registryEntity: null,
+      moneyMatchFields: [
+        item.registrant?.name,
+        item.lobbyist?.last_name,
+        item.contribution_items?.map((entry) => [entry.contributor_name, entry.payee_name].filter(Boolean))
+      ],
       publishedAt: contribution?.date || item.filing_deadline || item.filing_date || new Date().toISOString(),
       externalUrl: canonicalUrl,
       canonicalUrl,
@@ -1730,7 +2030,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     });
   });
 
-  (usaResult.items || []).forEach((item) => {
+  usaItems.forEach((item) => {
     const amount = toNumber(item['Transaction Amount']);
     const awardId = item['Award ID'];
     const recipient = item['Recipient Name'] || awardId || 'Federal Award';
@@ -1751,6 +2051,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
       registrant: null,
       committee: null,
       registryEntity: null,
+      keywordMatchFields: [item['Transaction Description']],
       publishedAt: item['Action Date'] || new Date().toISOString(),
       externalUrl: canonicalUrl,
       canonicalUrl,
@@ -1765,7 +2066,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     });
   });
 
-  (fecResult.items || []).forEach((item) => {
+  fecItems.forEach((item) => {
     const amount = toNumber(item.contribution_receipt_amount);
     const committee = item.committee?.name || item.committee_name || 'Campaign Committee';
     const contributor = item.contributor_name || 'Contributor';
@@ -1799,7 +2100,7 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     });
   });
 
-  (samResult.items || []).forEach((item) => {
+  samItems.forEach((item) => {
     const amount = toNumber(item.totalActiveContracts);
     const entityName = item.entityRegistration?.legalBusinessName || item.entityRegistration?.dbaName || item.entityRegistration?.entityEFTIndicator;
     const uei = item.entityRegistration?.ueiSAM || item.entityRegistration?.uei || item.entityRegistration?.ueiSAM || '';
@@ -1834,11 +2135,13 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
   });
 
   results.items = items
+    .map((item) => attachMoneyMatch(queryProfile, item))
+    .filter(Boolean)
     .map((item) => ({
       ...item,
       score: scoreMoneyItem(item)
     }))
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => (b.matchScore - a.matchScore) || (b.score - a.score))
     .slice(0, safeLimit);
 
   results.entities = summarizeMoneyEntities(results.items);
@@ -1927,28 +2230,10 @@ server.registerTool(
     }
 
     const responseFormat = format || 'text';
-    let parsed = null;
-    if (responseFormat === 'json') {
-      try {
-        parsed = JSON.parse(result.body);
-      } catch {
-        parsed = null;
-      }
-    }
 
     return {
       content: [{ type: 'text', text: `Fetched ${sourceId} (${result.httpStatus})` }],
-      structuredContent: {
-        sourceId,
-        contentType: result.contentType,
-        url: stripSecretsFromUrl(feed.url),
-        fetchedUrl: result.fetchedUrl || null,
-        proxyUsed: result.proxyUsed || null,
-        fallbackUsed: Boolean(result.fallbackUsed),
-        responseHeaders: result.responseHeaders || null,
-        body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
-        data: parsed
-      }
+      structuredContent: buildRawStructuredContent({ sourceId, feed, result, responseFormat })
     };
   }
 );
@@ -1975,38 +2260,30 @@ server.registerTool(
       };
     }
 
-    const result = await fetchRaw(feed, { start, end, params });
+    const result = await fetchRaw(feed, { start, end, params, history: true });
     if (result.error) {
       return {
         content: [{ type: 'text', text: `History fetch failed: ${result.message || result.error}` }],
-        structuredContent: { error: result.error, message: result.message, httpStatus: result.httpStatus || null }
+        structuredContent: {
+          error: result.error,
+          sourceId,
+          message: result.message,
+          httpStatus: result.httpStatus || null
+        }
       };
     }
 
     const responseFormat = format || 'text';
-    let parsed = null;
-    if (responseFormat === 'json') {
-      try {
-        parsed = JSON.parse(result.body);
-      } catch {
-        parsed = null;
-      }
-    }
 
     return {
       content: [{ type: 'text', text: `Fetched history for ${sourceId}` }],
-      structuredContent: {
+      structuredContent: buildRawStructuredContent({
         sourceId,
-        range: { start, end },
-        contentType: result.contentType,
-        url: stripSecretsFromUrl(feed.url),
-        fetchedUrl: result.fetchedUrl || null,
-        proxyUsed: result.proxyUsed || null,
-        fallbackUsed: Boolean(result.fallbackUsed),
-        responseHeaders: result.responseHeaders || null,
-        body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
-        data: parsed
-      }
+        feed,
+        result,
+        responseFormat,
+        range: { start, end }
+      })
     };
   }
 );
@@ -2204,8 +2481,8 @@ server.registerTool(
         sourceName: feed.name,
         tags: feed.tags || []
       }));
-      const filtered = normalizedQuery
-        ? items.filter((item) => matchesStateAwareSignalQuery(item, normalizedQuery, feed))
+      const filtered = normalizedQuery && shouldFilterSmartFeedLocally({ feed, query, categories, sources })
+        ? items.filter((item) => matchesSignalQuery(item, normalizedQuery, feed))
         : items;
 
       if (result.fallbackUsed) {
@@ -2235,6 +2512,7 @@ server.registerTool(
         query: query || null,
         range: start && end ? { start, end } : null,
         signals: finalSignals,
+        sourcesQueried: sourcesChecked,
         sourcesChecked,
         warnings: warnings.length ? warnings : null
       }

@@ -2,6 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const { getStateBillSortTimestamp, normalizeCsvSignals, normalizeJsonSignals } = await import('../../gcp/mcp-proxy/signal-normalization.js');
+const {
+  buildFeedUrl,
+  buildMoneyQueryProfile,
+  buildRawStructuredContent,
+  buildUsaspendingTransactionKey,
+  attachMoneyMatch,
+  findBestMoneyNameMatch,
+  selectSmartFeeds,
+  settleMoneyTasks,
+  shouldFilterSmartFeedLocally,
+  supportsHistoryRange
+} = await import('../../gcp/mcp-proxy/server.js');
 
 const feed = {
   id: 'state-legislation',
@@ -126,6 +138,51 @@ test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the 
   assert.equal(item.publishedAt, Date.parse(updateDateIncludingText));
 });
 
+test('normalizeJsonSignals synthesizes Congress hearing list titles', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    hearings: [{
+      chamber: 'Senate',
+      congress: 119,
+      jacketNumber: 62972,
+      number: 315,
+      updateDate: '2026-07-07T22:51:20Z',
+      url: 'https://api.congress.gov/v3/hearing/119/senate/62972'
+    }]
+  }), {
+    id: 'congress-hearings',
+    name: 'Congress.gov Hearings',
+    category: 'gov',
+    format: 'json'
+  });
+
+  assert.ok(item);
+  assert.equal(item.title, 'Senate hearing 119-315 (jacket 62972)');
+  assert.equal(item.url, 'https://api.congress.gov/v3/hearing/119/senate/62972');
+  assert.equal(item.publishedAt, Date.parse('2026-07-07T22:51:20Z'));
+});
+
+test('normalizeJsonSignals reads Congress committee meetings and synthesizes titles', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    committeeMeetings: [{
+      chamber: 'House',
+      congress: 119,
+      eventId: '119449',
+      updateDate: '2026-07-07T18:19:06Z',
+      url: 'https://api.congress.gov/v3/committee-meeting/119/house/119449?format=json'
+    }]
+  }), {
+    id: 'congress-committee-meetings',
+    name: 'Congress.gov Committee Meetings',
+    category: 'gov',
+    format: 'json'
+  });
+
+  assert.ok(item);
+  assert.equal(item.title, 'House committee meeting 119449');
+  assert.equal(item.url, 'https://api.congress.gov/v3/committee-meeting/119/house/119449?format=json');
+  assert.equal(item.publishedAt, Date.parse('2026-07-07T18:19:06Z'));
+});
+
 test('normalizeJsonSignals skips invalid earlier timestamps and falls back to later valid Congress dates', () => {
   const updateDateIncludingText = '2026-04-03';
   const [item] = normalizeJsonSignals(JSON.stringify({
@@ -175,6 +232,176 @@ test('normalizeCsvSignals maps Stooq quote fields into finance signals', () => {
   assert.equal(item.value, 295.5);
   assert.equal(item.volume, 6106704);
   assert.ok(item.publishedAt > 0);
+});
+
+test('raw history maps Federal Register date ranges to upstream publication date params', () => {
+  const federalRegister = {
+    id: 'federal-register',
+    url: 'https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest'
+  };
+  const url = buildFeedUrl(federalRegister, {
+    start: '2026-06-01',
+    end: '2026-06-07',
+    history: true
+  });
+  const parsed = new URL(url);
+
+  assert.equal(supportsHistoryRange(federalRegister), true);
+  assert.equal(parsed.searchParams.get('conditions[publication_date][gte]'), '2026-06-01');
+  assert.equal(parsed.searchParams.get('conditions[publication_date][lte]'), '2026-06-07');
+  assert.equal(parsed.searchParams.has('start'), false);
+  assert.equal(parsed.searchParams.has('end'), false);
+});
+
+test('history support is explicit for unsupported sources and template sources', () => {
+  assert.equal(supportsHistoryRange({
+    id: 'congress-api',
+    url: 'https://api.congress.gov/v3/bill?format=json&sort=updateDate+desc&limit=20'
+  }), false);
+  assert.equal(supportsHistoryRange({
+    id: 'ucdp-candidate-events',
+    url: 'https://ucdpapi.pcr.uu.se/api/gedevents/25.0.11?StartDate={{start}}&EndDate={{end}}&pagesize=500'
+  }), true);
+});
+
+test('raw structured content parses JSON content regardless of requested text format', () => {
+  const structured = buildRawStructuredContent({
+    sourceId: 'congress-hearings',
+    feed: {
+      id: 'congress-hearings',
+      url: 'https://api.congress.gov/v3/hearing?format=json&limit=20'
+    },
+    result: {
+      contentType: 'application/json',
+      fetchedUrl: 'https://api.congress.gov/v3/hearing?format=json&limit=20&api_key=REDACTED',
+      body: '{"hearings":[{"jacketNumber":62972}]}',
+      responseHeaders: null,
+      fallbackUsed: false,
+      proxyUsed: null
+    },
+    responseFormat: 'text'
+  });
+
+  assert.deepEqual(structured.data, { hearings: [{ jacketNumber: 62972 }] });
+  assert.equal(structured.body, '{"hearings":[{"jacketNumber":62972}]}');
+});
+
+test('smart search honors explicit gov category before news fallback', () => {
+  const selected = selectSmartFeeds({
+    query: 'senate hearing',
+    categories: ['gov'],
+    maxSources: 8
+  });
+
+  assert.ok(selected.length > 0);
+  assert.equal(selected.every((entry) => entry.category === 'gov'), true);
+  assert.equal(selected.some((entry) => entry.id === 'google-news-search'), false);
+});
+
+test('smart search only filters non-query feeds for explicit constrained searches', () => {
+  const congressFeed = { id: 'congress-hearings', category: 'gov', supportsQuery: false };
+
+  assert.equal(shouldFilterSmartFeedLocally({
+    feed: congressFeed,
+    query: 'what happened in Congress today',
+    categories: undefined,
+    sources: undefined
+  }), false);
+  assert.equal(shouldFilterSmartFeedLocally({
+    feed: congressFeed,
+    query: 'postal products',
+    categories: ['gov'],
+    sources: undefined
+  }), true);
+  assert.equal(shouldFilterSmartFeedLocally({
+    feed: { ...congressFeed, supportsQuery: true },
+    query: 'postal products',
+    categories: ['gov'],
+    sources: undefined
+  }), false);
+});
+
+test('money flow entity matching uses aliases, word tokens, and relevance scores', () => {
+  const capella = buildMoneyQueryProfile('Capella University');
+  const capellaMatch = findBestMoneyNameMatch(capella, 'CAPELLA EDUCATION COMPANY');
+  assert.ok(capellaMatch);
+  assert.equal(capellaMatch.name, 'CAPELLA EDUCATION COMPANY');
+
+  const strategic = buildMoneyQueryProfile('Strategic Education');
+  assert.equal(findBestMoneyNameMatch(strategic, 'STRATEGIC DEFENSE LLC'), null);
+  assert.equal(findBestMoneyNameMatch(strategic, 'STRATEGIC EDUCATION RESEARCH PARTNERSHIP INSTITUTE'), null);
+  assert.ok(findBestMoneyNameMatch(strategic, 'STRATEGIC EDUCATION INC'));
+});
+
+test('money flow entity matching deeply flattens contribution item name arrays', () => {
+  const profile = buildMoneyQueryProfile('Microsoft');
+  const match = findBestMoneyNameMatch(profile, [['Microsoft Corporation PAC']]);
+
+  assert.ok(match);
+  assert.equal(match.name, 'Microsoft Corporation PAC');
+  assert.equal(match.score, 0.667);
+  assert.equal(findBestMoneyNameMatch(profile, 'Microsoft Research Partnership Institute'), null);
+});
+
+test('money flow LDA normalized items retain private contribution match fields', () => {
+  const profile = buildMoneyQueryProfile('Second Contributor');
+  const item = attachMoneyMatch(profile, {
+    source: 'LDA',
+    entity: 'First Contributor',
+    recipient: 'First Payee',
+    registrant: 'Different Registrant',
+    moneyMatchFields: [
+      ['First Contributor', 'First Payee'],
+      ['Second Contributor', 'Second Payee']
+    ]
+  });
+
+  assert.ok(item);
+  assert.equal(item.matchedName, 'Second Contributor');
+  assert.equal(item.moneyMatchFields, undefined);
+});
+
+test('money flow keyword matches preserve non-entity program results', () => {
+  const profile = buildMoneyQueryProfile('airport terminal');
+  const item = attachMoneyMatch(profile, {
+    source: 'USAspending',
+    entity: 'City Transit Authority',
+    recipient: 'City Transit Authority',
+    keywordMatchFields: ['Airport terminal expansion and safety grant']
+  });
+
+  assert.ok(item);
+  assert.equal(item.matchedName, 'Airport terminal expansion and safety grant');
+  assert.equal(item.matchType, 'keyword');
+  assert.equal(item.keywordMatchFields, undefined);
+});
+
+test('money flow USAspending dedupe keeps separate same-award transactions', () => {
+  const first = {
+    'Award ID': 'FAKE-AWARD-1',
+    'Recipient Name': 'Recipient',
+    'Action Date': '2026-01-02',
+    'Transaction Amount': 100,
+    'Transaction Description': 'Base award'
+  };
+  const second = {
+    ...first,
+    'Action Date': '2026-02-03',
+    'Transaction Amount': 250,
+    'Transaction Description': 'Modification'
+  };
+
+  assert.notEqual(buildUsaspendingTransactionKey(first), buildUsaspendingTransactionKey(second));
+});
+
+test('money flow variant tasks preserve fulfilled sibling results after a rejection', async () => {
+  const results = await settleMoneyTasks([
+    Promise.resolve({ items: [{ sourceId: 'kept' }] }),
+    Promise.reject(new Error('timeout'))
+  ]);
+
+  assert.deepEqual(results[0], { items: [{ sourceId: 'kept' }] });
+  assert.deepEqual(results[1], { items: [], error: 'timeout' });
 });
 
 test('normalizeCsvSignals drops Stooq missing ticker rows', () => {
