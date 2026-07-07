@@ -1530,6 +1530,10 @@ export function shouldFilterSmartFeedLocally({ feed, query, categories, sources 
     || (Array.isArray(sources) && sources.length > 0);
 }
 
+export function shouldUseLiveFallback(options = {}) {
+  return !options?.history;
+}
+
 function dedupeSignals(items) {
   const seen = new Set();
   const output = [];
@@ -1742,7 +1746,7 @@ async function fetchRaw(feed, options) {
         };
       }
     }
-    const fallback = await fetchLiveFallback(feed.id);
+    const fallback = shouldUseLiveFallback(options) ? await fetchLiveFallback(feed.id) : null;
     if (fallback) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'

@@ -12,6 +12,7 @@ const {
   selectSmartFeeds,
   settleMoneyTasks,
   shouldFilterSmartFeedLocally,
+  shouldUseLiveFallback,
   supportsHistoryRange
 } = await import('../../gcp/mcp-proxy/server.js');
 
@@ -262,6 +263,12 @@ test('history support is explicit for unsupported sources and template sources',
     id: 'ucdp-candidate-events',
     url: 'https://ucdpapi.pcr.uu.se/api/gedevents/25.0.11?StartDate={{start}}&EndDate={{end}}&pagesize=500'
   }), true);
+});
+
+test('raw history does not fall back to current static snapshots', () => {
+  assert.equal(shouldUseLiveFallback({ history: true }), false);
+  assert.equal(shouldUseLiveFallback({ history: false }), true);
+  assert.equal(shouldUseLiveFallback({}), true);
 });
 
 test('raw structured content parses JSON content regardless of requested text format', () => {
