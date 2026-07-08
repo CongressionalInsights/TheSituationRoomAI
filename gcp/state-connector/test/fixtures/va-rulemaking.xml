@@ -1,0 +1,21 @@
+<rss version="2.0">
+  <channel>
+    <title>Virginia Register of Regulations</title>
+    <description>Read the Virginia Register of Regulations in HTML or PDF format.</description>
+    <item>
+      <title>Volume 42, Issue 23 - Monday, 29 Jun 2026</title>
+      <link>http://register.dls.virginia.gov/toc.aspx?voliss=42:23</link>
+      <author>Virginia Code Commission</author>
+    </item>
+    <item>
+      <title>Subscribe to updates</title>
+      <link>http://register.dls.virginia.gov/rss.aspx</link>
+      <author>Virginia Code Commission</author>
+    </item>
+    <item>
+      <title>Volume 42, Issue 22 - Monday, 15 Jun 2026</title>
+      <link>http://register.dls.virginia.gov/toc.aspx?voliss=42:22</link>
+      <author>Virginia Code Commission</author>
+    </item>
+  </channel>
+</rss>

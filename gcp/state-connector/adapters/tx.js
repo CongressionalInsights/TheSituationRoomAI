@@ -4,6 +4,7 @@ const state = 'TX';
 const stateName = 'Texas';
 const registerFeedUrl = 'https://www.sos.state.tx.us/texreg/texreg.xml';
 const executiveOrdersUrl = 'https://lrl.texas.gov/legeLeaders/governors/searchproc.cfm?govdoctypeID=5&governorID=45';
+const minimumRegisterIssueYear = 2024;
 
 export function parseExecutiveOrders(html) {
   const results = [];
@@ -33,23 +34,63 @@ export function parseExecutiveOrders(html) {
   return uniqueSignals(results);
 }
 
-export default {
-  state,
-  stateName,
-  async fetchRulemaking(ctx) {
-    const text = await ctx.fetchText(registerFeedUrl);
-    return rssItems(text).map((item) => makeSignal({
-      id: `${state}:rulemaking:${item.title}:${item.url}`,
-      title: item.title === 'HTML format' ? `Texas Register: ${item.summary}` : `Texas Register: ${item.title}`,
-      summary: item.summary || 'Texas Register issue.',
-      url: absoluteUrl(item.url, registerFeedUrl),
-      updatedAt: item.summary?.match(/[A-Z][a-z]+\s+\d{1,2},\s+\d{4}/)?.[0] || '',
+export function parseRulemakingFeed(text) {
+  const byIssueDate = new Map();
+  for (const item of rssItems(text)) {
+    const issueDate = issueDateFromTexasRegisterItem(item);
+    if (!issueDate) continue;
+    const current = byIssueDate.get(issueDate) || {
+      issueDate,
+      htmlUrl: '',
+      pdfUrl: '',
+      summary: `Texas Register issue for ${issueDate}.`
+    };
+    if (/pdf format/i.test(item.title)) {
+      current.pdfUrl = absoluteUrl(item.url, registerFeedUrl);
+    } else {
+      current.htmlUrl = absoluteUrl(item.url, registerFeedUrl);
+    }
+    byIssueDate.set(issueDate, current);
+  }
+
+  const results = [];
+  for (const issue of byIssueDate.values()) {
+    if (!issue.htmlUrl) continue;
+    const summary = issue.pdfUrl
+      ? `${issue.summary} PDF rendering: ${issue.pdfUrl}`
+      : issue.summary;
+    results.push(makeSignal({
+      id: `${state}:rulemaking:${issue.issueDate}`,
+      title: `Texas Register issue for ${issue.issueDate}`,
+      summary,
+      url: issue.htmlUrl,
+      updatedAt: issue.issueDate,
       state,
       agency: 'Texas Secretary of State',
       status: 'published',
       source: 'Texas Register',
       signalType: 'rulemaking'
-    })).filter(Boolean);
+    }));
+  }
+  return uniqueSignals(results);
+}
+
+function issueDateFromTexasRegisterItem(item) {
+  const text = `${item.title || ''} ${item.summary || ''}`;
+  const match = text.match(/\bTexas Register issue for (?<date>[A-Z][a-z]+\s+\d{1,2},\s+\d{4})\b/i);
+  const issueDate = cleanText(match?.groups?.date || '');
+  if (!issueDate) return '';
+  const year = Number(issueDate.match(/\b(?<year>\d{4})$/)?.groups?.year || 0);
+  if (!Number.isFinite(year) || year < minimumRegisterIssueYear) return '';
+  return issueDate;
+}
+
+export default {
+  state,
+  stateName,
+  async fetchRulemaking(ctx) {
+    const text = await ctx.fetchText(registerFeedUrl);
+    return parseRulemakingFeed(text);
   },
   async fetchExecutiveOrders(ctx) {
     const html = await ctx.fetchText(executiveOrdersUrl);
