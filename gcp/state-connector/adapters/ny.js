@@ -5,7 +5,7 @@ const stateName = 'New York';
 const stateRegisterUrl = 'https://dos.ny.gov/state-register';
 const executiveOrdersUrl = 'https://www.governor.ny.gov/executiveorders';
 
-function parseStateRegister(html) {
+export function parseStateRegister(html) {
   const results = [];
   for (const match of html.matchAll(/<article(?<attrs>[^>]*)>(?<body>[\s\S]*?)<\/article>/gi)) {
     const attrs = match.groups.attrs || '';
@@ -30,7 +30,7 @@ function parseStateRegister(html) {
   return uniqueSignals(results);
 }
 
-function parseExecutiveOrders(html) {
+export function parseExecutiveOrders(html) {
   const results = [];
   for (const match of html.matchAll(/<article[^>]+node--type-executive-order[\s\S]*?<h3 class="content-title">[\s\S]*?<a[^>]+href="(?<href>[^"]+)"[\s\S]*?<span[^>]+field--name-title[^>]*>(?<title>[\s\S]*?)<\/span>[\s\S]*?<div class="content-dates">[\s\S]*?<span[^>]*>\s*(?<date>[^<]+?)\s*<\/span>[\s\S]*?<div class="content-description[^"]*"[\s\S]*?<div[^>]+field--name-field-eo-meta-description[^>]*>(?<summary>[\s\S]*?)<\/div>/gi)) {
     const title = cleanText(match.groups.title);

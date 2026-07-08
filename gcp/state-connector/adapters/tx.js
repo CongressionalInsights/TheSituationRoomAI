@@ -5,7 +5,7 @@ const stateName = 'Texas';
 const registerFeedUrl = 'https://www.sos.state.tx.us/texreg/texreg.xml';
 const executiveOrdersUrl = 'https://lrl.texas.gov/legeLeaders/governors/searchproc.cfm?govdoctypeID=5&governorID=45';
 
-function parseExecutiveOrders(html) {
+export function parseExecutiveOrders(html) {
   const results = [];
   for (const row of html.matchAll(/<tr[\s\S]*?<\/tr>/gi)) {
     const block = row[0];

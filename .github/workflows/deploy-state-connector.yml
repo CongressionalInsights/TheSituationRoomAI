@@ -34,7 +34,7 @@ jobs:
             node --check "$file"
           done
       - name: Unit tests
-        run: node --test scripts/test/state-connector.spec.mjs
+        run: node --test scripts/test/state-connector.spec.mjs gcp/state-connector/test/*.spec.mjs
 
   deploy:
     if: github.event_name != 'pull_request'

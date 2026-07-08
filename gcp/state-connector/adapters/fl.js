@@ -6,7 +6,7 @@ const rulesUrl = 'https://flrules.org/';
 const recentIssueUrl = 'https://flrules.org/gateway/recentIssue.asp';
 const executiveOrdersUrl = 'https://www.flgov.com/eog/news/executive-orders/';
 
-function parseRulemaking(html, recentIssueMeta = {}) {
+export function parseRulemaking(html, recentIssueMeta = {}) {
   const issue = cleanText(html.match(/Most Recent FAR Issue[\s\S]{0,1200}/i)?.[0] || '');
   const issueId = html.match(/<input[^>]+name="Issue"[^>]+value="(?<issue>\d+)"/i)?.groups?.issue || '';
   const title = issue.match(/Vol\.\s*\d+[^A-Z]*(?:No\.\s*\d+)?/i)?.[0]
@@ -25,7 +25,7 @@ function parseRulemaking(html, recentIssueMeta = {}) {
   })].filter(Boolean);
 }
 
-function parseExecutiveOrders(html) {
+export function parseExecutiveOrders(html) {
   const rows = [];
   for (const match of html.matchAll(/<td[^>]*class="[^"]*views-field-field-file-upload[^"]*"[^>]*>\s*<a[^>]+href="(?<href>[^"]+)"[^>]*>(?<title>[\s\S]*?)<\/a>[\s\S]*?<time[^>]+datetime="(?<date>[^"]+)"/gi)) {
     const title = cleanText(match.groups.title);

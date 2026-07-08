@@ -5,7 +5,7 @@ const stateName = 'California';
 const noticeRegisterUrl = 'https://oal.ca.gov/california_regulatory_notice_online/';
 const executiveOrdersUrl = 'https://www.gov.ca.gov/category/executive-orders/';
 
-function parseNoticeRegisterMonths(html) {
+export function parseNoticeRegisterMonths(html) {
   const results = [];
   const yearHeadingPattern = /(?<year>20\d{2})\s+California Regulatory Notice Register/gi;
   const headings = [...html.matchAll(yearHeadingPattern)];
@@ -42,30 +42,38 @@ export default {
   },
   async fetchExecutiveOrders(ctx) {
     const text = await ctx.fetchText(`${executiveOrdersUrl}feed/`);
-    const fromFeed = rssItems(text)
-      .filter((item) => /\bexecutive order\b|\bissues? order\b/i.test(`${item.title} ${item.summary}`))
-      .map((item) => makeSignal({
-        id: `${state}:executive_order:${item.title}`,
-        title: item.title,
-        summary: item.summary || 'California governor executive order update.',
-        url: absoluteUrl(item.url, executiveOrdersUrl),
-        updatedAt: item.updatedAt,
-        state,
-        agency: 'Office of the Governor',
-        status: 'issued',
-        source: 'Governor of California Executive Orders',
-        signalType: 'executive_order'
-      })).filter(Boolean);
+    const fromFeed = parseExecutiveOrderFeed(text);
     if (fromFeed.length) return uniqueSignals(fromFeed);
     const html = await ctx.fetchText(executiveOrdersUrl);
-    return extractAnchorDatePairs(html, {
-      rowPattern: /<a[^>]+href="(?<href>[^"]+)"[^>]*>\s*(?<title>[^<]*executive order[^<]*)<\/a>[\s\S]{0,600}?(?<date>[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})/gi,
-      baseUrl: executiveOrdersUrl,
-      state,
-      source: 'Governor of California Executive Orders',
-      signalType: 'executive_order',
-      agency: 'Office of the Governor',
-      status: 'issued'
-    });
+    return parseExecutiveOrderHtml(html);
   }
 };
+
+export function parseExecutiveOrderFeed(text) {
+  return rssItems(text)
+    .filter((item) => /\bexecutive order\b|\bissues? order\b/i.test(`${item.title} ${item.summary}`))
+    .map((item) => makeSignal({
+      id: `${state}:executive_order:${item.title}`,
+      title: item.title,
+      summary: item.summary || 'California governor executive order update.',
+      url: absoluteUrl(item.url, executiveOrdersUrl),
+      updatedAt: item.updatedAt,
+      state,
+      agency: 'Office of the Governor',
+      status: 'issued',
+      source: 'Governor of California Executive Orders',
+      signalType: 'executive_order'
+    })).filter(Boolean);
+}
+
+export function parseExecutiveOrderHtml(html) {
+  return extractAnchorDatePairs(html, {
+    rowPattern: /<a[^>]+href="(?<href>[^"]+)"[^>]*>\s*(?<title>[^<]*executive order[^<]*)<\/a>[\s\S]{0,600}?(?<date>[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})/gi,
+    baseUrl: executiveOrdersUrl,
+    state,
+    source: 'Governor of California Executive Orders',
+    signalType: 'executive_order',
+    agency: 'Office of the Governor',
+    status: 'issued'
+  });
+}
