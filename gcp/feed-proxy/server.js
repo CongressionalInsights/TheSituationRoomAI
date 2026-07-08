@@ -478,6 +478,10 @@ function getUrlTemplateParamNames(template = '') {
   return names;
 }
 
+function getRuntimeOnlyParamNames(feed) {
+  return new Set(feed?.congressCommitteeBills ? ['congress'] : []);
+}
+
 function serializeParams(params = {}) {
   return Object.entries(params)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -1342,12 +1346,14 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
 
   const finalQuery = feed.supportsQuery ? (query || feed.defaultQuery || '') : undefined;
   const urlTemplateParamNames = getUrlTemplateParamNames(feed.url);
+  const runtimeOnlyParamNames = getRuntimeOnlyParamNames(feed);
+  const excludedUrlParamNames = new Set([...urlTemplateParamNames, ...runtimeOnlyParamNames]);
   const templateParams = { ...mergedParams, key: effectiveKey };
   if (feed.supportsQuery) {
     templateParams.query = finalQuery;
   }
   let url = buildUrl(feed.url, templateParams);
-  url = applyUrlParams(url, mergedParams, urlTemplateParamNames);
+  url = applyUrlParams(url, mergedParams, excludedUrlParamNames);
   const isEiaSeries = feed.id === 'energy-eia'
     || feed.id === 'energy-eia-brent'
     || feed.id === 'energy-eia-ng';

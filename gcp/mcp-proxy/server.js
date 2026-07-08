@@ -1061,6 +1061,10 @@ function getUrlTemplateParamNames(template = '') {
   );
 }
 
+function getRuntimeOnlyParamNames(feed) {
+  return new Set(feed?.congressCommitteeBills ? ['congress'] : []);
+}
+
 export function buildFeedUrl(feed, options) {
   const query = feed.supportsQuery
     ? (options.query || feed.defaultQuery || '')
@@ -1102,9 +1106,11 @@ export function buildFeedUrl(feed, options) {
   if (mergedParams && Object.keys(mergedParams).length) {
     const parsed = new URL(url);
     const templateParamNames = getUrlTemplateParamNames(feed.url);
+    const runtimeOnlyParamNames = getRuntimeOnlyParamNames(feed);
     Object.entries(mergedParams).forEach(([key, value]) => {
       if (value === undefined || value === null || value === '') return;
       if (templateParamNames.has(key)) return;
+      if (runtimeOnlyParamNames.has(key)) return;
       parsed.searchParams.set(key, String(value));
     });
     url = parsed.toString();

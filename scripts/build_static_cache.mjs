@@ -42,6 +42,10 @@ function getUrlTemplateParamNames(template = '') {
   return names;
 }
 
+function getRuntimeOnlyParamNames(feed) {
+  return new Set(feed?.congressCommitteeBills ? ['congress'] : []);
+}
+
 function applyProxy(url, proxy) {
   if (!proxy) return url;
   if (proxy === 'allorigins') {
@@ -774,8 +778,10 @@ async function buildFeedPayload(feed) {
     templateParams.query = query;
   }
   const templateParamNames = getUrlTemplateParamNames(templateUrl);
+  const runtimeOnlyParamNames = getRuntimeOnlyParamNames(feed);
+  const excludedUrlParamNames = new Set([...templateParamNames, ...runtimeOnlyParamNames]);
   const baseUrl = buildUrl(templateUrl, templateParams);
-  const applied = applyKey(applyUrlParams(baseUrl, staticRequestParams, templateParamNames), feed, key);
+  const applied = applyKey(applyUrlParams(baseUrl, staticRequestParams, excludedUrlParamNames), feed, key);
   const headers = {
     'User-Agent': appConfig.userAgent,
     'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',

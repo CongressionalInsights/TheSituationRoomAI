@@ -401,21 +401,22 @@ test('raw history maps Federal Register date ranges to upstream publication date
   assert.equal(parsed.searchParams.has('end'), false);
 });
 
-test('committee Congress feed URLs append default and requested congress params', () => {
+test('committee Congress feed URLs keep congress as a runtime-only post-filter param', () => {
   const feed = {
     id: 'congress-ew-bills',
     url: 'https://api.congress.gov/v3/committee/house/hsed00/bills?format=json&limit=20',
     supportsParams: true,
+    congressCommitteeBills: true,
     defaultParams: { congress: 119 }
   };
 
   const defaultUrl = new URL(buildFeedUrl(feed, {}));
   assert.equal(defaultUrl.pathname, '/v3/committee/house/hsed00/bills');
-  assert.equal(defaultUrl.searchParams.get('congress'), '119');
+  assert.equal(defaultUrl.searchParams.has('congress'), false);
 
   const requestedUrl = new URL(buildFeedUrl(feed, { params: { congress: 118 } }));
   assert.equal(requestedUrl.pathname, '/v3/committee/house/hsed00/bills');
-  assert.equal(requestedUrl.searchParams.get('congress'), '118');
+  assert.equal(requestedUrl.searchParams.has('congress'), false);
 });
 
 test('committee Congress enrichment synthesizes detail URLs from bill identifiers', () => {

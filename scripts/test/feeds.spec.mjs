@@ -105,7 +105,7 @@ test('committee Congress feeds use default congress params', () => {
   });
 });
 
-test('feed proxy and local server consume URL template params instead of leaking them into query strings', () => {
+test('feed proxy and local server omit template and runtime-only params from upstream query strings', () => {
   [
     path.join(root, 'gcp', 'feed-proxy', 'server.js'),
     path.join(root, 'server.mjs'),
@@ -113,8 +113,10 @@ test('feed proxy and local server consume URL template params instead of leaking
   ].forEach((sourcePath) => {
     const source = fs.readFileSync(sourcePath, 'utf8');
     assert.match(source, /function getUrlTemplateParamNames/);
+    assert.match(source, /function getRuntimeOnlyParamNames/);
     assert.match(source, /getUrlTemplateParamNames\((feed\.url|templateUrl)\)/);
-    assert.match(source, /applyUrlParams\([^,]+, (mergedParams|staticRequestParams), (urlTemplateParamNames|templateParamNames)\)/);
+    assert.match(source, /excludedUrlParamNames/);
+    assert.match(source, /applyUrlParams\([^,]+, (mergedParams|staticRequestParams), excludedUrlParamNames\)/);
   });
 });
 

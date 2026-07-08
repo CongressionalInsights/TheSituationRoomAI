@@ -162,6 +162,10 @@ function getUrlTemplateParamNames(template = '') {
   return names;
 }
 
+function getRuntimeOnlyParamNames(feed) {
+  return new Set(feed?.congressCommitteeBills ? ['congress'] : []);
+}
+
 function serializeParams(params = {}) {
   return Object.entries(params)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -1422,12 +1426,14 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
 
   const finalQuery = feed.supportsQuery ? (query || feed.defaultQuery || '') : undefined;
   const urlTemplateParamNames = getUrlTemplateParamNames(feed.url);
+  const runtimeOnlyParamNames = getRuntimeOnlyParamNames(feed);
+  const excludedUrlParamNames = new Set([...urlTemplateParamNames, ...runtimeOnlyParamNames]);
   const templateParams = { ...mergedParams, key: effectiveKey };
   if (feed.supportsQuery) {
     templateParams.query = finalQuery;
   }
   const baseUrl = buildUrl(feed.url, templateParams);
-  const urlWithParams = applyUrlParams(baseUrl, mergedParams, urlTemplateParamNames);
+  const urlWithParams = applyUrlParams(baseUrl, mergedParams, excludedUrlParamNames);
   const useClientKey = Boolean(key);
   const applied = applyKey(urlWithParams, feed, effectiveKey, useClientKey ? keyParam : undefined, useClientKey ? keyHeader : undefined);
   const headers = {
