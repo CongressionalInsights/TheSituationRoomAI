@@ -482,6 +482,26 @@ function getRuntimeOnlyParamNames(feed) {
   return new Set(feed?.congressCommitteeBills ? ['congress'] : []);
 }
 
+function getCongressDateWindow(congress) {
+  const congressNumber = Number.parseInt(String(congress || ''), 10);
+  if (!Number.isFinite(congressNumber) || congressNumber < 1) return null;
+  const startYear = 1789 + ((congressNumber - 1) * 2);
+  return {
+    fromDateTime: `${startYear}-01-03T00:00:00Z`,
+    toDateTime: `${startYear + 2}-01-03T00:00:00Z`
+  };
+}
+
+function applyCongressCommitteeDateWindow(url, feed, params = {}) {
+  if (!feed?.congressCommitteeBills) return url;
+  const window = getCongressDateWindow(params.congress || feed.defaultParams?.congress);
+  if (!window) return url;
+  const parsed = new URL(url);
+  if (!parsed.searchParams.has('fromDateTime')) parsed.searchParams.set('fromDateTime', window.fromDateTime);
+  if (!parsed.searchParams.has('toDateTime')) parsed.searchParams.set('toDateTime', window.toDateTime);
+  return parsed.toString();
+}
+
 function serializeParams(params = {}) {
   return Object.entries(params)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -1354,6 +1374,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
   let url = buildUrl(feed.url, templateParams);
   url = applyUrlParams(url, mergedParams, excludedUrlParamNames);
+  url = applyCongressCommitteeDateWindow(url, feed, mergedParams);
   const isEiaSeries = feed.id === 'energy-eia'
     || feed.id === 'energy-eia-brent'
     || feed.id === 'energy-eia-ng';

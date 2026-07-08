@@ -166,6 +166,26 @@ function getRuntimeOnlyParamNames(feed) {
   return new Set(feed?.congressCommitteeBills ? ['congress'] : []);
 }
 
+function getCongressDateWindow(congress) {
+  const congressNumber = Number.parseInt(String(congress || ''), 10);
+  if (!Number.isFinite(congressNumber) || congressNumber < 1) return null;
+  const startYear = 1789 + ((congressNumber - 1) * 2);
+  return {
+    fromDateTime: `${startYear}-01-03T00:00:00Z`,
+    toDateTime: `${startYear + 2}-01-03T00:00:00Z`
+  };
+}
+
+function applyCongressCommitteeDateWindow(url, feed, params = {}) {
+  if (!feed?.congressCommitteeBills) return url;
+  const window = getCongressDateWindow(params.congress || feed.defaultParams?.congress);
+  if (!window) return url;
+  const parsed = new URL(url);
+  if (!parsed.searchParams.has('fromDateTime')) parsed.searchParams.set('fromDateTime', window.fromDateTime);
+  if (!parsed.searchParams.has('toDateTime')) parsed.searchParams.set('toDateTime', window.toDateTime);
+  return parsed.toString();
+}
+
 function serializeParams(params = {}) {
   return Object.entries(params)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -1434,8 +1454,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
   const baseUrl = buildUrl(feed.url, templateParams);
   const urlWithParams = applyUrlParams(baseUrl, mergedParams, excludedUrlParamNames);
+  const windowedUrl = applyCongressCommitteeDateWindow(urlWithParams, feed, mergedParams);
   const useClientKey = Boolean(key);
-  const applied = applyKey(urlWithParams, feed, effectiveKey, useClientKey ? keyParam : undefined, useClientKey ? keyHeader : undefined);
+  const applied = applyKey(windowedUrl, feed, effectiveKey, useClientKey ? keyParam : undefined, useClientKey ? keyHeader : undefined);
   const headers = {
     'User-Agent': appConfig.userAgent,
     'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',

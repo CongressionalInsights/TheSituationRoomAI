@@ -114,9 +114,11 @@ test('feed proxy and local server omit template and runtime-only params from ups
     const source = fs.readFileSync(sourcePath, 'utf8');
     assert.match(source, /function getUrlTemplateParamNames/);
     assert.match(source, /function getRuntimeOnlyParamNames/);
+    assert.match(source, /function applyCongressCommitteeDateWindow/);
     assert.match(source, /getUrlTemplateParamNames\((feed\.url|templateUrl)\)/);
     assert.match(source, /excludedUrlParamNames/);
     assert.match(source, /applyUrlParams\([^,]+, (mergedParams|staticRequestParams), excludedUrlParamNames\)/);
+    assert.match(source, /applyCongressCommitteeDateWindow/);
   });
 });
 

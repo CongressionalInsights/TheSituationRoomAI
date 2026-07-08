@@ -401,7 +401,7 @@ test('raw history maps Federal Register date ranges to upstream publication date
   assert.equal(parsed.searchParams.has('end'), false);
 });
 
-test('committee Congress feed URLs keep congress as a runtime-only post-filter param', () => {
+test('committee Congress feed URLs keep congress local and add a date window', () => {
   const feed = {
     id: 'congress-ew-bills',
     url: 'https://api.congress.gov/v3/committee/house/hsed00/bills?format=json&limit=20',
@@ -413,10 +413,14 @@ test('committee Congress feed URLs keep congress as a runtime-only post-filter p
   const defaultUrl = new URL(buildFeedUrl(feed, {}));
   assert.equal(defaultUrl.pathname, '/v3/committee/house/hsed00/bills');
   assert.equal(defaultUrl.searchParams.has('congress'), false);
+  assert.equal(defaultUrl.searchParams.get('fromDateTime'), '2025-01-03T00:00:00Z');
+  assert.equal(defaultUrl.searchParams.get('toDateTime'), '2027-01-03T00:00:00Z');
 
   const requestedUrl = new URL(buildFeedUrl(feed, { params: { congress: 118 } }));
   assert.equal(requestedUrl.pathname, '/v3/committee/house/hsed00/bills');
   assert.equal(requestedUrl.searchParams.has('congress'), false);
+  assert.equal(requestedUrl.searchParams.get('fromDateTime'), '2023-01-03T00:00:00Z');
+  assert.equal(requestedUrl.searchParams.get('toDateTime'), '2025-01-03T00:00:00Z');
 });
 
 test('committee Congress enrichment synthesizes detail URLs from bill identifiers', () => {
