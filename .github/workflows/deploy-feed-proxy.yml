@@ -90,6 +90,12 @@ jobs:
           if [ -n "$STATE_CONNECTOR_API_KEY" ]; then echo -n "$STATE_CONNECTOR_API_KEY" | gcloud secrets versions add state-connector-key --data-file=-; fi
       - name: Deploy feed proxy service
         run: |
+          if [ -z "${STATE_CONNECTOR_BASE_URL}" ]; then
+            STATE_CONNECTOR_BASE_URL="https://state-connector-382918878290.us-central1.run.app"
+          fi
+          if [ -z "${STATE_CONNECTOR_KEY_HEADER}" ]; then
+            STATE_CONNECTOR_KEY_HEADER="X-API-Key"
+          fi
           cat > /tmp/sr-feed-env.yaml <<EOF
           ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
           ACLED_PROXY: "${ACLED_PROXY}"

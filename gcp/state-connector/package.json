@@ -1,0 +1,12 @@
+{
+  "name": "situation-room-state-connector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.9.3"
+  }
+}

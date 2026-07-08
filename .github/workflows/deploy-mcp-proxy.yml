@@ -137,6 +137,12 @@ jobs:
           set -euo pipefail
           DIAG_DIR=/tmp/mcp-diagnostics
           mkdir -p "$DIAG_DIR"
+          if [ -z "${STATE_CONNECTOR_BASE_URL}" ]; then
+            STATE_CONNECTOR_BASE_URL="https://state-connector-382918878290.us-central1.run.app"
+          fi
+          if [ -z "${STATE_CONNECTOR_KEY_HEADER}" ]; then
+            STATE_CONNECTOR_KEY_HEADER="X-API-Key"
+          fi
           cat > /tmp/sr-mcp-env.yaml <<EOF
           ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
           ACLED_PROXY: "${ACLED_PROXY}"

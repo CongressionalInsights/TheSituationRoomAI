@@ -46,3 +46,14 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
     assert.equal(lockfile.packages[`node_modules/${name}`].version, version);
   }
 });
+
+test('State connector keeps XML parser dependency lockfile aligned', () => {
+  const manifest = readJson('gcp', 'state-connector', 'package.json');
+  const lockfile = readJson('gcp', 'state-connector', 'package-lock.json');
+
+  assert.deepEqual(manifest.dependencies, {
+    'fast-xml-parser': '^5.9.3'
+  });
+  assert.deepEqual(lockfile.packages[''].dependencies, manifest.dependencies);
+  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.9.3');
+});

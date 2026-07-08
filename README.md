@@ -167,9 +167,40 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
 - Normalized `signals.*` and `search.smart` items use epoch milliseconds for `publishedAt`.
 - `catalog.sources` reports `configured` and `configuration.requiredEnv` for connector-backed or key-backed sources.
 - `money.flows` accepts optional `matchMode` (`strict`, `normal`, `loose`), `minScore`, and `entities` arguments. Entity alias expansion is loaded from `gcp/mcp-proxy/entity-aliases.json` or `MONEY_ENTITY_ALIASES_PATH`.
+- `state-rulemaking` and `state-executive-orders` are backed by the `gcp/state-connector` Cloud Run provider. Phase 1 covered states are `CA`, `FL`, `MN`, `NY`, `TX`, and `VA`.
+
+### State connector provider
+The state connector provider is a separate app-authenticated Cloud Run service used by the MCP and feed proxies.
+
+- Service source: `gcp/state-connector`
+- Endpoint: `GET /signals`
+- Live URL: `https://state-connector-382918878290.us-central1.run.app`
+- Auth header: `X-API-Key`
+- Accepted params: `signalType=rulemaking|executive_order`, optional `state`, `limit` (default 20, max 100), and `sort=updated_desc`
+- Phase 1 covered states: `CA`, `FL`, `MN`, `NY`, `TX`, `VA`
+- Upstream fetches are cached in memory for about 30 minutes.
+
+Manual provider deploy:
+
+```bash
+KEY="$(openssl rand -base64 48 | tr -d '\n')"
+printf '%s' "$KEY" | gcloud secrets create state-connector-key --data-file=- --replication-policy=automatic
+gcloud run deploy state-connector \
+  --source gcp/state-connector \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --update-secrets API_KEY=state-connector-key:latest
+```
+
+If `state-connector-key` already exists, add a new version instead:
+
+```bash
+printf '%s' "$KEY" | gcloud secrets versions add state-connector-key --data-file=-
+```
 
 ### GitHub Actions (recommended)
 - Workflow: `.github/workflows/deploy-mcp-proxy.yml`
+- State connector workflow: `.github/workflows/deploy-state-connector.yml`
 - Required repo secrets:
   - `GCP_SA_KEY`
   - `DATA_GOV`
@@ -181,22 +212,19 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
   - `OPENSKY_CLIENTID`
   - `OPENSKY_CLIENTSECRET`
   - `SAMGOV_API_KEY`
-- Optional state connector secrets/env:
+- Optional state connector env overrides:
   - `STATE_CONNECTOR_BASE_URL`
-  - `STATE_CONNECTOR_API_KEY`
   - `STATE_CONNECTOR_KEY_HEADER`
 
 Accepted MCP runtime env var names include `DATA_GOV` (Congress.gov, GovInfo, FOIA.gov, OpenFEC), `OPENSTATES`, `EIA`, `NASA_FIRMS`, `OPEN_AQ`, `EARTHDATA_NASA`, `OPENSKY_CLIENTID`, `OPENSKY_CLIENTSECRET`, `SAMGOV_API_KEY`, `STATE_CONNECTOR_BASE_URL`, `STATE_CONNECTOR_API_KEY`, `STATE_CONNECTOR_KEY_HEADER`, `MONEY_ENTITY_ALIASES_PATH`, `ACLED_PROXY`, `ALLOWED_ORIGINS`, and `SR_LIVE_BASE`.
 
-The state connector is wired by `.github/workflows/deploy-mcp-proxy.yml`: set the repo secrets above and rerun the workflow. Equivalent manual Cloud Run update:
+The MCP and feed deploy workflows default `STATE_CONNECTOR_BASE_URL` to the live `state-connector` Cloud Run URL and bind `STATE_CONNECTOR_API_KEY` from Secret Manager when `state-connector-key` has an enabled version. Equivalent manual MCP update:
 
 ```bash
-gcloud run deploy situation-room-mcp \
-  --source gcp/mcp-proxy \
+gcloud run services update situation-room-mcp \
   --region us-central1 \
-  --allow-unauthenticated \
   --update-env-vars STATE_CONNECTOR_BASE_URL=https://<connector-host>,STATE_CONNECTOR_KEY_HEADER=X-API-Key \
-  --set-secrets STATE_CONNECTOR_API_KEY=state-connector-key:latest
+  --update-secrets STATE_CONNECTOR_API_KEY=state-connector-key:latest
 ```
 
 If the connector is not configured, `state-rulemaking` and `state-executive-orders` remain listed with `configured:false` instead of appearing healthy and failing only at query time.

@@ -66,7 +66,8 @@ test('Node runtime stays pinned to .nvmrc across package manifests', () => {
     'gcp/feed-proxy/package.json',
     'gcp/mcp-proxy/package.json',
     'gcp/openai-proxy/package.json',
-    'gcp/opensky-proxy/package.json'
+    'gcp/opensky-proxy/package.json',
+    'gcp/state-connector/package.json'
   ];
 
   packageFiles.forEach((relativePath) => {
@@ -83,6 +84,7 @@ test('Node-running workflows load the runtime from .nvmrc', () => {
   const workflowFiles = [
     '.github/workflows/deploy-feed-proxy.yml',
     '.github/workflows/deploy-mcp-proxy.yml',
+    '.github/workflows/deploy-state-connector.yml',
     '.github/workflows/deploy-pages.yml',
     '.github/workflows/monitor-data-streams.yml'
   ];

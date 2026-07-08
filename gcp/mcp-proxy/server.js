@@ -55,6 +55,7 @@ const STATE_CONNECTOR_API_KEY = String(process.env.STATE_CONNECTOR_API_KEY || ''
 const STATE_CONNECTOR_KEY_HEADER = String(process.env.STATE_CONNECTOR_KEY_HEADER || 'X-API-Key').trim() || 'X-API-Key';
 const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
+const STATE_CONNECTOR_COVERED_STATES = ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'];
 
 const samCache = new Map();
 let openSkyToken = null;
@@ -248,6 +249,7 @@ export function getFeedConfiguration(feed, env = process.env) {
       configured: Boolean(baseUrl && apiKey),
       requiredEnv: ['STATE_CONNECTOR_BASE_URL', 'STATE_CONNECTOR_API_KEY'],
       optionalEnv: ['STATE_CONNECTOR_KEY_HEADER'],
+      coveredStates: STATE_CONNECTOR_COVERED_STATES,
       message: baseUrl && apiKey ? null : 'State connector provider is not configured.'
     };
   }
@@ -2356,6 +2358,7 @@ server.registerTool(
         requiresConfig: Boolean(feed.requiresConfig),
         configured: configuration.configured,
         configuration,
+        coveredStates: configuration.coveredStates || null,
         docsUrl: feed.docsUrl || null,
         urlTemplate: feed.url || null,
         tags: feed.tags || [],
@@ -2733,7 +2736,7 @@ const httpServer = http.createServer(async (req, res) => {
           matchModes: ['strict', 'normal', 'loose']
         },
         'catalog.sources': {
-          outputFields: ['configured', 'configuration.requiredEnv', 'configuration.optionalEnv']
+          outputFields: ['configured', 'coveredStates', 'configuration.requiredEnv', 'configuration.optionalEnv']
         }
       },
       acceptedEnv: [

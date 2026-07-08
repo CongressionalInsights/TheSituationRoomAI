@@ -1,0 +1,80 @@
+name: Deploy State Connector (GCP)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - gcp/state-connector/**
+      - .github/workflows/deploy-state-connector.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - gcp/state-connector/**
+      - .github/workflows/deploy-state-connector.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Dependency preflight
+        run: npm ci --prefix gcp/state-connector
+      - name: Syntax preflight
+        run: |
+          set -euo pipefail
+          node --check gcp/state-connector/server.js
+          for file in gcp/state-connector/adapters/*.js; do
+            node --check "$file"
+          done
+      - name: Unit tests
+        run: node --test scripts/test/state-connector.spec.mjs
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: preflight
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: situationroom-ai-20260112
+      REGION: us-central1
+      SERVICE_NAME: state-connector
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      - name: Verify state connector key exists
+        run: |
+          set -euo pipefail
+          VERSION=$(gcloud secrets versions list state-connector-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
+          if [ -z "$VERSION" ]; then
+            echo "Missing enabled Secret Manager version for state-connector-key. Create it before deploying."
+            exit 1
+          fi
+      - name: Deploy state connector service
+        run: |
+          set -euo pipefail
+          gcloud run deploy "$SERVICE_NAME" \
+            --region "$REGION" \
+            --source gcp/state-connector \
+            --allow-unauthenticated \
+            --min-instances 1 \
+            --set-secrets API_KEY=state-connector-key:latest
+      - name: Health check state connector
+        run: |
+          set -euo pipefail
+          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
+          echo "State connector URL: ${SERVICE_URL}"
+          curl -fsS "${SERVICE_URL}/health" >/dev/null

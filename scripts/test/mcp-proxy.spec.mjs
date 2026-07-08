@@ -489,6 +489,7 @@ test('state connector configuration is explicit in catalog metadata', () => {
     configured: false,
     requiredEnv: ['STATE_CONNECTOR_BASE_URL', 'STATE_CONNECTOR_API_KEY'],
     optionalEnv: ['STATE_CONNECTOR_KEY_HEADER'],
+    coveredStates: ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'],
     message: 'State connector provider is not configured.'
   });
   assert.equal(getFeedConfiguration(rulemakingFeed, {
