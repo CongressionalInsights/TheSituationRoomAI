@@ -165,6 +165,8 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
 - Tools: `catalog.sources`, `raw.fetch`, `raw.history`, `money.flows`, `signals.list`, `signals.get`, `search.smart`
 - Supports full historical ranges where the upstream API allows it (unsupported sources return `history_not_supported`).
 - Normalized `signals.*` and `search.smart` items use epoch milliseconds for `publishedAt`.
+- `catalog.sources` reports `configured` and `configuration.requiredEnv` for connector-backed or key-backed sources.
+- `money.flows` accepts optional `matchMode` (`strict`, `normal`, `loose`), `minScore`, and `entities` arguments. Entity alias expansion is loaded from `gcp/mcp-proxy/entity-aliases.json` or `MONEY_ENTITY_ALIASES_PATH`.
 
 ### GitHub Actions (recommended)
 - Workflow: `.github/workflows/deploy-mcp-proxy.yml`
@@ -176,6 +178,28 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
   - `OPEN_AQ`
   - `OPENSTATES`
   - `EARTHDATA_NASA`
+  - `OPENSKY_CLIENTID`
+  - `OPENSKY_CLIENTSECRET`
+  - `SAMGOV_API_KEY`
+- Optional state connector secrets/env:
+  - `STATE_CONNECTOR_BASE_URL`
+  - `STATE_CONNECTOR_API_KEY`
+  - `STATE_CONNECTOR_KEY_HEADER`
+
+Accepted MCP runtime env var names include `DATA_GOV` (Congress.gov, GovInfo, FOIA.gov, OpenFEC), `OPENSTATES`, `EIA`, `NASA_FIRMS`, `OPEN_AQ`, `EARTHDATA_NASA`, `OPENSKY_CLIENTID`, `OPENSKY_CLIENTSECRET`, `SAMGOV_API_KEY`, `STATE_CONNECTOR_BASE_URL`, `STATE_CONNECTOR_API_KEY`, `STATE_CONNECTOR_KEY_HEADER`, `MONEY_ENTITY_ALIASES_PATH`, `ACLED_PROXY`, `ALLOWED_ORIGINS`, and `SR_LIVE_BASE`.
+
+The state connector is wired by `.github/workflows/deploy-mcp-proxy.yml`: set the repo secrets above and rerun the workflow. Equivalent manual Cloud Run update:
+
+```bash
+gcloud run deploy situation-room-mcp \
+  --source gcp/mcp-proxy \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --update-env-vars STATE_CONNECTOR_BASE_URL=https://<connector-host>,STATE_CONNECTOR_KEY_HEADER=X-API-Key \
+  --set-secrets STATE_CONNECTOR_API_KEY=state-connector-key:latest
+```
+
+If the connector is not configured, `state-rulemaking` and `state-executive-orders` remain listed with `configured:false` instead of appearing healthy and failing only at query time.
 
 ## OpenSky proxy (Cloud Run on GCP)
 OpenSky now requires OAuth2 client credentials. The live dashboard uses a Cloud Run proxy to keep credentials server-side and raise rate limits.

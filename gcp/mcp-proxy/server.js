@@ -15,6 +15,7 @@ const __dirname = dirname(__filename);
 
 const PORT = process.env.PORT || 8080;
 const FEEDS_PATH = join(__dirname, 'feeds.json');
+const MONEY_ENTITY_ALIASES_PATH = process.env.MONEY_ENTITY_ALIASES_PATH || join(__dirname, 'entity-aliases.json');
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
   .split(',')
   .map((origin) => origin.trim())
@@ -35,7 +36,12 @@ const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const MONEY_FLOW_DEFAULT_DAYS = 180;
 const MONEY_FLOW_MAX_LIMIT = 120;
 const MONEY_FLOW_TIMEOUT_MS = 45000;
-const MONEY_MATCH_MIN_SCORE = 0.66;
+const MONEY_QUERY_VARIANT_LIMIT = 8;
+const MONEY_MATCH_THRESHOLDS = {
+  strict: 0.9,
+  normal: 0.66,
+  loose: 0.5
+};
 const SAM_RETRY_ATTEMPTS = 3;
 const SAM_RETRY_BASE_DELAY_MS = 900;
 const SAM_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -53,11 +59,6 @@ const STATE_CONNECTOR_MAX_LIMIT = 100;
 const samCache = new Map();
 let openSkyToken = null;
 let openSkyTokenExpiresAt = 0;
-
-const MONEY_QUERY_ALIASES = new Map([
-  ['CAPELLA UNIVERSITY', ['CAPELLA EDUCATION COMPANY', 'CAPELLA EDUCATION']],
-  ['STRATEGIC EDUCATION', ['STRATEGIC EDUCATION INC', 'STRATEGIC EDUCATION']]
-]);
 
 const ENTITY_SUFFIX_TOKENS = new Set([
   'CO',
@@ -217,16 +218,72 @@ function stripSecretsFromUrl(rawUrl) {
   }
 }
 
-function resolveServerKey(feed) {
+function resolveServerKey(feed, env = process.env) {
   if (feed.keySource !== 'server') return null;
   let value = null;
-  if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') value = process.env.EIA;
-  if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
-  if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
-  if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
-  if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
+  if (feed.keyGroup === 'api.data.gov') value = env.DATA_GOV;
+  if (feed.keyGroup === 'eia') value = env.EIA;
+  if (feed.keyGroup === 'openstates') value = env.OPENSTATES;
+  if (feed.keyGroup === 'earthdata') value = env.EARTHDATA_NASA;
+  if (feed.id === 'openaq-api') value = env.OPEN_AQ;
+  if (feed.id === 'nasa-firms') value = env.NASA_FIRMS;
   return typeof value === 'string' ? value.trim() : (value || null);
+}
+
+function getServerKeyEnvNames(feed) {
+  if (feed.keyGroup === 'api.data.gov') return ['DATA_GOV'];
+  if (feed.keyGroup === 'eia') return ['EIA'];
+  if (feed.keyGroup === 'openstates') return ['OPENSTATES'];
+  if (feed.keyGroup === 'earthdata') return ['EARTHDATA_NASA'];
+  if (feed.id === 'openaq-api') return ['OPEN_AQ'];
+  if (feed.id === 'nasa-firms') return ['NASA_FIRMS'];
+  return [];
+}
+
+export function getFeedConfiguration(feed, env = process.env) {
+  if (isStateConnectorFeed(feed)) {
+    const baseUrl = String(env.STATE_CONNECTOR_BASE_URL ?? '').trim();
+    const apiKey = String(env.STATE_CONNECTOR_API_KEY ?? '').trim();
+    return {
+      configured: Boolean(baseUrl && apiKey),
+      requiredEnv: ['STATE_CONNECTOR_BASE_URL', 'STATE_CONNECTOR_API_KEY'],
+      optionalEnv: ['STATE_CONNECTOR_KEY_HEADER'],
+      message: baseUrl && apiKey ? null : 'State connector provider is not configured.'
+    };
+  }
+  if (feed?.acledMode) {
+    const proxyUrl = String(env.ACLED_PROXY ?? '').trim();
+    return {
+      configured: Boolean(proxyUrl),
+      requiredEnv: ['ACLED_PROXY'],
+      optionalEnv: [],
+      message: proxyUrl ? null : 'ACLED proxy is not configured.'
+    };
+  }
+  if (feed?.requiresConfig && !feed?.url) {
+    return {
+      configured: false,
+      requiredEnv: [],
+      optionalEnv: [],
+      message: 'Feed requires an external connector configuration.'
+    };
+  }
+  if (feed?.requiresKey && feed?.keySource === 'server') {
+    const requiredEnv = getServerKeyEnvNames(feed);
+    const configuredKey = resolveServerKey(feed, env);
+    return {
+      configured: Boolean(configuredKey),
+      requiredEnv,
+      optionalEnv: [],
+      message: configuredKey ? null : 'Server key is not configured.'
+    };
+  }
+  return {
+    configured: true,
+    requiredEnv: [],
+    optionalEnv: [],
+    message: null
+  };
 }
 
 function applyProxy(url, proxy) {
@@ -509,6 +566,81 @@ function uniqueItemsBy(items, keyFn) {
   });
 }
 
+function normalizeMoneyMatchMode(value) {
+  const mode = String(value || 'normal').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(MONEY_MATCH_THRESHOLDS, mode) ? mode : 'normal';
+}
+
+function normalizeMoneyMinScore(value, mode = 'normal') {
+  const fallback = MONEY_MATCH_THRESHOLDS[normalizeMoneyMatchMode(mode)] || MONEY_MATCH_THRESHOLDS.normal;
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  const ratio = parsed > 1 ? parsed / 100 : parsed;
+  return Math.max(0.01, Math.min(1, ratio));
+}
+
+function hasMoneyMinScoreOverride(value) {
+  if (value === undefined || value === null || value === '') return false;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+function getMoneyAliasEntries(rawConfig) {
+  if (Array.isArray(rawConfig)) return rawConfig;
+  if (Array.isArray(rawConfig?.moneyFlows)) return rawConfig.moneyFlows;
+  if (Array.isArray(rawConfig?.entities)) return rawConfig.entities;
+  if (Array.isArray(rawConfig?.aliases)) return rawConfig.aliases;
+  return [];
+}
+
+function normalizeMoneyAliasEntry(entry) {
+  const umbrella = String(entry?.umbrella || entry?.name || '').trim();
+  const expandedTo = uniqueStrings(entry?.expandedTo || entry?.entities || entry?.legalEntities || []);
+  if (!umbrella || !expandedTo.length) return null;
+  const aliases = uniqueStrings([umbrella, ...(entry?.aliases || [])]);
+  return {
+    umbrella,
+    normalizedAliases: aliases.map((alias) => normalizeEntityName(alias)).filter(Boolean),
+    expandedTo
+  };
+}
+
+function loadMoneyEntityAliases(aliasPath = MONEY_ENTITY_ALIASES_PATH) {
+  try {
+    const parsed = JSON.parse(readFileSync(aliasPath, 'utf8'));
+    return getMoneyAliasEntries(parsed).map(normalizeMoneyAliasEntry).filter(Boolean);
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'money_entity_aliases_unavailable',
+      path: aliasPath,
+      message: error?.message || 'Unable to load entity aliases.'
+    }));
+    return [];
+  }
+}
+
+const moneyEntityAliases = loadMoneyEntityAliases();
+
+export function resolveMoneyAliasExpansion(query, explicitEntities = []) {
+  const providedEntities = uniqueStrings(explicitEntities);
+  if (providedEntities.length) {
+    return {
+      umbrella: String(query || '').trim() || null,
+      expandedTo: providedEntities,
+      explicit: true
+    };
+  }
+  const normalized = normalizeEntityName(query);
+  if (!normalized) return null;
+  const match = moneyEntityAliases.find((entry) => entry.normalizedAliases.includes(normalized));
+  if (!match) return null;
+  return {
+    umbrella: match.umbrella,
+    expandedTo: match.expandedTo
+  };
+}
+
 export function buildUsaspendingTransactionKey(item = {}) {
   return [
     item['Award ID'],
@@ -530,10 +662,16 @@ export async function settleMoneyTasks(tasks) {
   ));
 }
 
-export function buildMoneyQueryProfile(query) {
+export function buildMoneyQueryProfile(query, options = {}) {
   const normalized = normalizeEntityName(query);
-  const aliases = MONEY_QUERY_ALIASES.get(normalized) || [];
-  const searchTerms = uniqueStrings([query, ...aliases]);
+  const matchMode = normalizeMoneyMatchMode(options.matchMode);
+  const matchThreshold = normalizeMoneyMinScore(options.minScore, matchMode);
+  const minScoreOverride = hasMoneyMinScoreOverride(options.minScore);
+  const aliasExpansion = resolveMoneyAliasExpansion(query, options.entities);
+  const searchTerms = uniqueStrings([
+    ...(aliasExpansion?.expandedTo?.length ? [] : [query]),
+    ...(aliasExpansion?.expandedTo || [])
+  ]);
   const variants = searchTerms
     .map((term) => ({
       term,
@@ -545,16 +683,25 @@ export function buildMoneyQueryProfile(query) {
     original: query,
     normalized,
     searchTerms: searchTerms.length ? searchTerms : [query],
-    variants
+    variants,
+    matchMode,
+    matchThreshold,
+    minScoreOverride,
+    aliasExpansion
   };
 }
 
-function scoreTokenMatch(queryTokens, candidateTokens) {
+function scoreTokenMatch(queryTokens, candidateTokens, mode = 'normal') {
   if (!queryTokens.length || !candidateTokens.length) return 0;
   const candidateSet = new Set(candidateTokens);
   const overlap = queryTokens.filter((token) => candidateSet.has(token)).length;
   const recall = overlap / queryTokens.length;
-  if (recall < 1) return 0;
+  if (mode === 'loose') {
+    const requiredOverlap = queryTokens.length > 1 ? 2 : 1;
+    if (overlap < requiredOverlap) return 0;
+  } else if (recall < 1) {
+    return 0;
+  }
   const precision = overlap / candidateTokens.length;
   if (precision <= 0) return 0;
   return (2 * precision * recall) / (precision + recall);
@@ -569,7 +716,7 @@ export function findBestMoneyNameMatch(profile, ...fields) {
     const normalizedName = normalizeEntityName(name);
     const candidateTokens = tokenizeEntityName(name);
     profile.variants.forEach((variant) => {
-      let score = scoreTokenMatch(variant.tokens, candidateTokens);
+      let score = scoreTokenMatch(variant.tokens, candidateTokens, profile.matchMode);
       if (normalizedName === variant.normalized) score = 1;
       if (score > (best?.score || 0)) {
         best = {
@@ -581,7 +728,7 @@ export function findBestMoneyNameMatch(profile, ...fields) {
       }
     });
   });
-  return best && best.score >= MONEY_MATCH_MIN_SCORE ? best : null;
+  return best && best.score >= (profile.matchThreshold || MONEY_MATCH_THRESHOLDS.normal) ? best : null;
 }
 
 function findMoneyKeywordMatch(profile, ...fields) {
@@ -607,6 +754,11 @@ function findMoneyKeywordMatch(profile, ...fields) {
       }
     });
   });
+  if (!best) return null;
+  if ((profile.minScoreOverride || profile.matchMode !== 'normal')
+    && best.score < (profile.matchThreshold || MONEY_MATCH_THRESHOLDS.normal)) {
+    return null;
+  }
   return best;
 }
 
@@ -790,12 +942,20 @@ function buildSamUrl(uei, entityName) {
   return `https://sam.gov/search/?${params.toString()}`;
 }
 
-function summarizeMoneyEntities(items) {
+export function summarizeMoneyEntities(items) {
   const totals = new Map();
   items.forEach((item) => {
-    const name = normalizeEntityName(item.entity || item.recipient || item.committee || item.contributor || '');
+    const rawName = item.matchType === 'entity'
+      ? (item.matchedName || item.entity || item.recipient || item.committee || item.contributor)
+      : (item.entity || item.recipient || item.committee || item.contributor);
+    const name = normalizeEntityName(rawName || '');
     if (!name) return;
-    const current = totals.get(name) || { name, amount: 0, count: 0, sample: item.entity || item.recipient || item.committee || item.contributor };
+    const current = totals.get(name) || {
+      name,
+      amount: 0,
+      count: 0,
+      sample: rawName
+    };
     current.count += 1;
     if (Number.isFinite(item.amount)) current.amount += item.amount;
     totals.set(name, current);
@@ -1562,7 +1722,7 @@ async function fetchRaw(feed, options) {
   if (isStateConnectorFeed(feed)) {
     return fetchStateConnectorRaw(feed, options);
   }
-  if (feed?.requiresConfig && !feed?.url) {
+  if (feed?.requiresConfig && !feed?.url && !(feed?.acledMode && ACLED_PROXY)) {
     return { error: 'config_required', message: 'Feed requires configuration and has no url.' };
   }
   if (!feed?.url) {
@@ -1808,15 +1968,15 @@ async function fetchRaw(feed, options) {
   };
 }
 
-async function fetchMoneyFlows({ query, start, end, limit }) {
+async function fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, entities }) {
   if (!query) {
     return { error: 'missing_query', message: 'Query parameter q is required.' };
   }
   const safeLimit = Math.min(MONEY_FLOW_MAX_LIMIT, Math.max(20, Number(limit) || 60));
   const perSourceLimit = Math.max(10, Math.floor(safeLimit / 4));
   const range = resolveMoneyFlowRange(start, end);
-  const queryProfile = buildMoneyQueryProfile(query);
-  const queryVariants = queryProfile.searchTerms.slice(0, 3);
+  const queryProfile = buildMoneyQueryProfile(query, { matchMode, minScore, entities });
+  const queryVariants = queryProfile.searchTerms.slice(0, MONEY_QUERY_VARIANT_LIMIT);
   const dataGovKey = process.env.DATA_GOV || '';
   const fecKey = dataGovKey || 'DEMO_KEY';
   const samGovKey = process.env.SAMGOV_API_KEY || dataGovKey;
@@ -1825,6 +1985,9 @@ async function fetchMoneyFlows({ query, start, end, limit }) {
     query,
     range: { start: range.startIso, end: range.endIso },
     generatedAt: new Date().toISOString(),
+    matchMode: queryProfile.matchMode,
+    minScore: Math.round(queryProfile.matchThreshold * 100),
+    aliasExpansion: queryProfile.aliasExpansion || null,
     sources: {},
     items: [],
     entities: [],
@@ -2179,22 +2342,28 @@ server.registerTool(
     const filtered = category
       ? feeds.filter((feed) => feed.category === category)
       : feeds;
-    const payload = filtered.map((feed) => ({
-      id: feed.id,
-      name: feed.name,
-      category: feed.category,
-      format: feed.format,
-      supportsQuery: Boolean(feed.supportsQuery),
-      supportsParams: Boolean(feed.supportsParams),
-      paramStrategy: feed.paramStrategy || null,
-      requiresKey: Boolean(feed.requiresKey),
-      docsUrl: feed.docsUrl || null,
-      urlTemplate: feed.url || null,
-      tags: feed.tags || [],
-      jurisdictionLevel: feed.jurisdictionLevel || null,
-      defaultParams: feed.defaultParams || null,
-      capabilities: feed.capabilities || []
-    }));
+    const payload = filtered.map((feed) => {
+      const configuration = getFeedConfiguration(feed);
+      return {
+        id: feed.id,
+        name: feed.name,
+        category: feed.category,
+        format: feed.format,
+        supportsQuery: Boolean(feed.supportsQuery),
+        supportsParams: Boolean(feed.supportsParams),
+        paramStrategy: feed.paramStrategy || null,
+        requiresKey: Boolean(feed.requiresKey),
+        requiresConfig: Boolean(feed.requiresConfig),
+        configured: configuration.configured,
+        configuration,
+        docsUrl: feed.docsUrl || null,
+        urlTemplate: feed.url || null,
+        tags: feed.tags || [],
+        jurisdictionLevel: feed.jurisdictionLevel || null,
+        defaultParams: feed.defaultParams || null,
+        capabilities: feed.capabilities || []
+      };
+    });
     return {
       content: [{ type: 'text', text: `Sources: ${payload.length}` }],
       structuredContent: { sources: payload }
@@ -2301,11 +2470,14 @@ server.registerTool(
       query: z.string(),
       start: z.string().optional(),
       end: z.string().optional(),
-      limit: z.number().optional()
+      limit: z.number().optional(),
+      matchMode: z.enum(['strict', 'normal', 'loose']).optional(),
+      minScore: z.number().optional(),
+      entities: z.array(z.string()).optional()
     })
   },
-  async ({ query, start, end, limit }) => {
-    const payload = await fetchMoneyFlows({ query, start, end, limit });
+  async ({ query, start, end, limit, matchMode, minScore, entities }) => {
+    const payload = await fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, entities });
     if (payload?.error) {
       return {
         content: [{ type: 'text', text: `Money flows fetch failed: ${payload.message || payload.error}` }],
@@ -2464,12 +2636,15 @@ server.registerTool(
       // eslint-disable-next-line no-await-in-loop
       const result = await fetchRaw(feed, { query: translatedQuery, start, end, params });
       if (result.error) {
+        const configuration = getFeedConfiguration(feed);
         sourcesChecked.push({
           sourceId: feed.id,
           sourceName: feed.name,
           ok: false,
           error: result.error,
           message: result.message || null,
+          configured: configuration.configured,
+          configuration,
           httpStatus: result.httpStatus || null,
           fetchedUrl: result.fetchedUrl || null,
           proxyUsed: result.proxyUsed || null,
@@ -2497,6 +2672,7 @@ server.registerTool(
         sourceId: feed.id,
         sourceName: feed.name,
         ok: true,
+        configured: getFeedConfiguration(feed).configured,
         count: filtered.length,
         fetchedUrl: result.fetchedUrl || null,
         proxyUsed: result.proxyUsed || null,
@@ -2550,7 +2726,34 @@ const httpServer = http.createServer(async (req, res) => {
       name: 'Situation Room MCP',
       description: 'Public read-only MCP interface for Situation Room data sources.',
       endpoint: `${originUrl}/mcp`,
-      tools: ['catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart']
+      tools: ['catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart'],
+      toolInputs: {
+        'money.flows': {
+          optional: ['start', 'end', 'limit', 'matchMode', 'minScore', 'entities'],
+          matchModes: ['strict', 'normal', 'loose']
+        },
+        'catalog.sources': {
+          outputFields: ['configured', 'configuration.requiredEnv', 'configuration.optionalEnv']
+        }
+      },
+      acceptedEnv: [
+        'DATA_GOV',
+        'OPENSTATES',
+        'EIA',
+        'NASA_FIRMS',
+        'OPEN_AQ',
+        'EARTHDATA_NASA',
+        'OPENSKY_CLIENTID',
+        'OPENSKY_CLIENTSECRET',
+        'SAMGOV_API_KEY',
+        'STATE_CONNECTOR_BASE_URL',
+        'STATE_CONNECTOR_API_KEY',
+        'STATE_CONNECTOR_KEY_HEADER',
+        'MONEY_ENTITY_ALIASES_PATH',
+        'ACLED_PROXY',
+        'ALLOWED_ORIGINS',
+        'SR_LIVE_BASE'
+      ]
     }, origin);
   }
 

@@ -9,8 +9,11 @@ const {
   buildUsaspendingTransactionKey,
   attachMoneyMatch,
   findBestMoneyNameMatch,
+  getFeedConfiguration,
+  resolveMoneyAliasExpansion,
   selectSmartFeeds,
   settleMoneyTasks,
+  summarizeMoneyEntities,
   shouldFilterSmartFeedLocally,
   shouldUseLiveFallback,
   supportsHistoryRange
@@ -340,6 +343,53 @@ test('money flow entity matching uses aliases, word tokens, and relevance scores
   assert.ok(findBestMoneyNameMatch(strategic, 'STRATEGIC EDUCATION INC'));
 });
 
+test('money flow umbrella aliases expand from data-driven mappings', () => {
+  const expectedExpansion = {
+    umbrella: 'Strategic Education',
+    expandedTo: [
+      'STRAYER UNIVERSITY, LLC',
+      'STRAYER UNIVERSITY',
+      'CAPELLA EDUCATION COMPANY',
+      'CAPELLA UNIVERSITY',
+      'STRATEGIC EDUCATION, INC.'
+    ]
+  };
+
+  assert.deepEqual(resolveMoneyAliasExpansion('SEI'), expectedExpansion);
+
+  const profile = buildMoneyQueryProfile('Strategic Education');
+  assert.deepEqual(profile.aliasExpansion, expectedExpansion);
+  assert.ok(findBestMoneyNameMatch(profile, 'STRAYER UNIVERSITY, LLC'));
+  assert.ok(findBestMoneyNameMatch(profile, 'CAPELLA EDUCATION COMPANY'));
+  assert.equal(findBestMoneyNameMatch(profile, 'STRATEGIC DEFENSE LLC'), null);
+});
+
+test('money flow explicit entities bypass umbrella aliases', () => {
+  const profile = buildMoneyQueryProfile('Strategic Education', {
+    entities: ['Example Legal Entity LLC']
+  });
+
+  assert.deepEqual(profile.aliasExpansion, {
+    umbrella: 'Strategic Education',
+    expandedTo: ['Example Legal Entity LLC'],
+    explicit: true
+  });
+  assert.deepEqual(profile.searchTerms, ['Example Legal Entity LLC']);
+  assert.ok(findBestMoneyNameMatch(profile, 'EXAMPLE LEGAL ENTITY, LLC'));
+  assert.equal(findBestMoneyNameMatch(profile, 'STRAYER UNIVERSITY, LLC'), null);
+});
+
+test('money flow match modes and minScore tune word-boundary matching', () => {
+  const normal = buildMoneyQueryProfile('Strategic Education');
+  const loose = buildMoneyQueryProfile('Strategic Education', { matchMode: 'loose', minScore: 50 });
+
+  assert.equal(normal.matchMode, 'normal');
+  assert.equal(normal.matchThreshold, 0.66);
+  assert.equal(findBestMoneyNameMatch(normal, 'STRATEGIC EDUCATION RESEARCH PARTNERSHIP INSTITUTE'), null);
+  assert.ok(findBestMoneyNameMatch(loose, 'STRATEGIC EDUCATION RESEARCH PARTNERSHIP INSTITUTE'));
+  assert.equal(findBestMoneyNameMatch(loose, 'STRATEGIC DEFENSE LLC'), null);
+});
+
 test('money flow entity matching deeply flattens contribution item name arrays', () => {
   const profile = buildMoneyQueryProfile('Microsoft');
   const match = findBestMoneyNameMatch(profile, [['Microsoft Corporation PAC']]);
@@ -381,6 +431,24 @@ test('money flow keyword matches preserve non-entity program results', () => {
   assert.equal(item.matchedName, 'Airport terminal expansion and safety grant');
   assert.equal(item.matchType, 'keyword');
   assert.equal(item.keywordMatchFields, undefined);
+
+  const strictProfile = buildMoneyQueryProfile('airport terminal', { minScore: 90 });
+  assert.equal(attachMoneyMatch(strictProfile, {
+    source: 'USAspending',
+    entity: 'City Transit Authority',
+    recipient: 'City Transit Authority',
+    keywordMatchFields: ['Airport terminal expansion and safety grant']
+  }), null);
+  assert.equal(attachMoneyMatch(buildMoneyQueryProfile('airport terminal', { matchMode: 'strict' }), {
+    source: 'USAspending',
+    entity: 'City Transit Authority',
+    recipient: 'City Transit Authority',
+    keywordMatchFields: ['Airport terminal expansion and safety grant']
+  }), null);
+
+  const entities = summarizeMoneyEntities([item]);
+  assert.equal(entities[0].name, 'CITY TRANSIT AUTHORITY');
+  assert.equal(entities[0].sample, 'City Transit Authority');
 });
 
 test('money flow USAspending dedupe keeps separate same-award transactions', () => {
@@ -409,6 +477,34 @@ test('money flow variant tasks preserve fulfilled sibling results after a reject
 
   assert.deepEqual(results[0], { items: [{ sourceId: 'kept' }] });
   assert.deepEqual(results[1], { items: [], error: 'timeout' });
+});
+
+test('state connector configuration is explicit in catalog metadata', () => {
+  const rulemakingFeed = {
+    id: 'state-rulemaking',
+    requiresConfig: true
+  };
+
+  assert.deepEqual(getFeedConfiguration(rulemakingFeed, {}), {
+    configured: false,
+    requiredEnv: ['STATE_CONNECTOR_BASE_URL', 'STATE_CONNECTOR_API_KEY'],
+    optionalEnv: ['STATE_CONNECTOR_KEY_HEADER'],
+    message: 'State connector provider is not configured.'
+  });
+  assert.equal(getFeedConfiguration(rulemakingFeed, {
+    STATE_CONNECTOR_BASE_URL: 'https://state.example',
+    STATE_CONNECTOR_API_KEY: 'secret'
+  }).configured, true);
+
+  assert.deepEqual(getFeedConfiguration({ id: 'acled-events', acledMode: 'aggregated', requiresConfig: true }, {}), {
+    configured: false,
+    requiredEnv: ['ACLED_PROXY'],
+    optionalEnv: [],
+    message: 'ACLED proxy is not configured.'
+  });
+  assert.equal(getFeedConfiguration({ id: 'acled-events', acledMode: 'aggregated', requiresConfig: true }, {
+    ACLED_PROXY: 'https://acled.example'
+  }).configured, true);
 });
 
 test('normalizeCsvSignals drops Stooq missing ticker rows', () => {
