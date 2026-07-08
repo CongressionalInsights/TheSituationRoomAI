@@ -135,6 +135,19 @@
       ]
     },
     {
+      "id": "federal-register-ed",
+      "name": "Federal Register (Education)",
+      "category": "gov",
+      "format": "json",
+      "url": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest&conditions%5Bagencies%5D%5B%5D=education-department",
+      "ttlMinutes": 180,
+      "tags": [
+        "us",
+        "gov",
+        "education"
+      ]
+    },
+    {
       "id": "nws-alerts",
       "name": "NWS Alerts (US)",
       "category": "weather",
@@ -1262,6 +1275,72 @@
         "us",
         "gov",
         "congress",
+        "key"
+      ]
+    },
+    {
+      "id": "congress-ew-bills",
+      "name": "Congress.gov House Education & Workforce Bills",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 45000,
+      "congressType": "Bill",
+      "congressCommitteeBills": true,
+      "supportsParams": true,
+      "defaultParams": {
+        "congress": 119
+      },
+      "url": "https://api.congress.gov/v3/committee/house/hsed00/bills?format=json&limit=20",
+      "ttlMinutes": 120,
+      "capabilities": [
+        "legislation"
+      ],
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "education",
+        "workforce",
+        "key"
+      ]
+    },
+    {
+      "id": "congress-help-bills",
+      "name": "Congress.gov Senate HELP Bills",
+      "docsUrl": "https://api.congress.gov/",
+      "category": "gov",
+      "format": "json",
+      "requiresKey": true,
+      "keySource": "server",
+      "keyGroup": "api.data.gov",
+      "keyParam": "api_key",
+      "lockKeyParam": true,
+      "timeoutMs": 45000,
+      "congressType": "Bill",
+      "congressCommitteeBills": true,
+      "supportsParams": true,
+      "defaultParams": {
+        "congress": 119
+      },
+      "url": "https://api.congress.gov/v3/committee/senate/sshr00/bills?format=json&limit=20",
+      "ttlMinutes": 120,
+      "capabilities": [
+        "legislation"
+      ],
+      "tags": [
+        "us",
+        "gov",
+        "congress",
+        "education",
+        "health",
+        "labor",
+        "pensions",
         "key"
       ]
     },

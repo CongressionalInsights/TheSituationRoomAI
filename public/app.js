@@ -2424,7 +2424,7 @@ function isGovinfoItem(item) {
 
 function isFederalRegisterItem(item) {
   if (!item) return false;
-  if (item.feedId === 'federal-register' || item.feedId === 'federal-register-transport') return true;
+  if (item.feedId === 'federal-register' || item.feedId === 'federal-register-transport' || item.feedId === 'federal-register-ed') return true;
   const url = item.externalUrl || item.url || '';
   if (typeof url === 'string' && url.includes('federalregister.gov/documents/')) return true;
   return item.source === 'Federal Register';
@@ -4481,10 +4481,18 @@ function parseStateGovernmentItems(data, feed, signalType) {
     const jurisdictionCode = extractJurisdictionCode(entry);
     const jurisdictionName = extractJurisdictionName(entry, jurisdictionCode);
     const jurisdictionLevel = extractJurisdictionLevel(entry, jurisdictionCode);
-    const title = entry.title
+    const baseTitle = entry.title
       || entry.identifier
       || entry.name
       || `${jurisdictionName || jurisdictionCode || 'State'} ${signalType || 'Signal'}`;
+    const identifier = entry.identifier || entry.bill_id || entry.billId || '';
+    const titlePrefix = [jurisdictionCode, identifier].filter(Boolean).join(' ');
+    const normalizedTitle = String(baseTitle || '').toUpperCase();
+    const title = identifier
+      && !normalizedTitle.startsWith(String(identifier).toUpperCase())
+      && (!titlePrefix || !normalizedTitle.startsWith(titlePrefix.toUpperCase()))
+      ? `${titlePrefix || identifier} - ${baseTitle}`
+      : baseTitle;
     const url = entry.openstates_url || entry.url || entry.link || entry.permalink || '';
     const summary = entry.latest_action_description
       || entry.abstract
@@ -4501,7 +4509,8 @@ function parseStateGovernmentItems(data, feed, signalType) {
     const docId = entry.id || entry.identifier || entry.docId || '';
     const status = entry.latest_action_description || entry.status || '';
     const agency = entry.from_organization?.name || entry.organization?.name || entry.agency || '';
-    const effectiveDate = entry.effective_date || entry.latest_action_date || '';
+    const latestPassageDate = entry.latest_passage_date || entry.latestPassageDate || '';
+    const effectiveDate = entry.effective_date || latestPassageDate || entry.latest_action_date || '';
     const parsedPublished = published ? Date.parse(published) : Date.now();
     const rawTags = Array.isArray(entry.classification)
       ? entry.classification
@@ -4528,6 +4537,7 @@ function parseStateGovernmentItems(data, feed, signalType) {
       status,
       agency,
       effectiveDate,
+      latestPassageDate,
       tags: dedupedTags
     };
   }).filter((item) => item.title);
@@ -4872,6 +4882,8 @@ const parseCongressList = (data, feed) => {
     return null;
   };
   const list = pickArray(data?.bills)
+    || pickArray(data?.['committee-bills']?.bills)
+    || pickArray(data?.committeeBills?.bills)
     || pickArray(data?.amendments)
     || pickArray(data?.committeeReports)
     || pickArray(data?.committeeReport)
@@ -5051,9 +5063,10 @@ const parseCongressList = (data, feed) => {
     if (derivedType === 'Summary' && summaryUpdatedAt) {
       publishedAt = summaryUpdatedAt;
     }
-    let apiUrl = stripApiKey((item.url && String(item.url).includes('api.congress.gov'))
-      ? item.url
-      : ((item.link && String(item.link).includes('api.congress.gov')) ? item.link : ''));
+    const rawApiUrl = item.apiUrl
+      || ((item.url && String(item.url).includes('api.congress.gov')) ? item.url : '')
+      || ((item.link && String(item.link).includes('api.congress.gov')) ? item.link : '');
+    let apiUrl = stripApiKey(rawApiUrl);
     let url = item.url || item.link || item.links?.self || item.bill?.url || item.report?.url || '';
     if (item.Links) {
       url = buildRecordUrl(item);
@@ -5404,8 +5417,11 @@ const feedParsers = {
   'state-executive-orders': parseStateExecutiveOrders,
   'federal-register': parseFederalRegister,
   'federal-register-transport': parseFederalRegister,
+  'federal-register-ed': parseFederalRegister,
   'govinfo-api': parseGovinfoCollectionUpdate,
   'congress-api': parseCongressList,
+  'congress-ew-bills': parseCongressList,
+  'congress-help-bills': parseCongressList,
   'congress-amendments': parseCongressList,
   'congress-summaries': parseCongressList,
   'congress-reports': parseCongressList,

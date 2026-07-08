@@ -166,6 +166,7 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
 - Supports full historical ranges where the upstream API allows it (unsupported sources return `history_not_supported`).
 - Normalized `signals.*` and `search.smart` items use epoch milliseconds for `publishedAt`.
 - `catalog.sources` reports `configured` and `configuration.requiredEnv` for connector-backed or key-backed sources.
+- Education alert sources include `congress-ew-bills`, `congress-help-bills`, and `federal-register-ed`. The committee bill sources default to Congress `119` and accept `params.congress` for future Congresses.
 - `money.flows` accepts optional `matchMode` (`strict`, `normal`, `loose`), `minScore`, and `entities` arguments. Entity alias expansion is loaded from `gcp/mcp-proxy/entity-aliases.json` or `MONEY_ENTITY_ALIASES_PATH`.
 - `state-rulemaking` and `state-executive-orders` are backed by the `gcp/state-connector` Cloud Run provider. Phase 1 covered states are `CA`, `FL`, `MN`, `NY`, `TX`, and `VA`.
 

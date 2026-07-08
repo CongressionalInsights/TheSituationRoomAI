@@ -89,3 +89,54 @@ test('MCP proxy does not flag configured feed proxies as fallback paths', () => 
   assert.match(source, /const configuredProxies = Array\.isArray\(feed\.proxy\)/);
   assert.match(source, /fallbackUsed: Boolean\(usedProxy[\s\S]*!configuredProxies\.includes\(usedProxy\)\)/);
 });
+
+test('committee Congress feeds use default congress params', () => {
+  const raw = fs.readFileSync(feedsPath, 'utf8');
+  const data = JSON.parse(raw);
+  [
+    ['congress-ew-bills', '/committee/house/hsed00/bills'],
+    ['congress-help-bills', '/committee/senate/sshr00/bills']
+  ].forEach(([feedId, urlFragment]) => {
+    const feed = data.feeds.find((entry) => entry.id === feedId);
+    assert.ok(feed, `missing feed ${feedId}`);
+    assert.equal(feed.defaultParams?.congress, 119, `${feedId} should default to the current Congress`);
+    assert.equal(feed.congressCommitteeBills, true, `${feedId} should use committee bill normalization`);
+    assert.ok(feed.url.includes(urlFragment), `${feedId} should use the committee bills endpoint`);
+  });
+});
+
+test('feed proxy and local server consume URL template params instead of leaking them into query strings', () => {
+  [
+    path.join(root, 'gcp', 'feed-proxy', 'server.js'),
+    path.join(root, 'server.mjs'),
+    path.join(root, 'scripts', 'build_static_cache.mjs')
+  ].forEach((sourcePath) => {
+    const source = fs.readFileSync(sourcePath, 'utf8');
+    assert.match(source, /function getUrlTemplateParamNames/);
+    assert.match(source, /getUrlTemplateParamNames\((feed\.url|templateUrl)\)/);
+    assert.match(source, /applyUrlParams\([^,]+, (mergedParams|staticRequestParams), (urlTemplateParamNames|templateParamNames)\)/);
+  });
+});
+
+test('state legislation aggregation sorts with latest passage date fallbacks', () => {
+  [
+    path.join(root, 'gcp', 'feed-proxy', 'server.js'),
+    path.join(root, 'server.mjs')
+  ].forEach((sourcePath) => {
+    const source = fs.readFileSync(sourcePath, 'utf8');
+    assert.match(source, /function getStateBillSortTimestamp[\s\S]*latest_passage_date[\s\S]*latestPassageDate/);
+  });
+});
+
+test('committee Congress feeds are filtered before shared feed responses are exposed', () => {
+  [
+    path.join(root, 'gcp', 'feed-proxy', 'server.js'),
+    path.join(root, 'server.mjs'),
+    path.join(root, 'scripts', 'build_static_cache.mjs')
+  ].forEach((sourcePath) => {
+    const source = fs.readFileSync(sourcePath, 'utf8');
+    assert.match(source, /function filterCongressCommitteeBillsBody/);
+    assert.match(source, /feed\.congressCommitteeBills[\s\S]*filterCongressCommitteeBillsBody/);
+    assert.match(source, /mergedParams\.congress|staticRequestParams\.congress/);
+  });
+});

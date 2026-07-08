@@ -86,6 +86,8 @@ export function getStateBillSortTimestamp(entry) {
     entry?.updated_at,
     entry?.latest_action_date,
     entry?.latest_action_at,
+    entry?.latest_passage_date,
+    entry?.latestPassageDate,
     entry?.effective_date,
     entry?.effectiveDate,
     entry?.created_at,
@@ -123,7 +125,8 @@ function extractStateMetadata(entry, feed) {
   const docId = entry.docId || entry.id || entry.identifier || null;
   const status = entry.status || entry.latest_action_description || null;
   const agency = entry.agency || entry.from_organization?.name || entry.organization?.name || null;
-  const effectiveDate = entry.effectiveDate || entry.effective_date || entry.latest_action_date || null;
+  const latestPassageDate = entry.latestPassageDate || entry.latest_passage_date || null;
+  const effectiveDate = entry.effectiveDate || entry.effective_date || latestPassageDate || entry.latest_action_date || null;
   const level = entry.jurisdictionLevel || feed.jurisdictionLevel || null;
   return {
     jurisdictionLevel: level,
@@ -133,7 +136,8 @@ function extractStateMetadata(entry, feed) {
     docId,
     status,
     agency,
-    effectiveDate
+    effectiveDate,
+    latestPassageDate
   };
 }
 
@@ -195,6 +199,53 @@ function buildCongressCommitteeMeetingTitle(entry) {
   return `${type} ${eventId || congress}`.trim();
 }
 
+function formatCongressBillIdentifier(entry) {
+  const type = String(entry?.type || entry?.billType || '').trim().toUpperCase();
+  const number = String(entry?.number || entry?.billNumber || '').trim();
+  if (!type || !number) return '';
+  return `${type} ${number}`;
+}
+
+const CONGRESS_BILL_WEB_TYPE_SLUGS = {
+  HR: 'house-bill',
+  S: 'senate-bill',
+  HRES: 'house-resolution',
+  SRES: 'senate-resolution',
+  HJRES: 'house-joint-resolution',
+  SJRES: 'senate-joint-resolution',
+  HCONRES: 'house-concurrent-resolution',
+  SCONRES: 'senate-concurrent-resolution'
+};
+
+function normalizeCongressBillType(value = '') {
+  return String(value || '').toUpperCase().replace(/[^A-Z]/g, '');
+}
+
+function buildCongressBillWebUrl(entry = {}) {
+  const congress = String(entry.congress || '').trim();
+  const number = String(entry.number || entry.billNumber || '').trim();
+  const slug = CONGRESS_BILL_WEB_TYPE_SLUGS[normalizeCongressBillType(entry.type || entry.billType)];
+  if (!congress || !number || !slug) return '';
+  return `https://www.congress.gov/bill/${encodeURIComponent(congress)}th-congress/${slug}/${encodeURIComponent(number)}`;
+}
+
+function isCongressBillEntry(entry, feed) {
+  return Boolean(
+    feed?.congressCommitteeBills
+    || feed?.id === 'congress-api'
+    || (entry?.latestAction && entry?.number && entry?.type && entry?.congress)
+  );
+}
+
+function buildCongressBillTitle(entry, fallbackTitle) {
+  const identifier = formatCongressBillIdentifier(entry);
+  const cleanTitle = String(fallbackTitle || '').trim();
+  const isUntitled = !cleanTitle || cleanTitle.toLowerCase() === 'untitled';
+  if (!identifier) return cleanTitle || 'Congress bill';
+  if (isUntitled || cleanTitle.toUpperCase().startsWith(identifier.toUpperCase())) return identifier;
+  return `${identifier} - ${cleanTitle}`;
+}
+
 function buildCommitteeReportTitle(entry, fallbackTitle) {
   const citation = String(entry?.citation || '').trim();
   if (citation) return citation;
@@ -229,6 +280,10 @@ function selectList(data) {
               ? data.results
               : Array.isArray(data?.bills)
                 ? data.bills
+                : Array.isArray(data?.['committee-bills']?.bills)
+                  ? data['committee-bills'].bills
+                  : Array.isArray(data?.committeeBills?.bills)
+                    ? data.committeeBills.bills
                 : Array.isArray(data?.amendments)
                   ? data.amendments
                   : Array.isArray(data?.committeeReports)
@@ -311,6 +366,7 @@ export function parseGenericJsonFeed(data, feed) {
       : '';
     const fallbackTitle = properties.title || entry.title || entry.name || entry.headline || entry.label || 'Untitled';
     const isCommitteeReport = !isCongressHouseVote && isCommitteeReportEntry(entry, feed);
+    const isCongressBill = isCongressBillEntry(entry, feed);
     const isCongressHearing = feed?.id === 'congress-hearings';
     const isCongressCommitteeMeeting = feed?.id === 'congress-committee-meetings';
     const isEonetEvent = feed?.id === 'eonet-events';
@@ -332,9 +388,17 @@ export function parseGenericJsonFeed(data, feed) {
         ? buildCongressHearingTitle(entry)
         : isCongressCommitteeMeeting
           ? buildCongressCommitteeMeetingTitle(entry)
-          : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
-    const url = congressVoteUrl || properties.url || entry.url || entry.link || entry.permalink || entry.webUrl || entry.packageLink || entry.detailsLink || '';
+          : isCongressBill
+            ? buildCongressBillTitle(entry, fallbackTitle)
+            : (isCommitteeReport ? buildCommitteeReportTitle(entry, fallbackTitle) : fallbackTitle);
+    const congressBillUrl = isCongressBill ? buildCongressBillWebUrl(entry) : '';
+    const url = congressVoteUrl || congressBillUrl || properties.url || entry.openstates_url || entry.url || entry.html_url || entry.link || entry.permalink || entry.webUrl || entry.packageLink || entry.detailsLink || entry.pdf_url || '';
     const defaultSummary = normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || properties.status || properties.type || properties.place || '');
+    const congressBillSummary = normalizeSummary([
+      entry.latestAction?.text || '',
+      entry.latestAction?.actionDate || '',
+      entry.updateDate || ''
+    ].filter(Boolean).join(' • '));
     const voteSummary = normalizeSummary(
       [
         entry.voteQuestion || entry.question || '',
@@ -344,7 +408,9 @@ export function parseGenericJsonFeed(data, feed) {
     );
     const summary = isCongressHouseVote
       ? (voteSummary || defaultSummary)
-      : (isCommitteeReport ? buildCommitteeReportSummary(entry, defaultSummary) : defaultSummary);
+      : isCongressBill
+        ? (congressBillSummary || defaultSummary)
+        : (isCommitteeReport ? buildCommitteeReportSummary(entry, defaultSummary) : defaultSummary);
     const eonetSummary = normalizeSummary(
       [
         eonetCategories.join(', '),
@@ -362,6 +428,7 @@ export function parseGenericJsonFeed(data, feed) {
       entry.pubDate,
       isEonetEvent ? latestEonetGeometry?.date : null,
       entry.date,
+      entry.publication_date,
       entry.lastModified,
       entry.dateIssued,
       entry.updateDate,
@@ -371,6 +438,9 @@ export function parseGenericJsonFeed(data, feed) {
       entry.updatedAt,
       entry.updated,
       entry.latest_action_date,
+      entry.latest_passage_date,
+      entry.latestPassageDate,
+      entry.latestAction?.actionDate,
       entry.effectiveDate,
       entry.effective_date,
       latestEonetGeometry?.date
@@ -383,15 +453,32 @@ export function parseGenericJsonFeed(data, feed) {
       || (eventCoords.length >= 2 ? { lat: Number(eventCoords[1]), lon: Number(eventCoords[0]) } : null);
     const stateMeta = extractStateMetadata(entry, feed);
     const hasStateMeta = Object.values(stateMeta).some((value) => value !== null && value !== '');
+    const stateIdentifier = String(entry.identifier || entry.bill_id || entry.billId || '').trim();
+    const stateTitlePrefix = [stateMeta.jurisdictionCode, stateIdentifier].filter(Boolean).join(' ');
+    const normalizedTitle = String(title || '').toUpperCase();
+    const titleWithStateIdentifier = feed?.id === 'state-legislation' && stateIdentifier
+      && !normalizedTitle.startsWith(stateIdentifier.toUpperCase())
+      && (!stateTitlePrefix || !normalizedTitle.startsWith(stateTitlePrefix.toUpperCase()))
+      ? `${stateTitlePrefix || stateIdentifier} - ${title}`
+      : title;
+    const congressBillMeta = isCongressBill ? {
+      billNumber: String(entry.number || entry.billNumber || ''),
+      billType: String(entry.type || entry.billType || ''),
+      congress: entry.congress || null,
+      latestAction: entry.latestAction || null,
+      updateDate: entry.updateDate || null,
+      apiUrl: entry.apiUrl || ''
+    } : {};
     return {
-      title,
+      title: titleWithStateIdentifier,
       url,
       summary: finalSummary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
       source: entry.source || feed.name,
       category: feed.category,
       geo,
-      ...(hasStateMeta ? stateMeta : {})
+      ...(hasStateMeta ? stateMeta : {}),
+      ...congressBillMeta
     };
   });
 }

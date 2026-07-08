@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const { getStateBillSortTimestamp, normalizeCsvSignals, normalizeJsonSignals } = await import('../../gcp/mcp-proxy/signal-normalization.js');
 const {
@@ -66,6 +68,26 @@ test('normalizeJsonSignals uses snake_case state dates for timestamps and metada
   assert.equal(item.effectiveDate, '2026-05-01');
   assert.equal(item.status, 'Signed by governor');
   assert.equal(item.publishedAt, Date.parse(latestActionDate));
+});
+
+test('normalizeJsonSignals maps OpenStates URLs, identifiers, and passage dates', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    results: [{
+      identifier: 'SB 304',
+      title: 'Creates the education savings account program',
+      state_code: 'la',
+      openstates_url: 'https://openstates.org/la/bills/2026/SB304/',
+      updated_at: '2026-06-01T10:00:00Z',
+      latest_passage_date: '2026-06-03',
+      latest_action_description: 'Sent to the Governor'
+    }]
+  }), feed);
+
+  assert.ok(item);
+  assert.equal(item.title, 'LA SB 304 - Creates the education savings account program');
+  assert.equal(item.url, 'https://openstates.org/la/bills/2026/SB304/');
+  assert.equal(item.latestPassageDate, '2026-06-03');
+  assert.equal(item.effectiveDate, '2026-06-03');
 });
 
 test('normalizeJsonSignals prefers published_at over later snake_case state fallbacks', () => {
@@ -140,6 +162,128 @@ test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the 
 
   assert.ok(item);
   assert.equal(item.publishedAt, Date.parse(updateDateIncludingText));
+});
+
+test('normalizeJsonSignals maps committee-scoped Congress bills to titled web links', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    bills: [{
+      congress: 119,
+      type: 'HR',
+      number: '28',
+      title: 'Protection of Women and Girls in Sports Act of 2025',
+      latestAction: {
+        actionDate: '2025-01-15',
+        text: 'Received in the Senate.'
+      },
+      updateDate: '2025-07-21T19:44:15Z',
+      apiUrl: 'https://api.congress.gov/v3/bill/119/hr/28?format=json',
+      url: 'https://www.congress.gov/bill/119th-congress/house-bill/28'
+    }]
+  }), {
+    id: 'congress-ew-bills',
+    name: 'Congress.gov House Education & Workforce Bills',
+    category: 'gov',
+    format: 'json',
+    congressCommitteeBills: true
+  });
+
+  assert.ok(item);
+  assert.equal(item.title, 'HR 28 - Protection of Women and Girls in Sports Act of 2025');
+  assert.equal(item.url, 'https://www.congress.gov/bill/119th-congress/house-bill/28');
+  assert.equal(item.summary, 'Received in the Senate. • 2025-01-15 • 2025-07-21T19:44:15Z');
+  assert.equal(item.latestAction.text, 'Received in the Senate.');
+  assert.equal(item.updateDate, '2025-07-21T19:44:15Z');
+  assert.equal(item.apiUrl, 'https://api.congress.gov/v3/bill/119/hr/28?format=json');
+});
+
+test('normalizeJsonSignals maps committee bill rows when detail enrichment is skipped', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    bills: [{
+      congress: 119,
+      billType: 'S',
+      billNumber: '47',
+      latestAction: {
+        actionDate: '2025-01-09T19:48:33Z',
+        text: 'Referred To'
+      },
+      updateDate: '2025-01-10T11:56:25Z',
+      apiUrl: 'https://api.congress.gov/v3/bill/119/s/47?format=json',
+    }]
+  }), {
+    id: 'congress-help-bills',
+    name: 'Congress.gov Senate HELP Bills',
+    category: 'gov',
+    format: 'json',
+    congressCommitteeBills: true
+  });
+
+  assert.ok(item);
+  assert.equal(item.title, 'S 47');
+  assert.equal(item.url, 'https://www.congress.gov/bill/119th-congress/senate-bill/47');
+  assert.equal(item.summary, 'Referred To • 2025-01-09T19:48:33Z • 2025-01-10T11:56:25Z');
+  assert.equal(item.publishedAt, Date.parse('2025-01-10T11:56:25Z'));
+});
+
+test('normalizeJsonSignals prefers enriched committee bills over the original wrapper rows', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    bills: [{
+      congress: 119,
+      type: 'HR',
+      number: '28',
+      title: 'Protection of Women and Girls in Sports Act of 2025',
+      latestAction: {
+        actionDate: '2025-01-15',
+        text: 'Received in the Senate.'
+      },
+      updateDate: '2025-07-21T19:44:15Z',
+      apiUrl: 'https://api.congress.gov/v3/bill/119/hr/28?format=json',
+      url: 'https://www.congress.gov/bill/119th-congress/house-bill/28'
+    }],
+    committeeBills: {
+      bills: [{
+        congress: 119,
+        billType: 'HR',
+        billNumber: '28',
+        relationshipType: 'Referred to Committee',
+        updateDate: '2025-01-01T00:00:00Z',
+        url: 'https://api.congress.gov/v3/bill/119/hr/28?format=json'
+      }]
+    }
+  }), {
+    id: 'congress-ew-bills',
+    name: 'Congress.gov House Education & Workforce Bills',
+    category: 'gov',
+    format: 'json',
+    congressCommitteeBills: true
+  });
+
+  assert.ok(item);
+  assert.equal(item.title, 'HR 28 - Protection of Women and Girls in Sports Act of 2025');
+  assert.equal(item.summary, 'Received in the Senate. • 2025-01-15 • 2025-07-21T19:44:15Z');
+  assert.equal(item.updateDate, '2025-07-21T19:44:15Z');
+  assert.equal(item.apiUrl, 'https://api.congress.gov/v3/bill/119/hr/28?format=json');
+});
+
+test('normalizeJsonSignals maps Federal Register Education document links and dates', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({
+    results: [{
+      title: 'Education Department notice',
+      abstract: 'Comment request.',
+      html_url: 'https://www.federalregister.gov/documents/2026/07/08/2026-13799/example',
+      publication_date: '2026-07-08',
+      agencies: [{ slug: 'education-department' }]
+    }]
+  }), {
+    id: 'federal-register-ed',
+    name: 'Federal Register (Education)',
+    category: 'gov',
+    format: 'json'
+  });
+
+  assert.ok(item);
+  assert.equal(item.title, 'Education Department notice');
+  assert.equal(item.url, 'https://www.federalregister.gov/documents/2026/07/08/2026-13799/example');
+  assert.equal(item.publishedAt, Date.parse('2026-07-08'));
 });
 
 test('normalizeJsonSignals synthesizes Congress hearing list titles', () => {
@@ -240,7 +384,7 @@ test('normalizeCsvSignals maps Stooq quote fields into finance signals', () => {
 
 test('raw history maps Federal Register date ranges to upstream publication date params', () => {
   const federalRegister = {
-    id: 'federal-register',
+    id: 'federal-register-ed',
     url: 'https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest'
   };
   const url = buildFeedUrl(federalRegister, {
@@ -255,6 +399,46 @@ test('raw history maps Federal Register date ranges to upstream publication date
   assert.equal(parsed.searchParams.get('conditions[publication_date][lte]'), '2026-06-07');
   assert.equal(parsed.searchParams.has('start'), false);
   assert.equal(parsed.searchParams.has('end'), false);
+});
+
+test('committee Congress feed URLs append default and requested congress params', () => {
+  const feed = {
+    id: 'congress-ew-bills',
+    url: 'https://api.congress.gov/v3/committee/house/hsed00/bills?format=json&limit=20',
+    supportsParams: true,
+    defaultParams: { congress: 119 }
+  };
+
+  const defaultUrl = new URL(buildFeedUrl(feed, {}));
+  assert.equal(defaultUrl.pathname, '/v3/committee/house/hsed00/bills');
+  assert.equal(defaultUrl.searchParams.get('congress'), '119');
+
+  const requestedUrl = new URL(buildFeedUrl(feed, { params: { congress: 118 } }));
+  assert.equal(requestedUrl.pathname, '/v3/committee/house/hsed00/bills');
+  assert.equal(requestedUrl.searchParams.get('congress'), '118');
+});
+
+test('committee Congress enrichment synthesizes detail URLs from bill identifiers', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'gcp', 'mcp-proxy', 'server.js'), 'utf8');
+  assert.match(source, /function buildCongressBillDetailApiUrl/);
+  assert.match(source, /const type = row\.type \|\| row\.billType/);
+  assert.match(source, /const number = row\.number \|\| row\.billNumber/);
+  assert.match(source, /const upstreamRows = getCongressCommitteeBillRows\(parsed\)/);
+  assert.match(source, /committeeBills: \{[\s\S]*bills: \[\]/);
+  assert.match(source, /fetchCongressBillDetail\(apiUrl, feed, key, requestHeaders, timeoutMs\)/);
+});
+
+test('signals.list passes limit to committee detail enrichment without breaking raw.fetch', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'gcp', 'mcp-proxy', 'server.js'), 'utf8');
+  assert.match(source, /'raw\.fetch'[\s\S]*const result = await fetchRaw\(feed, \{ query, start, end, params \}\)/);
+  assert.match(source, /'signals\.list'[\s\S]*const result = await fetchRaw\(feed, \{ query, start, end, params, limit \}\)/);
+});
+
+test('signal item ids prefer stable upstream identifiers before titles and timestamps', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'gcp', 'mcp-proxy', 'server.js'), 'utf8');
+  assert.match(source, /const stableSourceId = item\.apiUrl \|\| item\.docId \|\| item\.documentNumber \|\| item\.packageId \|\| item\.sourceId \|\| ''/);
+  assert.ok(source.includes('const base = stableSourceId'));
+  assert.ok(source.includes('`${stableSourceId}|${item.url || \'\'}'));
 });
 
 test('history support is explicit for unsupported sources and template sources', () => {

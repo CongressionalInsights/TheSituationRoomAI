@@ -479,7 +479,7 @@ function applyFederalRegisterHistoryParams(url, startIso, endIso) {
 }
 
 function getHistoryParamMapper(feed) {
-  if (feed?.id === 'federal-register' || feed?.id === 'federal-register-transport') {
+  if (feed?.id === 'federal-register' || feed?.id === 'federal-register-transport' || feed?.id === 'federal-register-ed') {
     return applyFederalRegisterHistoryParams;
   }
   return null;
@@ -1054,6 +1054,13 @@ function buildUrl(template, params = {}) {
   return url;
 }
 
+function getUrlTemplateParamNames(template = '') {
+  return new Set(
+    [...String(template || '').matchAll(/\{\{([A-Za-z0-9_]+)\}\}/g)]
+      .map((match) => match[1])
+  );
+}
+
 export function buildFeedUrl(feed, options) {
   const query = feed.supportsQuery
     ? (options.query || feed.defaultQuery || '')
@@ -1061,7 +1068,14 @@ export function buildFeedUrl(feed, options) {
   const start = options.start || '';
   const end = options.end || '';
   const timespan = computeTimespan(start, end);
+  const templateParams = feed.supportsParams
+    ? {
+      ...sanitizeParamsObject(feed.defaultParams),
+      ...sanitizeParamsObject(options.params)
+    }
+    : sanitizeParamsObject(options.params);
   let url = buildUrl(feed.url || '', {
+    ...templateParams,
     query,
     start: start ? formatIsoDate(start) : '',
     end: end ? formatIsoDate(end) : '',
@@ -1087,8 +1101,10 @@ export function buildFeedUrl(feed, options) {
     : sanitizeParamsObject(options.params);
   if (mergedParams && Object.keys(mergedParams).length) {
     const parsed = new URL(url);
+    const templateParamNames = getUrlTemplateParamNames(feed.url);
     Object.entries(mergedParams).forEach(([key, value]) => {
       if (value === undefined || value === null || value === '') return;
+      if (templateParamNames.has(key)) return;
       parsed.searchParams.set(key, String(value));
     });
     url = parsed.toString();
@@ -1526,6 +1542,134 @@ function normalizeSignals(text, feed) {
   return [];
 }
 
+function isCongressCommitteeBillsFeed(feed) {
+  return Boolean(feed?.congressCommitteeBills);
+}
+
+function getCongressCommitteeBillRows(data) {
+  const committeeBills = data?.['committee-bills'] || data?.committeeBills || {};
+  if (Array.isArray(committeeBills?.bills)) return committeeBills.bills;
+  if (Array.isArray(data?.bills)) return data.bills;
+  return [];
+}
+
+const CONGRESS_BILL_WEB_TYPE_SLUGS = {
+  HR: 'house-bill',
+  S: 'senate-bill',
+  HRES: 'house-resolution',
+  SRES: 'senate-resolution',
+  HJRES: 'house-joint-resolution',
+  SJRES: 'senate-joint-resolution',
+  HCONRES: 'house-concurrent-resolution',
+  SCONRES: 'senate-concurrent-resolution'
+};
+const CONGRESS_COMMITTEE_DETAIL_DEFAULT_LIMIT = 5;
+const CONGRESS_COMMITTEE_DETAIL_MAX_LIMIT = 8;
+
+function normalizeCongressBillType(value = '') {
+  return String(value || '').toUpperCase().replace(/[^A-Z]/g, '');
+}
+
+function buildCongressBillWebUrl({ congress, type, number } = {}) {
+  const congressNumber = String(congress || '').trim();
+  const billNumber = String(number || '').trim();
+  const slug = CONGRESS_BILL_WEB_TYPE_SLUGS[normalizeCongressBillType(type)];
+  if (!congressNumber || !billNumber || !slug) return '';
+  return `https://www.congress.gov/bill/${encodeURIComponent(congressNumber)}th-congress/${slug}/${encodeURIComponent(billNumber)}`;
+}
+
+function buildCongressBillDetailApiUrl({ congress, type, number } = {}) {
+  const congressNumber = String(congress || '').trim();
+  const billNumber = String(number || '').trim();
+  const billType = normalizeCongressBillType(type).toLowerCase();
+  if (!congressNumber || !billType || !billNumber) return '';
+  return `https://api.congress.gov/v3/bill/${encodeURIComponent(congressNumber)}/${encodeURIComponent(billType)}/${encodeURIComponent(billNumber)}?format=json`;
+}
+
+async function fetchCongressBillDetail(apiUrl, feed, key, baseHeaders, timeoutMs) {
+  if (!apiUrl) return null;
+  const { url, headers } = applyKey(apiUrl, feed, key);
+  const detailTimeoutMs = Math.max(1500, Math.min(Number(timeoutMs) || FETCH_TIMEOUT_MS, 8000));
+  try {
+    const { response, data } = await fetchJsonWithTimeout(url, {
+      headers: {
+        ...baseHeaders,
+        ...headers,
+        Accept: 'application/json, text/plain, */*'
+      }
+    }, detailTimeoutMs);
+    if (!response.ok || !data?.bill) return null;
+    return data.bill;
+  } catch {
+    return null;
+  }
+}
+
+function resolveCongressCommitteeDetailLimit(limit) {
+  const parsed = Number(limit);
+  if (!Number.isFinite(parsed)) return CONGRESS_COMMITTEE_DETAIL_DEFAULT_LIMIT;
+  return Math.max(1, Math.min(CONGRESS_COMMITTEE_DETAIL_MAX_LIMIT, Math.floor(parsed)));
+}
+
+async function enrichCongressCommitteeBillsBody(body, feed, key, requestHeaders, timeoutMs, detailLimit = CONGRESS_COMMITTEE_DETAIL_DEFAULT_LIMIT, params = {}) {
+  const parsed = parseJsonBody(body);
+  if (!parsed) return body;
+  const requestedCongress = String(params?.congress || feed?.defaultParams?.congress || '').trim();
+  const upstreamRows = getCongressCommitteeBillRows(parsed);
+  if (!upstreamRows.length) return body;
+  const rows = upstreamRows.filter((row) => !requestedCongress || String(row?.congress || '').trim() === requestedCongress);
+  if (!rows.length) {
+    return JSON.stringify({
+      bills: [],
+      pagination: parsed.pagination || null,
+      request: parsed.request || null,
+      committeeBills: {
+        ...(parsed['committee-bills'] || parsed.committeeBills || {}),
+        bills: []
+      }
+    });
+  }
+  const safeDetailLimit = resolveCongressCommitteeDetailLimit(detailLimit);
+  const enriched = await Promise.all(rows.slice(0, 20).map(async (row, index) => {
+    const congress = row.congress;
+    const type = row.type || row.billType;
+    const number = row.number || row.billNumber;
+    const apiUrl = row.url || buildCongressBillDetailApiUrl({ congress, type, number });
+    const detail = index < safeDetailLimit
+      ? await fetchCongressBillDetail(apiUrl, feed, key, requestHeaders, timeoutMs)
+      : null;
+    const resolvedCongress = detail?.congress || congress;
+    const resolvedType = detail?.type || type;
+    const resolvedNumber = detail?.number || number;
+    const webUrl = buildCongressBillWebUrl({ congress: resolvedCongress, type: resolvedType, number: resolvedNumber });
+    return {
+      ...row,
+      ...(detail || {}),
+      apiUrl: apiUrl || detail?.url || '',
+      url: webUrl || detail?.url || row.url || '',
+      congress: resolvedCongress,
+      type: resolvedType,
+      number: resolvedNumber,
+      latestAction: detail?.latestAction || {
+        actionDate: row.actionDate || '',
+        text: row.relationshipType || ''
+      },
+      updateDate: detail?.updateDate || row.updateDate || ''
+    };
+  }));
+  const originalCommitteeBills = parsed['committee-bills'] || parsed.committeeBills || {};
+  return JSON.stringify({
+    bills: enriched,
+    pagination: parsed.pagination || null,
+    request: parsed.request || null,
+    committeeBills: {
+      ...originalCommitteeBills,
+      bills: enriched,
+      count: enriched.length
+    }
+  });
+}
+
 const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 
 function extractSafeResponseHeaders(headers) {
@@ -1709,7 +1853,10 @@ function dedupeSignals(items) {
 }
 
 function createItemId(item) {
-  const base = `${item.url || ''}|${item.title || ''}|${item.publishedAt || ''}`;
+  const stableSourceId = item.apiUrl || item.docId || item.documentNumber || item.packageId || item.sourceId || '';
+  const base = stableSourceId
+    ? `${stableSourceId}|${item.url || ''}`
+    : `${item.url || ''}|${item.title || ''}|${item.publishedAt || ''}`;
   return createHash('sha1').update(base).digest('hex').slice(0, 12);
 }
 
@@ -1873,6 +2020,9 @@ async function fetchRaw(feed, options) {
           };
           continue;
         }
+        if (isCongressCommitteeBillsFeed(feed)) {
+          body = await enrichCongressCommitteeBillsBody(body, feed, key, requestHeaders, totalTimeoutMs, options.limit, options.params);
+        }
         usedProxy = proxy || null;
         succeeded = true;
         break;
@@ -1912,6 +2062,7 @@ async function fetchRaw(feed, options) {
     if (fallback) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'
+        || feed.id === 'federal-register-ed'
         || feed.id === 'fda-medwatch'
         || feed.id === 'gdelt-doc'
         || feed.id === 'nasa-firms'
@@ -2518,7 +2669,7 @@ server.registerTool(
     }
 
     const normalizedQuery = String(query || '').trim().toLowerCase();
-    const result = await fetchRaw(feed, { query, start, end, params });
+    const result = await fetchRaw(feed, { query, start, end, params, limit });
     if (result.error) {
       return {
         content: [{ type: 'text', text: `Signals fetch failed: ${result.message || result.error}` }],
@@ -2738,6 +2889,10 @@ const httpServer = http.createServer(async (req, res) => {
         'catalog.sources': {
           outputFields: ['configured', 'coveredStates', 'configuration.requiredEnv', 'configuration.optionalEnv']
         }
+      },
+      sourceHighlights: {
+        congressCommitteeBills: ['congress-ew-bills', 'congress-help-bills'],
+        education: ['federal-register-ed']
       },
       acceptedEnv: [
         'DATA_GOV',

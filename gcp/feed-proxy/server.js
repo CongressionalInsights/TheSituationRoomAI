@@ -469,6 +469,15 @@ function buildUrl(template, params = {}) {
   return url;
 }
 
+function getUrlTemplateParamNames(template = '') {
+  const names = new Set();
+  String(template || '').replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (_match, name) => {
+    names.add(name);
+    return '';
+  });
+  return names;
+}
+
 function serializeParams(params = {}) {
   return Object.entries(params)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -476,10 +485,11 @@ function serializeParams(params = {}) {
     .join('&');
 }
 
-function applyUrlParams(url, params = {}) {
+function applyUrlParams(url, params = {}, excludedParamNames = new Set()) {
   if (!params || !Object.keys(params).length) return url;
   const parsed = new URL(url);
   Object.entries(params).forEach(([key, value]) => {
+    if (excludedParamNames.has(key)) return;
     if (value === undefined || value === null || value === '') return;
     parsed.searchParams.set(key, String(value));
   });
@@ -503,6 +513,8 @@ function getStateBillSortTimestamp(entry) {
     entry?.updated_at,
     entry?.latest_action_date,
     entry?.latest_action_at,
+    entry?.latest_passage_date,
+    entry?.latestPassageDate,
     entry?.created_at,
     entry?.first_action_date
   ];
@@ -780,6 +792,43 @@ function normalizeGovinfoPackages(data = {}) {
   };
 }
 
+function getCongressCommitteeBillRows(data) {
+  const committeeBills = data?.['committee-bills'] || data?.committeeBills || {};
+  if (Array.isArray(committeeBills?.bills)) return committeeBills.bills;
+  if (Array.isArray(data?.bills)) return data.bills;
+  return [];
+}
+
+function filterCongressCommitteeBillsBody(body, requestedCongress = '') {
+  const congress = String(requestedCongress || '').trim();
+  if (!congress || typeof body !== 'string' || !body.trim().startsWith('{')) return body;
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return body;
+  }
+  const rows = getCongressCommitteeBillRows(parsed);
+  if (!rows.length) return body;
+  const filtered = rows.filter((entry) => String(entry?.congress || '').trim() === congress);
+  const next = { ...parsed, bills: filtered };
+  if (parsed['committee-bills']) {
+    next['committee-bills'] = {
+      ...parsed['committee-bills'],
+      bills: filtered,
+      count: filtered.length
+    };
+  }
+  if (parsed.committeeBills) {
+    next.committeeBills = {
+      ...parsed.committeeBills,
+      bills: filtered,
+      count: filtered.length
+    };
+  }
+  return JSON.stringify(next);
+}
+
 function looksLikeHtmlDocument(text = '') {
   const sample = String(text || '').slice(0, 2048).trim().toLowerCase();
   if (!sample) return false;
@@ -1014,6 +1063,7 @@ function canUseLiveFeedFallback(feed, isRssFeed) {
     || feed?.id === 'gdelt-doc'
     || feed?.id === 'federal-register'
     || feed?.id === 'federal-register-transport'
+    || feed?.id === 'federal-register-ed'
     || feed?.id === 'transport-opensky'
   );
 }
@@ -1021,6 +1071,7 @@ function canUseLiveFeedFallback(feed, isRssFeed) {
 function shouldPromotePublishedSnapshot(feed) {
   return feed?.id === 'federal-register'
     || feed?.id === 'federal-register-transport'
+    || feed?.id === 'federal-register-ed'
     || feed?.id === 'fda-medwatch'
     || feed?.id === 'gdelt-doc'
     || feed?.id === 'transport-opensky';
@@ -1290,8 +1341,13 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
 
   const finalQuery = feed.supportsQuery ? (query || feed.defaultQuery || '') : undefined;
-  let url = feed.supportsQuery ? buildUrl(feed.url, { query: finalQuery }) : buildUrl(feed.url, {});
-  url = applyUrlParams(url, mergedParams);
+  const urlTemplateParamNames = getUrlTemplateParamNames(feed.url);
+  const templateParams = { ...mergedParams, key: effectiveKey };
+  if (feed.supportsQuery) {
+    templateParams.query = finalQuery;
+  }
+  let url = buildUrl(feed.url, templateParams);
+  url = applyUrlParams(url, mergedParams, urlTemplateParamNames);
   const isEiaSeries = feed.id === 'energy-eia'
     || feed.id === 'energy-eia-brent'
     || feed.id === 'energy-eia-ng';
@@ -1417,7 +1473,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         responseOk = false;
       }
     }
-    if ((feed.id === 'federal-register' || feed.id === 'federal-register-transport') && responseOk && typeof body === 'string' && contentType.includes('json')) {
+    if (feed.congressCommitteeBills && responseOk && typeof body === 'string' && contentType.includes('json')) {
+      body = filterCongressCommitteeBillsBody(body, mergedParams.congress || feed.defaultParams?.congress);
+      contentType = 'application/json';
+    }
+    if ((feed.id === 'federal-register' || feed.id === 'federal-register-transport' || feed.id === 'federal-register-ed') && responseOk && typeof body === 'string' && contentType.includes('json')) {
       try {
         body = JSON.stringify(normalizeFederalRegisterItems(JSON.parse(body)));
         contentType = 'application/json';

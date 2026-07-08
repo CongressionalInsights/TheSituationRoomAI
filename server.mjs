@@ -153,6 +153,15 @@ function buildUrl(template, params = {}) {
   return url;
 }
 
+function getUrlTemplateParamNames(template = '') {
+  const names = new Set();
+  String(template || '').replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (_match, name) => {
+    names.add(name);
+    return '';
+  });
+  return names;
+}
+
 function serializeParams(params = {}) {
   return Object.entries(params)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -160,10 +169,11 @@ function serializeParams(params = {}) {
     .join('&');
 }
 
-function applyUrlParams(url, params = {}) {
+function applyUrlParams(url, params = {}, excludedParamNames = new Set()) {
   if (!params || !Object.keys(params).length) return url;
   const parsed = new URL(url);
   Object.entries(params).forEach(([key, value]) => {
+    if (excludedParamNames.has(key)) return;
     if (value === undefined || value === null || value === '') return;
     parsed.searchParams.set(key, String(value));
   });
@@ -187,6 +197,8 @@ function getStateBillSortTimestamp(entry) {
     entry?.updated_at,
     entry?.latest_action_date,
     entry?.latest_action_at,
+    entry?.latest_passage_date,
+    entry?.latestPassageDate,
     entry?.created_at,
     entry?.first_action_date
   ];
@@ -974,6 +986,43 @@ function applyProxy(url, proxy) {
   return url;
 }
 
+function getCongressCommitteeBillRows(data) {
+  const committeeBills = data?.['committee-bills'] || data?.committeeBills || {};
+  if (Array.isArray(committeeBills?.bills)) return committeeBills.bills;
+  if (Array.isArray(data?.bills)) return data.bills;
+  return [];
+}
+
+function filterCongressCommitteeBillsBody(body, requestedCongress = '') {
+  const congress = String(requestedCongress || '').trim();
+  if (!congress || typeof body !== 'string' || !body.trim().startsWith('{')) return body;
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return body;
+  }
+  const rows = getCongressCommitteeBillRows(parsed);
+  if (!rows.length) return body;
+  const filtered = rows.filter((entry) => String(entry?.congress || '').trim() === congress);
+  const next = { ...parsed, bills: filtered };
+  if (parsed['committee-bills']) {
+    next['committee-bills'] = {
+      ...parsed['committee-bills'],
+      bills: filtered,
+      count: filtered.length
+    };
+  }
+  if (parsed.committeeBills) {
+    next.committeeBills = {
+      ...parsed.committeeBills,
+      bills: filtered,
+      count: filtered.length
+    };
+  }
+  return JSON.stringify(next);
+}
+
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
   const rows = Array.isArray(data)
     ? data
@@ -1372,10 +1421,13 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
 
   const finalQuery = feed.supportsQuery ? (query || feed.defaultQuery || '') : undefined;
-  const baseUrl = feed.supportsQuery
-    ? buildUrl(feed.url, { query: finalQuery, key: effectiveKey })
-    : buildUrl(feed.url, { key: effectiveKey });
-  const urlWithParams = applyUrlParams(baseUrl, mergedParams);
+  const urlTemplateParamNames = getUrlTemplateParamNames(feed.url);
+  const templateParams = { ...mergedParams, key: effectiveKey };
+  if (feed.supportsQuery) {
+    templateParams.query = finalQuery;
+  }
+  const baseUrl = buildUrl(feed.url, templateParams);
+  const urlWithParams = applyUrlParams(baseUrl, mergedParams, urlTemplateParamNames);
   const useClientKey = Boolean(key);
   const applied = applyKey(urlWithParams, feed, effectiveKey, useClientKey ? keyParam : undefined, useClientKey ? keyHeader : undefined);
   const headers = {
@@ -1442,6 +1494,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       payload.error = 'invalid_json';
       payload.message = 'NASA FIRMS returned invalid JSON.';
     }
+  }
+  if (!payload.error && feed.congressCommitteeBills && contentType.includes('json')) {
+    body = filterCongressCommitteeBillsBody(body, mergedParams.congress || feed.defaultParams?.congress);
+    contentType = 'application/json';
+    payload.body = body;
+    payload.contentType = contentType;
   }
   if (!payload.error) {
     cache.set(cacheKey, payload);

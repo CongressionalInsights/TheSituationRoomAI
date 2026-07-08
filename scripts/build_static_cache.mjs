@@ -33,6 +33,15 @@ function buildUrl(template, params = {}) {
   return url;
 }
 
+function getUrlTemplateParamNames(template = '') {
+  const names = new Set();
+  String(template || '').replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (_match, name) => {
+    names.add(name);
+    return '';
+  });
+  return names;
+}
+
 function applyProxy(url, proxy) {
   if (!proxy) return url;
   if (proxy === 'allorigins') {
@@ -45,12 +54,13 @@ function applyProxy(url, proxy) {
   return url;
 }
 
-function applyUrlParams(url, params = {}) {
+function applyUrlParams(url, params = {}, excludedParamNames = new Set()) {
   if (!url || !params || typeof params !== 'object') return url;
   const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '');
   if (!entries.length) return url;
   const parsed = new URL(url);
   entries.forEach(([key, value]) => {
+    if (excludedParamNames.has(key)) return;
     parsed.searchParams.set(key, String(value));
   });
   return parsed.toString();
@@ -58,6 +68,43 @@ function applyUrlParams(url, params = {}) {
 
 function normalizeContentType(contentType = '') {
   return String(contentType || '').toLowerCase();
+}
+
+function getCongressCommitteeBillRows(data) {
+  const committeeBills = data?.['committee-bills'] || data?.committeeBills || {};
+  if (Array.isArray(committeeBills?.bills)) return committeeBills.bills;
+  if (Array.isArray(data?.bills)) return data.bills;
+  return [];
+}
+
+function filterCongressCommitteeBillsBody(body, requestedCongress = '') {
+  const congress = String(requestedCongress || '').trim();
+  if (!congress || typeof body !== 'string' || !body.trim().startsWith('{')) return body;
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return body;
+  }
+  const rows = getCongressCommitteeBillRows(parsed);
+  if (!rows.length) return body;
+  const filtered = rows.filter((entry) => String(entry?.congress || '').trim() === congress);
+  const next = { ...parsed, bills: filtered };
+  if (parsed['committee-bills']) {
+    next['committee-bills'] = {
+      ...parsed['committee-bills'],
+      bills: filtered,
+      count: filtered.length
+    };
+  }
+  if (parsed.committeeBills) {
+    next.committeeBills = {
+      ...parsed.committeeBills,
+      bills: filtered,
+      count: filtered.length
+    };
+  }
+  return JSON.stringify(next);
 }
 
 function looksLikeHtmlDocument(text = '') {
@@ -557,13 +604,14 @@ function buildFeedProxyFallbackParams(feed) {
 
 function buildStaticRequestParams(feed) {
   if (!feed) return {};
+  const defaults = feed.supportsParams ? { ...(feed.defaultParams || {}) } : {};
   if (feed.id === 'state-legislation') {
     return {
       jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government',
-      ...(feed.defaultParams || {})
+      ...defaults
     };
   }
-  return {};
+  return defaults;
 }
 
 function isUsableRssSnapshot(payload) {
@@ -720,10 +768,14 @@ async function buildFeedPayload(feed) {
     ? OPENSKY_PUBLIC_STATES_URL
     : null;
   const templateUrl = transportSourceUrl || feed.url || fallbackUrl;
-  const baseUrl = feed.supportsQuery
-    ? buildUrl(templateUrl, { query, key, ...dateParams })
-    : buildUrl(templateUrl, { key, ...dateParams });
-  const applied = applyKey(applyUrlParams(baseUrl, buildStaticRequestParams(feed)), feed, key);
+  const staticRequestParams = buildStaticRequestParams(feed);
+  const templateParams = { ...staticRequestParams, key, ...dateParams };
+  if (feed.supportsQuery) {
+    templateParams.query = query;
+  }
+  const templateParamNames = getUrlTemplateParamNames(templateUrl);
+  const baseUrl = buildUrl(templateUrl, templateParams);
+  const applied = applyKey(applyUrlParams(baseUrl, staticRequestParams, templateParamNames), feed, key);
   const headers = {
     'User-Agent': appConfig.userAgent,
     'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
@@ -824,8 +876,14 @@ async function buildFeedPayload(feed) {
     }
   }
 
+  if (!payload.error && feed.congressCommitteeBills && contentType.includes('json')) {
+    payload.body = filterCongressCommitteeBillsBody(payload.body, staticRequestParams.congress || feed.defaultParams?.congress);
+    payload.contentType = 'application/json';
+    payload.transformed = true;
+  }
+
   if (!payload.error
-    && (feed.id === 'federal-register' || feed.id === 'federal-register-transport')
+    && (feed.id === 'federal-register' || feed.id === 'federal-register-transport' || feed.id === 'federal-register-ed')
     && contentType.includes('json')) {
     try {
       payload.body = JSON.stringify(normalizeFederalRegisterItems(JSON.parse(payload.body)));
