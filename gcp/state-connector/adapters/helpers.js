@@ -24,6 +24,33 @@ const entityMap = {
   mdash: '-'
 };
 
+const monthIndexes = new Map([
+  ['jan', 0],
+  ['january', 0],
+  ['feb', 1],
+  ['february', 1],
+  ['mar', 2],
+  ['march', 2],
+  ['apr', 3],
+  ['april', 3],
+  ['may', 4],
+  ['jun', 5],
+  ['june', 5],
+  ['jul', 6],
+  ['july', 6],
+  ['aug', 7],
+  ['august', 7],
+  ['sep', 8],
+  ['sept', 8],
+  ['september', 8],
+  ['oct', 9],
+  ['october', 9],
+  ['nov', 10],
+  ['november', 10],
+  ['dec', 11],
+  ['december', 11]
+]);
+
 export function decodeEntities(value = '') {
   return String(value)
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
@@ -80,6 +107,8 @@ export function textValue(value) {
 export function isoDate(value) {
   const raw = cleanText(value);
   if (!raw) return '';
+  const dateOnly = parseDateOnlyAsUtc(raw);
+  if (dateOnly) return dateOnly;
   const normalized = raw
     .replace(/\bEDT\b/g, '-0400')
     .replace(/\bEST\b/g, '-0500')
@@ -89,6 +118,41 @@ export function isoDate(value) {
     .replace(/\bPST\b/g, '-0800');
   const parsed = Date.parse(normalized);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : '';
+}
+
+function parseDateOnlyAsUtc(raw) {
+  const slash = raw.match(/^(?<month>\d{1,2})\/(?<day>\d{1,2})\/(?<year>\d{4})$/);
+  if (slash) {
+    return utcDateOnlyIso(Number(slash.groups.year), Number(slash.groups.month) - 1, Number(slash.groups.day));
+  }
+  const monthFirst = raw.match(/^(?<month>[A-Za-z]{3,9})\.?\s+(?<day>\d{1,2}),\s+(?<year>\d{4})$/);
+  if (monthFirst) {
+    return utcDateOnlyIso(
+      Number(monthFirst.groups.year),
+      monthIndex(monthFirst.groups.month),
+      Number(monthFirst.groups.day)
+    );
+  }
+  const dayFirst = raw.match(/^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,\s*)?(?<day>\d{1,2})\s+(?<month>[A-Za-z]{3,9})\.?\s+(?<year>\d{4})$/i);
+  if (dayFirst) {
+    return utcDateOnlyIso(
+      Number(dayFirst.groups.year),
+      monthIndex(dayFirst.groups.month),
+      Number(dayFirst.groups.day)
+    );
+  }
+  return '';
+}
+
+function monthIndex(value) {
+  return monthIndexes.get(String(value || '').toLowerCase().replace(/\.$/, ''));
+}
+
+function utcDateOnlyIso(year, month, day) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return '';
+  const date = new Date(Date.UTC(year, month, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day) return '';
+  return date.toISOString();
 }
 
 export function dateFromTitle(title) {
