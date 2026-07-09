@@ -25,7 +25,8 @@
 - `node scripts/build_frontend.mjs` — rebuild the versioned frontend bundle (matches `npm run build:frontend`).
 - `node scripts/verify_public.mjs` — verify the built public bundle and basic secret-leak patterns.
 - `npm run monitor:core|monitor:all|monitor:docs|monitor:report` — run the monitor entrypoints under `analysis/monitor/`.
-- `npm audit --prefix gcp/mcp-proxy --audit-level=high` and `npm audit --prefix gcp/acled-proxy --audit-level=high` — audit lockfile-backed Cloud Run proxy packages.
+- `node --test scripts/test/state-connector.spec.mjs gcp/state-connector/test/*.spec.mjs` — run the state-connector request and adapter fixture tests.
+- `npm audit --prefix gcp/mcp-proxy --audit-level=high`, `npm audit --prefix gcp/acled-proxy --audit-level=high`, and `npm audit --prefix gcp/state-connector --audit-level=high` — audit lockfile-backed Cloud Run packages.
 - `npm test` — run feed sync validation plus the Node test suite.
 - `npm run test:ui` — run Playwright UI tests.
 
@@ -78,6 +79,7 @@
 - Ensure AI context/search coverage includes the new feed category in `buildChatContext()` so briefings and search stay in sync.
 - Add or update attribution in the About modal’s “Where the data comes from” list, with required source wording and links.
 - Keep MCP parity when adding feed metadata: `catalog.sources`, `signals.list`, `signals.get`, and `search.smart` should accept or expose the same state-filter capabilities.
+- For `state-rulemaking` or state executive-order adapter fixes, update `gcp/state-connector/test/adapters.spec.mjs` fixtures, sweep similar state adapters for nav/archive/duplicate-format noise, then verify provider output plus `/api/feed` and MCP `signals.list` wrappers.
 - Keep panel IDs and list keys stable; they drive layout persistence and settings.
 - When adding map layers, also update legend groups and default toggles to avoid hidden layers.
 - If you change search behavior or add categories, update `state.lastSearch*` tracking and the AI context to reflect the new filters.
