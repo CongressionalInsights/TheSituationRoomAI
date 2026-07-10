@@ -169,6 +169,7 @@ jobs:
             --source gcp/mcp-proxy \
             --allow-unauthenticated \
             --min-instances 1 \
+            --timeout 900 \
             --set-secrets "$SECRET_BINDINGS" \
             --env-vars-file /tmp/sr-mcp-env.yaml 2>&1 | tee "$DIAG_DIR/deploy-output.log"
           DEPLOY_EXIT=${PIPESTATUS[0]}

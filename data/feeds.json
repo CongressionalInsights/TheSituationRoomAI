@@ -1144,7 +1144,7 @@
       "lockKeyHeader": true,
       "url": "https://v3.openstates.org/bills?sort=updated_desc",
       "ttlMinutes": 120,
-      "timeoutMs": 20000,
+      "timeoutMs": 120000,
       "supportsParams": true,
       "paramStrategy": "openstates-jurisdiction",
       "defaultParams": {

@@ -12,6 +12,7 @@ const {
   attachMoneyMatch,
   findBestMoneyNameMatch,
   getFeedConfiguration,
+  getOpenStatesSuccessCacheTtl,
   resolveMoneyAliasExpansion,
   selectSmartFeeds,
   settleMoneyTasks,
@@ -461,6 +462,83 @@ test('raw history does not fall back to current static snapshots', () => {
   assert.equal(shouldUseLiveFallback({ history: true }), false);
   assert.equal(shouldUseLiveFallback({ history: false }), true);
   assert.equal(shouldUseLiveFallback({}), true);
+});
+
+test('live fallback is disabled when query or params differ from the static snapshot request', () => {
+  const openStatesFeed = {
+    id: 'state-legislation',
+    supportsParams: true,
+    paramStrategy: 'openstates-jurisdiction',
+    defaultParams: {
+      classification: '',
+      per_page: 20
+    }
+  };
+  const rulemakingFeed = {
+    id: 'state-rulemaking',
+    supportsParams: true,
+    paramStrategy: 'state-code',
+    defaultParams: {
+      state: '',
+      signalType: 'rulemaking'
+    },
+    capabilities: ['rulemaking']
+  };
+  const searchFeed = {
+    id: 'google-news-search',
+    supportsQuery: true,
+    defaultQuery: 'breaking'
+  };
+  const plainFeed = {
+    id: 'congress-hearings'
+  };
+
+  assert.equal(shouldUseLiveFallback(openStatesFeed, {}), true);
+  assert.equal(shouldUseLiveFallback(openStatesFeed, { params: { per_page: 20 } }), true);
+  assert.equal(shouldUseLiveFallback(openStatesFeed, { params: { q: 'noncompete', per_page: 3 } }), false);
+  assert.equal(shouldUseLiveFallback(openStatesFeed, { params: { state: 'NY' } }), false);
+  assert.equal(shouldUseLiveFallback(rulemakingFeed, { params: { state: 'TX' } }), false);
+  assert.equal(shouldUseLiveFallback(searchFeed, {}), true);
+  assert.equal(shouldUseLiveFallback(searchFeed, { query: 'breaking' }), true);
+  assert.equal(shouldUseLiveFallback(searchFeed, { query: '' }), true);
+  assert.equal(shouldUseLiveFallback(searchFeed, { query: 'breaking when:1d' }), true);
+  assert.equal(shouldUseLiveFallback(searchFeed, { query: 'accreditation' }), false);
+  assert.equal(shouldUseLiveFallback(searchFeed, { query: 'accreditation when:1d' }), false);
+  assert.equal(shouldUseLiveFallback(plainFeed, { params: { q: 'noncompete' } }), false);
+  assert.equal(shouldUseLiveFallback(plainFeed, { query: 'noncompete' }), true);
+  assert.equal(shouldUseLiveFallback({ ...plainFeed, url: 'https://example.test/{{query}}' }, { query: 'noncompete' }), false);
+  assert.equal(shouldUseLiveFallback(openStatesFeed, { start: '2026-07-01' }), false);
+});
+
+test('OpenStates raw result cache has a bounded eviction path', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'gcp', 'mcp-proxy', 'server.js'), 'utf8');
+  assert.match(source, /OPENSTATES_CACHE_MAX_ENTRIES/);
+  assert.match(source, /while \(openStatesRawCache\.size >= OPENSTATES_CACHE_MAX_ENTRIES\)/);
+  assert.match(source, /openStatesRawCache\.delete\(oldestKey\)/);
+  assert.match(source, /OPENSTATES_MAX_CONCURRENT/);
+  assert.match(source, /OPENSTATES_MAX_QUEUE/);
+  assert.match(source, /OPENSTATES_QUEUE_TIMEOUT_MS/);
+  assert.match(source, /OPENSTATES_AGGREGATE_CACHE_TTL_MS/);
+  assert.match(source, /function normalizeFetchErrorCode\(error\)/);
+  assert.match(source, /return 'timeout'/);
+  assert.match(source, /function acquireOpenStatesSlot\(\)/);
+  assert.match(source, /openstates_queue_full/);
+  assert.match(source, /openstates_queue_timeout/);
+  assert.doesNotMatch(source, /failureResult\.code === 'openstates_queue_full'/);
+  assert.doesNotMatch(source, /code: error\.code \|\| null/);
+  assert.match(source, /const effectiveParams = feed\.supportsParams\s*\?\s*mergeFeedParams\(feed, options\.params\)\s*:\s*sanitizeParamsObject\(options\.params\);/);
+  assert.match(source, /isStateLegislationAllStatesRequest\(feed, effectiveParams\)/);
+  assert.match(source, /aggregatePartial: aggregateMeta\.partial/);
+  assert.match(source, /aggregatePayload\.aggregatePartial\s*\?\s*OPENSTATES_AGGREGATE_CACHE_TTL_MS/);
+  assert.match(source, /fetchOpenStatesWithControls\(target, \{ headers \}, perStateTimeoutMs\)/);
+  assert.match(source, /setOpenStatesCachedRaw\(openStatesCacheKey, aggregatePayload, aggregateTtlMs\)/);
+  assert.match(source, /fetchOpenStatesWithControls\(proxiedUrl, \{ headers: requestHeaders \}, perAttemptTimeoutMs\)/);
+});
+
+test('OpenStates success cache TTL is bounded by the feed freshness contract', () => {
+  assert.equal(getOpenStatesSuccessCacheTtl({ ttlMinutes: 120 }), 120 * 60 * 1000);
+  assert.equal(getOpenStatesSuccessCacheTtl({ ttlMinutes: 480 }), 6 * 60 * 60 * 1000);
+  assert.equal(getOpenStatesSuccessCacheTtl({}), 6 * 60 * 60 * 1000);
 });
 
 test('raw structured content parses JSON content regardless of requested text format', () => {
