@@ -56,8 +56,21 @@ const STATE_CONNECTOR_KEY_HEADER = String(process.env.STATE_CONNECTOR_KEY_HEADER
 const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
 const STATE_CONNECTOR_COVERED_STATES = ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'];
+const OPENSTATES_CACHE_TTL_MS = Number(process.env.OPENSTATES_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
+const OPENSTATES_ERROR_CACHE_TTL_MS = Number(process.env.OPENSTATES_ERROR_CACHE_TTL_MS || 5 * 60 * 1000);
+const OPENSTATES_AGGREGATE_CACHE_TTL_MS = Number(process.env.OPENSTATES_AGGREGATE_CACHE_TTL_MS || 10 * 60 * 1000);
+const OPENSTATES_MIN_INTERVAL_MS = Number(process.env.OPENSTATES_MIN_INTERVAL_MS || 1000);
+const OPENSTATES_CACHE_MAX_ENTRIES = Number(process.env.OPENSTATES_CACHE_MAX_ENTRIES || 256);
+const OPENSTATES_MAX_CONCURRENT = Number(process.env.OPENSTATES_MAX_CONCURRENT || 2);
+const OPENSTATES_MAX_QUEUE = Number(process.env.OPENSTATES_MAX_QUEUE || 64);
+const OPENSTATES_QUEUE_TIMEOUT_MS = Number(process.env.OPENSTATES_QUEUE_TIMEOUT_MS || 12 * 60 * 1000);
 
 const samCache = new Map();
+const openStatesRawCache = new Map();
+let openStatesPaceChain = Promise.resolve();
+let openStatesNextRequestAt = 0;
+let openStatesActiveRequests = 0;
+const openStatesWaitQueue = [];
 let openSkyToken = null;
 let openSkyTokenExpiresAt = 0;
 
@@ -136,6 +149,27 @@ function parseRetryAfter(header) {
   if (Number.isNaN(parsed.getTime())) return null;
   const seconds = Math.max(0, Math.round((parsed.getTime() - Date.now()) / 1000));
   return { retryAfterSeconds: seconds, retryAt: parsed.toISOString() };
+}
+
+function extractUpstreamErrorMessage(status, body = '') {
+  const fallback = `HTTP ${status}`;
+  const text = String(body || '').trim();
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text);
+    const message = parsed?.message || parsed?.error_description || parsed?.error || parsed?.detail;
+    if (message) return `${fallback}: ${String(message).slice(0, 240)}`;
+  } catch {
+    // fall through to text snippet
+  }
+  return `${fallback}: ${text.replace(/\s+/g, ' ').slice(0, 240)}`;
+}
+
+function normalizeFetchErrorCode(error) {
+  if (error?.name === 'AbortError' || error?.code === 20 || error?.code === 'ABORT_ERR') {
+    return 'timeout';
+  }
+  return typeof error?.code === 'string' && error.code ? error.code : 'fetch_failed';
 }
 
 async function fetchSamEntities({ query, perSourceLimit, samGovKey }) {
@@ -1147,6 +1181,10 @@ function isStateLegislationAllStatesRequest(feed, params = {}) {
   return !params.jurisdiction && !params.q;
 }
 
+function isOpenStatesFeed(feed) {
+  return feed?.keyGroup === 'openstates' || feed?.id === 'state-legislation';
+}
+
 function isStateConnectorFeed(feed) {
   return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
 }
@@ -1250,19 +1288,24 @@ async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, time
 
   const fetchState = async (requestUrl) => {
     let lastResponse = null;
+    let lastStatus = null;
     for (const nextProxy of attemptProxies) {
       const target = nextProxy ? applyProxy(requestUrl, nextProxy) : requestUrl;
       try {
-        const response = await fetchWithTimeout(target, { headers }, perStateTimeoutMs);
+        const response = nextProxy
+          ? await fetchWithTimeout(target, { headers }, perStateTimeoutMs)
+          : await fetchOpenStatesWithControls(target, { headers }, perStateTimeoutMs);
         if (response.ok) {
           return { response, proxyUsed: nextProxy || null };
         }
         lastResponse = response;
-      } catch {
+        lastStatus = response.status;
+      } catch (error) {
+        lastStatus = normalizeFetchErrorCode(error);
         // try next proxy
       }
     }
-    return { response: lastResponse, proxyUsed: null };
+    return { response: lastResponse, proxyUsed: null, status: lastResponse?.status || lastStatus || 'fetch_failed' };
   };
 
   const worker = async () => {
@@ -1278,9 +1321,9 @@ async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, time
       const requestUrl = new URL(template.toString());
       requestUrl.searchParams.set('jurisdiction', jurisdiction);
       try {
-        const { response } = await fetchState(requestUrl.toString());
+        const { response, status } = await fetchState(requestUrl.toString());
         if (!response || !response.ok) {
-          failedStates.push({ code, status: response?.status || 'fetch_failed' });
+          failedStates.push({ code, status: response?.status || status || 'fetch_failed' });
           continue;
         }
         const text = await response.text();
@@ -1334,8 +1377,12 @@ async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, time
   };
 
   if (!limited.length) {
+    const firstStatus = failedStates.find((entry) => entry?.status)?.status || 'fetch_failed';
+    const upstreamStatus = Number.isFinite(Number(firstStatus)) ? Number(firstStatus) : null;
     return {
       error: 'fetch_failed',
+      ...(upstreamStatus ? { upstreamStatus, httpStatus: upstreamStatus } : {}),
+      ...(typeof firstStatus === 'string' && firstStatus !== 'fetch_failed' ? { code: firstStatus } : {}),
       message: 'Unable to fetch state legislation for all states.',
       fetchedUrl: stripSecretsFromUrl(template.toString()),
       proxyUsed: null,
@@ -1358,7 +1405,8 @@ async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, time
     contentType: 'application/json',
     fetchedUrl: stripSecretsFromUrl(template.toString()),
     proxyUsed: null,
-    fallbackUsed: false
+    fallbackUsed: false,
+    aggregatePartial: aggregateMeta.partial
   };
 }
 
@@ -1864,8 +1912,75 @@ export function shouldFilterSmartFeedLocally({ feed, query, categories, sources 
     || (Array.isArray(sources) && sources.length > 0);
 }
 
-export function shouldUseLiveFallback(options = {}) {
-  return !options?.history;
+function normalizeComparableParams(params = {}) {
+  return Object.fromEntries(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .map(([key, value]) => [key, String(value)])
+      .sort(([left], [right]) => left.localeCompare(right))
+  );
+}
+
+function paramsEqual(left = {}, right = {}) {
+  const leftEntries = Object.entries(normalizeComparableParams(left));
+  const rightEntries = Object.entries(normalizeComparableParams(right));
+  if (leftEntries.length !== rightEntries.length) return false;
+  return leftEntries.every(([key, value], index) => {
+    const [rightKey, rightValue] = rightEntries[index] || [];
+    return key === rightKey && value === rightValue;
+  });
+}
+
+function getFallbackComparableParams(feed, params = {}) {
+  if (feed?.supportsParams) {
+    return normalizeComparableParams(mergeFeedParams(feed, params));
+  }
+  return normalizeComparableParams(sanitizeParamsObject(params));
+}
+
+function getFallbackComparableQuery(feed, options = {}) {
+  if (feed?.supportsQuery) {
+    return String(options.query || feed.defaultQuery || '').trim();
+  }
+  return String(options.query || '').trim();
+}
+
+function getFallbackComparableUrl(feed, options = {}) {
+  try {
+    return buildFeedUrl(feed, { ...options, key: '' });
+  } catch {
+    return '';
+  }
+}
+
+function isFallbackDefaultQuery(feed, requestQuery) {
+  const defaultQuery = String(feed?.defaultQuery || '').trim();
+  if (requestQuery === defaultQuery) return true;
+  if (feed?.id === 'google-news-search' && requestQuery === `${defaultQuery} when:1d`) {
+    return true;
+  }
+  return false;
+}
+
+export function shouldUseLiveFallback(feedOrOptions = {}, maybeOptions = null) {
+  const legacyCall = maybeOptions === null;
+  const feed = legacyCall ? null : feedOrOptions;
+  const options = legacyCall ? feedOrOptions : (maybeOptions || {});
+  if (options?.history || options?.start || options?.end) return false;
+  if (!feed) return true;
+
+  const requestQuery = getFallbackComparableQuery(feed, options);
+  if (feed.supportsQuery) {
+    if (!isFallbackDefaultQuery(feed, requestQuery)) return false;
+  } else if (requestQuery) {
+    const defaultUrl = getFallbackComparableUrl(feed, {});
+    const requestUrl = getFallbackComparableUrl(feed, options);
+    if (requestUrl !== defaultUrl) return false;
+  }
+
+  const defaultParams = getFallbackComparableParams(feed, {});
+  const requestParams = getFallbackComparableParams(feed, options.params);
+  return paramsEqual(defaultParams, requestParams);
 }
 
 function dedupeSignals(items) {
@@ -1886,6 +2001,143 @@ function createItemId(item) {
     ? `${stableSourceId}|${item.url || ''}`
     : `${item.url || ''}|${item.title || ''}|${item.publishedAt || ''}`;
   return createHash('sha1').update(base).digest('hex').slice(0, 12);
+}
+
+function buildOpenStatesRawCacheKey(feed, url) {
+  try {
+    const parsed = new URL(url);
+    ['api_key', 'key', 'token', 'apikey'].forEach((param) => parsed.searchParams.delete(param));
+    const sortedParams = [...parsed.searchParams.entries()]
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) => (
+        leftKey === rightKey ? leftValue.localeCompare(rightValue) : leftKey.localeCompare(rightKey)
+      ));
+    parsed.search = '';
+    sortedParams.forEach(([key, value]) => parsed.searchParams.append(key, value));
+    return `${feed?.id || 'openstates'}:${parsed.toString()}`;
+  } catch {
+    return `${feed?.id || 'openstates'}:${stripSecretsFromUrl(url)}`;
+  }
+}
+
+function cloneFetchResult(result) {
+  if (!result || typeof result !== 'object') return result;
+  return {
+    ...result,
+    responseHeaders: result.responseHeaders ? { ...result.responseHeaders } : null
+  };
+}
+
+function getOpenStatesCachedRaw(cacheKey) {
+  const cached = openStatesRawCache.get(cacheKey);
+  if (!cached) return null;
+  if (Date.now() >= cached.expiresAt) {
+    openStatesRawCache.delete(cacheKey);
+    return null;
+  }
+  openStatesRawCache.delete(cacheKey);
+  openStatesRawCache.set(cacheKey, cached);
+  return cloneFetchResult(cached.result);
+}
+
+function setOpenStatesCachedRaw(cacheKey, result, ttlMs = OPENSTATES_CACHE_TTL_MS) {
+  if (!cacheKey || !result || !Number.isFinite(ttlMs) || ttlMs <= 0) return;
+  if (!Number.isFinite(OPENSTATES_CACHE_MAX_ENTRIES) || OPENSTATES_CACHE_MAX_ENTRIES <= 0) return;
+  const now = Date.now();
+  for (const [key, entry] of openStatesRawCache.entries()) {
+    if (!entry || now >= entry.expiresAt) {
+      openStatesRawCache.delete(key);
+    }
+  }
+  while (openStatesRawCache.size >= OPENSTATES_CACHE_MAX_ENTRIES) {
+    const oldestKey = openStatesRawCache.keys().next().value;
+    if (!oldestKey) break;
+    openStatesRawCache.delete(oldestKey);
+  }
+  openStatesRawCache.set(cacheKey, {
+    expiresAt: now + ttlMs,
+    result: cloneFetchResult(result)
+  });
+}
+
+export function getOpenStatesSuccessCacheTtl(feed) {
+  if (!Number.isFinite(OPENSTATES_CACHE_TTL_MS) || OPENSTATES_CACHE_TTL_MS <= 0) {
+    return OPENSTATES_CACHE_TTL_MS;
+  }
+  const feedTtlMs = Number(feed?.ttlMinutes) * 60 * 1000;
+  if (!Number.isFinite(feedTtlMs) || feedTtlMs <= 0) return OPENSTATES_CACHE_TTL_MS;
+  return Math.min(OPENSTATES_CACHE_TTL_MS, feedTtlMs);
+}
+
+function getOpenStatesErrorCacheTtl(response) {
+  const retryMeta = response?.status === 429 ? parseRetryAfter(response.headers?.get('retry-after')) : null;
+  if (retryMeta?.retryAfterSeconds) {
+    return Math.max(OPENSTATES_ERROR_CACHE_TTL_MS, retryMeta.retryAfterSeconds * 1000);
+  }
+  return OPENSTATES_ERROR_CACHE_TTL_MS;
+}
+
+async function paceOpenStatesRequest() {
+  if (!Number.isFinite(OPENSTATES_MIN_INTERVAL_MS) || OPENSTATES_MIN_INTERVAL_MS <= 0) return;
+  const run = openStatesPaceChain.then(async () => {
+    const waitMs = Math.max(0, openStatesNextRequestAt - Date.now());
+    if (waitMs > 0) await sleep(waitMs);
+    openStatesNextRequestAt = Date.now() + OPENSTATES_MIN_INTERVAL_MS;
+  });
+  openStatesPaceChain = run.catch(() => {});
+  await run;
+}
+
+async function acquireOpenStatesSlot() {
+  if (!Number.isFinite(OPENSTATES_MAX_CONCURRENT) || OPENSTATES_MAX_CONCURRENT <= 0) {
+    return () => {};
+  }
+  if (openStatesActiveRequests < OPENSTATES_MAX_CONCURRENT) {
+    openStatesActiveRequests += 1;
+    return () => releaseOpenStatesSlot();
+  }
+  if (
+    Number.isFinite(OPENSTATES_MAX_QUEUE)
+    && OPENSTATES_MAX_QUEUE >= 0
+    && openStatesWaitQueue.length >= OPENSTATES_MAX_QUEUE
+  ) {
+    const error = new Error('OpenStates request queue is full; retry later.');
+    error.code = 'openstates_queue_full';
+    throw error;
+  }
+  return new Promise((resolve, reject) => {
+    let timer = null;
+    const waiter = () => {
+      if (timer) clearTimeout(timer);
+      openStatesActiveRequests += 1;
+      resolve(() => releaseOpenStatesSlot());
+    };
+    if (Number.isFinite(OPENSTATES_QUEUE_TIMEOUT_MS) && OPENSTATES_QUEUE_TIMEOUT_MS >= 0) {
+      timer = setTimeout(() => {
+        const index = openStatesWaitQueue.indexOf(waiter);
+        if (index >= 0) openStatesWaitQueue.splice(index, 1);
+        const error = new Error('OpenStates request queue wait timed out; retry later.');
+        error.code = 'openstates_queue_timeout';
+        reject(error);
+      }, OPENSTATES_QUEUE_TIMEOUT_MS);
+    }
+    openStatesWaitQueue.push(waiter);
+  });
+}
+
+function releaseOpenStatesSlot() {
+  openStatesActiveRequests = Math.max(0, openStatesActiveRequests - 1);
+  const next = openStatesWaitQueue.shift();
+  if (next) next();
+}
+
+async function fetchOpenStatesWithControls(url, requestOptions, timeoutMs) {
+  const release = await acquireOpenStatesSlot();
+  try {
+    await paceOpenStatesRequest();
+    return await fetchWithTimeout(url, requestOptions, timeoutMs);
+  } finally {
+    release();
+  }
 }
 
 async function fetchRaw(feed, options) {
@@ -1944,6 +2196,26 @@ async function fetchRaw(feed, options) {
     : (feed.proxy ? [feed.proxy] : []);
   const optionProxy = options.proxy || null;
   const primaryProxy = configuredProxies[0] || optionProxy || null;
+  const openStatesRequest = isOpenStatesFeed(feed);
+  const openStatesCacheKey = openStatesRequest ? buildOpenStatesRawCacheKey(feed, keyedUrl) : null;
+  const effectiveParams = feed.supportsParams
+    ? mergeFeedParams(feed, options.params)
+    : sanitizeParamsObject(options.params);
+  if (openStatesCacheKey) {
+    const cached = getOpenStatesCachedRaw(openStatesCacheKey);
+    if (cached) {
+      console.log(JSON.stringify({
+        event: 'mcp_raw_fetch',
+        feedId: feed.id,
+        ok: !cached.error,
+        httpStatus: cached.httpStatus || cached.upstreamStatus || null,
+        elapsedMs: Date.now() - startedAt,
+        proxyUsed: cached.proxyUsed || null,
+        cache: 'openstates'
+      }));
+      return cached;
+    }
+  }
   const requestHeaders = {
     ...headers,
     'Accept': feed.format === 'rss'
@@ -1952,10 +2224,23 @@ async function fetchRaw(feed, options) {
     'Accept-Language': 'en-US,en;q=0.9',
     'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0'
   };
-  if (isStateLegislationAllStatesRequest(feed, options.params)) {
-    return fetchAllStatesLegislationRaw(feed, keyedUrl, requestHeaders, primaryProxy, totalTimeoutMs);
+  if (isStateLegislationAllStatesRequest(feed, effectiveParams)) {
+    const aggregatePayload = await fetchAllStatesLegislationRaw(feed, keyedUrl, requestHeaders, primaryProxy, totalTimeoutMs);
+    if (openStatesCacheKey && !aggregatePayload.error) {
+      const aggregateTtlMs = aggregatePayload.aggregatePartial
+        ? OPENSTATES_AGGREGATE_CACHE_TTL_MS
+        : getOpenStatesSuccessCacheTtl(feed);
+      setOpenStatesCachedRaw(openStatesCacheKey, aggregatePayload, aggregateTtlMs);
+    } else if (
+      openStatesCacheKey
+      && aggregatePayload.error
+      && [429, 500, 502, 503, 504].includes(Number(aggregatePayload.httpStatus || aggregatePayload.upstreamStatus))
+    ) {
+      setOpenStatesCachedRaw(openStatesCacheKey, aggregatePayload, OPENSTATES_ERROR_CACHE_TTL_MS);
+    }
+    return aggregatePayload;
   }
-  const attemptList = [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
+  const attemptList = openStatesRequest ? [null] : [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
   const isRssFeed = feed.format === 'rss';
   const seen = new Set();
   const attempts = attemptList.filter((proxy) => {
@@ -1994,7 +2279,9 @@ async function fetchRaw(feed, options) {
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
       : totalTimeoutMs;
     try {
-      response = await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
+      response = openStatesRequest && !proxy
+        ? await fetchOpenStatesWithControls(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs)
+        : await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
       body = await response.text();
       responseHeaders = extractSafeResponseHeaders(response.headers);
       if (response.ok) {
@@ -2058,7 +2345,8 @@ async function fetchRaw(feed, options) {
       lastError = {
         error: 'fetch_failed',
         httpStatus: response.status,
-        message: `HTTP ${response.status}`,
+        upstreamStatus: response.status,
+        message: extractUpstreamErrorMessage(response.status, body),
         body
       };
       // Client-side upstream errors are not recoverable via proxy fallback.
@@ -2066,7 +2354,7 @@ async function fetchRaw(feed, options) {
         break;
       }
     } catch (error) {
-      lastError = { error: 'fetch_failed', message: error.message };
+      lastError = { error: 'fetch_failed', message: error.message, code: normalizeFetchErrorCode(error) };
     }
   }
 
@@ -2086,7 +2374,7 @@ async function fetchRaw(feed, options) {
         };
       }
     }
-    const fallback = shouldUseLiveFallback(options) ? await fetchLiveFallback(feed.id) : null;
+    const fallback = shouldUseLiveFallback(feed, options) ? await fetchLiveFallback(feed.id) : null;
     if (fallback) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'
@@ -2121,13 +2409,21 @@ async function fetchRaw(feed, options) {
       elapsedMs: Date.now() - startedAt,
       proxyUsed: usedProxy || null
     }));
-    return {
+    const failureResult = {
       ...lastError,
       fetchedUrl: stripSecretsFromUrl(fetchedUrl),
       proxyUsed: usedProxy,
       fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy && !configuredProxies.includes(usedProxy)),
       responseHeaders
     };
+    if (
+      openStatesCacheKey
+      && failureResult.error
+      && [429, 500, 502, 503, 504].includes(Number(failureResult.httpStatus || failureResult.upstreamStatus))
+    ) {
+      setOpenStatesCachedRaw(openStatesCacheKey, failureResult, getOpenStatesErrorCacheTtl(response));
+    }
+    return failureResult;
   }
 
   console.log(JSON.stringify({
@@ -2138,7 +2434,7 @@ async function fetchRaw(feed, options) {
     elapsedMs: Date.now() - startedAt,
     proxyUsed: usedProxy || null
   }));
-  return {
+  const successResult = {
     body,
     httpStatus: response.status,
     contentType: response.headers.get('content-type') || null,
@@ -2147,6 +2443,10 @@ async function fetchRaw(feed, options) {
     fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy && !configuredProxies.includes(usedProxy)),
     responseHeaders
   };
+  if (openStatesCacheKey && !usedProxy) {
+    setOpenStatesCachedRaw(openStatesCacheKey, successResult, getOpenStatesSuccessCacheTtl(feed));
+  }
+  return successResult;
 }
 
 async function fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, entities }) {
@@ -2580,7 +2880,16 @@ server.registerTool(
     if (result.error) {
       return {
         content: [{ type: 'text', text: `Fetch failed: ${result.message || result.error}` }],
-        structuredContent: { error: result.error, message: result.message, httpStatus: result.httpStatus || null }
+        structuredContent: {
+          error: result.error,
+          code: result.code || null,
+          message: result.message,
+          httpStatus: result.httpStatus || null,
+          upstreamStatus: result.upstreamStatus || result.httpStatus || null,
+          fetchedUrl: result.fetchedUrl || null,
+          fallbackUsed: Boolean(result.fallbackUsed),
+          proxyUsed: result.proxyUsed || null
+        }
       };
     }
 

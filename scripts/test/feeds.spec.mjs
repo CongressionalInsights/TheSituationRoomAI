@@ -45,6 +45,14 @@ test('EIA feeds carry the extended timeout budget', () => {
   });
 });
 
+test('state legislation uses the widened OpenStates timeout budget', () => {
+  const raw = fs.readFileSync(feedsPath, 'utf8');
+  const data = JSON.parse(raw);
+  const feed = data.feeds.find((entry) => entry.id === 'state-legislation');
+  assert.ok(feed, 'missing state-legislation feed');
+  assert.equal(feed.timeoutMs, 120000, 'state-legislation should allow slow OpenStates query responses');
+});
+
 test('FDA MedWatch feed keeps both proxy fallbacks', () => {
   const raw = fs.readFileSync(feedsPath, 'utf8');
   const data = JSON.parse(raw);
