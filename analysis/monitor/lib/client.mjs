@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT_DIR } from './catalog.mjs';
+import { defaultMonitorBaselineDir, isCredentialScopeQueryKey } from './baseline.mjs';
 
 export const DEFAULT_FEED_BASE = 'https://situation-room-feed-382918878290.us-central1.run.app';
 export const DEFAULT_MCP_ENDPOINT = 'https://situation-room-mcp-382918878290.us-central1.run.app/mcp';
@@ -9,6 +10,8 @@ export const DEFAULT_STATIC_BASE = 'https://congressionalinsights.github.io/TheS
 export const DEFAULT_OUTPUT_DIR = path.join(ROOT_DIR, 'analysis', 'monitor');
 
 const RETRY_BACKOFF_MS = [500, 1200];
+const MAX_MCP_EVENT_BUFFER_CHARS = 2 * 1024 * 1024;
+const MAX_MCP_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 function normalizeBase(value) {
   if (!value) return '';
@@ -28,11 +31,14 @@ export function parseCliArgs(argv = []) {
     mcp: normalizeBase(process.env.SR_MONITOR_MCP || process.env.SR_MCP || DEFAULT_MCP_ENDPOINT),
     staticBase: normalizeBase(process.env.SR_MONITOR_STATIC || process.env.SR_STATIC_BASE || DEFAULT_STATIC_BASE),
     outputDir: path.resolve(process.env.SR_MONITOR_OUTPUT_DIR || DEFAULT_OUTPUT_DIR),
+    baselineDir: defaultMonitorBaselineDir(),
     timeoutMs: Number(process.env.SR_MONITOR_TIMEOUT_MS || 30000),
     includeDocs: true,
     includeStatic: true,
     writeLatest: true,
-    allowAlerts: false
+    allowAlerts: false,
+    allowLegacyBaseline: false,
+    scopeTag: String(process.env.SR_MONITOR_SCOPE_TAG || '')
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -54,6 +60,9 @@ export function parseCliArgs(argv = []) {
       case '--output-dir':
         options.outputDir = path.resolve(String(nextValue || DEFAULT_OUTPUT_DIR));
         break;
+      case '--baseline-dir':
+        options.baselineDir = path.resolve(String(nextValue || defaultMonitorBaselineDir()));
+        break;
       case '--timeout':
         options.timeoutMs = Number(nextValue || options.timeoutMs);
         break;
@@ -68,6 +77,12 @@ export function parseCliArgs(argv = []) {
         break;
       case '--allow-alerts':
         options.allowAlerts = true;
+        break;
+      case '--allow-legacy-baseline':
+        options.allowLegacyBaseline = true;
+        break;
+      case '--scope-tag':
+        options.scopeTag = String(nextValue || '');
         break;
       default: {
         const key = flag.replace(/^--/, '');
@@ -93,14 +108,26 @@ export function readJson(filePath, fallback = null) {
   }
 }
 
-export function writeJson(filePath, value) {
+function writeFileAtomic(filePath, value) {
   ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  try {
+    fs.writeFileSync(tempPath, value, { flag: 'wx' });
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {}
+    throw error;
+  }
+}
+
+export function writeJson(filePath, value) {
+  writeFileAtomic(filePath, JSON.stringify(value, null, 2));
 }
 
 export function writeText(filePath, value) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, String(value));
+  writeFileAtomic(filePath, String(value));
 }
 
 export function hashContent(value) {
@@ -111,17 +138,20 @@ export function sanitizeObservedUrl(rawUrl) {
   if (!rawUrl) return rawUrl;
   try {
     const parsed = new URL(rawUrl);
-    ['api_key', 'key', 'token', 'apikey'].forEach((param) => {
-      if (parsed.searchParams.has(param)) {
-        parsed.searchParams.set(param, 'REDACTED');
-      }
-    });
+    if (parsed.username) parsed.username = 'REDACTED';
+    if (parsed.password) parsed.password = 'REDACTED';
+    for (const key of parsed.searchParams.keys()) {
+      parsed.searchParams.set(key, 'REDACTED');
+    }
     parsed.pathname = parsed.pathname.replace(/\/api\/area\/json\/[^/]+/i, '/api/area/json/REDACTED');
+    parsed.hash = '';
     return parsed.toString();
   } catch {
     return String(rawUrl)
-      .replace(/(api_key=)[^&]+/gi, '$1REDACTED')
-      .replace(/(\/api\/area\/json\/)[^/]+/i, '$1REDACTED');
+      .replace(/^([^:/?#]+:\/\/)[^@/\s]+@/i, '$1REDACTED@')
+      .replace(/([?&])([^=&#\s]+)=([^&\s]*)/g, '$1$2=REDACTED')
+      .replace(/(\/api\/area\/json\/)[^/]+/i, '$1REDACTED')
+      .replace(/#.*$/, '');
   }
 }
 
@@ -144,7 +174,13 @@ export async function fetchText(url, options = {}) {
     const text = await response.text();
     return { ok: response.ok, status: response.status, text, headers: response.headers };
   } catch (error) {
-    return { ok: false, status: null, text: '', error: error?.name === 'AbortError' ? 'timeout' : (error?.message || 'fetch_failed'), headers: new Headers() };
+    return {
+      ok: false,
+      status: null,
+      text: '',
+      error: error?.name === 'AbortError' ? 'timeout' : 'fetch_failed',
+      headers: new Headers()
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -173,7 +209,7 @@ function parseMcpStream(text) {
   }
 }
 
-async function readFirstMcpEvent(response) {
+async function readMatchingMcpEvent(response, requestId) {
   if (!response?.body) return null;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -183,18 +219,26 @@ async function readFirstMcpEvent(response) {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const delimiter = buffer.match(/\r?\n\r?\n/);
-      if (!delimiter) continue;
-      const chunk = buffer.slice(0, delimiter.index);
-      const parsed = parseMcpStream(chunk);
-      if (parsed) {
-        try { await reader.cancel(); } catch {}
-        return parsed;
+      if (buffer.length > MAX_MCP_EVENT_BUFFER_CHARS) {
+        const error = new Error('MCP event exceeded the monitor response limit.');
+        error.code = 'MCP_RESPONSE_TOO_LARGE';
+        throw error;
       }
-      buffer = buffer.slice((delimiter.index || 0) + delimiter[0].length);
+      while (true) {
+        const delimiter = buffer.match(/\r?\n\r?\n/);
+        if (!delimiter) break;
+        const chunk = buffer.slice(0, delimiter.index);
+        buffer = buffer.slice((delimiter.index || 0) + delimiter[0].length);
+        const parsed = parseMcpStream(chunk);
+        if (parsed && parsed.id === requestId) {
+          try { await reader.cancel(); } catch {}
+          return parsed;
+        }
+      }
     }
-  } catch {
-    return null;
+  } catch (error) {
+    try { await reader.cancel(); } catch {}
+    throw error;
   } finally {
     try { reader.releaseLock(); } catch {}
   }
@@ -210,6 +254,159 @@ function parseMcpText(text) {
   } catch {
     return null;
   }
+}
+
+async function readMcpResponseText(response) {
+  const declaredLength = Number(response?.headers?.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_MCP_RESPONSE_BYTES) {
+    const error = new Error('MCP response exceeded the monitor response limit.');
+    error.code = 'MCP_RESPONSE_TOO_LARGE';
+    throw error;
+  }
+  if (!response?.body) return '';
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytesRead += value?.byteLength || 0;
+      if (bytesRead > MAX_MCP_RESPONSE_BYTES) {
+        const error = new Error('MCP response exceeded the monitor response limit.');
+        error.code = 'MCP_RESPONSE_TOO_LARGE';
+        throw error;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } catch (error) {
+    try { await reader.cancel(); } catch {}
+    throw error;
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+}
+
+function replaceCredentialToken(message, token, replacement) {
+  let cursor = 0;
+  let result = '';
+  while (cursor < message.length) {
+    const index = message.indexOf(token, cursor);
+    if (index < 0) return result + message.slice(cursor);
+    const before = index > 0 ? message[index - 1] : '';
+    const afterIndex = index + token.length;
+    const after = afterIndex < message.length ? message[afterIndex] : '';
+    const boundedBefore = !before || !/[A-Za-z0-9]/.test(before);
+    const boundedAfter = !after || !/[A-Za-z0-9]/.test(after);
+    if (boundedBefore && boundedAfter) {
+      result += message.slice(cursor, index) + replacement;
+      cursor = afterIndex;
+    } else {
+      result += message.slice(cursor, index + 1);
+      cursor = index + 1;
+    }
+  }
+  return result;
+}
+
+function redactEndpointValues(message, endpoint, { redactBareCredentials = true } = {}) {
+  const redacted = 'REDACTED';
+  const credentialTokens = new Set();
+  const queryPairs = new Set();
+  try {
+    const parsed = new URL(String(endpoint || ''));
+    const variants = (value) => {
+      if (!value) return;
+      const values = new Set([String(value)]);
+      try { values.add(decodeURIComponent(String(value))); } catch {}
+      try { values.add(encodeURIComponent(String(value))); } catch {}
+      return [...values].filter(Boolean);
+    };
+    for (const value of [parsed.username, parsed.password]) {
+      for (const token of variants(value) || []) credentialTokens.add(token);
+    }
+    for (const [key, value] of parsed.searchParams.entries()) {
+      const keyVariants = variants(key) || [];
+      const valueVariants = variants(value) || [];
+      for (const keyVariant of keyVariants) {
+        for (const valueVariant of valueVariants) {
+          queryPairs.add(`${keyVariant}=${valueVariant}`);
+        }
+      }
+      if (isCredentialScopeQueryKey(key)) {
+        for (const token of valueVariants) credentialTokens.add(token);
+      }
+    }
+    for (const pair of parsed.search.slice(1).split('&')) {
+      const separator = pair.indexOf('=');
+      if (separator >= 0) queryPairs.add(pair);
+    }
+  } catch {}
+
+  let safeMessage = String(message || '');
+  for (const pair of [...queryPairs].filter(Boolean).sort((a, b) => b.length - a.length)) {
+    const separator = pair.indexOf('=');
+    safeMessage = safeMessage.split(pair).join(`${pair.slice(0, separator + 1)}${redacted}`);
+  }
+  if (redactBareCredentials) {
+    for (const token of [...credentialTokens].filter(Boolean).sort((a, b) => b.length - a.length)) {
+      safeMessage = replaceCredentialToken(safeMessage, token, redacted);
+    }
+  }
+  return safeMessage.replace(/https?:\/\/[^\s"'<>]+/gi, (value) => sanitizeObservedUrl(value));
+}
+
+function isSensitiveMcpResultField(key) {
+  const normalized = String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase();
+  return /(?:^|_)(?:error|message|url|uri|endpoint|href|request)(?:_|$)/.test(normalized);
+}
+
+function redactEndpointPayload(value, endpoint, { errorContext = false } = {}) {
+  if (typeof value === 'string') {
+    return redactEndpointValues(value, endpoint, { redactBareCredentials: errorContext });
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactEndpointPayload(item, endpoint, { errorContext }));
+  }
+  if (!value || typeof value !== 'object') return value;
+  const objectErrorContext = errorContext || Boolean(value.isError) || Boolean(value.error);
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+    const safeKey = redactEndpointValues(key, endpoint, { redactBareCredentials: false });
+    if (isCredentialScopeQueryKey(key)) return [safeKey, 'REDACTED'];
+    return [safeKey, redactEndpointPayload(item, endpoint, {
+      errorContext: objectErrorContext || isSensitiveMcpResultField(key)
+    })];
+  }));
+}
+
+function normalizeMcpToolError(result) {
+  const structuredError = result?.structuredContent?.error;
+  const structuredMessage = result?.structuredContent?.message;
+  const contentMessage = Array.isArray(result?.content)
+    ? result.content.find((item) => item?.type === 'text' && String(item?.text || '').trim())?.text
+    : null;
+  return {
+    error: typeof structuredError === 'string' && structuredError.trim()
+      ? structuredError
+      : 'mcp_tool_error',
+    message: typeof structuredMessage === 'string' && structuredMessage.trim()
+      ? structuredMessage
+      : (contentMessage || 'MCP tool call failed.')
+  };
+}
+
+function isMatchingMcpResponse(parsed, requestId) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const hasResult = Object.prototype.hasOwnProperty.call(parsed, 'result');
+  const hasError = Object.prototype.hasOwnProperty.call(parsed, 'error');
+  return parsed.jsonrpc === '2.0'
+    && Object.prototype.hasOwnProperty.call(parsed, 'id')
+    && parsed.id === requestId
+    && (hasResult || hasError);
 }
 
 export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000) {
@@ -240,32 +437,44 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000) 
       let parsed = null;
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
       if (contentType.includes('text/event-stream')) {
-        parsed = await readFirstMcpEvent(response);
+        parsed = await readMatchingMcpEvent(response, payload.id);
+      } else {
+        parsed = parseMcpText(await readMcpResponseText(response));
       }
-      if (!parsed) {
-        parsed = parseMcpText(await response.text());
-      }
-      if (!parsed) {
+      if (!isMatchingMcpResponse(parsed, payload.id)) {
         lastError = { error: 'invalid_response', message: 'Unable to parse MCP response.' };
       } else if (parsed.error) {
+        const safeMessage = redactEndpointValues(parsed.error.message || 'MCP error.', endpoint);
         lastError = {
-          error: parsed.error.message || 'mcp_error',
-          message: parsed.error.message || 'MCP error.',
+          error: parsed.error.message ? safeMessage : 'mcp_error',
+          message: safeMessage,
           status: response.status
         };
       } else {
         const result = parsed.result || parsed;
+        const isToolError = Boolean(result.isError || result.structuredContent?.error);
+        const safeResult = redactEndpointPayload(result, endpoint, { errorContext: isToolError });
+        const transportError = response.ok ? {} : {
+          error: `http_${response.status}`,
+          message: `MCP request failed with HTTP ${response.status}.`
+        };
         return {
-          ok: response.ok,
+          ok: response.ok && !isToolError,
           status: response.status,
-          data: result.structuredContent ?? null,
-          raw: result
+          data: safeResult.structuredContent ?? null,
+          raw: safeResult,
+          ...transportError,
+          ...(isToolError ? normalizeMcpToolError(safeResult) : {})
         };
       }
     } catch (error) {
+      const timedOut = error?.name === 'AbortError';
+      const responseTooLarge = error?.code === 'MCP_RESPONSE_TOO_LARGE';
       lastError = {
-        error: error?.name === 'AbortError' ? 'timeout' : 'network_error',
-        message: error?.message || 'MCP request failed.'
+        error: timedOut ? 'timeout' : (responseTooLarge ? 'response_too_large' : 'network_error'),
+        message: timedOut
+          ? 'MCP request timed out.'
+          : (responseTooLarge ? error.message : 'MCP request failed.')
       };
     } finally {
       clearTimeout(timer);

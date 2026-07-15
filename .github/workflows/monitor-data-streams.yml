@@ -8,14 +8,27 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: monitor-data-streams
+  cancel-in-progress: false
+
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    env:
+      SR_MONITOR_BASELINE_DIR: ${{ github.workspace }}/.monitor-state
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+      - name: Restore durable monitor baseline
+        uses: actions/cache/restore@v5
+        with:
+          path: .monitor-state
+          key: data-monitor-baseline-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            data-monitor-baseline-${{ runner.os }}-
       - name: Run full data-stream audit
         run: |
           node analysis/monitor/run_full_audit.mjs \
@@ -24,13 +37,20 @@ jobs:
             --static https://congressionalinsights.github.io/TheSituationRoomAI \
             --allow-alerts
       - name: Upload monitor artifacts
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v7
         with:
-          name: data-monitor-${{ github.run_id }}
+          name: data-monitor-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             analysis/monitor/latest.json
             analysis/monitor/latest.md
+            analysis/monitor/latest-commit.json
             analysis/monitor/history
             analysis/monitor/doc-watch.json
           if-no-files-found: warn
+      - name: Save durable monitor baseline
+        if: success() && github.event_name == 'schedule' && github.run_attempt == 1
+        uses: actions/cache/save@v5
+        with:
+          path: .monitor-state
+          key: data-monitor-baseline-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
