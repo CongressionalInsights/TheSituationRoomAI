@@ -13,7 +13,7 @@ test('ACLED proxy keeps an audit-patched adm-zip lockfile', () => {
 
   assert.equal(manifest.dependencies['adm-zip'], '^0.5.17');
   assert.equal(lockfile.packages[''].dependencies['adm-zip'], '^0.5.17');
-  assert.equal(lockfile.packages['node_modules/adm-zip'].version, '0.5.17');
+  assert.equal(lockfile.packages['node_modules/adm-zip'].version, '0.5.18');
 });
 
 test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
@@ -39,7 +39,7 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
   const lockedRoot = lockfile.packages[''];
   assert.deepEqual(lockedRoot.dependencies, manifest.dependencies);
   assert.equal(lockfile.packages['node_modules/@modelcontextprotocol/sdk'].version, '1.29.0');
-  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.9.3');
+  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.10.0');
   assert.equal(lockfile.packages['node_modules/zod'].version, '4.4.3');
 
   for (const [name, version] of Object.entries(manifest.overrides)) {
@@ -55,5 +55,5 @@ test('State connector keeps XML parser dependency lockfile aligned', () => {
     'fast-xml-parser': '^5.9.3'
   });
   assert.deepEqual(lockfile.packages[''].dependencies, manifest.dependencies);
-  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.9.3');
+  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.10.0');
 });
