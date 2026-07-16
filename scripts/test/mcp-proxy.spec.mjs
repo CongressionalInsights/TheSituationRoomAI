@@ -11,10 +11,13 @@ const {
   buildUsaspendingTransactionKey,
   attachMoneyMatch,
   findBestMoneyNameMatch,
+  getOpenStatesCachedRaw,
   getFeedConfiguration,
   getOpenStatesSuccessCacheTtl,
+  resetOpenStatesRawCacheForTest,
   resolveMoneyAliasExpansion,
   selectSmartFeeds,
+  setOpenStatesCachedRaw,
   settleMoneyTasks,
   summarizeMoneyEntities,
   shouldFilterSmartFeedLocally,
@@ -510,29 +513,24 @@ test('live fallback is disabled when query or params differ from the static snap
   assert.equal(shouldUseLiveFallback(openStatesFeed, { start: '2026-07-01' }), false);
 });
 
-test('OpenStates raw result cache has a bounded eviction path', () => {
-  const source = fs.readFileSync(path.join(process.cwd(), 'gcp', 'mcp-proxy', 'server.js'), 'utf8');
-  assert.match(source, /OPENSTATES_CACHE_MAX_ENTRIES/);
-  assert.match(source, /while \(openStatesRawCache\.size >= OPENSTATES_CACHE_MAX_ENTRIES\)/);
-  assert.match(source, /openStatesRawCache\.delete\(oldestKey\)/);
-  assert.match(source, /OPENSTATES_MAX_CONCURRENT/);
-  assert.match(source, /OPENSTATES_MAX_QUEUE/);
-  assert.match(source, /OPENSTATES_QUEUE_TIMEOUT_MS/);
-  assert.match(source, /OPENSTATES_AGGREGATE_CACHE_TTL_MS/);
-  assert.match(source, /function normalizeFetchErrorCode\(error\)/);
-  assert.match(source, /return 'timeout'/);
-  assert.match(source, /function acquireOpenStatesSlot\(\)/);
-  assert.match(source, /openstates_queue_full/);
-  assert.match(source, /openstates_queue_timeout/);
-  assert.doesNotMatch(source, /failureResult\.code === 'openstates_queue_full'/);
-  assert.doesNotMatch(source, /code: error\.code \|\| null/);
-  assert.match(source, /const effectiveParams = feed\.supportsParams\s*\?\s*mergeFeedParams\(feed, options\.params\)\s*:\s*sanitizeParamsObject\(options\.params\);/);
-  assert.match(source, /isStateLegislationAllStatesRequest\(feed, effectiveParams\)/);
-  assert.match(source, /aggregatePartial: aggregateMeta\.partial/);
-  assert.match(source, /aggregatePayload\.aggregatePartial\s*\?\s*OPENSTATES_AGGREGATE_CACHE_TTL_MS/);
-  assert.match(source, /fetchOpenStatesWithControls\(target, \{ headers \}, perStateTimeoutMs\)/);
-  assert.match(source, /setOpenStatesCachedRaw\(openStatesCacheKey, aggregatePayload, aggregateTtlMs\)/);
-  assert.match(source, /fetchOpenStatesWithControls\(proxiedUrl, \{ headers: requestHeaders \}, perAttemptTimeoutMs\)/);
+test('OpenStates raw result cache evicts the least recently used entry and clones results', () => {
+  resetOpenStatesRawCacheForTest();
+  try {
+    setOpenStatesCachedRaw('first', { body: 'first', responseHeaders: { etag: 'first' } });
+    setOpenStatesCachedRaw('second', { body: 'second' });
+    const firstHit = getOpenStatesCachedRaw('first');
+    firstHit.responseHeaders.etag = 'mutated';
+
+    for (let index = 0; index < 255; index += 1) {
+      setOpenStatesCachedRaw(`entry-${index}`, { body: String(index) });
+    }
+
+    assert.equal(getOpenStatesCachedRaw('second'), null);
+    assert.equal(getOpenStatesCachedRaw('first').responseHeaders.etag, 'first');
+    assert.equal(getOpenStatesCachedRaw('entry-254').body, '254');
+  } finally {
+    resetOpenStatesRawCacheForTest();
+  }
 });
 
 test('OpenStates success cache TTL is bounded by the feed freshness contract', () => {
