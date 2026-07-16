@@ -768,7 +768,7 @@
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": "https://wwwnc.cdc.gov/travel/notices",
-    "freshnessWindowMinutes": 30240,
+    "freshnessWindowMinutes": 31680,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
