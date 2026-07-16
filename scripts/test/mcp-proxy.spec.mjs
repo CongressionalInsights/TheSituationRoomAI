@@ -13,6 +13,7 @@ const {
   findBestMoneyNameMatch,
   getFeedConfiguration,
   getOpenStatesSuccessCacheTtl,
+  fetchFeedProxyFallback,
   resolveMoneyAliasExpansion,
   selectSmartFeeds,
   settleMoneyTasks,
@@ -21,6 +22,34 @@ const {
   shouldUseLiveFallback,
   supportsHistoryRange
 } = await import('../../gcp/mcp-proxy/server.js');
+
+test('Google News MCP fallback preserves the requested query through the Feed Proxy', async () => {
+  const calls = [];
+  const result = await fetchFeedProxyFallback({ id: 'google-news-search', format: 'rss' }, {
+    query: 'breaking news'
+  }, {
+    base: 'https://feed-proxy.test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return new Response(JSON.stringify({
+        body: '<?xml version="1.0"?><rss><channel><item><title>Current</title></item></channel></rss>',
+        contentType: 'application/xml; charset=utf-8',
+        httpStatus: 200
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://feed-proxy.test/api/feed');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    id: 'google-news-search',
+    force: true,
+    query: 'breaking news'
+  });
+  assert.equal(result.proxyUsed, 'feed-proxy');
+  assert.equal(result.fallbackUsed, true);
+  assert.match(result.body, /<rss>/);
+});
 
 const feed = {
   id: 'state-legislation',
