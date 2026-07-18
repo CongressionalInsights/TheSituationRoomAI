@@ -92,6 +92,12 @@ test('static BLS CPI build rejects API quota error snapshots', () => {
   assert.match(source, /payload\.error && feed\.id === 'bls-cpi'[\s\S]*loadBestFallbackPayload/);
 });
 
+test('static OpenStates build rejects HTML error bodies from the Feed Proxy fallback', () => {
+  const source = fs.readFileSync(path.join(root, 'scripts', 'build_static_cache.mjs'), 'utf8');
+  assert.match(source, /feed\.id === 'state-legislation'[\s\S]*isUsableJsonSnapshot\(proxySnapshot, feed\)/);
+  assert.match(source, /payload\.error && feed\.id === 'state-legislation'[\s\S]*isUsableJsonSnapshot\(fallback, feed\)/);
+});
+
 test('MCP proxy does not flag configured feed proxies as fallback paths', () => {
   const source = fs.readFileSync(path.join(root, 'gcp', 'mcp-proxy', 'server.js'), 'utf8');
   assert.match(source, /const configuredProxies = Array\.isArray\(feed\.proxy\)/);

@@ -26,6 +26,8 @@ const FALLBACK_PROXIES = (process.env.FALLBACK_PROXIES || 'allorigins,jina')
   .filter(Boolean);
 const DEFAULT_LIVE_BASE = 'https://congressionalinsights.github.io/TheSituationRoomAI';
 const LIVE_BASE = process.env.SR_LIVE_BASE || DEFAULT_LIVE_BASE;
+const DEFAULT_FEED_PROXY_BASE = 'https://situation-room-feed-382918878290.us-central1.run.app';
+const FEED_PROXY_BASE = String(process.env.SR_FEED_PROXY_BASE || DEFAULT_FEED_PROXY_BASE).replace(/\/+$/, '');
 const OPENSKY_CLIENTID = String(process.env.OPENSKY_CLIENTID || '').trim();
 const OPENSKY_CLIENTSECRET = String(process.env.OPENSKY_CLIENTSECRET || '').trim();
 const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
@@ -1548,6 +1550,53 @@ async function fetchLiveFallback(feedId) {
   }
 }
 
+export async function fetchFeedProxyFallback(feed, options = {}, {
+  base = FEED_PROXY_BASE,
+  fetchImpl = fetch,
+  timeoutMs = FETCH_TIMEOUT_MS
+} = {}) {
+  if (!feed?.id || !base) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const { query, params } = options;
+    const response = await fetchImpl(`${base}/api/feed`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0'
+      },
+      body: JSON.stringify({
+        id: feed.id,
+        force: true,
+        ...(query ? { query } : {}),
+        ...(params && Object.keys(params).length ? { params } : {})
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (!payload?.body || payload.error) return null;
+    const contentType = payload.contentType || '';
+    if (feed.format === 'rss' && !isLikelyRssPayload(contentType, payload.body)) return null;
+    if (feed.format === 'json' && isJsonHtmlError(contentType, payload.body)) return null;
+    return {
+      body: payload.body,
+      httpStatus: payload.httpStatus || response.status,
+      contentType,
+      fetchedUrl: `${base}/api/feed`,
+      proxyUsed: 'feed-proxy',
+      fallbackUsed: true,
+      responseHeaders: null
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function ensureArray(value) {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
@@ -2377,6 +2426,12 @@ async function fetchRaw(feed, options) {
           }
         };
       }
+    }
+    const feedProxyFallback = feed.id === 'google-news-search'
+      ? await fetchFeedProxyFallback(feed, options, { timeoutMs: totalTimeoutMs })
+      : null;
+    if (feedProxyFallback) {
+      return feedProxyFallback;
     }
     const fallback = shouldUseLiveFallback(feed, options) ? await fetchLiveFallback(feed.id) : null;
     if (fallback) {
