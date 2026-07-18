@@ -11,9 +11,9 @@ test('ACLED proxy keeps an audit-patched adm-zip lockfile', () => {
   const manifest = readJson('gcp', 'acled-proxy', 'package.json');
   const lockfile = readJson('gcp', 'acled-proxy', 'package-lock.json');
 
-  assert.equal(manifest.dependencies['adm-zip'], '^0.5.17');
-  assert.equal(lockfile.packages[''].dependencies['adm-zip'], '^0.5.17');
-  assert.equal(lockfile.packages['node_modules/adm-zip'].version, '0.5.18');
+  assert.equal(manifest.dependencies['adm-zip'], '^0.6.0');
+  assert.equal(lockfile.packages[''].dependencies['adm-zip'], '^0.6.0');
+  assert.equal(lockfile.packages['node_modules/adm-zip'].version, '0.6.0');
 });
 
 test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
