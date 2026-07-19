@@ -26,6 +26,8 @@ const {
   supportsHistoryRange
 } = await import('../../gcp/mcp-proxy/server.js');
 
+const openStatesCacheEntryCapacity = Math.max(1, Math.ceil(Number(process.env.OPENSTATES_CACHE_MAX_ENTRIES || 256)));
+
 test('Google News MCP fallback preserves the requested query through the Feed Proxy', async () => {
   const calls = [];
   const result = await fetchFeedProxyFallback({ id: 'google-news-search', format: 'rss' }, {
@@ -546,17 +548,28 @@ test('OpenStates raw result cache evicts the least recently used entry and clone
   resetOpenStatesRawCacheForTest();
   try {
     setOpenStatesCachedRaw('first', { body: 'first', responseHeaders: { etag: 'first' } });
-    setOpenStatesCachedRaw('second', { body: 'second' });
     const firstHit = getOpenStatesCachedRaw('first');
     firstHit.responseHeaders.etag = 'mutated';
+    assert.equal(getOpenStatesCachedRaw('first').responseHeaders.etag, 'first');
 
-    for (let index = 0; index < 255; index += 1) {
+    if (openStatesCacheEntryCapacity === 1) {
+      setOpenStatesCachedRaw('second', { body: 'second' });
+      assert.equal(getOpenStatesCachedRaw('first'), null);
+      assert.equal(getOpenStatesCachedRaw('second').body, 'second');
+      return;
+    }
+
+    setOpenStatesCachedRaw('second', { body: 'second' });
+    getOpenStatesCachedRaw('first');
+
+    for (let index = 0; index < openStatesCacheEntryCapacity - 2; index += 1) {
       setOpenStatesCachedRaw(`entry-${index}`, { body: String(index) });
     }
+    setOpenStatesCachedRaw('overflow', { body: 'overflow' });
 
     assert.equal(getOpenStatesCachedRaw('second'), null);
     assert.equal(getOpenStatesCachedRaw('first').responseHeaders.etag, 'first');
-    assert.equal(getOpenStatesCachedRaw('entry-254').body, '254');
+    assert.equal(getOpenStatesCachedRaw('overflow').body, 'overflow');
   } finally {
     resetOpenStatesRawCacheForTest();
   }
