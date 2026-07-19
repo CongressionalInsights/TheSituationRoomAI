@@ -53,6 +53,35 @@ test('state legislation uses the widened OpenStates timeout budget', () => {
   assert.equal(feed.timeoutMs, 120000, 'state-legislation should allow slow OpenStates query responses');
 });
 
+test('scoped state legislation requests return a bounded explicit timeout payload', async () => {
+  const {
+    buildStateLegislationTimeoutPayload,
+    fetchStateLegislationScoped,
+    isStateLegislationScopedRequest
+  } = await import('../../gcp/feed-proxy/state-legislation-timeout.js');
+  const feed = { id: 'state-legislation' };
+  const result = await fetchStateLegislationScoped('https://openstates.test/bills', {
+    timeoutMs: 5,
+    fetchImpl: (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      }, { once: true });
+    })
+  });
+
+  assert.equal(isStateLegislationScopedRequest(feed, { jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government' }), true);
+  assert.equal(isStateLegislationScopedRequest(feed, {}), false);
+  assert.equal(result.response, null);
+  assert.equal(result.timedOut, true);
+
+  const payload = buildStateLegislationTimeoutPayload(feed, 5);
+  assert.equal(payload.httpStatus, 504);
+  assert.equal(payload.error, 'upstream_timeout');
+  assert.match(payload.body, /upstream_timeout/);
+});
+
 test('FDA MedWatch feed keeps both proxy fallbacks', () => {
   const raw = fs.readFileSync(feedsPath, 'utf8');
   const data = JSON.parse(raw);
