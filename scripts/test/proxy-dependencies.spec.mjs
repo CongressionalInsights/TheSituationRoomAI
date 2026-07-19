@@ -22,7 +22,7 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
 
   assert.deepEqual(manifest.dependencies, {
     '@modelcontextprotocol/sdk': '^1.29.0',
-    'fast-xml-parser': '^5.9.3',
+    'fast-xml-parser': '^5.10.1',
     zod: '^4.4.3'
   });
 
