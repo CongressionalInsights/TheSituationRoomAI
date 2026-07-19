@@ -2076,7 +2076,7 @@ function cloneFetchResult(result) {
   };
 }
 
-function getOpenStatesCachedRaw(cacheKey) {
+export function getOpenStatesCachedRaw(cacheKey) {
   const cached = openStatesRawCache.get(cacheKey);
   if (!cached) return null;
   if (Date.now() >= cached.expiresAt) {
@@ -2088,7 +2088,7 @@ function getOpenStatesCachedRaw(cacheKey) {
   return cloneFetchResult(cached.result);
 }
 
-function setOpenStatesCachedRaw(cacheKey, result, ttlMs = OPENSTATES_CACHE_TTL_MS) {
+export function setOpenStatesCachedRaw(cacheKey, result, ttlMs = OPENSTATES_CACHE_TTL_MS) {
   if (!cacheKey || !result || !Number.isFinite(ttlMs) || ttlMs <= 0) return;
   if (!Number.isFinite(OPENSTATES_CACHE_MAX_ENTRIES) || OPENSTATES_CACHE_MAX_ENTRIES <= 0) return;
   const now = Date.now();
@@ -2106,6 +2106,10 @@ function setOpenStatesCachedRaw(cacheKey, result, ttlMs = OPENSTATES_CACHE_TTL_M
     expiresAt: now + ttlMs,
     result: cloneFetchResult(result)
   });
+}
+
+export function resetOpenStatesRawCacheForTest() {
+  openStatesRawCache.clear();
 }
 
 export function getOpenStatesSuccessCacheTtl(feed) {
