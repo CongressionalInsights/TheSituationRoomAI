@@ -4,6 +4,12 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { gunzipSync } from 'zlib';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
+import {
+  buildStateLegislationTimeoutPayload,
+  fetchStateLegislationScoped,
+  isStateLegislationScopedRequest,
+  STATE_LEGISLATION_SCOPED_TIMEOUT_MS
+} from './state-legislation-timeout.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1402,6 +1408,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const proxyList = Array.isArray(feed.proxy) ? feed.proxy : (feed.proxy ? [feed.proxy] : []);
   const isRssFeed = feed.format === 'rss';
   const allowLiveFallback = canUseLiveFeedFallback(feed, isRssFeed);
+  const isScopedStateLegislation = isStateLegislationScopedRequest(feed, mergedParams);
   if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(applied.url)) {
     const token = await getOpenSkyToken();
     if (!token) {
@@ -1466,7 +1473,24 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         responseOk = response.ok && rssResult.valid;
       } else {
         const budgetAttempts = feed.id === 'eonet-events';
-        response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, { budgetAttempts });
+        if (isScopedStateLegislation) {
+          const scopedResult = await fetchStateLegislationScoped(applied.url, {
+            headers,
+            timeoutMs: Math.min(timeoutMs, STATE_LEGISLATION_SCOPED_TIMEOUT_MS)
+          });
+          if (!scopedResult.response) {
+            if (isUsableStaleFeedPayload(feed, staleCache)) {
+              return markStaleFeedPayload(feed, staleCache);
+            }
+            if (scopedResult.timedOut) {
+              return buildStateLegislationTimeoutPayload(feed, Math.min(timeoutMs, STATE_LEGISLATION_SCOPED_TIMEOUT_MS));
+            }
+            throw scopedResult.error;
+          }
+          response = scopedResult.response;
+        } else {
+          response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, { budgetAttempts });
+        }
         responseOk = response.ok;
         contentType = response.headers.get('content-type') || 'text/plain';
         body = await response.text();

@@ -770,7 +770,7 @@ async function buildFeedPayload(feed) {
 
   if (feed.id === 'state-legislation') {
     const proxySnapshot = await feedProxyFallback();
-    if (proxySnapshot?.body) {
+    if (isUsableJsonSnapshot(proxySnapshot, feed)) {
       return {
         ...proxySnapshot,
         fetchedAt: proxySnapshot.fetchedAt || new Date().toISOString()
@@ -1003,7 +1003,7 @@ async function buildFeedPayload(feed) {
 
   if (payload.error && feed.id === 'state-legislation') {
     const fallback = await feedProxyFallback();
-    if (fallback?.body) {
+    if (isUsableJsonSnapshot(fallback, feed)) {
       return {
         ...fallback,
         fetchedAt: fallback.fetchedAt || new Date().toISOString(),
