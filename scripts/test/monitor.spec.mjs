@@ -2660,6 +2660,77 @@ test('document surfaces accept multiple known hashes for nondeterministic docs p
   assert.deepEqual(surfaces[0].acceptedHashes, ['hash-a', 'hash-b']);
 });
 
+test('documentation watch pins reviewed provider surfaces without accepting unknown contracts', () => {
+  const feeds = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feeds.json'), 'utf8'));
+  const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
+  const ids = [
+    'cdc-travel-notices',
+    'congress-api',
+    'congress-reports',
+    'eonet-events',
+    'fda-medwatch',
+    'swpc-json',
+    'swpc-kp'
+  ];
+  const entries = ids.map((id) => resolveMonitoringEntry(
+    feeds.feeds.find((feed) => feed.id === id),
+    monitoring[id],
+    feeds.app
+  ));
+  const surfaces = new Map(collectDocumentSurfaces(entries).map((surface) => [surface.key, surface]));
+  const reviewed = {
+    'docs:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
+    'support:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
+    'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': 'aa7cb0572c7af7373498586e654b819ff3a591c46e23ecf676b9eb6c3e6d93c6',
+    'docs:https://eonet.gsfc.nasa.gov/docs/v3': '4b46c4648cea07731115f4b603553991e43017f604d67a0a24d82f0d145dadf5',
+    'support:https://eonet.gsfc.nasa.gov/': 'f29b3038fab9634f77feef8f62f083a4c27e443e89539afcbd9b577a04c3299b',
+    'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
+    'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
+    'docs:https://www.spaceweather.gov/products/solar-wind': '291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3',
+    'support:https://www.spaceweather.gov/products/solar-wind': '291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3',
+    'docs:https://www.spaceweather.gov/products/planetary-k-index': '3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3',
+    'support:https://www.spaceweather.gov/products/planetary-k-index': '3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3'
+  };
+
+  for (const [key, hash] of Object.entries(reviewed)) {
+    assert.deepEqual(surfaces.get(key)?.acceptedHashes, [hash], key);
+    assert.equal(surfaces.get(key)?.acceptedHashes.includes('unknown-contract-hash'), false, key);
+  }
+
+  for (const key of Object.keys(reviewed).filter((key) => (
+    key.includes('cdc.gov/travel/page/rss')
+    || key.includes('medwatch-rss-feed')
+    || key.includes('spaceweather.gov/products')
+  ))) {
+    assert.equal(surfaces.get(key)?.enforceAcceptedHashes, true, key);
+  }
+
+  assert.deepEqual(classifyDocChange({
+    previous: null,
+    current: {
+      hash: 'unknown-contract-hash',
+      normalizedText: 'A required schema field was removed.'
+    },
+    surfaceType: 'docs',
+    tier: 'core',
+    acceptedHashRequired: true
+  }), {
+    regressionClass: 'docs-contract-change',
+    severity: 'critical',
+    message: 'Official docs or changelog includes contract-change keywords.'
+  });
+
+  assert.equal(classifyDocChange({
+    previous: null,
+    current: {
+      hash: 'first-unpinned-hash',
+      normalizedText: 'A required schema field was removed.'
+    },
+    surfaceType: 'docs',
+    tier: 'core'
+  }), null);
+});
+
 test('feed proxy deploy workflow injects OpenSky credentials', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-feed-proxy.yml'), 'utf8');
   assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);

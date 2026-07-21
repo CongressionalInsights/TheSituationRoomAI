@@ -256,19 +256,19 @@
     ],
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://eonet.gsfc.nasa.gov/docs/v3": "91662f8a1947252fc73a40a41671b20e0949107ddc6cf07e3d95370686505f37"
+        "https://eonet.gsfc.nasa.gov/docs/v3": "4b46c4648cea07731115f4b603553991e43017f604d67a0a24d82f0d145dadf5"
       },
       "support": {
-        "https://eonet.gsfc.nasa.gov/": "cdd9c0aa9b053476bfb84776e1241e19a74c0cd1ee88f813c9cf2bd501a04acc"
+        "https://eonet.gsfc.nasa.gov/": "f29b3038fab9634f77feef8f62f083a4c27e443e89539afcbd9b577a04c3299b"
       }
     }
   },
   "swpc-json": {
     "tier": "standard",
-    "docsUrl": "https://www.swpc.noaa.gov/products-and-data",
+    "docsUrl": "https://www.spaceweather.gov/products/solar-wind",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.swpc.noaa.gov/products-and-data",
+    "supportUrl": "https://www.spaceweather.gov/products/solar-wind",
     "freshnessWindowMinutes": 90,
     "sampleParams": {},
     "invariants": [
@@ -277,14 +277,23 @@
       "freshness",
       "json-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "enforceAcceptedSurfaceHashes": true,
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://www.spaceweather.gov/products/solar-wind": "291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3"
+      },
+      "support": {
+        "https://www.spaceweather.gov/products/solar-wind": "291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3"
+      }
+    }
   },
   "swpc-kp": {
     "tier": "standard",
-    "docsUrl": "https://www.swpc.noaa.gov/products-and-data",
+    "docsUrl": "https://www.spaceweather.gov/products/planetary-k-index",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.swpc.noaa.gov/products-and-data",
+    "supportUrl": "https://www.spaceweather.gov/products/planetary-k-index",
     "freshnessWindowMinutes": 90,
     "sampleParams": {},
     "invariants": [
@@ -293,7 +302,16 @@
       "freshness",
       "json-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "enforceAcceptedSurfaceHashes": true,
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://www.spaceweather.gov/products/planetary-k-index": "3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3"
+      },
+      "support": {
+        "https://www.spaceweather.gov/products/planetary-k-index": "3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3"
+      }
+    }
   },
   "arxiv-ai": {
     "tier": "standard",
@@ -461,10 +479,10 @@
   },
   "fda-medwatch": {
     "tier": "standard",
-    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program",
+    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program",
+    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed",
     "timeoutMs": 60000,
     "freshnessWindowMinutes": 4320,
     "sampleParams": {},
@@ -475,12 +493,13 @@
       "rss-structure"
     ],
     "knownUpstreamQuirks": [],
+    "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program": "8e59541ab5bfb0508f7663033737575e044e222211941d88b2de1b3a29340670"
+        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed": "2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b"
       },
       "support": {
-        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program": "8e59541ab5bfb0508f7663033737575e044e222211941d88b2de1b3a29340670"
+        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed": "2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b"
       }
     }
   },
@@ -764,10 +783,10 @@
   },
   "cdc-travel-notices": {
     "tier": "core",
-    "docsUrl": "https://wwwnc.cdc.gov/travel/notices",
+    "docsUrl": "https://wwwnc.cdc.gov/travel/page/rss",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://wwwnc.cdc.gov/travel/notices",
+    "supportUrl": "https://wwwnc.cdc.gov/travel/page/rss",
     "freshnessWindowMinutes": 31680,
     "sampleParams": {},
     "invariants": [
@@ -776,7 +795,16 @@
       "freshness",
       "rss-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "enforceAcceptedSurfaceHashes": true,
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://wwwnc.cdc.gov/travel/page/rss": "e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb"
+      },
+      "support": {
+        "https://wwwnc.cdc.gov/travel/page/rss": "e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb"
+      }
+    }
   },
   "state-travel-advisories": {
     "tier": "standard",
@@ -874,7 +902,12 @@
         "suppressNew": true,
         "note": "GitHub-rendered Congress API support and changelog pages intermittently return 5xx; treat doc fetch failures there as informational unless the primary api.congress.gov docs surface also regresses."
       }
-    ]
+    ],
+    "acceptedSurfaceHashes": {
+      "changelog": {
+        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md": "aa7cb0572c7af7373498586e654b819ff3a591c46e23ecf676b9eb6c3e6d93c6"
+      }
+    }
   },
   "congress-reports": {
     "tier": "core",
@@ -899,7 +932,12 @@
         "suppressNew": true,
         "note": "Congress.gov may ignore updateDate sorting for committee reports upstream; keep tracking it without reopening a new critical issue every run."
       }
-    ]
+    ],
+    "acceptedSurfaceHashes": {
+      "changelog": {
+        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md": "aa7cb0572c7af7373498586e654b819ff3a591c46e23ecf676b9eb6c3e6d93c6"
+      }
+    }
   },
   "congress-treaties": {
     "timeoutMs": 60000
