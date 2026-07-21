@@ -2684,8 +2684,8 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
     'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': 'aa7cb0572c7af7373498586e654b819ff3a591c46e23ecf676b9eb6c3e6d93c6',
     'docs:https://eonet.gsfc.nasa.gov/docs/v3': '4b46c4648cea07731115f4b603553991e43017f604d67a0a24d82f0d145dadf5',
     'support:https://eonet.gsfc.nasa.gov/': 'f29b3038fab9634f77feef8f62f083a4c27e443e89539afcbd9b577a04c3299b',
-    'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
-    'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
+    'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program': '1a5569da1d8334260b44f2c8a72ad578ecd044f4d22413f84ce6a28bc674592b',
+    'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program': '1a5569da1d8334260b44f2c8a72ad578ecd044f4d22413f84ce6a28bc674592b',
     'docs:https://www.spaceweather.gov/products/solar-wind': '291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3',
     'support:https://www.spaceweather.gov/products/solar-wind': '291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3',
     'docs:https://www.spaceweather.gov/products/planetary-k-index': '3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3',
@@ -2699,7 +2699,7 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
 
   for (const key of Object.keys(reviewed).filter((key) => (
     key.includes('cdc.gov/travel/page/rss')
-    || key.includes('medwatch-rss-feed')
+    || key.includes('medwatch-fda-safety-information-and-adverse-event-reporting-program')
     || key.includes('spaceweather.gov/products')
   ))) {
     assert.equal(surfaces.get(key)?.enforceAcceptedHashes, true, key);

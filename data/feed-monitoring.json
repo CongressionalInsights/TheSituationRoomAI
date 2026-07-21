@@ -479,10 +479,10 @@
   },
   "fda-medwatch": {
     "tier": "standard",
-    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed",
+    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed",
+    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program",
     "timeoutMs": 60000,
     "freshnessWindowMinutes": 4320,
     "sampleParams": {},
@@ -496,10 +496,10 @@
     "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed": "2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b"
+        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program": "1a5569da1d8334260b44f2c8a72ad578ecd044f4d22413f84ce6a28bc674592b"
       },
       "support": {
-        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed": "2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b"
+        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program": "1a5569da1d8334260b44f2c8a72ad578ecd044f4d22413f84ce6a28bc674592b"
       }
     }
   },
