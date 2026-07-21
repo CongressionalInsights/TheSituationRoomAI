@@ -161,7 +161,8 @@ function reclassifyDocResults(docResults, previousReport, entriesById) {
         previous: previousDocs.get(result.key) || null,
         current: result,
         surfaceType: result.surfaceType,
-        tier: coreSurface ? 'core' : 'standard'
+        tier: coreSurface ? 'core' : 'standard',
+        acceptedHashRequired: result.acceptedHashRequired
       });
     }
     return {

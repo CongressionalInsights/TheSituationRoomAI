@@ -58,10 +58,16 @@ export function extractDatedEntries(text = '') {
   }).slice(0, 20);
 }
 
-export function classifyDocChange({ previous = null, current, surfaceType, tier = 'standard' }) {
+export function classifyDocChange({
+  previous = null,
+  current,
+  surfaceType,
+  tier = 'standard',
+  acceptedHashRequired = false
+}) {
   if (!current?.hash) return null;
-  if (!previous?.hash) return null;
-  if (previous?.hash && previous.hash === current.hash) return null;
+  if (!acceptedHashRequired && !previous?.hash) return null;
+  if (!acceptedHashRequired && previous?.hash === current.hash) return null;
   if (surfaceType === 'support') {
     return {
       regressionClass: 'support-surface-updated',
@@ -117,10 +123,12 @@ export function collectDocumentSurfaces(entries) {
         url,
         feedIds: [],
         tiers: {},
-        acceptedHashes: []
+        acceptedHashes: [],
+        enforceAcceptedHashes: false
       };
       existing.feedIds.push(entry.id);
       existing.tiers[entry.id] = entry.tier;
+      existing.enforceAcceptedHashes ||= entry.enforceAcceptedSurfaceHashes === true;
       const acceptedHash = entry.acceptedSurfaceHashes?.[surfaceType]?.[url];
       if (Array.isArray(acceptedHash)) {
         existing.acceptedHashes.push(...acceptedHash);
@@ -168,6 +176,7 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
         etag: response.headers?.get('etag') || null,
         lastModified: response.headers?.get('last-modified') || null,
         hash: response.ok ? hashContent(normalizedText) : null,
+        acceptedHashRequired: surface.enforceAcceptedHashes && surface.acceptedHashes.length > 0,
         normalizedText,
         datedEntries: response.ok ? extractDatedEntries(normalizedText) : [],
         generatedAt: new Date().toISOString()
@@ -183,7 +192,8 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
               previous,
               current,
               surfaceType: surface.surfaceType,
-              tier: surface.feedIds.some((feedId) => surface.tiers[feedId] === 'core') ? 'core' : 'standard'
+              tier: surface.feedIds.some((feedId) => surface.tiers[feedId] === 'core') ? 'core' : 'standard',
+              acceptedHashRequired: current.acceptedHashRequired
             }))
         : {
           regressionClass: 'docs-fetch-failed',
