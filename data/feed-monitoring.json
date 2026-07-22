@@ -225,10 +225,10 @@
   },
   "eonet-events": {
     "tier": "core",
-    "docsUrl": "https://eonet.gsfc.nasa.gov/docs/v3",
-    "changelogUrl": null,
+    "docsUrl": null,
+    "changelogUrl": "https://eonet.gsfc.nasa.gov/docs/changelog",
     "statusUrl": null,
-    "supportUrl": "https://eonet.gsfc.nasa.gov/",
+    "supportUrl": null,
     "freshnessWindowMinutes": 10080,
     "sampleParams": {},
     "invariants": [
@@ -254,62 +254,56 @@
         "note": "EONET can use published fallback snapshots during feed-proxy lag; keep fallback-only markers informational while direct signal normalization remains healthy."
       }
     ],
+    "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
-      "docs": {
-        "https://eonet.gsfc.nasa.gov/docs/v3": "4b46c4648cea07731115f4b603553991e43017f604d67a0a24d82f0d145dadf5"
-      },
-      "support": {
-        "https://eonet.gsfc.nasa.gov/": "f29b3038fab9634f77feef8f62f083a4c27e443e89539afcbd9b577a04c3299b"
+      "changelog": {
+        "https://eonet.gsfc.nasa.gov/docs/changelog": "49580a5d25f8e5c9572a837a2864e32ac55af8d7d9ae0b0535125bc8f54802cd"
       }
     }
   },
   "swpc-json": {
     "tier": "standard",
-    "docsUrl": "https://www.spaceweather.gov/products/solar-wind",
+    "docsUrl": "https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.spaceweather.gov/products/solar-wind",
+    "supportUrl": null,
     "freshnessWindowMinutes": 90,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
       "signal-normalization",
       "freshness",
-      "json-structure"
+      "json-structure",
+      "swpc-solar-wind-contract"
     ],
     "knownUpstreamQuirks": [],
     "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://www.spaceweather.gov/products/solar-wind": "291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3"
-      },
-      "support": {
-        "https://www.spaceweather.gov/products/solar-wind": "291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3"
+        "https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json": "bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e"
       }
     }
   },
   "swpc-kp": {
     "tier": "standard",
-    "docsUrl": "https://www.spaceweather.gov/products/planetary-k-index",
+    "docsUrl": "https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.spaceweather.gov/products/planetary-k-index",
+    "supportUrl": null,
     "freshnessWindowMinutes": 90,
     "sampleParams": {},
     "invariants": [
       "feed-fetch",
       "signal-normalization",
       "freshness",
-      "json-structure"
+      "json-structure",
+      "swpc-kp-contract"
     ],
     "knownUpstreamQuirks": [],
     "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://www.spaceweather.gov/products/planetary-k-index": "3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3"
-      },
-      "support": {
-        "https://www.spaceweather.gov/products/planetary-k-index": "3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3"
+        "https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json": "3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a"
       }
     }
   },
@@ -454,16 +448,14 @@
   },
   "cisa-kev": {
     "tier": "core",
-    "docsUrl": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+    "docsUrl": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+    "supportUrl": null,
+    "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://www.cisa.gov/known-exploited-vulnerabilities-catalog": "33162314140284e50878080679cd9ab4a6f38c7df9f828557de709dac60cbea1"
-      },
-      "support": {
-        "https://www.cisa.gov/known-exploited-vulnerabilities-catalog": "33162314140284e50878080679cd9ab4a6f38c7df9f828557de709dac60cbea1"
+        "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json": "6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428"
       }
     },
     "freshnessWindowMinutes": 10080,
@@ -905,7 +897,7 @@
     ],
     "acceptedSurfaceHashes": {
       "changelog": {
-        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md": "aa7cb0572c7af7373498586e654b819ff3a591c46e23ecf676b9eb6c3e6d93c6"
+        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md": "1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b"
       }
     }
   },
@@ -935,7 +927,7 @@
     ],
     "acceptedSurfaceHashes": {
       "changelog": {
-        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md": "aa7cb0572c7af7373498586e654b819ff3a591c46e23ecf676b9eb6c3e6d93c6"
+        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md": "1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b"
       }
     }
   },

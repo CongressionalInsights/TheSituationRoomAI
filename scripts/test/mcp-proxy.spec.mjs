@@ -199,6 +199,36 @@ test('normalizeJsonSignals uses Congress updateDateIncludingText when it is the 
   assert.equal(item.publishedAt, Date.parse(updateDateIncludingText));
 });
 
+test('normalizeJsonSignals retains additive Congress introducedDate fields and sort order', () => {
+  const fixture = fs.readFileSync(path.join(
+    process.cwd(),
+    'scripts',
+    'test',
+    'fixtures',
+    'monitor',
+    'congress-bills-introduced-date.json'
+  ), 'utf8');
+  const items = normalizeJsonSignals(fixture, {
+    id: 'congress-api',
+    name: 'Congress.gov Bills',
+    category: 'gov',
+    format: 'json'
+  });
+
+  assert.equal(items.length, 2);
+  assert.deepEqual(items.map((item) => item.title), [
+    'HR 901 - Later introduced bill',
+    'S 402 - Earlier introduced bill'
+  ]);
+  assert.deepEqual(items.map((item) => item.introducedDate), ['2026-07-21', '2026-07-18']);
+  assert.deepEqual(items.map((item) => item.publishedAt), [
+    Date.parse('2026-07-21'),
+    Date.parse('2026-07-18')
+  ]);
+  assert.ok(items[0].publishedAt > items[1].publishedAt);
+  assert.equal(items[0].url, 'https://www.congress.gov/bill/119th-congress/house-bill/901');
+});
+
 test('normalizeJsonSignals maps committee-scoped Congress bills to titled web links', () => {
   const [item] = normalizeJsonSignals(JSON.stringify({
     bills: [{
