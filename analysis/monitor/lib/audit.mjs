@@ -664,6 +664,46 @@ export function evaluateInvariant(name, context) {
         });
       }
       return null;
+    case 'swpc-solar-wind-contract': {
+      const hasRequiredFields = Array.isArray(proxySummary.parsedBody)
+        && proxySummary.parsedBody.some((item) => (
+          item
+          && typeof item === 'object'
+          && item.time_tag
+          && Object.hasOwn(item, 'proton_speed')
+        ));
+      if (!hasRequiredFields) {
+        return createAlert({
+          feedId: entry.id,
+          regressionClass: 'swpc-solar-wind-contract',
+          severity: entry.tier === 'core' ? 'critical' : 'warning',
+          message: 'NOAA SWPC solar-wind payload is missing time_tag or proton_speed.',
+          metadata: { identity: 'swpc-solar-wind' }
+        });
+      }
+      return null;
+    }
+    case 'swpc-kp-contract': {
+      const hasRequiredFields = Array.isArray(proxySummary.parsedBody)
+        && proxySummary.parsedBody.some((item) => (
+          item
+          && typeof item === 'object'
+          && item.time_tag
+          && Object.hasOwn(item, 'kp_index')
+          && Object.hasOwn(item, 'estimated_kp')
+          && Object.hasOwn(item, 'kp')
+        ));
+      if (!hasRequiredFields) {
+        return createAlert({
+          feedId: entry.id,
+          regressionClass: 'swpc-kp-contract',
+          severity: entry.tier === 'core' ? 'critical' : 'warning',
+          message: 'NOAA SWPC K-index payload is missing required product fields.',
+          metadata: { identity: 'swpc-kp' }
+        });
+      }
+      return null;
+    }
     case 'param-acceptance':
       if (proxySummary.error || signalSummary.error) {
         return createAlert({

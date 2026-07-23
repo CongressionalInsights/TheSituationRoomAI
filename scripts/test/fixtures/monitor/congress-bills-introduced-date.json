@@ -1,0 +1,26 @@
+{
+  "bills": [
+    {
+      "congress": 119,
+      "type": "HR",
+      "number": "901",
+      "title": "Later introduced bill",
+      "introducedDate": "2026-07-21",
+      "url": "https://api.congress.gov/v3/bill/119/hr/901?format=json"
+    },
+    {
+      "congress": 119,
+      "type": "S",
+      "number": "402",
+      "title": "Earlier introduced bill",
+      "introducedDate": "2026-07-18",
+      "url": "https://api.congress.gov/v3/bill/119/s/402?format=json"
+    }
+  ],
+  "pagination": {
+    "count": 2
+  },
+  "request": {
+    "sort": "introducedDate desc"
+  }
+}

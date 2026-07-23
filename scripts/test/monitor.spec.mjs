@@ -2665,6 +2665,7 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
   const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
   const ids = [
     'cdc-travel-notices',
+    'cisa-kev',
     'congress-api',
     'congress-reports',
     'eonet-events',
@@ -2681,15 +2682,13 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
   const reviewed = {
     'docs:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
     'support:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
-    'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': 'aa7cb0572c7af7373498586e654b819ff3a591c46e23ecf676b9eb6c3e6d93c6',
-    'docs:https://eonet.gsfc.nasa.gov/docs/v3': '4b46c4648cea07731115f4b603553991e43017f604d67a0a24d82f0d145dadf5',
-    'support:https://eonet.gsfc.nasa.gov/': 'f29b3038fab9634f77feef8f62f083a4c27e443e89539afcbd9b577a04c3299b',
+    'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': '6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428',
+    'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b',
+    'changelog:https://eonet.gsfc.nasa.gov/docs/changelog': '49580a5d25f8e5c9572a837a2864e32ac55af8d7d9ae0b0535125bc8f54802cd',
     'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
     'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
-    'docs:https://www.spaceweather.gov/products/solar-wind': '291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3',
-    'support:https://www.spaceweather.gov/products/solar-wind': '291cd87f028d96c159c271221a9acb2414d88660a0441157a097a29087b795b3',
-    'docs:https://www.spaceweather.gov/products/planetary-k-index': '3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3',
-    'support:https://www.spaceweather.gov/products/planetary-k-index': '3eff1340a9165e49a318ecd98a0563575ee0b34b0916b72d59de7b438a3d6fe3'
+    'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
+    'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
   };
 
   for (const [key, hash] of Object.entries(reviewed)) {
@@ -2699,11 +2698,29 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
 
   for (const key of Object.keys(reviewed).filter((key) => (
     key.includes('cdc.gov/travel/page/rss')
+    || key.includes('known_exploited_vulnerabilities_schema.json')
+    || key.includes('eonet.gsfc.nasa.gov/docs/changelog')
     || key.includes('medwatch-rss-feed')
-    || key.includes('spaceweather.gov/products')
+    || key.includes('services.swpc.noaa.gov/text/scn')
   ))) {
     assert.equal(surfaces.get(key)?.enforceAcceptedHashes, true, key);
   }
+
+  for (const obsoleteKey of [
+    'docs:https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+    'support:https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+    'docs:https://eonet.gsfc.nasa.gov/docs/v3',
+    'support:https://eonet.gsfc.nasa.gov/',
+    'docs:https://www.spaceweather.gov/products/solar-wind',
+    'support:https://www.spaceweather.gov/products/solar-wind',
+    'docs:https://www.spaceweather.gov/products/planetary-k-index',
+    'support:https://www.spaceweather.gov/products/planetary-k-index'
+  ]) {
+    assert.equal(surfaces.has(obsoleteKey), false, obsoleteKey);
+  }
+
+  assert.ok(monitoring['swpc-json'].invariants.includes('swpc-solar-wind-contract'));
+  assert.ok(monitoring['swpc-kp'].invariants.includes('swpc-kp-contract'));
 
   assert.deepEqual(classifyDocChange({
     previous: null,
@@ -3392,4 +3409,59 @@ test('deep-core invariants pass on valid fixtures and fail on state mismatch', (
     newestTimestamp: Date.parse('2026-03-15T12:00:00Z')
   }));
   assert.equal(sortAlert.regressionClass, 'descending-sort-broken');
+});
+
+test('SWPC product invariants preserve warnings for live wire-format failures', () => {
+  const windEntry = { id: 'swpc-json', tier: 'standard', sampleParams: {} };
+  const windSummary = summarizeProxyPayload(windEntry, {
+    body: JSON.stringify([{
+      time_tag: '2026-07-22T15:40:00',
+      proton_speed: 435
+    }]),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(evaluateInvariant(
+    'swpc-solar-wind-contract',
+    buildContext(windEntry, windSummary)
+  ), null);
+
+  const missingWindField = evaluateInvariant(
+    'swpc-solar-wind-contract',
+    buildContext(windEntry, summarizeProxyPayload(windEntry, {
+      body: JSON.stringify([{ time_tag: '2026-07-22T15:40:00' }]),
+      contentType: 'application/json',
+      httpStatus: 200
+    }, {}))
+  );
+  assert.equal(missingWindField.regressionClass, 'swpc-solar-wind-contract');
+  assert.equal(missingWindField.severity, 'warning');
+
+  const kpEntry = { id: 'swpc-kp', tier: 'standard', sampleParams: {} };
+  const kpSummary = summarizeProxyPayload(kpEntry, {
+    body: JSON.stringify([{
+      time_tag: '2026-07-22T15:40:00',
+      kp_index: 2,
+      estimated_kp: 2.33,
+      kp: '2P'
+    }]),
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.equal(evaluateInvariant('swpc-kp-contract', buildContext(kpEntry, kpSummary)), null);
+
+  const missingKpField = evaluateInvariant(
+    'swpc-kp-contract',
+    buildContext(kpEntry, summarizeProxyPayload(kpEntry, {
+      body: JSON.stringify([{
+        time_tag: '2026-07-22T15:40:00',
+        kp_index: 2,
+        estimated_kp: 2.33
+      }]),
+      contentType: 'application/json',
+      httpStatus: 200
+    }, {}))
+  );
+  assert.equal(missingKpField.regressionClass, 'swpc-kp-contract');
+  assert.equal(missingKpField.severity, 'warning');
 });

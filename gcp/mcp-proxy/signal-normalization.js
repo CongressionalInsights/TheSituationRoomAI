@@ -433,6 +433,7 @@ export function parseGenericJsonFeed(data, feed) {
       entry.dateIssued,
       entry.updateDate,
       entry.updateDateIncludingText,
+      entry.introducedDate,
       entry.updated_at,
       entry.startDate,
       entry.updatedAt,
@@ -467,6 +468,7 @@ export function parseGenericJsonFeed(data, feed) {
       congress: entry.congress || null,
       latestAction: entry.latestAction || null,
       updateDate: entry.updateDate || null,
+      introducedDate: entry.introducedDate || null,
       apiUrl: entry.apiUrl || ''
     } : {};
     return {
