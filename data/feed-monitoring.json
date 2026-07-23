@@ -956,6 +956,7 @@
   },
   "nasa-firms": {
     "tier": "core",
+    "timeoutMs": 60000,
     "docsUrl": "https://firms.modaps.eosdis.nasa.gov/api/",
     "changelogUrl": null,
     "statusUrl": null,

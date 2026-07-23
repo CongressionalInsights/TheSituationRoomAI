@@ -2569,6 +2569,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['fda-medwatch'].timeoutMs, 60000);
   assert.equal(monitoring['nasa-firms'].freshnessWindowMinutes, 240);
+  assert.equal(monitoring['nasa-firms'].timeoutMs, 60000);
   assert.equal(monitoring['google-news-us'].staticSnapshotLagWindowMinutes, 240);
   assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 180);
   assert.ok(monitoring['treasury-debt'].knownUpstreamQuirks.some((quirk) => quirk.id === 'treasury-debt-feed-stale-transient'));
