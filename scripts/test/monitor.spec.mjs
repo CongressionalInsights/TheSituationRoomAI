@@ -2670,6 +2670,7 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
     'congress-reports',
     'eonet-events',
     'fda-medwatch',
+    'nasa-firms',
     'swpc-json',
     'swpc-kp'
   ];
@@ -2684,15 +2685,20 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
     'support:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
     'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': '6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428',
     'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b',
-    'changelog:https://eonet.gsfc.nasa.gov/docs/changelog': '49580a5d25f8e5c9572a837a2864e32ac55af8d7d9ae0b0535125bc8f54802cd',
+    'changelog:https://eonet.gsfc.nasa.gov/docs/changelog': [
+      '49580a5d25f8e5c9572a837a2864e32ac55af8d7d9ae0b0535125bc8f54802cd',
+      '25dd249e56e60ef468bb8c2fec5882b5369b7ecbf13204063a826a15e3b736bb'
+    ],
     'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
     'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
+    'docs:https://firms.modaps.eosdis.nasa.gov/api/': '30c7c7b22b2525de16a6478a8c69ea2aeb839f16d642ab6f608474ea85b254da',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
     'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
   };
 
-  for (const [key, hash] of Object.entries(reviewed)) {
-    assert.deepEqual(surfaces.get(key)?.acceptedHashes, [hash], key);
+  for (const [key, hashes] of Object.entries(reviewed)) {
+    const expectedHashes = Array.isArray(hashes) ? hashes : [hashes];
+    assert.deepEqual(surfaces.get(key)?.acceptedHashes, expectedHashes, key);
     assert.equal(surfaces.get(key)?.acceptedHashes.includes('unknown-contract-hash'), false, key);
   }
 
@@ -2700,6 +2706,7 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
     key.includes('cdc.gov/travel/page/rss')
     || key.includes('known_exploited_vulnerabilities_schema.json')
     || key.includes('eonet.gsfc.nasa.gov/docs/changelog')
+    || key.includes('firms.modaps.eosdis.nasa.gov/api/')
     || key.includes('medwatch-rss-feed')
     || key.includes('services.swpc.noaa.gov/text/scn')
   ))) {

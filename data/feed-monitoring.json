@@ -257,7 +257,10 @@
     "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
       "changelog": {
-        "https://eonet.gsfc.nasa.gov/docs/changelog": "49580a5d25f8e5c9572a837a2864e32ac55af8d7d9ae0b0535125bc8f54802cd"
+        "https://eonet.gsfc.nasa.gov/docs/changelog": [
+          "49580a5d25f8e5c9572a837a2864e32ac55af8d7d9ae0b0535125bc8f54802cd",
+          "25dd249e56e60ef468bb8c2fec5882b5369b7ecbf13204063a826a15e3b736bb"
+        ]
       }
     }
   },
@@ -966,7 +969,13 @@
       "geo-coordinates",
       "non-empty"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "enforceAcceptedSurfaceHashes": true,
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://firms.modaps.eosdis.nasa.gov/api/": "30c7c7b22b2525de16a6478a8c69ea2aeb839f16d642ab6f608474ea85b254da"
+      }
+    }
   },
   "bbc-world": {
     "freshnessWindowMinutes": 480
