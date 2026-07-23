@@ -52,8 +52,8 @@ test('State connector keeps XML parser dependency lockfile aligned', () => {
   const lockfile = readJson('gcp', 'state-connector', 'package-lock.json');
 
   assert.deepEqual(manifest.dependencies, {
-    'fast-xml-parser': '^5.9.3'
+    'fast-xml-parser': '^5.10.1'
   });
   assert.deepEqual(lockfile.packages[''].dependencies, manifest.dependencies);
-  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.10.0');
+  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.10.1');
 });
