@@ -66,6 +66,14 @@ export function classifyDocChange({
   acceptedHashRequired = false
 }) {
   if (!current?.hash) return null;
+  if (current.requiredMarkers?.length) {
+    if (!current.missingRequiredMarkers?.length) return null;
+    return {
+      regressionClass: 'docs-contract-change',
+      severity: tier === 'core' ? 'critical' : 'warning',
+      message: `Official ${surfaceType} surface is missing required contract markers.`
+    };
+  }
   if (!acceptedHashRequired && !previous?.hash) return null;
   if (!acceptedHashRequired && previous?.hash === current.hash) return null;
   if (surfaceType === 'support') {
@@ -124,7 +132,8 @@ export function collectDocumentSurfaces(entries) {
         feedIds: [],
         tiers: {},
         acceptedHashes: [],
-        enforceAcceptedHashes: false
+        enforceAcceptedHashes: false,
+        requiredMarkers: []
       };
       existing.feedIds.push(entry.id);
       existing.tiers[entry.id] = entry.tier;
@@ -135,12 +144,19 @@ export function collectDocumentSurfaces(entries) {
       } else if (acceptedHash) {
         existing.acceptedHashes.push(acceptedHash);
       }
+      const requiredMarkers = entry.requiredSurfaceMarkers?.[surfaceType]?.[url];
+      if (Array.isArray(requiredMarkers)) {
+        existing.requiredMarkers.push(...requiredMarkers);
+      }
       surfaces.set(key, existing);
     }
   }
   return [...surfaces.values()].map((surface) => ({
     ...surface,
     acceptedHashes: [...new Set(surface.acceptedHashes.filter(Boolean))],
+    requiredMarkers: [...new Set(surface.requiredMarkers.filter((marker) => (
+      typeof marker === 'string' && marker.length > 0
+    )))],
     representativeFeedId: pickRepresentativeFeedId(surface)
   }));
 }
@@ -163,6 +179,9 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
       });
       const contentType = response.headers?.get('content-type') || 'text/plain';
       const normalizedText = normalizeDocText(response.text, contentType);
+      const missingRequiredMarkers = surface.requiredMarkers.filter(
+        (marker) => !normalizedText.includes(marker)
+      );
       const current = {
         key: surface.key,
         surfaceType: surface.surfaceType,
@@ -177,6 +196,8 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
         lastModified: response.headers?.get('last-modified') || null,
         hash: response.ok ? hashContent(normalizedText) : null,
         acceptedHashRequired: surface.enforceAcceptedHashes && surface.acceptedHashes.length > 0,
+        requiredMarkers: surface.requiredMarkers,
+        missingRequiredMarkers,
         normalizedText,
         datedEntries: response.ok ? extractDatedEntries(normalizedText) : [],
         generatedAt: new Date().toISOString()
@@ -185,8 +206,13 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
       const accepted = response.ok && Array.isArray(surface.acceptedHashes) && current.hash
         ? surface.acceptedHashes.includes(current.hash)
         : false;
+      const contractConfigured = surface.requiredMarkers.length > 0;
+      const contractSatisfied = response.ok
+        && contractConfigured
+        && missingRequiredMarkers.length === 0;
+      const acceptedBaseline = contractConfigured ? contractSatisfied : accepted;
       const classification = response.ok
-        ? (accepted
+        ? (acceptedBaseline
             ? null
             : classifyDocChange({
               previous,
@@ -203,7 +229,7 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
       results.push({
         ...current,
         changed: Boolean(classification),
-        acceptedBaseline: accepted,
+        acceptedBaseline,
         classification
       });
     }
