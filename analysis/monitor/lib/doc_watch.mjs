@@ -179,8 +179,9 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
       });
       const contentType = response.headers?.get('content-type') || 'text/plain';
       const normalizedText = normalizeDocText(response.text, contentType);
+      const normalizedMarkerText = normalizedText.toLowerCase();
       const missingRequiredMarkers = surface.requiredMarkers.filter(
-        (marker) => !normalizedText.includes(marker)
+        (marker) => !normalizedMarkerText.includes(marker.toLowerCase())
       );
       const current = {
         key: surface.key,
@@ -210,6 +211,7 @@ export async function watchDocumentation({ entries, previousDocs = {}, timeoutMs
       const contractSatisfied = response.ok
         && contractConfigured
         && missingRequiredMarkers.length === 0;
+      // Marker contracts replace whole-page hashes; raw invariants still own wire-format drift.
       const acceptedBaseline = contractConfigured ? contractSatisfied : accepted;
       const classification = response.ok
         ? (acceptedBaseline

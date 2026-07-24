@@ -2786,7 +2786,7 @@ test('documentation contracts alert on missing markers and ignore cosmetic churn
   assert.equal(initial[0].classification, null);
   assert.equal(initial[0].acceptedBaseline, true);
 
-  body = '<nav>new cosmetic navigation</nav><main>Required endpoint required_field cosmetic-v2</main>';
+  body = '<nav>new cosmetic navigation</nav><main>REQUIRED ENDPOINT REQUIRED_FIELD cosmetic-v2</main>';
   const cosmetic = await watchDocumentation({
     entries: [entry],
     previousDocs: { [initial[0].key]: initial[0] },
