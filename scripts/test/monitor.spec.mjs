@@ -37,7 +37,8 @@ import {
   normalizeDocText,
   extractDatedEntries,
   classifyDocChange,
-  collectDocumentSurfaces
+  collectDocumentSurfaces,
+  watchDocumentation
 } from '../../analysis/monitor/lib/doc_watch.mjs';
 import {
   compareStaticSnapshot,
@@ -2569,6 +2570,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['fda-medwatch'].freshnessWindowMinutes, 4320);
   assert.equal(monitoring['fda-medwatch'].timeoutMs, 60000);
   assert.equal(monitoring['nasa-firms'].freshnessWindowMinutes, 240);
+  assert.equal(monitoring['nasa-firms'].timeoutMs, 60000);
   assert.equal(monitoring['google-news-us'].staticSnapshotLagWindowMinutes, 240);
   assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 180);
   assert.ok(monitoring['treasury-debt'].knownUpstreamQuirks.some((quirk) => quirk.id === 'treasury-debt-feed-stale-transient'));
@@ -2660,7 +2662,7 @@ test('document surfaces accept multiple known hashes for nondeterministic docs p
   assert.deepEqual(surfaces[0].acceptedHashes, ['hash-a', 'hash-b']);
 });
 
-test('documentation watch pins reviewed provider surfaces without accepting unknown contracts', () => {
+test('documentation watch pins stable provider surfaces without accepting unknown contracts', () => {
   const feeds = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feeds.json'), 'utf8'));
   const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
   const ids = [
@@ -2670,6 +2672,7 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
     'congress-reports',
     'eonet-events',
     'fda-medwatch',
+    'nasa-firms',
     'swpc-json',
     'swpc-kp'
   ];
@@ -2684,23 +2687,19 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
     'support:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
     'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': '6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428',
     'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b',
-    'changelog:https://eonet.gsfc.nasa.gov/docs/changelog': '49580a5d25f8e5c9572a837a2864e32ac55af8d7d9ae0b0535125bc8f54802cd',
-    'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
-    'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': '2a7da19e9ee0ac8f1604d20fa1ad80fe2201a4a947da1f05514237b5e0e97b2b',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
     'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
   };
 
-  for (const [key, hash] of Object.entries(reviewed)) {
-    assert.deepEqual(surfaces.get(key)?.acceptedHashes, [hash], key);
+  for (const [key, hashes] of Object.entries(reviewed)) {
+    const expectedHashes = Array.isArray(hashes) ? hashes : [hashes];
+    assert.deepEqual(surfaces.get(key)?.acceptedHashes, expectedHashes, key);
     assert.equal(surfaces.get(key)?.acceptedHashes.includes('unknown-contract-hash'), false, key);
   }
 
   for (const key of Object.keys(reviewed).filter((key) => (
     key.includes('cdc.gov/travel/page/rss')
     || key.includes('known_exploited_vulnerabilities_schema.json')
-    || key.includes('eonet.gsfc.nasa.gov/docs/changelog')
-    || key.includes('medwatch-rss-feed')
     || key.includes('services.swpc.noaa.gov/text/scn')
   ))) {
     assert.equal(surfaces.get(key)?.enforceAcceptedHashes, true, key);
@@ -2709,8 +2708,10 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
   for (const obsoleteKey of [
     'docs:https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
     'support:https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
-    'docs:https://eonet.gsfc.nasa.gov/docs/v3',
+    'changelog:https://eonet.gsfc.nasa.gov/docs/changelog',
     'support:https://eonet.gsfc.nasa.gov/',
+    'docs:https://api.coinpaprika.com/',
+    'support:https://api.coinpaprika.com/',
     'docs:https://www.spaceweather.gov/products/solar-wind',
     'support:https://www.spaceweather.gov/products/solar-wind',
     'docs:https://www.spaceweather.gov/products/planetary-k-index',
@@ -2746,6 +2747,127 @@ test('documentation watch pins reviewed provider surfaces without accepting unkn
     surfaceType: 'docs',
     tier: 'core'
   }), null);
+});
+
+test('documentation contracts alert on missing markers and ignore cosmetic churn', async (t) => {
+  let body = '<main>Required endpoint required_field cosmetic-v1</main>';
+  let status = 200;
+  const server = http.createServer((req, res) => {
+    res.writeHead(status, { 'Content-Type': 'text/html' });
+    res.end(body);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const { port } = server.address();
+  const url = `http://127.0.0.1:${port}/contract`;
+  const materialBody = '<main>Required endpoint renamed_field</main>';
+  const entry = {
+    id: 'contract-feed',
+    tier: 'core',
+    docsUrl: url,
+    changelogUrl: null,
+    statusUrl: null,
+    supportUrl: null,
+    requiredSurfaceMarkers: {
+      docs: {
+        [url]: ['Required endpoint', 'required_field']
+      }
+    },
+    enforceAcceptedSurfaceHashes: true,
+    acceptedSurfaceHashes: {
+      docs: {
+        [url]: hashContent(normalizeDocText(materialBody, 'text/html'))
+      }
+    }
+  };
+
+  const initial = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+  assert.equal(initial[0].classification, null);
+  assert.equal(initial[0].acceptedBaseline, true);
+
+  body = '<nav>new cosmetic navigation</nav><main>REQUIRED ENDPOINT REQUIRED_FIELD cosmetic-v2</main>';
+  const cosmetic = await watchDocumentation({
+    entries: [entry],
+    previousDocs: { [initial[0].key]: initial[0] },
+    timeoutMs: 1000
+  });
+  assert.notEqual(cosmetic[0].hash, initial[0].hash);
+  assert.equal(cosmetic[0].classification, null);
+  assert.deepEqual(cosmetic[0].missingRequiredMarkers, []);
+
+  body = materialBody;
+  const material = await watchDocumentation({
+    entries: [entry],
+    previousDocs: { [cosmetic[0].key]: cosmetic[0] },
+    timeoutMs: 1000
+  });
+  assert.deepEqual(material[0].missingRequiredMarkers, ['required_field']);
+  assert.equal(material[0].classification.regressionClass, 'docs-contract-change');
+  assert.equal(material[0].classification.severity, 'critical');
+
+  status = 503;
+  const unavailable = await watchDocumentation({
+    entries: [entry],
+    previousDocs: { [material[0].key]: material[0] },
+    timeoutMs: 1000
+  });
+  assert.equal(unavailable[0].ok, false);
+  assert.equal(unavailable[0].classification.regressionClass, 'docs-fetch-failed');
+  assert.equal(unavailable[0].classification.severity, 'warning');
+});
+
+test('provider documentation watches use official contract markers instead of rendered-page hashes', () => {
+  const feeds = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feeds.json'), 'utf8'));
+  const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
+  const ids = ['eonet-events', 'coinpaprika-global', 'coinpaprika-tickers', 'fda-medwatch', 'nasa-firms'];
+  const entries = ids.map((id) => resolveMonitoringEntry(
+    feeds.feeds.find((feed) => feed.id === id),
+    monitoring[id],
+    feeds.app
+  ));
+  const surfaces = new Map(collectDocumentSurfaces(entries).map((surface) => [surface.key, surface]));
+  const expected = {
+    'docs:https://eonet.gsfc.nasa.gov/docs/v3': [
+      'https://eonet.gsfc.nasa.gov/api/v3/events',
+      'closed',
+      'categories',
+      'sources',
+      'geometry'
+    ],
+    'docs:https://docs.coinpaprika.com/api-reference/global/get-market-overview-data.md': [
+      'get /global',
+      'https://api.coinpaprika.com/v1/global',
+      'market_cap_usd',
+      'volume_24h_usd'
+    ],
+    'docs:https://docs.coinpaprika.com/api-reference/tickers/get-tickers-for-all-active-coins.md': [
+      'get /tickers',
+      'https://api.coinpaprika.com/v1/tickers',
+      'circulating_supply',
+      'quotes'
+    ],
+    'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': [
+      'MedWatch RSS Feed',
+      'http://www.fda.gov/AboutFDA/ContactFDA/StayInformed/RSSFeeds/MedWatch/rss.xml'
+    ],
+    'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': [
+      'MedWatch RSS Feed',
+      'http://www.fda.gov/AboutFDA/ContactFDA/StayInformed/RSSFeeds/MedWatch/rss.xml'
+    ],
+    'docs:https://firms.modaps.eosdis.nasa.gov/api/': [
+      'area Fire detection hotspots based on area, date and sensor in CSV format',
+      'data_availability Date availability of SP and NRT data',
+      'map_key Setup MAP_KEY',
+      'API Version:'
+    ]
+  };
+
+  for (const [key, markers] of Object.entries(expected)) {
+    assert.deepEqual(surfaces.get(key)?.requiredMarkers, markers, key);
+    assert.deepEqual(surfaces.get(key)?.acceptedHashes, [], key);
+    assert.equal(surfaces.get(key)?.enforceAcceptedHashes, false, key);
+  }
 });
 
 test('feed proxy deploy workflow injects OpenSky credentials', () => {

@@ -110,6 +110,9 @@ export function resolveMonitoringEntry(feed, override = {}, appConfig = {}) {
       ? override.acceptedSurfaceHashes
       : {},
     enforceAcceptedSurfaceHashes: override.enforceAcceptedSurfaceHashes === true,
+    requiredSurfaceMarkers: override.requiredSurfaceMarkers && typeof override.requiredSurfaceMarkers === 'object'
+      ? override.requiredSurfaceMarkers
+      : {},
     freshnessWindowMinutes: Number(override.freshnessWindowMinutes || deriveFreshnessWindowMinutes(feed, appConfig)),
     staticSnapshotLagWindowMinutes: Number(override.staticSnapshotLagWindowMinutes || override.freshnessWindowMinutes || deriveFreshnessWindowMinutes(feed, appConfig)),
     sampleParams: {
