@@ -84,5 +84,6 @@
 - When adding map layers, also update legend groups and default toggles to avoid hidden layers.
 - If you change search behavior or add categories, update `state.lastSearch*` tracking and the AI context to reflect the new filters.
 - When touching OpenStates `state-legislation` fallback/cache behavior, run `node --test scripts/test/mcp-proxy.spec.mjs scripts/test/feeds.spec.mjs` and verify a query-shaped `raw.fetch` keeps `fallbackUsed:false` instead of serving the static live-cache snapshot.
+- For volatile provider documentation pages in `data/feed-monitoring.json`, prefer reviewed `requiredSurfaceMarkers` over accepted whole-page hashes; run `node --test scripts/test/monitor.spec.mjs` and verify missing markers remain `docs-contract-change` alerts while cosmetic churn stays quiet.
 - When touching Congress.gov summaries or detail targets, run `node scripts/validate_congress_detail.mjs` (use `--base <deploy-url>` when validating Cloud Run) and review `analysis/congress/congress-detail-404.json`.
 - For Congress.gov committee reports, do not assume `sort=updateDate` is honored upstream. Compare top 5 citations for asc vs desc periodically; if they match, treat sorting as degraded and monitor until upstream fix lands.
