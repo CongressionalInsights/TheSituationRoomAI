@@ -78,16 +78,23 @@ jobs:
           if ! gcloud secrets describe state-connector-key --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create state-connector-key --replication-policy=automatic
           fi
-          if [ -n "$DATA_GOV" ]; then echo -n "$DATA_GOV" | gcloud secrets versions add data-gov-key --data-file=-; fi
-          if [ -n "$EIA" ]; then echo -n "$EIA" | gcloud secrets versions add eia-key --data-file=-; fi
-          if [ -n "$NASA_FIRMS" ]; then echo -n "$NASA_FIRMS" | gcloud secrets versions add nasa-firms-key --data-file=-; fi
-          if [ -n "$OPEN_AQ" ]; then echo -n "$OPEN_AQ" | gcloud secrets versions add openaq-key --data-file=-; fi
-          if [ -n "$OPENSTATES" ]; then echo -n "$OPENSTATES" | gcloud secrets versions add openstates-key --data-file=-; fi
-          if [ -n "$EARTHDATA_NASA" ]; then echo -n "$EARTHDATA_NASA" | gcloud secrets versions add earthdata-nasa-key --data-file=-; fi
-          if [ -n "$OPENSKY_CLIENTID" ]; then echo -n "$OPENSKY_CLIENTID" | gcloud secrets versions add opensky-clientid --data-file=-; fi
-          if [ -n "$OPENSKY_CLIENTSECRET" ]; then echo -n "$OPENSKY_CLIENTSECRET" | gcloud secrets versions add opensky-clientsecret --data-file=-; fi
-          if [ -n "$SAMGOV_API_KEY" ]; then echo -n "$SAMGOV_API_KEY" | gcloud secrets versions add samgov-key --data-file=-; fi
-          if [ -n "$STATE_CONNECTOR_API_KEY" ]; then echo -n "$STATE_CONNECTOR_API_KEY" | gcloud secrets versions add state-connector-key --data-file=-; fi
+          ensure_secret_version() {
+            if gcloud secrets versions access latest --secret "$1" --project "$PROJECT_ID" 2>/dev/null | cmp -s - <(printf '%s' "$2"); then
+              echo "Secret $1 unchanged; preserving latest version."
+            else
+              printf '%s' "$2" | gcloud secrets versions add "$1" --data-file=-
+            fi
+          }
+          if [ -n "$DATA_GOV" ]; then ensure_secret_version data-gov-key "$DATA_GOV"; fi
+          if [ -n "$EIA" ]; then ensure_secret_version eia-key "$EIA"; fi
+          if [ -n "$NASA_FIRMS" ]; then ensure_secret_version nasa-firms-key "$NASA_FIRMS"; fi
+          if [ -n "$OPEN_AQ" ]; then ensure_secret_version openaq-key "$OPEN_AQ"; fi
+          if [ -n "$OPENSTATES" ]; then ensure_secret_version openstates-key "$OPENSTATES"; fi
+          if [ -n "$EARTHDATA_NASA" ]; then ensure_secret_version earthdata-nasa-key "$EARTHDATA_NASA"; fi
+          if [ -n "$OPENSKY_CLIENTID" ]; then ensure_secret_version opensky-clientid "$OPENSKY_CLIENTID"; fi
+          if [ -n "$OPENSKY_CLIENTSECRET" ]; then ensure_secret_version opensky-clientsecret "$OPENSKY_CLIENTSECRET"; fi
+          if [ -n "$SAMGOV_API_KEY" ]; then ensure_secret_version samgov-key "$SAMGOV_API_KEY"; fi
+          if [ -n "$STATE_CONNECTOR_API_KEY" ]; then ensure_secret_version state-connector-key "$STATE_CONNECTOR_API_KEY"; fi
       - name: Deploy feed proxy service
         run: |
           if [ -z "${STATE_CONNECTOR_BASE_URL}" ]; then
