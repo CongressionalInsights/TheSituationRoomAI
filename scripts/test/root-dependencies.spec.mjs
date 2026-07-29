@@ -12,13 +12,13 @@ test('root dev tooling pins manifest and lockfile versions together', () => {
   const lockfile = readJson('package-lock.json');
 
   assert.deepEqual(manifest.devDependencies, {
-    '@playwright/test': '^1.61.1',
+    '@playwright/test': '^1.62.0',
     esbuild: '^0.28.1',
-    playwright: '^1.61.1'
+    playwright: '^1.62.0'
   });
 
   assert.deepEqual(lockfile.packages[''].devDependencies, manifest.devDependencies);
-  assert.equal(lockfile.packages['node_modules/@playwright/test'].version, '1.61.1');
-  assert.equal(lockfile.packages['node_modules/playwright'].version, '1.61.1');
+  assert.equal(lockfile.packages['node_modules/@playwright/test'].version, '1.62.0');
+  assert.equal(lockfile.packages['node_modules/playwright'].version, '1.62.0');
   assert.equal(lockfile.packages['node_modules/esbuild'].version, '0.28.1');
 });
