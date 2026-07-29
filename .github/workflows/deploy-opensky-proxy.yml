@@ -42,8 +42,15 @@ jobs:
           if ! gcloud secrets describe opensky-clientsecret --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create opensky-clientsecret --replication-policy=automatic
           fi
-          echo -n "$OPENSKY_CLIENTID" | gcloud secrets versions add opensky-clientid --data-file=-
-          echo -n "$OPENSKY_CLIENTSECRET" | gcloud secrets versions add opensky-clientsecret --data-file=-
+          ensure_secret_version() {
+            if gcloud secrets versions access latest --secret "$1" --project "$PROJECT_ID" 2>/dev/null | cmp -s - <(printf '%s' "$2"); then
+              echo "Secret $1 unchanged; preserving latest version."
+            else
+              printf '%s' "$2" | gcloud secrets versions add "$1" --data-file=-
+            fi
+          }
+          ensure_secret_version opensky-clientid "$OPENSKY_CLIENTID"
+          ensure_secret_version opensky-clientsecret "$OPENSKY_CLIENTSECRET"
       - name: Deploy OpenSky proxy service
         run: |
           cat > /tmp/sr-opensky-env.yaml <<EOF

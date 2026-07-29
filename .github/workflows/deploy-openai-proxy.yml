@@ -38,7 +38,11 @@ jobs:
           if ! gcloud secrets describe openai-api-key --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create openai-api-key --replication-policy=automatic
           fi
-          echo -n "$OPEN_AI" | gcloud secrets versions add openai-api-key --data-file=-
+          if gcloud secrets versions access latest --secret openai-api-key --project "$PROJECT_ID" 2>/dev/null | cmp -s - <(printf '%s' "$OPEN_AI"); then
+            echo "Secret openai-api-key unchanged; preserving latest version."
+          else
+            printf '%s' "$OPEN_AI" | gcloud secrets versions add openai-api-key --data-file=-
+          fi
       - name: Deploy OpenAI proxy service
         run: |
           cat > /tmp/sr-openai-env.yaml <<EOF

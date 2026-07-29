@@ -42,8 +42,15 @@ jobs:
           if ! gcloud secrets describe acled-pass --project "$PROJECT_ID" >/dev/null 2>&1; then
             gcloud secrets create acled-pass --replication-policy=automatic
           fi
-          echo -n "$ACLED_NAME" | gcloud secrets versions add acled-name --data-file=-
-          echo -n "$ACLED_PASS" | gcloud secrets versions add acled-pass --data-file=-
+          ensure_secret_version() {
+            if gcloud secrets versions access latest --secret "$1" --project "$PROJECT_ID" 2>/dev/null | cmp -s - <(printf '%s' "$2"); then
+              echo "Secret $1 unchanged; preserving latest version."
+            else
+              printf '%s' "$2" | gcloud secrets versions add "$1" --data-file=-
+            fi
+          }
+          ensure_secret_version acled-name "$ACLED_NAME"
+          ensure_secret_version acled-pass "$ACLED_PASS"
       - name: Deploy ACLED proxy service
         run: |
           cat > /tmp/sr-acled-env.yaml <<EOF
