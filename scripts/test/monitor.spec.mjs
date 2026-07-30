@@ -2886,6 +2886,28 @@ test('mcp proxy deploy workflow injects OpenSky credentials', () => {
   assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
 });
 
+test('proxy deploy workflows preserve an unchanged Secret Manager version', () => {
+  const workflows = [
+    'deploy-acled-proxy.yml',
+    'deploy-feed-proxy.yml',
+    'deploy-mcp-proxy.yml',
+    'deploy-openai-proxy.yml',
+    'deploy-opensky-proxy.yml'
+  ];
+
+  for (const workflowName of workflows) {
+    const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', workflowName), 'utf8');
+    assert.match(
+      workflow,
+      /gcloud secrets versions access latest --secret .* --project "\$PROJECT_ID" 2>\/dev\/null \| cmp -s - <\(printf '%s'/,
+      workflowName
+    );
+    assert.match(workflow, /Secret .* unchanged; preserving latest version\./, workflowName);
+    assert.match(workflow, /printf '%s' .* \| gcloud secrets versions add .* --data-file=-/, workflowName);
+    assert.doesNotMatch(workflow, /echo -n .* \| gcloud secrets versions add/, workflowName);
+  }
+});
+
 test('pages deploy workflow validates required static build secrets', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-pages.yml'), 'utf8');
   assert.match(workflow, /Missing required secret: EIA/);
