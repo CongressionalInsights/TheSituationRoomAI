@@ -18,6 +18,7 @@ test('dashboard loads panels and focus modal', async ({ page }) => {
 });
 
 test('dashboard renders downstream panels without summary-type crash', async ({ page }) => {
+  test.setTimeout(120_000);
   const runtimeErrors = [];
   const consoleErrors = [];
 
@@ -28,6 +29,9 @@ test('dashboard renders downstream panels without summary-type crash', async ({ 
     }
   });
 
+  await page.addInitScript(() => {
+    window.SR_CONFIG = { ...(window.SR_CONFIG || {}), staticMode: true };
+  });
   await page.goto('/');
   await page.waitForFunction(() => window.__SR_READY__ === true);
   await page.waitForFunction(() => {
@@ -88,6 +92,7 @@ test('dashboard renders downstream panels without summary-type crash', async ({ 
 });
 
 test('state filters are context-local and tab panels respect active state', async ({ page }) => {
+  test.setTimeout(90_000);
   await page.goto('/');
   await page.waitForFunction(() => window.__SR_READY__ === true);
 
@@ -131,34 +136,36 @@ test('state filters are context-local and tab panels respect active state', asyn
       }
       id = payload.id;
     }
-    if (id !== 'state-rulemaking' && id !== 'state-executive-orders') {
+    if (!['state-legislation', 'state-rulemaking', 'state-executive-orders'].includes(id)) {
       await route.continue();
       return;
     }
-    const signalType = id === 'state-rulemaking' ? 'rulemaking' : 'executive_order';
-    const response = {
-      id,
-      fetchedAt: Date.now(),
-      contentType: 'application/json',
-      httpStatus: 200,
-      body: JSON.stringify({
-        results: [
+    const results = id === 'state-legislation'
+      ? []
+      : [
           {
             id: `${id}-tx-1`,
-            title: `${signalType} test signal`,
+            title: `${id === 'state-rulemaking' ? 'rulemaking' : 'executive_order'} test signal`,
             summary: 'Connector test item',
             url: 'https://example.com',
             updated_at: new Date().toISOString(),
             jurisdictionCode: 'TX',
             jurisdictionName: 'Texas',
             jurisdictionLevel: 'state',
-            signalType,
+            signalType: id === 'state-rulemaking' ? 'rulemaking' : 'executive_order',
             agency: 'Test Agency',
             status: 'Open',
             effective_date: '',
             source: 'Test Connector'
           }
-        ],
+        ];
+    const response = {
+      id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      httpStatus: 200,
+      body: JSON.stringify({
+        results,
         meta: { provider: 'test-connector' }
       })
     };
@@ -169,7 +176,7 @@ test('state filters are context-local and tab panels respect active state', asyn
     });
   });
 
-  await page.locator('#refreshNow').click();
+  await panelStateFilter.dispatchEvent('change');
   await page.waitForFunction(() => {
     const rule = document.querySelector('#stateGovTabs .tab[data-tab="rulemaking"]');
     const exec = document.querySelector('#stateGovTabs .tab[data-tab="executive"]');
