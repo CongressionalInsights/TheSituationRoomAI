@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const { getStateBillSortTimestamp, normalizeCsvSignals, normalizeJsonSignals } = await import('../../gcp/mcp-proxy/signal-normalization.js');
+const {
+  getStateBillSortTimestamp,
+  normalizeCsvSignals,
+  normalizeJsonSignals,
+  normalizeSwpcTimestamp,
+  parseJsonFeedPayload
+} = await import('../../gcp/mcp-proxy/signal-normalization.js');
 const {
   buildFeedUrl,
   buildMoneyQueryProfile,
@@ -79,6 +85,81 @@ const feed = {
     assert.ok(item.publishedAt > 0);
     assert.ok(item.jurisdictionCode, `expected jurisdiction metadata for ${shape}`);
   });
+});
+
+const swpcFeed = {
+  id: 'swpc-json',
+  name: 'NOAA SWPC Space Weather (JSON)',
+  category: 'space',
+  format: 'json',
+  url: 'https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json'
+};
+const swpcNonFinitePayload = `[
+  {
+    "time_tag": "2026-08-11T19:40:00",
+    "source": "SOLAR1",
+    "proton_speed": NaN,
+    "proton_density": Infinity,
+    "proton_temperature": 178434,
+    "bx_gsm": -Infinity,
+    "by_gsm": +Infinity,
+    "status": "NaN and Infinity remain provider text"
+  },
+  {
+    "time_tag": "2026-08-11T19:40:00",
+    "source": "ACE",
+    "proton_speed": 435,
+    "proton_density": 5.1
+  }
+]`;
+
+test('SWPC JSON parser converts bare non-finite values to null without changing strings', () => {
+  const parsed = parseJsonFeedPayload(swpcNonFinitePayload, swpcFeed);
+  assert.equal(parsed[0].proton_speed, null);
+  assert.equal(parsed[0].proton_density, null);
+  assert.equal(parsed[0].bx_gsm, null);
+  assert.equal(parsed[0].by_gsm, null);
+  assert.equal(parsed[0].status, 'NaN and Infinity remain provider text');
+
+  assert.throws(
+    () => parseJsonFeedPayload(swpcNonFinitePayload, { ...swpcFeed, id: 'other-json' }),
+    SyntaxError
+  );
+});
+
+test('SWPC non-finite root arrays remain available through raw and signal normalization', () => {
+  const items = normalizeJsonSignals(swpcNonFinitePayload, swpcFeed);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].publishedAt, Date.parse('2026-08-11T19:40:00Z'));
+  assert.equal(items[0].title, 'Solar wind - SOLAR1');
+  assert.match(items[0].summary, /Proton temperature 178434 K/);
+  assert.equal(items[0].protonSpeed, null);
+  assert.equal(items[1].title, 'Solar wind - ACE');
+  assert.match(items[1].summary, /Proton speed 435 km\/s/);
+  assert.equal(items[1].spacecraft, 'ACE');
+  assert.notEqual(items[0].title, items[1].title);
+
+  const structured = buildRawStructuredContent({
+    sourceId: swpcFeed.id,
+    feed: swpcFeed,
+    result: {
+      contentType: 'application/json',
+      fetchedUrl: swpcFeed.url,
+      body: swpcNonFinitePayload,
+      responseHeaders: null,
+      fallbackUsed: false,
+      proxyUsed: null
+    },
+    responseFormat: 'text'
+  });
+  assert.equal(structured.data.length, 2);
+  assert.equal(structured.data[0].proton_speed, null);
+  assert.equal(structured.body, swpcNonFinitePayload);
+});
+
+test('SWPC timestamps without an explicit zone are normalized as UTC', () => {
+  assert.equal(normalizeSwpcTimestamp('2026-08-11T19:40:00'), '2026-08-11T19:40:00Z');
+  assert.equal(normalizeSwpcTimestamp('2026-08-11T19:40:00-04:00'), '2026-08-11T19:40:00-04:00');
 });
 
 test('normalizeJsonSignals uses snake_case state dates for timestamps and metadata', () => {

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
-import { normalizeCsvSignals, normalizeJsonSignals } from './signal-normalization.js';
+import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1824,9 +1824,9 @@ function isJsonContentType(contentType = '') {
   return normalized.includes('application/json') || normalized.includes('+json');
 }
 
-function parseJsonBody(body) {
+function parseJsonBody(body, feed) {
   try {
-    return JSON.parse(body);
+    return parseJsonFeedPayload(body, feed);
   } catch {
     return null;
   }
@@ -1834,7 +1834,7 @@ function parseJsonBody(body) {
 
 export function buildRawStructuredContent({ sourceId, feed, result, responseFormat, range = null }) {
   const contentIsJson = isJsonContentType(result.contentType);
-  const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body) : null;
+  const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null;
   return {
     sourceId,
     ...(range ? { range } : {}),

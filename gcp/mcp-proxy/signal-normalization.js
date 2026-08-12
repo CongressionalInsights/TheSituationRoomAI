@@ -23,6 +23,96 @@ function parseFirstValidTimestamp(...values) {
   return Date.now();
 }
 
+export function normalizeSwpcTimestamp(value) {
+  const timestamp = String(value || '').trim();
+  if (!timestamp || /(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp)) return timestamp;
+  return `${timestamp}Z`;
+}
+
+function normalizeFiniteNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeSwpcSignals(data, feed) {
+  return data.slice(0, 50).map((entry) => {
+    const spacecraft = String(entry?.source || '').trim();
+    const protonSpeed = normalizeFiniteNumber(entry?.proton_speed);
+    const protonDensity = normalizeFiniteNumber(entry?.proton_density);
+    const protonTemperature = normalizeFiniteNumber(entry?.proton_temperature);
+    const summary = normalizeSummary([
+      protonSpeed !== null ? `Proton speed ${protonSpeed} km/s` : '',
+      protonDensity !== null ? `Proton density ${protonDensity} p/cm3` : '',
+      protonTemperature !== null ? `Proton temperature ${protonTemperature} K` : ''
+    ].filter(Boolean).join(' | '));
+    return {
+      title: spacecraft ? `Solar wind - ${spacecraft}` : 'Solar wind observation',
+      url: feed.url || '',
+      summary: summary || 'Proton measurements unavailable',
+      publishedAt: parseFirstValidTimestamp(normalizeSwpcTimestamp(entry?.time_tag)),
+      source: feed.name,
+      category: feed.category,
+      spacecraft: spacecraft || null,
+      active: typeof entry?.active === 'boolean' ? entry.active : null,
+      protonSpeed,
+      protonDensity,
+      protonTemperature
+    };
+  });
+}
+
+const SWPC_NON_FINITE_TOKENS = ['-Infinity', '+Infinity', 'Infinity', 'NaN'];
+
+function findNonWhitespace(text, start, step) {
+  for (let index = start; index >= 0 && index < text.length; index += step) {
+    if (!/\s/.test(text[index])) return text[index];
+  }
+  return '';
+}
+
+function normalizeSwpcNonFiniteNumbers(text) {
+  let normalized = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      normalized += char;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      normalized += char;
+      continue;
+    }
+
+    const token = SWPC_NON_FINITE_TOKENS.find((candidate) => text.startsWith(candidate, index));
+    if (token) {
+      const previous = findNonWhitespace(text, index - 1, -1);
+      const next = findNonWhitespace(text, index + token.length, 1);
+      const startsValue = !previous || previous === ':' || previous === ',' || previous === '[';
+      const endsValue = !next || next === ',' || next === ']' || next === '}';
+      if (startsValue && endsValue) {
+        normalized += 'null';
+        index += token.length - 1;
+        continue;
+      }
+    }
+    normalized += char;
+  }
+  return normalized;
+}
+
+export function parseJsonFeedPayload(text, feed) {
+  const body = String(text || '');
+  return JSON.parse(feed?.id === 'swpc-json' ? normalizeSwpcNonFiniteNumbers(body) : body);
+}
+
 function parseCsvRows(text = '') {
   const rows = [];
   let row = [];
@@ -442,6 +532,7 @@ export function parseGenericJsonFeed(data, feed) {
       entry.latest_passage_date,
       entry.latestPassageDate,
       entry.latestAction?.actionDate,
+      feed?.id === 'swpc-json' ? normalizeSwpcTimestamp(entry.time_tag) : null,
       entry.effectiveDate,
       entry.effective_date,
       latestEonetGeometry?.date
@@ -486,15 +577,20 @@ export function parseGenericJsonFeed(data, feed) {
 }
 
 export function normalizeJsonSignals(text, feed) {
+  const normalizeParsed = (data) => (
+    feed?.id === 'swpc-json' && Array.isArray(data)
+      ? normalizeSwpcSignals(data, feed)
+      : parseGenericJsonFeed(data, feed)
+  );
   try {
-    return parseGenericJsonFeed(JSON.parse(text), feed);
+    return normalizeParsed(parseJsonFeedPayload(text, feed));
   } catch {
     const trimmed = String(text || '').trim();
     const objectStart = trimmed.indexOf('{');
     const objectEnd = trimmed.lastIndexOf('}');
     if (objectStart === -1 || objectEnd <= objectStart) return [];
     try {
-      return parseGenericJsonFeed(JSON.parse(trimmed.slice(objectStart, objectEnd + 1)), feed);
+      return normalizeParsed(parseJsonFeedPayload(trimmed.slice(objectStart, objectEnd + 1), feed));
     } catch {
       return [];
     }
