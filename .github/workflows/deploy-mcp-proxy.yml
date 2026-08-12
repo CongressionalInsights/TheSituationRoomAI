@@ -2,6 +2,12 @@ name: Deploy MCP Proxy (GCP)
 
 on:
   workflow_dispatch:
+    inputs:
+      sync_secret_versions:
+        description: Sync configured GitHub secrets into Secret Manager before deploying
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -57,6 +63,9 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: preflight
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-mcp-proxy
+      cancel-in-progress: false
     env:
       PROJECT_ID: situationroom-ai-20260112
       REGION: us-central1
@@ -79,6 +88,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
       - name: Ensure MCP proxy secrets
+        if: github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions
         env:
           DATA_GOV: ${{ secrets.DATA_GOV }}
           EIA: ${{ secrets.EIA }}
@@ -138,38 +148,80 @@ jobs:
           if [ -n "$OPENSKY_CLIENTSECRET" ]; then ensure_secret_version opensky-clientsecret "$OPENSKY_CLIENTSECRET"; fi
           if [ -n "$SAMGOV_API_KEY" ]; then ensure_secret_version samgov-key "$SAMGOV_API_KEY"; fi
           if [ -n "$STATE_CONNECTOR_API_KEY" ]; then ensure_secret_version state-connector-key "$STATE_CONNECTOR_API_KEY"; fi
-      - name: Deploy MCP proxy service
-        id: deploy
+      - name: Capture deployed revision and secret bindings
+        id: current
         run: |
           set -euo pipefail
           DIAG_DIR=/tmp/mcp-diagnostics
           mkdir -p "$DIAG_DIR"
+          gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --format=json > /tmp/mcp-service-before.json
+
+          ROLLBACK_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-before.json)
+          gcloud run revisions describe "$ROLLBACK_REVISION" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --format=json > /tmp/mcp-revision-before.json
+          jq -S -c -f scripts/cloud-run-secret-schema.jq \
+            /tmp/mcp-revision-before.json > "$DIAG_DIR/secret-bindings-before.json"
+
+          for required_name in \
+            DATA_GOV EIA NASA_FIRMS OPEN_AQ EARTHDATA_NASA \
+            OPENSKY_CLIENTID OPENSKY_CLIENTSECRET SAMGOV_API_KEY; do
+            if ! jq -e --arg name "$required_name" '
+              .spec.containers[]?.env[]?
+              | select(.name == $name and .valueFrom.secretKeyRef)
+            ' /tmp/mcp-revision-before.json >/dev/null; then
+              echo "Currently deployed MCP service is missing required secret binding: ${required_name}"
+              exit 1
+            fi
+          done
+
+          printf '%s\n' "$ROLLBACK_REVISION" | tee "$DIAG_DIR/rollback-revision.txt"
+          echo "rollback_revision=${ROLLBACK_REVISION}" >> "$GITHUB_OUTPUT"
+      - name: Deploy MCP proxy service
+        id: deploy
+        env:
+          SYNC_SECRET_VERSIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions }}
+        run: |
+          set -euo pipefail
+          DIAG_DIR=/tmp/mcp-diagnostics
+          mkdir -p "$DIAG_DIR"
+          REVISION_SUFFIX="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           if [ -z "${STATE_CONNECTOR_BASE_URL}" ]; then
             STATE_CONNECTOR_BASE_URL="https://state-connector-382918878290.us-central1.run.app"
           fi
           if [ -z "${STATE_CONNECTOR_KEY_HEADER}" ]; then
             STATE_CONNECTOR_KEY_HEADER="X-API-Key"
           fi
-          cat > /tmp/sr-mcp-env.yaml <<EOF
-          ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
-          ACLED_PROXY: "${ACLED_PROXY}"
-          STATE_CONNECTOR_BASE_URL: "${STATE_CONNECTOR_BASE_URL}"
-          STATE_CONNECTOR_KEY_HEADER: "${STATE_CONNECTOR_KEY_HEADER}"
-          EOF
-          SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,OPENSKY_CLIENTID=opensky-clientid:latest,OPENSKY_CLIENTSECRET=opensky-clientsecret:latest,SAMGOV_API_KEY=samgov-key:latest"
-          OPENSTATES_VERSION=$(gcloud secrets versions list openstates-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
-          if [ -n "$OPENSTATES_VERSION" ]; then
-            SECRET_BINDINGS="${SECRET_BINDINGS},OPENSTATES=openstates-key:latest"
-          else
-            echo "OPENSTATES not configured (no enabled versions); deploying MCP proxy without OPENSTATES."
+          for value in \
+            "$ALLOWED_ORIGINS" "$ACLED_PROXY" \
+            "$STATE_CONNECTOR_BASE_URL" "$STATE_CONNECTOR_KEY_HEADER"; do
+            if [[ "$value" == *"|"* || "$value" == *$'\n'* ]]; then
+              echo "MCP environment value contains an unsupported deploy delimiter."
+              exit 1
+            fi
+          done
+          ENV_UPDATES="^|^ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|ACLED_PROXY=${ACLED_PROXY}|STATE_CONNECTOR_BASE_URL=${STATE_CONNECTOR_BASE_URL}|STATE_CONNECTOR_KEY_HEADER=${STATE_CONNECTOR_KEY_HEADER}"
+          SECRET_ARGS=()
+          if [ "$SYNC_SECRET_VERSIONS" = "true" ]; then
+            SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,OPENSKY_CLIENTID=opensky-clientid:latest,OPENSKY_CLIENTSECRET=opensky-clientsecret:latest,SAMGOV_API_KEY=samgov-key:latest"
+            OPENSTATES_VERSION=$(gcloud secrets versions list openstates-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
+            if [ -n "$OPENSTATES_VERSION" ]; then
+              SECRET_BINDINGS="${SECRET_BINDINGS},OPENSTATES=openstates-key:latest"
+            else
+              echo "OPENSTATES not configured (no enabled versions); deploying MCP proxy without OPENSTATES."
+            fi
+            STATE_CONNECTOR_VERSION=$(gcloud secrets versions list state-connector-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
+            if [ -n "$STATE_CONNECTOR_VERSION" ]; then
+              SECRET_BINDINGS="${SECRET_BINDINGS},STATE_CONNECTOR_API_KEY=state-connector-key:latest"
+            else
+              echo "STATE_CONNECTOR_API_KEY not configured; deploying MCP proxy without state connector key."
+            fi
+            SECRET_ARGS=(--update-secrets "$SECRET_BINDINGS")
           fi
-          STATE_CONNECTOR_VERSION=$(gcloud secrets versions list state-connector-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
-          if [ -n "$STATE_CONNECTOR_VERSION" ]; then
-            SECRET_BINDINGS="${SECRET_BINDINGS},STATE_CONNECTOR_API_KEY=state-connector-key:latest"
-          else
-            echo "STATE_CONNECTOR_API_KEY not configured; deploying MCP proxy without state connector key."
-          fi
-
           set +e
           gcloud run deploy "$SERVICE_NAME" \
             --region "$REGION" \
@@ -177,16 +229,102 @@ jobs:
             --allow-unauthenticated \
             --min-instances 1 \
             --timeout 900 \
-            --set-secrets "$SECRET_BINDINGS" \
-            --env-vars-file /tmp/sr-mcp-env.yaml 2>&1 | tee "$DIAG_DIR/deploy-output.log"
+            --revision-suffix "$REVISION_SUFFIX" \
+            --tag "$REVISION_SUFFIX" \
+            --no-traffic \
+            "${SECRET_ARGS[@]}" \
+            --update-env-vars "$ENV_UPDATES" 2>&1 | tee "$DIAG_DIR/deploy-output.log"
           DEPLOY_EXIT=${PIPESTATUS[0]}
           set -e
 
-          echo "deploy_exit=${DEPLOY_EXIT}" >> "$GITHUB_OUTPUT"
-          if [ "$DEPLOY_EXIT" -eq 0 ]; then
-            echo "deploy_succeeded=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "deploy_succeeded=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "deploy_exit=${DEPLOY_EXIT}"
+            if [ "$DEPLOY_EXIT" -eq 0 ]; then
+              echo "deploy_succeeded=true"
+              echo "candidate_revision=${SERVICE_NAME}-${REVISION_SUFFIX}"
+              echo "candidate_tag=${REVISION_SUFFIX}"
+            else
+              echo "deploy_succeeded=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
+      - name: Verify secret bindings are unchanged
+        if: steps.deploy.outputs.deploy_succeeded == 'true'
+        env:
+          SYNC_SECRET_VERSIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions }}
+        run: |
+          set -euo pipefail
+          DIAG_DIR=/tmp/mcp-diagnostics
+          CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
+          gcloud run revisions describe "$CANDIDATE_REVISION" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --format=json > /tmp/mcp-revision-after.json
+
+          jq -S -c -f scripts/cloud-run-secret-schema.jq \
+            /tmp/mcp-revision-after.json > "$DIAG_DIR/secret-bindings-after.json"
+
+          if [ "$SYNC_SECRET_VERSIONS" != "true" ] \
+            && ! cmp -s "$DIAG_DIR/secret-bindings-before.json" "$DIAG_DIR/secret-bindings-after.json"; then
+            echo "MCP secret bindings changed during deploy."
+            diff -u "$DIAG_DIR/secret-bindings-before.json" "$DIAG_DIR/secret-bindings-after.json" || true
+            exit 1
+          fi
+          for required_name in \
+            DATA_GOV EIA NASA_FIRMS OPEN_AQ EARTHDATA_NASA \
+            OPENSKY_CLIENTID OPENSKY_CLIENTSECRET SAMGOV_API_KEY; do
+            if ! jq -e --arg name "$required_name" '
+              .spec.containers[]?.env[]?
+              | select(.name == $name and .valueFrom.secretKeyRef)
+            ' /tmp/mcp-revision-after.json >/dev/null; then
+              echo "Candidate MCP revision is missing required secret binding: ${required_name}"
+              exit 1
+            fi
+          done
+          printf '%s\n' "$CANDIDATE_REVISION" | tee "$DIAG_DIR/deployed-revision.txt"
+          echo "Secret bindings preserved from rollback revision ${{ steps.current.outputs.rollback_revision }}."
+      - name: Smoke test isolated MCP candidate
+        if: steps.deploy.outputs.deploy_succeeded == 'true'
+        run: |
+          set -euo pipefail
+          CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
+          CANDIDATE_TAG=${{ steps.deploy.outputs.candidate_tag }}
+          CANDIDATE_URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --format=json \
+            | jq -er --arg revision "$CANDIDATE_REVISION" --arg tag "$CANDIDATE_TAG" '
+              [.status.traffic[]?
+                | select(.revisionName == $revision and .tag == $tag)
+                | .url]
+              | if length == 1 then .[0] else error("isolated candidate URL not found") end
+            ')
+          echo "Testing isolated MCP candidate ${CANDIDATE_REVISION}."
+          curl -fsS "${CANDIDATE_URL}/health" >/dev/null
+          curl -fsS "${CANDIDATE_URL}/.well-known/mcp.json" >/dev/null
+          node scripts/verify_mcp_candidate.mjs "${CANDIDATE_URL}/mcp"
+          node analysis/monitor/run_core_sentinel.mjs \
+            --base https://situation-room-feed-382918878290.us-central1.run.app \
+            --mcp "${CANDIDATE_URL}/mcp" \
+            --static https://congressionalinsights.github.io/TheSituationRoomAI \
+            --allow-alerts
+      - name: Promote verified MCP revision
+        if: steps.deploy.outputs.deploy_succeeded == 'true'
+        run: |
+          set -euo pipefail
+          CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
+          gcloud run services update-traffic "$SERVICE_NAME" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --to-revisions "${CANDIDATE_REVISION}=100"
+          SERVING_PERCENT=$(gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --format=json \
+            | jq -er --arg revision "$CANDIDATE_REVISION" \
+              '[.status.traffic[]? | select(.revisionName == $revision) | .percent] | add // 0')
+          if [ "$SERVING_PERCENT" -ne 100 ]; then
+            echo "Verified candidate is not serving 100 percent of MCP traffic."
+            exit 1
           fi
       - name: Collect Cloud Build diagnostics
         if: always()
@@ -250,13 +388,3 @@ jobs:
           echo "MCP proxy URL: ${SERVICE_URL}"
           curl -fsS "${SERVICE_URL}/health" >/dev/null
           curl -fsS "${SERVICE_URL}/.well-known/mcp.json" >/dev/null
-      - name: Run core sentinel after MCP deploy
-        if: steps.deploy.outputs.deploy_succeeded == 'true'
-        run: |
-          set -euo pipefail
-          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
-          node analysis/monitor/run_core_sentinel.mjs \
-            --base https://situation-room-feed-382918878290.us-central1.run.app \
-            --mcp "${SERVICE_URL}/mcp" \
-            --static https://congressionalinsights.github.io/TheSituationRoomAI \
-            --allow-alerts

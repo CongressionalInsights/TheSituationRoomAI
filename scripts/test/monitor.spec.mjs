@@ -57,6 +57,7 @@ import {
   applyMonitorWriteDisposition,
   shouldFailMonitorRun
 } from '../../analysis/monitor/lib/run.mjs';
+import { verifyMcpCandidate } from '../../scripts/verify_mcp_candidate.mjs';
 
 const fixture = (name) => fs.readFileSync(path.join(process.cwd(), 'scripts', 'test', 'fixtures', 'monitor', name), 'utf8');
 const parseFixture = (name) => JSON.parse(fixture(name));
@@ -2978,12 +2979,148 @@ test('feed proxy deploy workflow injects OpenSky credentials', () => {
   assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
 });
 
-test('mcp proxy deploy workflow injects OpenSky credentials', () => {
+test('mcp proxy deploy workflow preserves the deployed secret bindings by default', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-mcp-proxy.yml'), 'utf8');
   assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);
   assert.match(workflow, /OPENSKY_CLIENTSECRET:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTSECRET\s*\}\}/);
-  assert.match(workflow, /OPENSKY_CLIENTID=opensky-clientid:latest/);
-  assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
+  assert.match(workflow, /sync_secret_versions:\s*\n[\s\S]*?default:\s*false/);
+  assert.match(workflow, /if:\s*github\.event_name == 'workflow_dispatch' && inputs\.sync_secret_versions/);
+  assert.match(workflow, /gcloud run revisions describe "\$ROLLBACK_REVISION"/);
+  assert.match(workflow, /jq -er -f scripts\/cloud-run-serving-revision\.jq/);
+  assert.match(workflow, /jq -S -c -f scripts\/cloud-run-secret-schema\.jq/);
+  assert.match(workflow, /SECRET_ARGS=\(\)/);
+  assert.match(workflow, /if \[ "\$SYNC_SECRET_VERSIONS" = "true" \]; then[\s\S]*?SECRET_ARGS=\(--update-secrets "\$SECRET_BINDINGS"\)/);
+  assert.doesNotMatch(workflow, /--set-secrets/);
+  assert.match(workflow, /--revision-suffix "\$REVISION_SUFFIX"[\s\S]*?--tag "\$REVISION_SUFFIX"[\s\S]*?--no-traffic[\s\S]*?"\$\{SECRET_ARGS\[@\]\}"/);
+  assert.match(workflow, /--update-env-vars "\$ENV_UPDATES"/);
+  assert.doesNotMatch(workflow, /--env-vars-file/);
+  assert.match(workflow, /gcloud run revisions describe "\$CANDIDATE_REVISION"/);
+  assert.match(workflow, /cmp -s "\$DIAG_DIR\/secret-bindings-before\.json" "\$DIAG_DIR\/secret-bindings-after\.json"/);
+  assert.ok(workflow.indexOf('name: Smoke test isolated MCP candidate') < workflow.indexOf('name: Promote verified MCP revision'));
+  assert.match(workflow, /CANDIDATE_URL=\$\(gcloud run services describe[\s\S]*?\.revisionName == \$revision and \.tag == \$tag/);
+  assert.match(workflow, /node scripts\/verify_mcp_candidate\.mjs "\$\{CANDIDATE_URL\}\/mcp"/);
+  assert.match(workflow, /gcloud run services update-traffic "\$SERVICE_NAME"[\s\S]*?--to-revisions "\$\{CANDIDATE_REVISION\}=100"/);
+});
+
+test('MCP candidate verification fails closed on SWPC transport and contract errors', async () => {
+  const calls = [];
+  const success = async (_endpoint, name, args) => {
+    calls.push([name, args]);
+    if (name === 'raw.fetch') {
+      return { ok: true, data: { fallbackUsed: false, data: [{ time_tag: '2026-08-12 00:00:00.000', proton_speed: null }] } };
+    }
+    if (name === 'signals.list') {
+      return { ok: true, data: { fallbackUsed: false, items: [{ title: 'Solar wind observation' }] } };
+    }
+    return { ok: true, data: { sources: [{ id: 'swpc-json' }] } };
+  };
+  assert.deepEqual(
+    await verifyMcpCandidate('https://candidate.example/mcp', { callTool: success }),
+    { rawRows: 1, signals: 1 }
+  );
+  assert.deepEqual(calls.map(([name]) => name), ['catalog.sources', 'raw.fetch', 'signals.list']);
+
+  await assert.rejects(
+    verifyMcpCandidate('https://candidate.example/mcp', {
+      callTool: async (_endpoint, name) => name === 'raw.fetch'
+        ? { ok: false, error: 'invalid_response' }
+        : { ok: true, data: {} }
+    }),
+    /raw\.fetch failed: invalid_response/
+  );
+  await assert.rejects(
+    verifyMcpCandidate('https://candidate.example/mcp', {
+      callTool: async (_endpoint, name) => name === 'signals.list'
+        ? { ok: true, data: { fallbackUsed: true, items: [] } }
+        : (name === 'raw.fetch'
+            ? { ok: true, data: { fallbackUsed: false, data: [{}] } }
+            : { ok: true, data: {} })
+    }),
+    /signals\.list did not return non-fallback SWPC signals/
+  );
+});
+
+test('Cloud Run rollback selection uses the sole fully serving revision', () => {
+  const filter = path.join(process.cwd(), 'scripts', 'cloud-run-serving-revision.jq');
+  const selectServingRevision = (service) => spawnSync('jq', ['-e', '-r', '-f', filter], {
+    input: JSON.stringify(service),
+    encoding: 'utf8'
+  });
+  const service = {
+    status: {
+      latestReadyRevisionName: 'situation-room-mcp-rejected-candidate',
+      traffic: [
+        { revisionName: 'situation-room-mcp-serving', percent: 100 },
+        { revisionName: 'situation-room-mcp-rejected-candidate', percent: 0, tag: 'candidate' }
+      ]
+    }
+  };
+  const selected = selectServingRevision(service);
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.equal(selected.stdout.trim(), 'situation-room-mcp-serving');
+
+  const split = structuredClone(service);
+  split.status.traffic = [
+    { revisionName: 'situation-room-mcp-a', percent: 50 },
+    { revisionName: 'situation-room-mcp-b', percent: 50 }
+  ];
+  assert.notEqual(selectServingRevision(split).status, 0);
+});
+
+test('Cloud Run secret schema canonicalizer detects complete contract drift', () => {
+  const filter = path.join(process.cwd(), 'scripts', 'cloud-run-secret-schema.jq');
+  const canonicalize = (revision) => {
+    const child = spawnSync('jq', ['-S', '-c', '-f', filter], {
+      input: JSON.stringify(revision),
+      encoding: 'utf8'
+    });
+    assert.equal(child.status, 0, child.stderr);
+    return child.stdout.trim();
+  };
+  const revision = {
+    metadata: {
+      annotations: {
+        'run.googleapis.com/secrets': 'token-a:projects/example/secrets/token-a,token-b:projects/example/secrets/token-b'
+      }
+    },
+    spec: {
+      containers: [
+        {
+          name: 'app',
+          env: [
+            { name: 'PLAIN', value: 'unchanged' },
+            { name: 'TOKEN_B', valueFrom: { secretKeyRef: { name: 'token-b', key: '2' } } },
+            { name: 'TOKEN_A', valueFrom: { secretKeyRef: { name: 'token-a', key: 'latest', optional: true } } }
+          ]
+        },
+        {
+          name: 'sidecar',
+          env: [{ name: 'TOKEN_C', valueFrom: { secretKeyRef: { name: 'token-c', key: '4' } } }]
+        }
+      ],
+      volumes: [
+        { name: 'scratch', emptyDir: {} },
+        { name: 'certs', secret: { secretName: 'tls-certs', items: [{ key: '5', path: 'tls.pem' }] } }
+      ]
+    }
+  };
+  const reordered = structuredClone(revision);
+  reordered.spec.containers[0].env.reverse();
+  reordered.spec.volumes.reverse();
+  assert.equal(canonicalize(reordered), canonicalize(revision));
+
+  const changedEnvContract = structuredClone(revision);
+  changedEnvContract.spec.containers[0].env[2].valueFrom.secretKeyRef.optional = false;
+  assert.notEqual(canonicalize(changedEnvContract), canonicalize(revision));
+
+  const changedVolumeContract = structuredClone(revision);
+  changedVolumeContract.spec.volumes[1].secret.items[0].key = '6';
+  assert.notEqual(canonicalize(changedVolumeContract), canonicalize(revision));
+
+  const changedAliasContract = structuredClone(revision);
+  changedAliasContract.metadata.annotations['run.googleapis.com/secrets'] =
+    'token-a:projects/example/secrets/other-token,token-b:projects/example/secrets/token-b';
+  assert.notEqual(canonicalize(changedAliasContract), canonicalize(revision));
 });
 
 test('proxy deploy workflows preserve an unchanged Secret Manager version', () => {
