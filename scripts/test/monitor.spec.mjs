@@ -2409,6 +2409,106 @@ test('MCP event streams ignore notifications until the matching response arrives
   assert.equal(result.error, 'matching tool failure');
 });
 
+test('SWPC raw MCP events may exceed the default event cap but remain under the total response cap', async (t) => {
+  const largeProviderValue = 'x'.repeat((2 * 1024 * 1024) + 1024);
+  const server = http.createServer(async (req, res) => {
+    const request = await readJsonRequest(req);
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.end(`data: ${JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        structuredContent: {
+          sourceId: request.params?.arguments?.sourceId,
+          data: [{ providerValue: largeProviderValue }]
+        }
+      }
+    })}\n\n`);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const { port } = server.address();
+  const result = await callMcpTool(
+    `http://127.0.0.1:${port}/mcp`,
+    'raw.fetch',
+    { sourceId: 'swpc-json', format: 'json' },
+    5000
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.sourceId, 'swpc-json');
+  assert.equal(result.data.data[0].providerValue.length, largeProviderValue.length);
+});
+
+test('large non-SWPC MCP events retain the default response limit', async (t) => {
+  let requestCount = 0;
+  const largeProviderValue = 'x'.repeat((2 * 1024 * 1024) + 1024);
+  const server = http.createServer(async (req, res) => {
+    const request = await readJsonRequest(req);
+    requestCount += 1;
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.end(`data: ${JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        structuredContent: {
+          sourceId: request.params?.arguments?.sourceId,
+          data: [{ providerValue: largeProviderValue }]
+        }
+      }
+    })}\n\n`);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const { port } = server.address();
+  const result = await callMcpTool(
+    `http://127.0.0.1:${port}/mcp`,
+    'raw.fetch',
+    { sourceId: 'other-json', format: 'json' },
+    5000
+  );
+
+  assert.equal(requestCount, 3);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'response_too_large');
+});
+
+test('SWPC raw MCP events retain the total response byte limit', async (t) => {
+  let requestCount = 0;
+  const oversizedProviderValue = 'x'.repeat((16 * 1024 * 1024) + 1024);
+  const server = http.createServer(async (req, res) => {
+    const request = await readJsonRequest(req);
+    requestCount += 1;
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.end(`data: ${JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        structuredContent: {
+          sourceId: request.params?.arguments?.sourceId,
+          data: [{ providerValue: oversizedProviderValue }]
+        }
+      }
+    })}\n\n`);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const { port } = server.address();
+  const result = await callMcpTool(
+    `http://127.0.0.1:${port}/mcp`,
+    'raw.fetch',
+    { sourceId: 'swpc-json', format: 'json' },
+    5000
+  );
+
+  assert.equal(requestCount, 3);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'response_too_large');
+});
+
 test('non-SSE MCP responses reject stale ids and notification-shaped results', async (t) => {
   let requestCount = 0;
   const server = http.createServer(async (req, res) => {
@@ -3580,6 +3680,19 @@ test('SWPC product invariants preserve warnings for live wire-format failures', 
   );
   assert.equal(missingWindField.regressionClass, 'swpc-solar-wind-contract');
   assert.equal(missingWindField.severity, 'warning');
+
+  const malformedWindSummary = summarizeProxyPayload(windEntry, {
+    body: '[{"time_tag":"2026-07-22T15:40:00","proton_speed":NaN}]',
+    contentType: 'application/json',
+    httpStatus: 200
+  }, {});
+  assert.match(malformedWindSummary.parseError, /Unexpected token/);
+  const malformedWindAlert = evaluateInvariant(
+    'swpc-solar-wind-contract',
+    buildContext(windEntry, malformedWindSummary)
+  );
+  assert.equal(malformedWindAlert.regressionClass, 'swpc-solar-wind-contract');
+  assert.equal(malformedWindAlert.severity, 'warning');
 
   const kpEntry = { id: 'swpc-kp', tier: 'standard', sampleParams: {} };
   const kpSummary = summarizeProxyPayload(kpEntry, {

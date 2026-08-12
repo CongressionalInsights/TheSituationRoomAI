@@ -209,17 +209,24 @@ function parseMcpStream(text) {
   }
 }
 
-async function readMatchingMcpEvent(response, requestId) {
+async function readMatchingMcpEvent(response, requestId, maxEventBufferChars = MAX_MCP_EVENT_BUFFER_CHARS) {
   if (!response?.body) return null;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  let bytesRead = 0;
   let buffer = '';
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      bytesRead += value?.byteLength || 0;
+      if (bytesRead > MAX_MCP_RESPONSE_BYTES) {
+        const error = new Error('MCP response exceeded the monitor response limit.');
+        error.code = 'MCP_RESPONSE_TOO_LARGE';
+        throw error;
+      }
       buffer += decoder.decode(value, { stream: true });
-      if (buffer.length > MAX_MCP_EVENT_BUFFER_CHARS) {
+      if (buffer.length > maxEventBufferChars) {
         const error = new Error('MCP event exceeded the monitor response limit.');
         error.code = 'MCP_RESPONSE_TOO_LARGE';
         throw error;
@@ -437,7 +444,10 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000) 
       let parsed = null;
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
       if (contentType.includes('text/event-stream')) {
-        parsed = await readMatchingMcpEvent(response, payload.id);
+        const maxEventBufferChars = name === 'raw.fetch' && args?.sourceId === 'swpc-json'
+          ? MAX_MCP_RESPONSE_BYTES
+          : MAX_MCP_EVENT_BUFFER_CHARS;
+        parsed = await readMatchingMcpEvent(response, payload.id, maxEventBufferChars);
       } else {
         parsed = parseMcpText(await readMcpResponseText(response));
       }
