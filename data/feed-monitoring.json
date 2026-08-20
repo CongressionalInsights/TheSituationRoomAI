@@ -314,10 +314,10 @@
   },
   "arxiv-ai": {
     "tier": "standard",
-    "docsUrl": "https://info.arxiv.org/help/api/index.html",
+    "docsUrl": "https://info.arxiv.org/help/api/basics.html",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://info.arxiv.org/help/api/index.html",
+    "supportUrl": null,
     "freshnessWindowMinutes": 540,
     "sampleParams": {
       "query": "artificial intelligence"
@@ -350,14 +350,23 @@
         "suppressNew": true,
         "note": "arXiv MCP signal normalization can intermittently time out while direct API, static, and retry signal calls remain usable; keep timeout-only failures informational unless feed fetch or parsing also fails."
       }
-    ]
+    ],
+    "requiredSurfaceMarkers": {
+      "docs": {
+        "https://info.arxiv.org/help/api/basics.html": [
+          "arXiv API Basics",
+          "export.arxiv.org/api/query",
+          "Atom 1.0"
+        ]
+      }
+    }
   },
   "arxiv-rss-ai": {
     "tier": "standard",
-    "docsUrl": "https://info.arxiv.org/help/api/user-manual.html#rss_feeds",
+    "docsUrl": "https://info.arxiv.org/help/rss.html",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://info.arxiv.org/help/api/user-manual.html#rss_feeds",
+    "supportUrl": null,
     "freshnessWindowMinutes": 540,
     "sampleParams": {},
     "invariants": [
@@ -366,7 +375,16 @@
       "freshness",
       "rss-structure"
     ],
-    "knownUpstreamQuirks": []
+    "knownUpstreamQuirks": [],
+    "requiredSurfaceMarkers": {
+      "docs": {
+        "https://info.arxiv.org/help/rss.html": [
+          "RSS news feeds",
+          "Feeds are updated daily",
+          "https://rss.arxiv.org/rss/"
+        ]
+      }
+    }
   },
   "coinpaprika-global": {
     "tier": "core",
