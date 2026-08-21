@@ -21,7 +21,7 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
   const lockfile = readJson('gcp', 'mcp-proxy', 'package-lock.json');
 
   assert.deepEqual(manifest.dependencies, {
-    '@modelcontextprotocol/sdk': '^1.29.0',
+    '@modelcontextprotocol/sdk': '^1.30.0',
     'fast-xml-parser': '^5.10.1',
     zod: '^4.4.3'
   });
@@ -38,7 +38,7 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
 
   const lockedRoot = lockfile.packages[''];
   assert.deepEqual(lockedRoot.dependencies, manifest.dependencies);
-  assert.equal(lockfile.packages['node_modules/@modelcontextprotocol/sdk'].version, '1.29.0');
+  assert.equal(lockfile.packages['node_modules/@modelcontextprotocol/sdk'].version, '1.30.0');
   assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.10.1');
   assert.equal(lockfile.packages['node_modules/zod'].version, '4.4.3');
 
