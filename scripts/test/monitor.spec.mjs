@@ -2921,7 +2921,15 @@ test('documentation contracts alert on missing markers and ignore cosmetic churn
 test('provider documentation watches use official contract markers instead of rendered-page hashes', () => {
   const feeds = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feeds.json'), 'utf8'));
   const monitoring = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feed-monitoring.json'), 'utf8'));
-  const ids = ['eonet-events', 'coinpaprika-global', 'coinpaprika-tickers', 'fda-medwatch', 'nasa-firms'];
+  const ids = [
+    'arxiv-ai',
+    'arxiv-rss-ai',
+    'eonet-events',
+    'coinpaprika-global',
+    'coinpaprika-tickers',
+    'fda-medwatch',
+    'nasa-firms'
+  ];
   const entries = ids.map((id) => resolveMonitoringEntry(
     feeds.feeds.find((feed) => feed.id === id),
     monitoring[id],
@@ -2929,6 +2937,16 @@ test('provider documentation watches use official contract markers instead of re
   ));
   const surfaces = new Map(collectDocumentSurfaces(entries).map((surface) => [surface.key, surface]));
   const expected = {
+    'docs:https://info.arxiv.org/help/api/basics.html': [
+      'arXiv API Basics',
+      'export.arxiv.org/api/query',
+      'Atom 1.0'
+    ],
+    'docs:https://info.arxiv.org/help/rss.html': [
+      'RSS news feeds',
+      'Feeds are updated daily',
+      'https://rss.arxiv.org/rss/'
+    ],
     'docs:https://eonet.gsfc.nasa.gov/docs/v3': [
       'https://eonet.gsfc.nasa.gov/api/v3/events',
       'closed',
@@ -2968,6 +2986,21 @@ test('provider documentation watches use official contract markers instead of re
     assert.deepEqual(surfaces.get(key)?.requiredMarkers, markers, key);
     assert.deepEqual(surfaces.get(key)?.acceptedHashes, [], key);
     assert.equal(surfaces.get(key)?.enforceAcceptedHashes, false, key);
+  }
+
+  for (const [id, expectedUrl] of Object.entries({
+    'arxiv-ai': 'https://info.arxiv.org/help/api/basics.html',
+    'arxiv-rss-ai': 'https://info.arxiv.org/help/rss.html'
+  })) {
+    assert.equal(monitoring[id].docsUrl, expectedUrl, `${id} docs surface`);
+    assert.equal(monitoring[id].supportUrl, null, `${id} support surface`);
+    assert.deepEqual(
+      [...surfaces.values()]
+        .filter((surface) => surface.feedIds.includes(id))
+        .map(({ surfaceType, url }) => ({ surfaceType, url })),
+      [{ surfaceType: 'docs', url: expectedUrl }],
+      `${id} should expose one docs-only surface`
+    );
   }
 });
 
