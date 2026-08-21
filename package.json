@@ -16,12 +16,12 @@
     "test:ui": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "esbuild": "^0.28.1",
-    "playwright": "^1.62.0"
+    "playwright": "^1.62.1"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "fast-xml-parser": "^5.10.1",
     "zod": "^4.4.3"
   },
