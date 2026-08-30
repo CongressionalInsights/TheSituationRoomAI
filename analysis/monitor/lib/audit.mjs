@@ -476,6 +476,9 @@ export function compareStaticSnapshot(entry, liveSummary, staticSummary) {
 
 export function evaluateInvariant(name, context) {
   const { entry, proxySummary, rawSummary, signalSummary } = context;
+  const payloadSummary = proxySummary.error
+    ? (rawSummary.error ? null : rawSummary)
+    : proxySummary;
   switch (name) {
     case 'feed-fetch':
       if (proxySummary.error && !SKIPPABLE_ERRORS.has(proxySummary.error)) {
@@ -500,7 +503,7 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'freshness': {
-      const newest = signalSummary.newestTimestamp || proxySummary.newestTimestamp || proxySummary.fetchedAt;
+      const newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp || payloadSummary?.fetchedAt;
       if (!newest) return null;
       const ageMinutes = (Date.now() - newest) / (1000 * 60);
       if (ageMinutes > entry.freshnessWindowMinutes) {
@@ -515,7 +518,7 @@ export function evaluateInvariant(name, context) {
       return null;
     }
     case 'rss-structure':
-      if (!proxySummary.rawItemCount) {
+      if (payloadSummary && !payloadSummary.rawItemCount) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'rss-empty',
@@ -526,18 +529,19 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'json-structure':
-      if (proxySummary.parseError) {
+      if (payloadSummary?.parseError) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'json-parse-failed',
           severity: entry.tier === 'core' ? 'critical' : 'warning',
-          message: proxySummary.parseError,
+          message: payloadSummary.parseError,
           metadata: { identity: 'json-parse' }
         });
       }
       return null;
     case 'non-empty':
-      if (!signalSummary.count && !proxySummary.rawItemCount) {
+      if (!signalSummary.count
+        && (payloadSummary ? !payloadSummary.rawItemCount : !signalSummary.error)) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'empty-payload',
@@ -548,7 +552,8 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'geojson-features':
-      if (!Array.isArray(proxySummary.parsedBody?.features) || !proxySummary.parsedBody.features.length) {
+      if (payloadSummary
+        && (!Array.isArray(payloadSummary.parsedBody?.features) || !payloadSummary.parsedBody.features.length)) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'geojson-features-missing',
@@ -587,8 +592,9 @@ export function evaluateInvariant(name, context) {
       return null;
     }
     case 'eia-response-data':
-      if (!Array.isArray(proxySummary.parsedBody?.response?.data)
-        && !Array.isArray(proxySummary.parsedBody?.series?.[0]?.data)) {
+      if (payloadSummary
+        && !Array.isArray(payloadSummary.parsedBody?.response?.data)
+        && !Array.isArray(payloadSummary.parsedBody?.series?.[0]?.data)) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'eia-response-data',
@@ -599,7 +605,8 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'nws-alert-geometry':
-      if (!proxySummary.parsedBody?.features?.some((feature) => feature?.geometry?.coordinates)) {
+      if (payloadSummary
+        && !payloadSummary.parsedBody?.features?.some((feature) => feature?.geometry?.coordinates)) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'nws-alert-geometry',
@@ -610,7 +617,8 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'openaq-meta-results':
-      if (!proxySummary.parsedBody?.meta || !Array.isArray(proxySummary.parsedBody?.results)) {
+      if (payloadSummary
+        && (!payloadSummary.parsedBody?.meta || !Array.isArray(payloadSummary.parsedBody?.results))) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'openaq-meta-results',
@@ -632,7 +640,9 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'kev-schema':
-      if (!Array.isArray(proxySummary.parsedBody?.vulnerabilities) || !proxySummary.parsedBody.vulnerabilities[0]?.cveID) {
+      if (payloadSummary
+        && (!Array.isArray(payloadSummary.parsedBody?.vulnerabilities)
+          || !payloadSummary.parsedBody.vulnerabilities[0]?.cveID)) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'kev-schema',
@@ -643,7 +653,11 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'coinpaprika-schema':
-      if (!proxySummary.parsedBody || (proxySummary.parsedBody.market_cap_usd == null && !Array.isArray(proxySummary.parsedBody?.quotes) && !Array.isArray(proxySummary.parsedBody))) {
+      if (payloadSummary
+        && (!payloadSummary.parsedBody
+          || (payloadSummary.parsedBody.market_cap_usd == null
+            && !Array.isArray(payloadSummary.parsedBody?.quotes)
+            && !Array.isArray(payloadSummary.parsedBody)))) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'coinpaprika-schema',
@@ -654,7 +668,8 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'nasa-eonet-events':
-      if (!Array.isArray(proxySummary.parsedBody?.events) || !proxySummary.parsedBody.events.length) {
+      if (payloadSummary
+        && (!Array.isArray(payloadSummary.parsedBody?.events) || !payloadSummary.parsedBody.events.length)) {
         return createAlert({
           feedId: entry.id,
           regressionClass: 'nasa-eonet-events',
@@ -665,8 +680,9 @@ export function evaluateInvariant(name, context) {
       }
       return null;
     case 'swpc-solar-wind-contract': {
-      const hasRequiredFields = Array.isArray(proxySummary.parsedBody)
-        && proxySummary.parsedBody.some((item) => (
+      if (!payloadSummary) return null;
+      const hasRequiredFields = Array.isArray(payloadSummary.parsedBody)
+        && payloadSummary.parsedBody.some((item) => (
           item
           && typeof item === 'object'
           && item.time_tag
@@ -684,8 +700,9 @@ export function evaluateInvariant(name, context) {
       return null;
     }
     case 'swpc-kp-contract': {
-      const hasRequiredFields = Array.isArray(proxySummary.parsedBody)
-        && proxySummary.parsedBody.some((item) => (
+      if (!payloadSummary) return null;
+      const hasRequiredFields = Array.isArray(payloadSummary.parsedBody)
+        && payloadSummary.parsedBody.some((item) => (
           item
           && typeof item === 'object'
           && item.time_tag
@@ -728,9 +745,26 @@ export function getRawFetchFormat(format) {
   return format === 'rss' || format === 'csv' ? 'text' : 'json';
 }
 
-async function auditEntry(entry, options) {
+export function getFeedProxyTimeoutMs(entry, options = {}) {
+  const monitorTimeoutMs = Number(options.timeoutMs);
+  const governingTimeoutMs = Number.isFinite(monitorTimeoutMs) && monitorTimeoutMs > 0
+    ? monitorTimeoutMs
+    : 30000;
+  const entryTimeoutMs = Number(entry.timeoutMs);
+  const requestedTimeoutMs = Number.isFinite(entryTimeoutMs) && entryTimeoutMs > 0
+    ? entryTimeoutMs
+    : governingTimeoutMs;
+  return Math.min(governingTimeoutMs, requestedTimeoutMs);
+}
+
+export async function auditEntry(entry, options) {
   const timeoutMs = Number(entry.timeoutMs || options.timeoutMs);
-  const proxyTransport = await callFeedProxy(options.base, entry.id, entry.sampleParams, timeoutMs);
+  const proxyTransport = await callFeedProxy(
+    options.base,
+    entry.id,
+    entry.sampleParams,
+    getFeedProxyTimeoutMs(entry, options)
+  );
   const proxySummary = summarizeProxyPayload(entry, proxyTransport.data || {}, proxyTransport);
 
   const { query, ...params } = entry.sampleParams || {};

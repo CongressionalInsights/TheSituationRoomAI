@@ -69,6 +69,45 @@ async function readJsonRequest(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+async function withSlowProxyFixture({ rawBody, signalItems }, callback) {
+  const server = http.createServer(async (request, response) => {
+    if (request.url === '/api/feed') {
+      setTimeout(() => {
+        if (response.destroyed) return;
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ body: rawBody, httpStatus: 200 }));
+      }, 250);
+      return;
+    }
+    if (request.url === '/mcp') {
+      const payload = await readJsonRequest(request);
+      const isRaw = payload.params?.name === 'raw.fetch';
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        jsonrpc: '2.0',
+        id: payload.id,
+        result: {
+          structuredContent: isRaw
+            ? { body: rawBody, httpStatus: 200, fallbackUsed: false }
+            : { items: signalItems, fallbackUsed: false }
+        }
+      }));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    await callback({ baseUrl });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+}
+
 const lockWorkerSource = String.raw`
 import fs from 'node:fs';
 
@@ -3730,6 +3769,135 @@ test('monitor summaries inspect GeoJSON feature timestamps', () => {
   assert.equal(summary.rawItemCount, 1);
   assert.equal(summary.newestTimestamp, 1778683419930);
   assert.equal(summary.identifiers[0], 'nc75360036');
+});
+
+test('EIA proxy timeout retains healthy raw proof without a secondary schema critical', async () => {
+  const { auditEntry } = await import('../../analysis/monitor/lib/audit.mjs');
+  assert.equal(typeof auditEntry, 'function');
+  const rawBody = {
+    response: {
+      data: [{ period: '2099-08-21', series: 'RBRTE', value: 94.2 }]
+    }
+  };
+  await withSlowProxyFixture({
+    rawBody,
+    signalItems: [{ id: 'brent', title: 'Brent crude', publishedAt: '2099-08-21T00:00:00Z' }]
+  }, async ({ baseUrl }) => {
+    const result = await auditEntry({
+      id: 'energy-eia-brent',
+      tier: 'core',
+      category: 'energy',
+      format: 'json',
+      timeoutMs: 1000,
+      freshnessWindowMinutes: 20160,
+      sampleParams: {},
+      invariants: ['feed-fetch', 'signal-normalization', 'freshness', 'eia-response-data', 'non-empty'],
+      knownUpstreamQuirks: []
+    }, {
+      base: baseUrl,
+      mcp: `${baseUrl}/mcp`,
+      timeoutMs: 20,
+      includeStatic: false
+    });
+
+    assert.equal(result.proxy.error, 'timeout');
+    assert.equal(result.raw.rawItemCount, 1);
+    assert.equal(result.signals.count, 1);
+    assert.equal(result.status, 'critical');
+    assert.deepEqual(result.alerts.map((alert) => alert.regressionClass), ['feed-fetch-failed']);
+  });
+});
+
+test('FDA proxy timeout obeys the monitor deadline and preserves healthy RSS raw evidence', async () => {
+  const { auditEntry } = await import('../../analysis/monitor/lib/audit.mjs');
+  assert.equal(typeof auditEntry, 'function');
+  const rawBody = [
+    '<?xml version="1.0"?>',
+    '<rss><channel><title>FDA MedWatch</title><item>',
+    '<title>Safety notice</title><pubDate>Fri, 21 Aug 2099 00:00:00 GMT</pubDate>',
+    '</item></channel></rss>'
+  ].join('');
+  await withSlowProxyFixture({
+    rawBody,
+    signalItems: [{ id: 'fda-notice', title: 'Safety notice', publishedAt: '2099-08-21T00:00:00Z' }]
+  }, async ({ baseUrl }) => {
+    const result = await auditEntry({
+      id: 'fda-medwatch',
+      tier: 'standard',
+      category: 'health',
+      format: 'rss',
+      timeoutMs: 1000,
+      freshnessWindowMinutes: 4320,
+      sampleParams: {},
+      invariants: ['feed-fetch', 'signal-normalization', 'freshness', 'rss-structure'],
+      knownUpstreamQuirks: []
+    }, {
+      base: baseUrl,
+      mcp: `${baseUrl}/mcp`,
+      timeoutMs: 20,
+      includeStatic: false
+    });
+
+    assert.equal(result.proxy.error, 'timeout');
+    assert.equal(result.raw.rawItemCount, 1);
+    assert.equal(result.signals.count, 1);
+    assert.equal(result.status, 'warning');
+    assert.deepEqual(result.alerts.map((alert) => alert.regressionClass), ['feed-fetch-failed']);
+  });
+});
+
+test('successful malformed proxy payloads remain actionable when raw data is healthy', () => {
+  const healthyRaw = summarizeProxyPayload({ id: 'energy-eia-brent', format: 'json' }, {
+    body: { response: { data: [{ period: '2099-08-21', value: 94.2 }] } },
+    httpStatus: 200
+  });
+  const malformedEiaProxy = summarizeProxyPayload({ id: 'energy-eia-brent', format: 'json' }, {
+    body: { response: {} },
+    httpStatus: 200
+  });
+  const eiaAlert = evaluateInvariant('eia-response-data', {
+    entry: { id: 'energy-eia-brent', tier: 'core' },
+    proxySummary: malformedEiaProxy,
+    rawSummary: healthyRaw,
+    signalSummary: { error: null, count: 1, items: [] }
+  });
+  assert.equal(eiaAlert.regressionClass, 'eia-response-data');
+  assert.equal(eiaAlert.severity, 'critical');
+
+  const malformedFdaProxy = summarizeProxyPayload({ id: 'fda-medwatch', format: 'rss' }, {
+    body: '<rss><channel><title>FDA MedWatch</title></channel></rss>',
+    httpStatus: 200
+  });
+  const healthyFdaRaw = summarizeProxyPayload({ id: 'fda-medwatch', format: 'rss' }, {
+    body: '<rss><channel><item><title>Safety notice</title></item></channel></rss>',
+    httpStatus: 200
+  });
+  const rssAlert = evaluateInvariant('rss-structure', {
+    entry: { id: 'fda-medwatch', tier: 'standard' },
+    proxySummary: malformedFdaProxy,
+    rawSummary: healthyFdaRaw,
+    signalSummary: { error: null, count: 1, items: [] }
+  });
+  assert.equal(rssAlert.regressionClass, 'rss-empty');
+  assert.equal(rssAlert.severity, 'info');
+});
+
+test('successful empty signals stay actionable when proxy and raw transports fail', () => {
+  const alert = evaluateInvariant('non-empty', {
+    entry: { id: 'energy-eia-brent', tier: 'core' },
+    proxySummary: { error: 'timeout', rawItemCount: 0 },
+    rawSummary: { error: 'timeout', rawItemCount: 0 },
+    signalSummary: { error: null, count: 0, items: [] }
+  });
+  assert.equal(alert.regressionClass, 'empty-payload');
+  assert.equal(alert.severity, 'warning');
+
+  assert.equal(evaluateInvariant('non-empty', {
+    entry: { id: 'energy-eia-brent', tier: 'core' },
+    proxySummary: { error: 'timeout', rawItemCount: 0 },
+    rawSummary: { error: 'timeout', rawItemCount: 0 },
+    signalSummary: { error: 'timeout', count: 0, items: [] }
+  }), null);
 });
 
 test('deep-core invariants pass on valid fixtures and fail on state mismatch', () => {
