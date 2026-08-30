@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isCredentialFieldName } from "../analysis/monitor/lib/public_payload_safety.mjs";
 
 const root = path.resolve(process.cwd());
 const publicDir = path.join(root, "public");
@@ -12,6 +13,20 @@ const requiredFiles = [
 ];
 
 const errors = [];
+
+function findCredentialFields(value, currentPath = [], matches = []) {
+  if (!value || typeof value !== "object") return matches;
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => findCredentialFields(entry, [...currentPath, index], matches));
+    return matches;
+  }
+  Object.entries(value).forEach(([key, entry]) => {
+    const nextPath = [...currentPath, key];
+    if (isCredentialFieldName(key)) matches.push(nextPath.join("."));
+    findCredentialFields(entry, nextPath, matches);
+  });
+  return matches;
+}
 
 for (const file of requiredFiles) {
   const filePath = path.join(publicDir, file);
@@ -50,6 +65,29 @@ for (const appPath of appPaths) {
       errors.push(`Potential API key leak pattern (${pattern}) in ${path.basename(appPath)}`);
       break;
     }
+  }
+}
+
+for (const feedId of ["energy-eia", "energy-eia-brent", "energy-eia-ng"]) {
+  const feedPath = path.join(publicDir, "data", "feeds", `${feedId}.json`);
+  if (!fs.existsSync(feedPath)) continue;
+  try {
+    const payload = JSON.parse(fs.readFileSync(feedPath, "utf8"));
+    const wrapperMatches = findCredentialFields(payload);
+    let bodyMatches = [];
+    if (typeof payload.body === "string") {
+      if (/([?&]\s*api[_-]?key=)[^&\s"'<>]+/i.test(payload.body)) {
+        errors.push(`Credential query value found in public EIA snapshot: ${feedId}`);
+      }
+      try {
+        bodyMatches = findCredentialFields(JSON.parse(payload.body));
+      } catch {}
+    }
+    if (wrapperMatches.length || bodyMatches.length) {
+      errors.push(`Credential fields found in public EIA snapshot: ${feedId}`);
+    }
+  } catch (error) {
+    errors.push(`Unable to verify public EIA snapshot ${feedId}: ${error.message}`);
   }
 }
 

@@ -46,6 +46,7 @@ import {
   summarizeProxyPayload,
   evaluateInvariant
 } from '../../analysis/monitor/lib/audit.mjs';
+import { redactCredentialFields } from '../../analysis/monitor/lib/public_payload_safety.mjs';
 import {
   buildMarkdownReport,
   createAlert,
@@ -3219,8 +3220,28 @@ test('proxy deploy workflows preserve an unchanged Secret Manager version', () =
 
 test('pages deploy workflow validates required static build secrets', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-pages.yml'), 'utf8');
-  assert.match(workflow, /Missing required secret: EIA/);
   assert.match(workflow, /Missing required secret: OPENSTATES/);
+  assert.doesNotMatch(workflow, /secrets\.EIA/);
+});
+
+test('monitor serialization redacts nested credential fields without changing feed health', () => {
+  const feed = { id: 'energy-eia', format: 'json' };
+  const summary = summarizeProxyPayload(feed, {
+    httpStatus: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      request: { params: { api_key: 'fixture-secret', frequency: 'daily' } },
+      response: { data: [{ period: '2026-08-29', value: 64.2 }] }
+    })
+  });
+
+  assert.equal(summary.httpStatus, 200);
+  assert.equal(summary.error, null);
+  assert.equal(summary.rawItemCount, 1);
+  assert.equal(summary.parsedBody.request.params.api_key, 'REDACTED');
+  assert.equal(summary.parsedBody.request.params.frequency, 'daily');
+  assert.doesNotMatch(JSON.stringify(summary), /fixture-secret/);
+  assert.equal(redactCredentialFields({ clientSecret: 'fixture-secret' }).clientSecret, 'REDACTED');
 });
 
 test('scheduled monitor workflow serializes runs and restores durable baseline state', () => {

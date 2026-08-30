@@ -31,6 +31,19 @@ const {
   shouldUseLiveFallback,
   supportsHistoryRange
 } = await import('../../gcp/mcp-proxy/server.js');
+const { sanitizeEiaPayload } = await import('../../gcp/mcp-proxy/public-payload-safety.js');
+
+test('MCP EIA sanitization covers success, error, and legacy response bodies', () => {
+  const feed = { id: 'energy-eia-brent', keyGroup: 'eia' };
+  for (const body of [
+    JSON.stringify({ request: { params: { api_key: 'fixture-secret' } }, response: { data: [1] } }),
+    JSON.stringify({ error: { apiKey: 'fixture-secret', message: 'quota' } }),
+    'upstream failed: https://api.eia.gov/series/?api_key=fixture-secret&series_id=x'
+  ]) {
+    const result = sanitizeEiaPayload(feed, { body, message: body });
+    assert.doesNotMatch(JSON.stringify(result), /fixture-secret/);
+  }
+});
 
 const openStatesCacheEntryCapacity = Math.max(1, Math.ceil(Number(process.env.OPENSTATES_CACHE_MAX_ENTRIES || 256)));
 
