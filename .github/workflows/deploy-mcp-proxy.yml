@@ -58,6 +58,7 @@ jobs:
           set -euo pipefail
           node --check gcp/mcp-proxy/server.js
           node --check gcp/mcp-proxy/state-signals.js
+          node --check gcp/mcp-proxy/public-payload-safety.js
 
   deploy:
     if: github.event_name != 'pull_request'

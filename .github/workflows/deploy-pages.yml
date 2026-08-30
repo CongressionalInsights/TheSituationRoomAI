@@ -39,15 +39,12 @@ jobs:
         run: node scripts/verify_feeds_sync.mjs
       - name: Validate static build secrets
         env:
-          EIA: ${{ secrets.EIA }}
           OPENSTATES: ${{ secrets.OPENSTATES }}
         run: |
-          test -n "$EIA" || (echo "Missing required secret: EIA" && exit 1)
           test -n "$OPENSTATES" || (echo "Missing required secret: OPENSTATES" && exit 1)
       - name: Build static cache
         env:
           DATA_GOV: ${{ secrets.DATA_GOV }}
-          EIA: ${{ secrets.EIA }}
           NASA_FIRMS: ${{ secrets.NASA_FIRMS }}
           OPENSTATES: ${{ secrets.OPENSTATES }}
           OPEN_AQ: ${{ secrets.OPEN_AQ }}

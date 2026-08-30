@@ -45,6 +45,51 @@ test('EIA feeds carry the extended timeout budget', () => {
   });
 });
 
+test('EIA public payload sanitizers remove echoed credentials without changing data', async () => {
+  const feedSanitizer = await import('../../gcp/feed-proxy/public-payload-safety.js');
+  const mcpSanitizer = await import('../../gcp/mcp-proxy/public-payload-safety.js');
+  const feed = { id: 'energy-eia', keyGroup: 'eia' };
+  const payload = {
+    body: JSON.stringify({
+      request: { params: { api_key: 'fixture-secret', frequency: 'daily' } },
+      response: { data: [{ period: '2026-08-29', value: 64.2 }] }
+    }),
+    httpStatus: 200
+  };
+
+  for (const sanitizer of [feedSanitizer, mcpSanitizer]) {
+    const result = sanitizer.sanitizeEiaPayload(feed, payload);
+    const body = JSON.parse(result.body);
+    assert.equal(body.request.params.api_key, undefined);
+    assert.equal(body.request.params.frequency, 'daily');
+    assert.deepEqual(body.response.data, [{ period: '2026-08-29', value: 64.2 }]);
+  }
+});
+
+test('static EIA publication uses only the server-side Feed Proxy and fails closed', () => {
+  const source = fs.readFileSync(path.join(root, 'scripts', 'build_static_cache.mjs'), 'utf8');
+  const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-pages.yml'), 'utf8');
+  assert.match(source, /if \(isEiaFeed\(feed\)\)[\s\S]*await feedProxyFallback\(\)/);
+  assert.match(source, /force: !isEiaFeed\(feed\)/);
+  assert.match(source, /isEiaFeed\(feed\)[\s\S]*\? 210000/);
+  assert.match(source, /server_proxy_unavailable/);
+  assert.doesNotMatch(source, /process\.env\.EIA/);
+  assert.doesNotMatch(workflow, /secrets\.EIA/);
+  assert.doesNotMatch(workflow, /Missing required secret: EIA/);
+  const feedProxySource = fs.readFileSync(path.join(root, 'gcp', 'feed-proxy', 'server.js'), 'utf8');
+  assert.match(feedProxySource, /const effectiveKey = isEiaFeed\(feed\) \? serverKey : \(key \|\| serverKey\)/);
+  assert.doesNotMatch(feedProxySource, /message: text \|\| 'EIA energy map fetch failed\.'/);
+});
+
+test('feed proxy deploy preserves existing secret bindings by default', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-feed-proxy.yml'), 'utf8');
+  assert.match(workflow, /sync_secret_versions:[\s\S]*default: false/);
+  assert.match(workflow, /Ensure feed proxy secrets\s*\n\s*if: github\.event_name == 'workflow_dispatch' && inputs\.sync_secret_versions/);
+  assert.match(workflow, /SECRET_ARGS=\(\)/);
+  assert.match(workflow, /SECRET_ARGS=\(--update-secrets "\$SECRET_BINDINGS"\)/);
+  assert.doesNotMatch(workflow, /--set-secrets/);
+});
+
 test('state legislation uses the widened OpenStates timeout budget', () => {
   const raw = fs.readFileSync(feedsPath, 'utf8');
   const data = JSON.parse(raw);

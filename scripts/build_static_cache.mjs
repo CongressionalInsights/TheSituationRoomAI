@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, rm } from 'fs/promises';
 import { dirname, join } from 'path';
+import { redactCredentialFields, sanitizeEiaBody } from '../analysis/monitor/lib/public_payload_safety.mjs';
 
 const ROOT = process.cwd();
 const FEEDS_PATH = join(ROOT, 'data', 'feeds.json');
@@ -21,6 +22,7 @@ let openSkyToken = null;
 let openSkyTokenExpiresAt = 0;
 const seededFeedFallbacks = new Map();
 const SEEDED_JSON_FALLBACK_IDS = new Set(['eonet-events', 'nasa-firms', 'transport-opensky']);
+const EIA_FEED_IDS = new Set(['energy-eia', 'energy-eia-brent', 'energy-eia-ng']);
 
 const feedsConfig = JSON.parse(await readFile(FEEDS_PATH, 'utf8'));
 const appConfig = feedsConfig.app || { defaultRefreshMinutes: 60, userAgent: 'TheSituationRoom/0.1' };
@@ -182,12 +184,15 @@ function resolveServerKey(feed) {
   if (feed.keySource !== 'server') return null;
   let value = null;
   if (feed.keyGroup === 'api.data.gov') value = process.env.DATA_GOV;
-  if (feed.keyGroup === 'eia') value = process.env.EIA;
   if (feed.keyGroup === 'openstates') value = process.env.OPENSTATES;
   if (feed.keyGroup === 'earthdata') value = process.env.EARTHDATA_NASA;
   if (feed.id === 'openaq-api') value = process.env.OPEN_AQ;
   if (feed.id === 'nasa-firms') value = process.env.NASA_FIRMS;
   return typeof value === 'string' ? value.trim() : (value || null);
+}
+
+function isEiaFeed(feed) {
+  return feed?.keyGroup === 'eia' || EIA_FEED_IDS.has(feed?.id);
 }
 
 function isJsonHtmlError(contentType = '', body = '') {
@@ -606,10 +611,12 @@ async function fetchFeedProxyFallback(feed, { params = {} } = {}) {
       },
       body: JSON.stringify({
         id: feed.id,
-        force: true,
+        force: !isEiaFeed(feed),
         ...(params && Object.keys(params).length ? { params } : {})
       })
-    }, feed.id === 'state-legislation' ? 45000 : 15000);
+    }, isEiaFeed(feed)
+      ? 210000
+      : Math.max(feed.id === 'state-legislation' ? 45000 : 15000, Number(feed.timeoutMs) || 0));
     if (!response.ok) return null;
     const payload = await response.json();
     return payload && !payload.error ? payload : null;
@@ -750,6 +757,24 @@ async function buildFeedPayload(feed) {
       if (fallback) return fallback;
       return { id: feed.id, fetchedAt: Date.now(), error: 'requires_config', message: 'Feed URL not configured.' };
     }
+  }
+
+  if (isEiaFeed(feed)) {
+    const proxyPayload = await feedProxyFallback();
+    if (isUsableJsonSnapshot(proxyPayload, feed)) {
+      return {
+        ...proxyPayload,
+        body: sanitizeEiaBody(proxyPayload.body),
+        fetchedAt: proxyPayload.fetchedAt || Date.now(),
+        proxyUsed: 'feed-proxy'
+      };
+    }
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      error: 'server_proxy_unavailable',
+      message: 'Server-side EIA proxy unavailable; no client-side fallback is permitted.'
+    };
   }
 
   const key = feed.requiresKey ? resolveServerKey(feed) : null;
@@ -974,33 +999,6 @@ async function buildFeedPayload(feed) {
     }
   }
 
-  const isEiaSeries = feed.id === 'energy-eia'
-    || feed.id === 'energy-eia-brent'
-    || feed.id === 'energy-eia-ng';
-  if (payload.error && isEiaSeries) {
-    const seriesId = feed.url?.split('/seriesid/')[1]?.split('?')[0];
-    if (seriesId) {
-      const legacyUrl = `https://api.eia.gov/series/?series_id=${encodeURIComponent(seriesId)}`;
-      const legacyApplied = applyKey(legacyUrl, feed, key);
-      try {
-        const legacyResponse = await fetchWithFallbacks(legacyApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
-        const legacyBody = await legacyResponse.text();
-        if (legacyResponse.ok && legacyBody) {
-          payload = {
-            id: feed.id,
-            fetchedAt: Date.now(),
-            contentType: legacyResponse.headers.get('content-type') || 'text/plain',
-            body: legacyBody,
-            httpStatus: legacyResponse.status,
-            fallback: 'series_v1'
-          };
-        }
-      } catch {
-        // keep original payload
-      }
-    }
-  }
-
   if (payload.error && feed.id === 'state-legislation') {
     const fallback = await feedProxyFallback();
     if (isUsableJsonSnapshot(fallback, feed)) {
@@ -1012,16 +1010,6 @@ async function buildFeedPayload(feed) {
     }
   }
 
-  if (payload.error && isEiaSeries) {
-    const fallback = await fetchLiveFallback(feed.id);
-    if (fallback) {
-      return {
-        ...fallback,
-        fetchedAt: Date.now(),
-        fallback: 'live-cache'
-      };
-    }
-  }
   if (payload.error && feed.id === 'foia-api') {
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
@@ -1079,54 +1067,19 @@ async function buildFeedPayload(feed) {
 }
 
 async function buildEnergyMap() {
-  if (!process.env.EIA) {
-    return { error: 'missing_server_key', message: 'Server EIA key required for energy map.' };
-  }
-
   try {
-    const url = new URL('https://api.eia.gov/v2/electricity/retail-sales/data/');
-    url.searchParams.set('api_key', process.env.EIA);
-    url.searchParams.set('frequency', 'monthly');
-    url.searchParams.set('data[0]', 'price');
-    url.searchParams.set('facets[sectorid][]', 'RES');
-    url.searchParams.set('sort[0][column]', 'period');
-    url.searchParams.set('sort[0][direction]', 'desc');
-    url.searchParams.set('offset', '0');
-    url.searchParams.set('length', '200');
-
-    const response = await fetchWithTimeout(url.toString(), {
+    const response = await fetchWithTimeout(`${FEED_PROXY_BASE}/api/energy-map`, {
       'User-Agent': appConfig.userAgent,
       'Accept': 'application/json'
-    });
+    }, 45000);
     if (!response.ok) {
-      return { error: 'fetch_failed', message: `EIA energy map request failed (${response.status})` };
+      return { error: 'server_proxy_unavailable', message: `Server-side EIA proxy failed (${response.status})` };
     }
-
-    const data = await response.json();
-    const rows = Array.isArray(data?.response?.data) ? data.response.data : [];
-    const latestByState = {};
-    rows.forEach((row) => {
-      if (!row.stateid || latestByState[row.stateid]) return;
-      const value = Number(row.price);
-      if (!Number.isFinite(value)) return;
-      latestByState[row.stateid] = {
-        value,
-        period: row.period,
-        state: row.stateDescription || row.stateid
-      };
-    });
-    const values = Object.values(latestByState).map((entry) => entry.value);
-    const min = values.length ? Math.min(...values) : 0;
-    const max = values.length ? Math.max(...values) : 1;
-    return {
-      period: rows[0]?.period || '',
-      units: rows[0]?.['price-units'] || 'cents/kWh',
-      values: latestByState,
-      min,
-      max
-    };
+    const data = redactCredentialFields(await response.json());
+    if (data?.error) return { error: data.error, message: data.message || 'Server-side EIA proxy failed.' };
+    return data;
   } catch (err) {
-    return { error: 'fetch_failed', message: err.message || 'EIA energy map request failed.' };
+    return { error: 'server_proxy_unavailable', message: err.message || 'Server-side EIA proxy failed.' };
   }
 }
 

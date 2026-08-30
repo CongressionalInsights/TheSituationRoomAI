@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
 import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
+import { sanitizeEiaPayload } from './public-payload-safety.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2936,18 +2937,19 @@ server.registerTool(
     }
 
     const result = await fetchRaw(feed, { query, start, end, params });
-    if (result.error) {
+    const safeResult = sanitizeEiaPayload(feed, result);
+    if (safeResult.error) {
       return {
-        content: [{ type: 'text', text: `Fetch failed: ${result.message || result.error}` }],
+        content: [{ type: 'text', text: `Fetch failed: ${safeResult.message || safeResult.error}` }],
         structuredContent: {
-          error: result.error,
-          code: result.code || null,
-          message: result.message,
-          httpStatus: result.httpStatus || null,
-          upstreamStatus: result.upstreamStatus || result.httpStatus || null,
-          fetchedUrl: result.fetchedUrl || null,
-          fallbackUsed: Boolean(result.fallbackUsed),
-          proxyUsed: result.proxyUsed || null
+          error: safeResult.error,
+          code: safeResult.code || null,
+          message: safeResult.message,
+          httpStatus: safeResult.httpStatus || null,
+          upstreamStatus: safeResult.upstreamStatus || safeResult.httpStatus || null,
+          fetchedUrl: safeResult.fetchedUrl || null,
+          fallbackUsed: Boolean(safeResult.fallbackUsed),
+          proxyUsed: safeResult.proxyUsed || null
         }
       };
     }
@@ -2956,7 +2958,7 @@ server.registerTool(
 
     return {
       content: [{ type: 'text', text: `Fetched ${sourceId} (${result.httpStatus})` }],
-      structuredContent: buildRawStructuredContent({ sourceId, feed, result, responseFormat })
+      structuredContent: buildRawStructuredContent({ sourceId, feed, result: safeResult, responseFormat })
     };
   }
 );
@@ -2983,7 +2985,7 @@ server.registerTool(
       };
     }
 
-    const result = await fetchRaw(feed, { start, end, params, history: true });
+    const result = sanitizeEiaPayload(feed, await fetchRaw(feed, { start, end, params, history: true }));
     if (result.error) {
       return {
         content: [{ type: 'text', text: `History fetch failed: ${result.message || result.error}` }],
@@ -3066,14 +3068,15 @@ server.registerTool(
 
     const normalizedQuery = String(query || '').trim().toLowerCase();
     const result = await fetchRaw(feed, { query, start, end, params, limit });
-    if (result.error) {
+    const safeResult = sanitizeEiaPayload(feed, result);
+    if (safeResult.error) {
       return {
-        content: [{ type: 'text', text: `Signals fetch failed: ${result.message || result.error}` }],
-        structuredContent: { error: result.error, message: result.message, httpStatus: result.httpStatus || null }
+        content: [{ type: 'text', text: `Signals fetch failed: ${safeResult.message || safeResult.error}` }],
+        structuredContent: { error: safeResult.error, message: safeResult.message, httpStatus: safeResult.httpStatus || null }
       };
     }
 
-    const items = normalizeSignals(result.body, feed).map((item) => ({
+    const items = normalizeSignals(safeResult.body, feed).map((item) => ({
       ...item,
       id: createItemId(item),
       sourceId,
@@ -3084,17 +3087,17 @@ server.registerTool(
       : items;
     const sliced = Number.isFinite(limit) ? filtered.slice(0, Math.max(1, limit)) : filtered;
 
-    const warning = result.fallbackUsed
-      ? `Fetched via proxy (${result.proxyUsed || 'unknown'}).`
+    const warning = safeResult.fallbackUsed
+      ? `Fetched via proxy (${safeResult.proxyUsed || 'unknown'}).`
       : null;
     return {
       content: [{ type: 'text', text: `Signals: ${sliced.length}` }],
       structuredContent: {
         sourceId,
         items: sliced,
-        fetchedUrl: result.fetchedUrl || null,
-        proxyUsed: result.proxyUsed || null,
-        fallbackUsed: Boolean(result.fallbackUsed),
+        fetchedUrl: safeResult.fetchedUrl || null,
+        proxyUsed: safeResult.proxyUsed || null,
+        fallbackUsed: Boolean(safeResult.fallbackUsed),
         warning
       }
     };
@@ -3122,7 +3125,7 @@ server.registerTool(
       };
     }
 
-    const result = await fetchRaw(feed, { query, params });
+    const result = sanitizeEiaPayload(feed, await fetchRaw(feed, { query, params }));
     if (result.error) {
       return {
         content: [{ type: 'text', text: `Signal fetch failed: ${result.message || result.error}` }],
@@ -3184,7 +3187,7 @@ server.registerTool(
     for (const feed of selectedFeeds) {
       const translatedQuery = feed.supportsQuery ? translateQueryForFeed(feed, query || feed.defaultQuery || '') : undefined;
       // eslint-disable-next-line no-await-in-loop
-      const result = await fetchRaw(feed, { query: translatedQuery, start, end, params });
+      const result = sanitizeEiaPayload(feed, await fetchRaw(feed, { query: translatedQuery, start, end, params }));
       if (result.error) {
         const configuration = getFeedConfiguration(feed);
         sourcesChecked.push({

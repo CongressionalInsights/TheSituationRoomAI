@@ -10,6 +10,7 @@ import {
   isStateLegislationScopedRequest,
   STATE_LEGISLATION_SCOPED_TIMEOUT_MS
 } from './state-legislation-timeout.js';
+import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -930,22 +931,6 @@ function decodeMaybeGzip(buffer) {
   }
 }
 
-function stripApiKeys(value) {
-  if (!value || typeof value !== 'object') return value;
-  if (Array.isArray(value)) {
-    value.forEach((entry) => stripApiKeys(entry));
-    return value;
-  }
-  Object.keys(value).forEach((key) => {
-    if (key.toLowerCase() === 'api_key') {
-      delete value[key];
-      return;
-    }
-    stripApiKeys(value[key]);
-  });
-  return value;
-}
-
 function parseGpsJamManifest(text) {
   const lines = String(text || '').trim().split(/\r?\n/);
   let latest = null;
@@ -1328,7 +1313,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
 
   const serverKey = resolveServerKey(feed);
-  const effectiveKey = key || serverKey;
+  const effectiveKey = isEiaFeed(feed) ? serverKey : (key || serverKey);
   if (feed.requiresKey && !effectiveKey) {
     const error = feed.keySource === 'server' ? 'missing_server_key' : 'requires_key';
     const message = feed.keySource === 'server'
@@ -1494,15 +1479,6 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         responseOk = response.ok;
         contentType = response.headers.get('content-type') || 'text/plain';
         body = await response.text();
-      }
-    }
-    if (isEiaSeries && typeof body === 'string' && body.trim().startsWith('{')) {
-      try {
-        const parsed = JSON.parse(body);
-        stripApiKeys(parsed);
-        body = JSON.stringify(parsed);
-      } catch {
-        // ignore JSON parsing failures
       }
     }
     if (feed.format === 'json' && responseOk && isJsonHtmlError(contentType, body)) {
@@ -1680,7 +1656,7 @@ async function fetchEnergyMap() {
   const response = await fetchWithTimeout(url.toString(), { headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' } }, FETCH_TIMEOUT_MS);
   const text = await response.text();
   if (!response.ok) {
-    return { error: 'fetch_failed', message: text || 'EIA energy map fetch failed.' };
+    return { error: 'fetch_failed', message: `EIA energy map fetch failed (${response.status}).` };
   }
   const payload = JSON.parse(text || '{}');
   const rows = payload.response?.data || [];
@@ -2379,7 +2355,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 404, { error: 'unknown_feed', id }, origin);
     }
     try {
-      const payload = await fetchFeed(feed, { query, force, key, keyParam, keyHeader, params });
+      const payload = sanitizeEiaPayload(
+        feed,
+        await fetchFeed(feed, { query, force, key, keyParam, keyHeader, params })
+      );
       console.log(JSON.stringify({
         event: 'feed_fetch',
         feedId: id,

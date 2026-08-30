@@ -5,6 +5,7 @@ import {
   fetchStaticFeed,
   sanitizeObservedUrl
 } from './client.mjs';
+import { redactCredentialFields } from './public_payload_safety.mjs';
 import { createAlert, applyKnownUpstreamQuirks, dedupeAlerts } from './reporting.mjs';
 
 const PRIMARY_ARRAY_PATHS = [
@@ -253,13 +254,16 @@ function findPrimaryItems(body) {
 }
 
 export function summarizeProxyPayload(feed, payload, transport = {}) {
-  const { body, parseError } = parseBody(feed, payload);
+  const parsed = parseBody(feed, payload);
+  const body = redactCredentialFields(parsed.body);
+  const { parseError } = parsed;
+  const errorMessage = redactCredentialFields(payload?.message || transport.error || null);
   if (feed.format === 'rss') {
     const rss = parseRssSummary(typeof body === 'string' ? body : '');
     return {
       httpStatus: payload?.httpStatus ?? transport.status ?? null,
       error: payload?.error || transport.error || null,
-      errorMessage: payload?.message || transport.error || null,
+      errorMessage,
       stale: Boolean(payload?.stale),
       fetchedAt: payload?.fetchedAt || null,
       fallback: payload?.fallback || null,
@@ -276,7 +280,7 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
     return {
       httpStatus: payload?.httpStatus ?? transport.status ?? null,
       error: payload?.error || transport.error || null,
-      errorMessage: payload?.message || transport.error || null,
+      errorMessage,
       stale: Boolean(payload?.stale),
       fetchedAt: payload?.fetchedAt || null,
       fallback: payload?.fallback || null,
@@ -303,7 +307,7 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
   return {
     httpStatus: payload?.httpStatus ?? transport.status ?? null,
     error: payload?.error || transport.error || null,
-    errorMessage: payload?.message || transport.error || null,
+    errorMessage,
     stale: Boolean(payload?.stale),
     fetchedAt: payload?.fetchedAt || null,
     fallback: payload?.fallback || null,
