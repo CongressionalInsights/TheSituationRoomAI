@@ -40,7 +40,11 @@ test('MCP EIA sanitization covers success, error, and legacy response bodies', (
     JSON.stringify({ error: { apiKey: 'fixture-secret', message: 'quota' } }),
     'upstream failed: https://api.eia.gov/series/?api_key=fixture-secret&series_id=x'
   ]) {
-    const result = sanitizeEiaPayload(feed, { body, message: body });
+    const result = sanitizeEiaPayload(feed, {
+      body,
+      message: body,
+      fetchedUrl: 'https://api.eia.gov/v2/petroleum/pri/spt/data/?api_key=fixture-secret&frequency=daily'
+    });
     assert.doesNotMatch(JSON.stringify(result), /fixture-secret/);
   }
 });
