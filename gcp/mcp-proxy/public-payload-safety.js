@@ -21,7 +21,9 @@ function stripEiaCredentialFields(value) {
 }
 
 function redactEiaCredentialText(value) {
-  return String(value || '').replace(/([?&]\s*api[_-]?key=)[^&\s"'<>]+/gi, '$1REDACTED');
+  return String(value || '')
+    .replace(/([?&]\s*api[_-]?key=)[^&\s"'<>]+/gi, '$1REDACTED')
+    .replace(/((?:%3f|%26)api(?:_|-|%5f)?key%3d)(?:(?!%26)[^&\s"'<>])+/gi, '$1REDACTED');
 }
 
 export function isEiaFeed(feed) {

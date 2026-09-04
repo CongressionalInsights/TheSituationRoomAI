@@ -47,6 +47,12 @@ test('MCP EIA sanitization covers success, error, and legacy response bodies', (
     });
     assert.doesNotMatch(JSON.stringify(result), /fixture-secret/);
   }
+
+  const proxied = sanitizeEiaPayload(feed, {
+    fetchedUrl: 'https://api.allorigins.win/raw?url=https%3A%2F%2Fapi.eia.gov%2Fv2%2Fpetroleum%2Fpri%2Fspt%2Fdata%2F%3Fapi_key%3Dfixture-secret%26frequency%3Ddaily'
+  });
+  assert.doesNotMatch(JSON.stringify(proxied), /fixture-secret/);
+  assert.match(proxied.fetchedUrl, /api_key%3DREDACTED%26frequency%3Ddaily/i);
 });
 
 const openStatesCacheEntryCapacity = Math.max(1, Math.ceil(Number(process.env.OPENSTATES_CACHE_MAX_ENTRIES || 256)));
