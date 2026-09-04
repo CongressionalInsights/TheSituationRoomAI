@@ -232,3 +232,44 @@ test('committee Congress feeds are filtered before shared feed responses are exp
     assert.match(source, /mergedParams\.congress|staticRequestParams\.congress/);
   });
 });
+
+test('source highlights use explicit feeds and disclose partial coverage', async (t) => {
+  const os = await import('node:os');
+  const { spawnSync } = await import('node:child_process');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'situation-highlights-'));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const preload = path.join(temp, 'mock-fetch.mjs');
+  fs.writeFileSync(preload, `
+    import assert from 'node:assert/strict';
+    globalThis.fetch = async (url, options) => {
+      const request = JSON.parse(options.body);
+      assert.equal(request.params.name, 'search.smart');
+      assert.equal(request.params.arguments.query, undefined);
+      assert.deepEqual(request.params.arguments.sources, ['bbc-world', 'federal-register', 'eonet-events', 'arxiv-rss-ai']);
+      assert.equal(request.params.arguments.totalLimit, 12);
+      return new Response(JSON.stringify({ result: { structuredContent: {
+        signals: [{ title: 'Fixture record', source: 'Fixture source', url: 'https://example.org/record', publishedAt: 1788548983402 }],
+        sourcesChecked: request.params.arguments.sources.map((sourceId, index) => ({ sourceId, ok: index !== 3, fallbackUsed: index === 1 })),
+        warnings: ['Fixture fallback warning']
+      } } }), { headers: { 'content-type': 'application/json' } });
+    };
+  `);
+  const script = path.join(root, 'scripts/build_denario.mjs');
+  const result = spawnSync(process.execPath, ['--import', preload, script], {
+    cwd: temp, encoding: 'utf8', env: { ...process.env, MCP_PROXY: 'https://fixture.test/mcp', DENARIO_MIN_HOURS: '0' }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const outputPath = path.join(temp, 'public/data/denario.json');
+  const output = fs.readFileSync(outputPath, 'utf8');
+  const payload = JSON.parse(output);
+  assert.equal(payload.kind, 'source-highlights');
+  assert.match(payload.summary, /1 sources unavailable; 1 using fallback/);
+  assert.equal(payload.items[0].url, 'https://example.org/record');
+  assert.equal(payload.items[0].publishedAt, 1788548983402);
+  fs.writeFileSync(preload, `globalThis.fetch = async () => new Response('{}', {status: 503});`);
+  const failed = spawnSync(process.execPath, ['--import', preload, script], {
+    cwd: temp, encoding: 'utf8', env: { ...process.env, MCP_PROXY: 'https://fixture.test/mcp', DENARIO_MIN_HOURS: '0' }
+  });
+  assert.notEqual(failed.status, 0);
+  assert.equal(fs.readFileSync(outputPath, 'utf8'), output, 'failed refresh must not overwrite the prior artifact');
+});

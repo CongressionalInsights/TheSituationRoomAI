@@ -409,7 +409,7 @@ async function buildArcgisFireFallback() {
   if (!fireFeed?.url) return null;
   try {
     const response = await fetchWithTimeout(fireFeed.url, {
-      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+      headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
     }, 15000);
     if (!response.ok) return null;
     const data = await response.json();
@@ -885,6 +885,11 @@ function buildSignalSearchHaystack(item, feed) {
     item?.url,
     item?.jurisdictionName,
     item?.jurisdictionCode,
+    item?.jurisdictionCodes,
+    item?.jurisdictionNames,
+    item?.areaDesc,
+    item?.description,
+    item?.event,
     item?.agency,
     item?.signalType,
     item?.status,
@@ -900,7 +905,7 @@ function buildSignalSearchHaystack(item, feed) {
     .toLowerCase();
 }
 
-function matchesSignalQuery(item, normalizedQuery, feed) {
+export function matchesSignalQuery(item, normalizedQuery, feed) {
   if (!normalizedQuery) return true;
   if (isStateSignal(item, feed)) {
     return matchesStateAwareSignalQuery(item, normalizedQuery, feed);
@@ -913,6 +918,7 @@ function matchesSignalQuery(item, normalizedQuery, feed) {
 
 function matchesStateAwareSignalQuery(item, normalizedQuery, feed) {
   if (!normalizedQuery) return true;
+  if (feed?.id === 'nws-alerts') return matchesSignalQuery(item, normalizedQuery, feed);
   if (isStateSignal(item, feed)) {
     return buildStateSignalSearchHaystack(item, feed).includes(normalizedQuery);
   }
@@ -1414,9 +1420,6 @@ async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, time
 }
 
 async function fetchStateConnectorRaw(feed, options = {}) {
-  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
-    return { error: 'config_required', message: 'State connector provider is not configured.' };
-  }
   const mergedParams = feed.supportsParams
     ? mergeFeedParams(feed, options.params)
     : sanitizeParamsObject(options.params);
@@ -1429,6 +1432,16 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     || mergedParams.jurisdictionCode
     || mergedParams.jurisdiction
   );
+  if (stateCode && !STATE_CONNECTOR_COVERED_STATES.includes(stateCode)) {
+    return {
+      error: 'unsupported_state',
+      httpStatus: 400,
+      message: `${feed.id} does not cover ${stateCode}. Covered states: ${STATE_CONNECTOR_COVERED_STATES.join(', ')}. Check the state's official primary sources directly.`
+    };
+  }
+  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
+    return { error: 'config_required', message: 'State connector provider is not configured.' };
+  }
   const requestedLimit = toPositiveInt(
     mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
     STATE_CONNECTOR_DEFAULT_LIMIT
@@ -1844,10 +1857,18 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
     fetchedUrl: result.fetchedUrl || null,
     proxyUsed: result.proxyUsed || null,
     fallbackUsed: Boolean(result.fallbackUsed),
+    warning: fallbackWarning(result),
     responseHeaders: result.responseHeaders || null,
     body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
     data: parsed
   };
+}
+
+function fallbackWarning(result) {
+  if (!result.fallbackUsed) return null;
+  if (result.proxyUsed === 'arcgis-hms-fire') return 'NASA FIRMS unavailable; returning NOAA HMS fire detections.';
+  if (result.proxyUsed === 'live-cache') return 'Upstream unavailable; returning a published cache snapshot. Check record dates and source attribution.';
+  return `Fetched via fallback (${result.proxyUsed || 'unknown'}).`;
 }
 
 function translateQueryForFeed(feed, query) {
@@ -1958,6 +1979,7 @@ export function selectSmartFeeds({ query, categories, sources, maxSources }) {
 
 export function shouldFilterSmartFeedLocally({ feed, query, categories, sources }) {
   if (!String(query || '').trim() || feed?.supportsQuery) return false;
+  if (feed?.id === 'nws-alerts') return true;
   return (Array.isArray(categories) && categories.length > 0)
     || (Array.isArray(sources) && sources.length > 0);
 }
@@ -2033,11 +2055,11 @@ export function shouldUseLiveFallback(feedOrOptions = {}, maybeOptions = null) {
   return paramsEqual(defaultParams, requestParams);
 }
 
-function dedupeSignals(items) {
+export function dedupeSignals(items) {
   const seen = new Set();
   const output = [];
   items.forEach((item) => {
-    const key = item.url || `${item.title || ''}|${item.publishedAt || ''}`;
+    const key = item.observationKey || item.url || `${item.title || ''}|${item.publishedAt || ''}`;
     if (!key || seen.has(key)) return;
     seen.add(key);
     output.push(item);
@@ -2045,7 +2067,10 @@ function dedupeSignals(items) {
   return output;
 }
 
-function createItemId(item) {
+export function createItemId(item) {
+  if (item.observationKey) {
+    return createHash('sha1').update(item.observationKey).digest('hex').slice(0, 12);
+  }
   const stableSourceId = item.apiUrl || item.docId || item.documentNumber || item.packageId || item.sourceId || '';
   const base = stableSourceId
     ? `${stableSourceId}|${item.url || ''}`
@@ -2194,7 +2219,7 @@ async function fetchOpenStatesWithControls(url, requestOptions, timeoutMs) {
   }
 }
 
-async function fetchRaw(feed, options) {
+export async function fetchRaw(feed, options) {
   if (options?.history && !supportsHistoryRange(feed)) {
     return {
       error: 'history_not_supported',
@@ -2357,6 +2382,10 @@ async function fetchRaw(feed, options) {
           };
           continue;
         }
+        if (feed.id === 'nws-alerts' && !Array.isArray(parseJsonBody(body, feed)?.features)) {
+          lastError = { error: 'invalid_response', message: 'NWS response is missing its alert features array.', httpStatus: response.status };
+          continue;
+        }
         if (feed.id === 'nasa-firms' && normalizeContentType(response.headers.get('content-type')).includes('json')) {
           try {
             const items = buildNasaFirmsItems(JSON.parse(body));
@@ -2417,14 +2446,13 @@ async function fetchRaw(feed, options) {
       const fireFallback = await buildArcgisFireFallback();
       if (fireFallback) {
         return {
-          error: null,
-          status: 200,
-          data: {
-            body: fireFallback.body,
-            contentType: fireFallback.contentType,
-            httpStatus: fireFallback.httpStatus,
-            fetchedUrl: fireFallback.fetchedUrl || null
-          }
+          body: fireFallback.body,
+          contentType: fireFallback.contentType,
+          httpStatus: fireFallback.httpStatus,
+          fetchedUrl: fireFallback.fetchedUrl || null,
+          proxyUsed: 'arcgis-hms-fire',
+          fallbackUsed: true,
+          responseHeaders: null
         };
       }
     }
@@ -2441,7 +2469,6 @@ async function fetchRaw(feed, options) {
         || feed.id === 'federal-register-ed'
         || feed.id === 'fda-medwatch'
         || feed.id === 'gdelt-doc'
-        || feed.id === 'nasa-firms'
         || feed.id === 'transport-opensky';
       console.log(JSON.stringify({
         event: 'mcp_raw_fetch',
@@ -2864,7 +2891,7 @@ async function fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, 
   return results;
 }
 
-function buildMcpServer() {
+export function buildMcpServer() {
   const server = new McpServer({
     name: 'Situation Room MCP',
     version: '0.1.0'
@@ -3087,9 +3114,7 @@ server.registerTool(
       : items;
     const sliced = Number.isFinite(limit) ? filtered.slice(0, Math.max(1, limit)) : filtered;
 
-    const warning = safeResult.fallbackUsed
-      ? `Fetched via proxy (${safeResult.proxyUsed || 'unknown'}).`
-      : null;
+    const warning = fallbackWarning(safeResult);
     return {
       content: [{ type: 'text', text: `Signals: ${sliced.length}` }],
       structuredContent: {
@@ -3141,9 +3166,7 @@ server.registerTool(
     }));
     const match = items.find((item) => item.id === id) || null;
 
-    const warning = result.fallbackUsed
-      ? `Fetched via proxy (${result.proxyUsed || 'unknown'}).`
-      : null;
+    const warning = fallbackWarning(result);
     return {
       content: [{ type: 'text', text: match ? `Signal ${id}` : `Signal ${id} not found` }],
       structuredContent: {
@@ -3218,7 +3241,7 @@ server.registerTool(
         : items;
 
       if (result.fallbackUsed) {
-        warnings.push(`Fetched ${feed.name} via proxy (${result.proxyUsed || 'unknown'}).`);
+        warnings.push(`${feed.name}: ${fallbackWarning(result)}`);
       }
 
       sourcesChecked.push({

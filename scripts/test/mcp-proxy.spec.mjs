@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 
 const {
   getStateBillSortTimestamp,
@@ -14,6 +15,11 @@ const {
   buildFeedUrl,
   buildMoneyQueryProfile,
   buildRawStructuredContent,
+  buildMcpServer,
+  createItemId,
+  dedupeSignals,
+  fetchRaw,
+  matchesSignalQuery,
   buildUsaspendingTransactionKey,
   attachMoneyMatch,
   findBestMoneyNameMatch,
@@ -984,4 +990,169 @@ test('normalizeJsonSignals maps GeoJSON feature properties into signal fields', 
   assert.equal(item.url, 'https://earthquake.usgs.gov/earthquakes/eventpage/nc75360036');
   assert.equal(item.publishedAt, 1778683419930);
   assert.deepEqual(item.geo, { lat: 38.8283348083496, lon: -122.803833007812 });
+});
+
+const nwsFeed = { id: 'nws-alerts', name: 'NWS Alerts (US)', category: 'weather', format: 'json', url: 'https://api.weather.gov/alerts/active' };
+function nwsFixture(overrides = {}) {
+  return {
+    type: 'Feature',
+    id: 'https://api.weather.gov/alerts/fixture-nc',
+    geometry: { type: 'Polygon', coordinates: [[[-83, 35], [-82, 35], [-82, 36], [-83, 35]]] },
+    properties: {
+      id: 'urn:fixture:nc', event: 'Flood Warning', headline: 'Flood Warning for Buncombe',
+      description: 'Fixture warning description.', instruction: 'Fixture action.',
+      status: 'Actual', messageType: 'Alert', severity: 'Severe', urgency: 'Immediate', certainty: 'Observed',
+      sent: '2026-09-04T12:00:00-04:00', effective: '2026-09-04T12:05:00-04:00', expires: '2026-09-04T14:00:00-04:00',
+      areaDesc: 'Buncombe', geocode: { UGC: ['NCC021'] }, affectedZones: ['https://api.weather.gov/zones/county/NCC021'],
+      ...overrides
+    }
+  };
+}
+
+test('NWS normalization preserves alert details, polygons, source timestamps, and state search', () => {
+  const feature = nwsFixture();
+  const [item] = normalizeJsonSignals(JSON.stringify({ features: [feature] }), nwsFeed);
+  assert.equal(item.title, feature.properties.headline);
+  assert.equal(item.url, feature.id);
+  assert.equal(item.docId, feature.properties.id);
+  assert.equal(item.publishedAt, Date.parse(feature.properties.sent));
+  assert.equal(item.expires, feature.properties.expires);
+  assert.equal(item.instruction, feature.properties.instruction);
+  assert.equal(item.severity, 'Severe');
+  assert.equal(item.status, 'Actual');
+  assert.deepEqual(item.geometry, feature.geometry);
+  assert.equal(item.geo, null, 'do not turn a polygon into a fabricated point');
+  assert.deepEqual(item.jurisdictionCodes, ['NC']);
+  assert.deepEqual(item.jurisdictionNames, ['North Carolina']);
+  assert.equal(matchesSignalQuery(item, 'north carolina', nwsFeed), true);
+  assert.equal(matchesSignalQuery(item, 'buncombe', nwsFeed), true);
+  assert.equal(matchesSignalQuery(item, 'california', nwsFeed), false);
+  assert.equal(shouldFilterSmartFeedLocally({ feed: nwsFeed, query: 'North Carolina' }), true);
+});
+
+test('NWS searches include records beyond the generic first-50 cap and suppress test alerts', () => {
+  const features = Array.from({ length: 55 }, (_, index) => nwsFixture({ id: `urn:fixture:${index}`, areaDesc: 'Virginia', geocode: { UGC: ['VAC001'] }, affectedZones: [] }));
+  features.push(nwsFixture(), nwsFixture({ status: 'Test' }), nwsFixture({ status: 'Exercise' }));
+  const items = normalizeJsonSignals(JSON.stringify({ features }), nwsFeed);
+  assert.equal(items.length, 56);
+  assert.equal(items.filter((item) => matchesSignalQuery(item, 'north carolina', nwsFeed)).length, 1);
+  assert.equal(items.filter((item) => matchesSignalQuery(item, 'alaska', nwsFeed)).length, 0);
+  assert.deepEqual(normalizeJsonSignals('{"features":[]}', nwsFeed), []);
+});
+
+test('NWS missing dates stay unknown, fallback event titles work, and multi-state zones remain searchable', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({ features: [nwsFixture({
+    headline: null, sent: 'bad-date', effective: null,
+    geocode: { UGC: ['NCC021', 'SCC001'] }, affectedZones: []
+  })] }), nwsFeed);
+  assert.equal(item.title, 'Flood Warning');
+  assert.equal(item.publishedAt, null);
+  assert.equal(matchesSignalQuery(item, 'south carolina', nwsFeed), true);
+});
+
+test('fire identities and deduplication preserve distinct detections with equal titles and times', () => {
+  const fireFeed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster' };
+  const rows = [
+    { title: 'Fire detection', publishedAt: 1788548983402, source: 'NOAA HMS', latitude: 46.47, longitude: -105.15, summary: 'FRP 10' },
+    { title: 'Fire detection', publishedAt: 1788548983402, source: 'NOAA HMS', latitude: 46.48, longitude: -105.16, summary: 'FRP 10' },
+    { title: 'Fire detection', publishedAt: 1788548983402, source: 'NOAA HMS', latitude: 46.47, longitude: -105.15, summary: 'FRP 20' }
+  ];
+  const items = normalizeJsonSignals(JSON.stringify({ items: rows }), fireFeed);
+  assert.equal(new Set(items.map(createItemId)).size, 3);
+  assert.equal(dedupeSignals([...items, items[0]]).length, 3);
+  assert.equal(items[0].source, 'NOAA HMS');
+  const reordered = normalizeJsonSignals(JSON.stringify({ items: [...rows].reverse() }), fireFeed);
+  assert.deepEqual(reordered.map(createItemId).reverse(), items.map(createItemId));
+});
+
+test('geographic zero coordinates survive while missing coordinates stay missing', () => {
+  const [zero, missing] = normalizeJsonSignals(JSON.stringify({ items: [
+    { title: 'Zero', latitude: 0, longitude: 0 },
+    { title: 'Missing', latitude: null, longitude: null }
+  ] }), { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster' });
+  assert.deepEqual(zero.geo, { lat: 0, lon: 0 });
+  assert.equal(missing.geo, null);
+});
+
+test('unsupported NC state connector requests report coverage before any network request', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('should not fetch'); });
+  for (const id of ['state-rulemaking', 'state-executive-orders']) {
+    const result = await fetchRaw({ id, supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'NC' } });
+    assert.equal(result.error, 'unsupported_state');
+    assert.match(result.message, /does not cover NC/);
+    assert.match(result.message, /CA, FL, MN, NY, TX, VA/);
+  }
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test('NASA fire fallback keeps the raw response contract and identifies NOAA substitution', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('upstream.test')) return new Response('unavailable', { status: 403 });
+    return new Response(JSON.stringify({ features: [{ geometry: { type: 'Point', coordinates: [-105, 46] }, properties: { frp: 10, acq_date: '2026-09-04' } }] }), { headers: { 'content-type': 'application/json' } });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://upstream.test/fire' };
+  const result = await fetchRaw(feed, {});
+  assert.equal(result.error, undefined);
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(result.proxyUsed, 'arcgis-hms-fire');
+  assert.equal(result.httpStatus, 200);
+  assert.equal(result.data, undefined, 'raw result fields must not be nested under data');
+  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+  assert.equal(raw.data.items[0].source, 'NOAA HMS');
+  assert.match(raw.warning, /NASA FIRMS unavailable.*NOAA HMS/);
+  assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+});
+
+test('published NASA snapshots remain flagged as fallback and retain record attribution', async (t) => {
+  const body = JSON.stringify({ items: [{ title: 'Fire detection', latitude: 40, longitude: -100, source: 'NOAA HMS', publishedAt: 1788548983402 }] });
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('/data/feeds/nasa-firms.json')) return new Response(JSON.stringify({ body, contentType: 'application/json', httpStatus: 200 }));
+    return new Response('unavailable', { status: 403 });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://upstream.test/fire' };
+  const result = await fetchRaw(feed, {});
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(result.proxyUsed, 'live-cache');
+  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+  assert.match(raw.warning, /cache snapshot/);
+  assert.equal(raw.data.items[0].source, 'NOAA HMS');
+});
+
+test('malformed NWS responses are failures while a real empty alert set is successful', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('{}', { headers: { 'content-type': 'application/json' } }));
+  const bad = await fetchRaw(nwsFeed, {});
+  assert.equal(bad.error, 'invalid_response');
+  globalThis.fetch.mock.mockImplementation(async () => new Response('{"features":[]}', { headers: { 'content-type': 'application/json' } }));
+  const empty = await fetchRaw(nwsFeed, {});
+  assert.equal(empty.error, undefined);
+  assert.deepEqual(normalizeJsonSignals(empty.body, nwsFeed), []);
+});
+
+test('MCP tool calls preserve NWS geography through raw, list, search, and get routes', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ features: [nwsFixture(), nwsFixture({ status: 'Test' })] }), { headers: { 'content-type': 'application/geo+json' } }));
+  const server = buildMcpServer();
+  const client = new Client({ name: 'signal-contract-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const raw = await call('raw.fetch', { sourceId: 'nws-alerts', format: 'json' });
+  assert.equal(raw.data.features.length, 2, 'raw access preserves upstream test messages');
+  const listed = await call('signals.list', { sourceId: 'nws-alerts', query: 'North Carolina', limit: 5 });
+  assert.equal(listed.items.length, 1);
+  assert.deepEqual(listed.items[0].geometry, nwsFixture().geometry);
+  const searched = await call('search.smart', { sources: ['nws-alerts'], query: 'North Carolina', totalLimit: 5 });
+  assert.equal(searched.signals.length, 1);
+  assert.equal(searched.signals[0].id, listed.items[0].id);
+  const found = await call('signals.get', { sourceId: 'nws-alerts', id: listed.items[0].id });
+  assert.equal(found.item.docId, 'urn:fixture:nc');
+  const empty = await call('search.smart', { sources: ['nws-alerts'], query: 'Alaska' });
+  assert.equal(empty.signals.length, 0);
+  assert.equal(empty.sourcesChecked[0].ok, true);
+  const unsupported = await call('signals.list', { sourceId: 'state-rulemaking', params: { state: 'NC' } });
+  assert.equal(unsupported.error, 'unsupported_state');
 });
