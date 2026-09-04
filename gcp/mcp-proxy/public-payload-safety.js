@@ -43,6 +43,7 @@ export function sanitizeEiaPayload(feed, payload) {
   return {
     ...payload,
     body: sanitizeEiaBody(payload.body),
-    message: typeof payload.message === 'string' ? sanitizeEiaBody(payload.message) : payload.message
+    message: typeof payload.message === 'string' ? sanitizeEiaBody(payload.message) : payload.message,
+    fetchedUrl: typeof payload.fetchedUrl === 'string' ? redactEiaCredentialText(payload.fetchedUrl) : payload.fetchedUrl
   };
 }
