@@ -1,91 +1,60 @@
-# Repository Guidelines
+# TheSituationRoom repository guidance
 
-## Memory
-- Before substantial work, consult the local memory file at `$CODEX_HOME/memories/projects/TheSituationRoom.md` or `$HOME/.codex/memories/projects/TheSituationRoom.md` when present.
-- Use it for durable repo context only: stable workflow decisions, repo-specific conventions, and important follow-ups.
-- Do not store secrets there, and update it when long-lived context changes.
+## Scope and source truth
 
-## Project Structure & Module Organization
-- `public/` contains the client UI (`index.html`, `styles.css`, `app.js`, `services/api.js`, `config.js`) plus static assets and Leaflet styles. The Energy Map uses `public/geo/us-states.geojson`.
-- `data/feeds.json` is the canonical feed registry and default settings (refresh interval, user agent, key groups).
-- `gcp/` contains Cloud Run proxies (feed, openai, opensky, acled, mcp). `worker/` mirrors a Cloudflare Worker fallback.
-- `server.mjs` serves the UI locally and proxies feed requests for local development.
-- `analysis/` stores snapshot exports and geo cache output (`analysis/denario/`, `analysis/geo/`).
-- `logos/` holds branding assets (favicon, logo, OG image).
+- Work inside this repository unless the task explicitly widens scope. Preserve unrelated local changes.
+- Treat checked-in code, `data/feeds.json`, current workflows, generated monitor artifacts, and live endpoint readback as source truth. Memory may provide context but does not own repo policy or current feed health.
+- Keep changes small, preserve required tests and attribution, and verify claims with commands or artifacts before reporting them as complete.
+- Production deploys, secret or permission changes, external sends, destructive cache/data actions, and paid work require explicit authorization unless the current task already grants that exact scope.
 
-## Build, Test, and Development Commands
-- Use Node 24 (`.nvmrc`; workflows use `actions/setup-node` with `node-version-file: .nvmrc`).
-- `node server.mjs` — run the local server at `http://localhost:5173`.
-- `curl http://localhost:5173/api/feeds` — verify the server is live and feeds load.
-- `curl "http://localhost:5173/api/feed?id=<feed-id>&force=1"` — force-refresh a single feed.
-- `node scripts/sync-feeds.mjs` — sync `data/feeds.json` into public and Cloud Run proxy copies.
-- `node scripts/verify_feeds_sync.mjs` — verify feed registry parity across those copies.
-- `node scripts/build_static_cache.mjs` — rebuild the static cache in `data/`.
-- `node scripts/build_denario.mjs` — build `public/data/denario.json` from MCP `search.smart` (set `MCP_PROXY` to override the endpoint; `DENARIO_MIN_HOURS` defaults to 6).
-- `node scripts/build_frontend.mjs` — rebuild the versioned frontend bundle (matches `npm run build:frontend`).
-- `node scripts/verify_public.mjs` — verify the built public bundle and basic secret-leak patterns.
-- `npm run monitor:core|monitor:all|monitor:docs|monitor:report` — run the monitor entrypoints under `analysis/monitor/`.
-- `node --test scripts/test/state-connector.spec.mjs gcp/state-connector/test/*.spec.mjs` — run the state-connector request and adapter fixture tests.
-- `npm audit --prefix gcp/mcp-proxy --audit-level=high`, `npm audit --prefix gcp/acled-proxy --audit-level=high`, and `npm audit --prefix gcp/state-connector --audit-level=high` — audit lockfile-backed Cloud Run packages.
-- `npm test` — run feed sync validation plus the Node test suite.
-- `npm run test:ui` — run Playwright UI tests.
+## Repository map
 
-## Coding Style & Naming Conventions
-- Use 2‑space indentation for JavaScript, HTML, and JSON.
-- Prefer explicit IDs for panel content: `data-panel="energy-map"`, `id="energyMap"`, `id="energyList"`.
-- Feed IDs are lowercase kebab case (e.g., `state-travel-advisories`).
-- Keep theme changes centralized in CSS variables and `data-theme` rules.
-- Layout defaults, list defaults, and modal configs live in `public/app.js`. Update those constants first, then wire UI.
+- `public/`: client UI, configuration, assets, Leaflet styles, and `geo/us-states.geojson`.
+- `data/feeds.json`: canonical feed registry and default fetch/refresh settings.
+- `gcp/`: Cloud Run feed, OpenAI, OpenSky, ACLED, and MCP proxies plus the state connector.
+- `server.mjs`: local UI server and feed proxy.
+- `scripts/`: feed sync, cache/build, validation, and monitor tooling.
+- `analysis/`: monitor reports, snapshots, Denario output, and geo/congress evidence.
+- `logos/`: branding assets.
 
-## Testing Guidelines
-- Automated tests are limited; prioritize manual verification for UI changes.
-- Use `npm test` for feed sync + Node tests when touching feed registry logic or sync flows.
-- Use `npm run test:ui` for UI regressions that need browser coverage.
-- When changing static cache fallback/error handling, run `node --test scripts/test/feeds.spec.mjs`; BLS CPI quota/error JSON should fall back instead of publishing as a healthy snapshot.
-- Use `npm run monitor:all` for full data-stream audits; inspect `analysis/monitor/latest.json` and `analysis/monitor/latest.md` before patching monitor warnings.
-- Validate changes by running the server and checking: map interactivity, feed health, and per‑panel “last updated” stamps.
-- For new feeds, confirm output in `/api/feed` and the in‑app Feed Health status.
+## Core workflow
 
-## Commit & Pull Request Guidelines
-- Use short present‑tense commit messages (e.g., “Refine energy map legend”).
-- PRs should include: summary, screenshots for UI work, and any new key requirements or feed IDs touched.
+- Use Node 24 from `.nvmrc`.
+- Run locally with `node server.mjs`; verify `http://localhost:5173/api/feeds` and use `/api/feed?id=<feed-id>&force=1` for a targeted refresh.
+- After editing `data/feeds.json`, run `node scripts/sync-feeds.mjs` and `node scripts/verify_feeds_sync.mjs` so public, feed-proxy, and MCP copies remain aligned.
+- Build generated surfaces with `node scripts/build_static_cache.mjs`, `node scripts/build_denario.mjs`, and `node scripts/build_frontend.mjs` as applicable. Do not hand-edit the versioned frontend bundle when the build script owns it.
+- Validate with `node scripts/verify_public.mjs`, `npm test`, and `npm run test:ui` according to scope.
+- Monitor entrypoints are `npm run monitor:core`, `monitor:all`, `monitor:docs`, and `monitor:report`; inspect both `analysis/monitor/latest.json` and `.md` before patching an alert.
 
-## Security & Configuration Notes
-- Server‑managed keys (DATA_GOV, EIA, NASA_FIRMS, OPEN_AQ, OPENSTATES, etc.) live in GCP Secret Manager and are injected by GitHub Actions when deploying Cloud Run.
-- Client‑side Settings only hold user BYO keys (OpenAI) and local preferences; do not add server keys to the UI.
-- Do not hard‑code secrets in `data/feeds.json`; use `requiresKey`, `keyGroup`, and server proxy routing.
-- The MCP proxy (`gcp/mcp-proxy`) is public read‑only; keep it stateless and avoid persisting upstream data.
-- Keep `gcp/mcp-proxy/package.json` overrides and both proxy lockfiles aligned with dependency changes; `npm test` includes `scripts/test/proxy-dependencies.spec.mjs`.
+## Data and architecture invariants
 
-## Architecture & Data Flow
-- Browser → `public/services/api.js` → `window.SR_CONFIG.apiBase` (Cloud Run feed proxy) for key‑protected feeds.
-- Agents → MCP endpoint (`/mcp`) for raw + normalized feed access; use `catalog.sources` to enumerate supported feeds.
-- MCP exposes `catalog.sources`, `raw.fetch`, `raw.history`, `money.flows`, `signals.list`, `signals.get`, and `search.smart`; keep feed metadata and state-filter behavior aligned across those tools.
-- Static cache lives in `data/` and is used as a fallback when proxies are unavailable.
-- Map overlays and legend state are driven by settings defaults in `public/app.js`.
-- AI briefings and chat context are assembled in `buildChatContext()` inside `public/app.js` (and mirrored in the versioned bundle). If you add a new feed category or panel, include it in the context so AI analysis and search stay aligned.
+- Feed IDs are lowercase kebab case. Keyed feeds use `requiresKey`, `keyGroup`, and server proxy routing; never put server-managed keys in `data/feeds.json` or client settings.
+- For state-level feeds, keep `jurisdictionLevel`, `supportsParams`, `defaultParams`, `capabilities`, and `paramStrategy` declarative and consistent across UI, proxies, and MCP.
+- Browser traffic reaches the configured Cloud Run feed proxy through `public/services/api.js`; static cache under `data/` is the fallback when proxies fail.
+- MCP remains public, read-only, stateless, and parity-aligned across `catalog.sources`, `raw.fetch`, `raw.history`, `money.flows`, `signals.list`, `signals.get`, and `search.smart`.
+- When a feed category, panel, or filter changes, update `public/app.js` defaults/wiring, map legend/toggles, attribution, search state, and `buildChatContext()` so UI, search, and AI briefings remain consistent.
+- Keep stable panel IDs and list keys; they drive layout persistence and settings.
 
-## Deployment & Monitoring Notes
-- `.github/workflows/deploy-pages.yml` runs on pushes, manual dispatch, and an hourly `main` schedule; manual branch Pages deploys can be overwritten by the next scheduled `main` run.
-- The Pages deploy builds static cache, Denario insights, then the frontend bundle; keep `public/data/denario.json` generation compatible with the public MCP endpoint or set `MCP_PROXY` in the environment.
-- Deploy workflows run `node scripts/sync-feeds.mjs` before deploying proxies so feed registry copies must stay in sync before commit.
-- Feed and MCP proxy deploy workflows run the core sentinel with `--allow-alerts`; this preserves monitor findings as artifacts/signals without failing otherwise healthy deploys.
-- `.github/workflows/monitor-data-streams.yml` runs the daily full audit against the deployed Feed Proxy, MCP endpoint, and GitHub Pages static snapshot and uploads `analysis/monitor/` artifacts.
+## Security and deployment
 
-## Safe Change Checklist
-- Add feeds in `data/feeds.json`, then update `public/data/feeds.json` and the Cloud Run copies in `gcp/feed-proxy/feeds.json` and `gcp/mcp-proxy/feeds.json` so UI, search/briefings, and MCP stay aligned.
-- For state-level feeds, set `jurisdictionLevel`, `supportsParams`, `defaultParams`, `capabilities`, and `paramStrategy` so param behavior is declarative and consistent across UI/proxies/MCP.
-- Update panel list defaults and any map layer wiring in `public/app.js` (and the versioned bundle when needed).
-- Ensure AI context/search coverage includes the new feed category in `buildChatContext()` so briefings and search stay in sync.
-- Add or update attribution in the About modal’s “Where the data comes from” list, with required source wording and links.
-- Keep MCP parity when adding feed metadata: `catalog.sources`, `signals.list`, `signals.get`, and `search.smart` should accept or expose the same state-filter capabilities.
-- For `state-rulemaking` or state executive-order adapter fixes, update `gcp/state-connector/test/adapters.spec.mjs` fixtures, sweep similar state adapters for nav/archive/duplicate-format noise, then verify provider output plus `/api/feed` and MCP `signals.list` wrappers.
-- Keep panel IDs and list keys stable; they drive layout persistence and settings.
-- When adding map layers, also update legend groups and default toggles to avoid hidden layers.
-- If you change search behavior or add categories, update `state.lastSearch*` tracking and the AI context to reflect the new filters.
-- When touching OpenStates `state-legislation` fallback/cache behavior, run `node --test scripts/test/mcp-proxy.spec.mjs scripts/test/feeds.spec.mjs` and verify a query-shaped `raw.fetch` keeps `fallbackUsed:false` instead of serving the static live-cache snapshot.
-- For volatile provider documentation pages in `data/feed-monitoring.json`, prefer reviewed `requiredSurfaceMarkers` over accepted whole-page hashes; run `node --test scripts/test/monitor.spec.mjs` and verify missing markers remain `docs-contract-change` alerts while cosmetic churn stays quiet.
-- When changing proxy deploy Secret Manager steps, preserve the compare-before-add guard so unchanged values reuse the latest version; run `node --test --test-name-pattern="proxy deploy workflows preserve an unchanged Secret Manager version" scripts/test/monitor.spec.mjs` to verify all five proxy workflows.
-- When changing SWPC parsing or MCP proxy deploy safety, preserve the serving revision's secret bindings, validate the isolated zero-traffic candidate with `node scripts/verify_mcp_candidate.mjs <candidate-mcp-url>`, and promote only that verified revision; run `node --test scripts/test/mcp-proxy.spec.mjs scripts/test/monitor.spec.mjs` for the owning contracts.
-- When touching Congress.gov summaries or detail targets, run `node scripts/validate_congress_detail.mjs` (use `--base <deploy-url>` when validating Cloud Run) and review `analysis/congress/congress-detail-404.json`.
-- For Congress.gov committee reports, do not assume `sort=updateDate` is honored upstream. Compare top 5 citations for asc vs desc periodically; if they match, treat sorting as degraded and monitor until upstream fix lands.
+- Server-managed API keys live in GCP Secret Manager and are injected by deploy workflows. Client settings may hold only user-provided OpenAI keys and local preferences.
+- Keep MCP dependency overrides and the MCP, ACLED, and state-connector manifests/lockfiles aligned; `scripts/test/proxy-dependencies.spec.mjs` owns these contracts. When a package or lockfile changes, run `npm audit --prefix gcp/<service> --audit-level=high` for the affected service.
+- Pages deploys from non-main branches can be overwritten by the next scheduled `main` run. Verify the target branch/SHA before treating a preview as durable.
+- Deploy workflows sync feeds before proxies deploy. Feed and MCP deploys preserve sentinel findings as artifacts with `--allow-alerts`; do not erase monitor evidence merely to keep a deploy green.
+- Proxy Secret Manager steps must compare before adding a version so unchanged values reuse the latest version. When changing these steps, run `node --test --test-name-pattern="proxy deploy workflows preserve an unchanged Secret Manager version" scripts/test/monitor.spec.mjs`.
+- For SWPC parsing or MCP deploy safety changes, preserve the serving revision's secret bindings, validate an isolated zero-traffic candidate with `node scripts/verify_mcp_candidate.mjs <candidate-mcp-url>`, and promote only the verified revision within the task's deployment authorization. Run `node --test scripts/test/mcp-proxy.spec.mjs scripts/test/monitor.spec.mjs` for these contracts.
+- For EIA proxy, static-cache, or public-payload changes, preserve credential-field sanitization across Feed Proxy, MCP, monitor serialization, and public verification; static publication must fail closed through the server-side Feed Proxy. Run `node --test scripts/test/feeds.spec.mjs scripts/test/mcp-proxy.spec.mjs scripts/test/monitor.spec.mjs` and `node scripts/verify_public.mjs`.
+- The daily data-stream workflow checks deployed feed, MCP, and Pages surfaces and uploads `analysis/monitor/`; distinguish operational severity from reduced observation coverage.
+
+## Validation by change type
+
+- Feed registry or sync: `npm test`, sync verification, `/api/feed` readback, and in-app Feed Health.
+- State-connector request/adapter changes: `node --test scripts/test/state-connector.spec.mjs gcp/state-connector/test/*.spec.mjs`. For rulemaking or executive-order adapters, update `gcp/state-connector/test/adapters.spec.mjs` fixtures, sweep similar adapters for navigation/archive/duplicate-format noise, and verify provider output plus `/api/feed` and MCP `signals.list` wrappers.
+- OpenStates `state-legislation` fallback/cache changes: `node --test scripts/test/mcp-proxy.spec.mjs scripts/test/feeds.spec.mjs`; verify query-shaped `raw.fetch` keeps `fallbackUsed:false` instead of serving the static live-cache snapshot.
+- Static cache fallback/error handling: `node --test scripts/test/feeds.spec.mjs`; upstream quota/error payloads must not be published as healthy snapshots.
+- UI/layout/theme: `npm run test:ui`, local server inspection, map interactivity, feed health, and per-panel timestamps. Keep theme changes centralized in CSS variables and `data-theme` rules.
+- Monitor/data-stream changes: `npm run monitor:all` and review the canonical JSON/Markdown reports before and after.
+- Volatile provider documentation in `data/feed-monitoring.json`: prefer reviewed `requiredSurfaceMarkers` over whole-page hashes. Run `node --test scripts/test/monitor.spec.mjs`; missing markers must remain `docs-contract-change` alerts while cosmetic churn stays quiet.
+- Congress detail changes: run `node scripts/validate_congress_detail.mjs` against the relevant base and inspect the generated Congress evidence artifact.
+- Congress.gov committee-report sorting: compare the top five citations for ascending and descending `sort=updateDate` queries before relying on ordering; matching results indicate degraded upstream sorting to monitor.
+- Documentation-only operating-model edits: run a focused stale-text search and `git diff --check`.
