@@ -1,0 +1,9 @@
+{
+  "id": "state-legislation",
+  "fetchedAt": 1788736315959,
+  "contentType": "application/json",
+  "body": "{\"detail\":\"exceeded limit of 250/day: 534\"}",
+  "httpStatus": 429,
+  "error": "http_429",
+  "message": "HTTP 429"
+}

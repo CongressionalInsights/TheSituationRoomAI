@@ -1,0 +1,122 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 9 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 30,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 50,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 0,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "Germany's far-right AfD set for big win in eastern state, just short of majority",
+      "summary": "Germany's AfD has hailed a \"historic result\" and is projected to win 44% of the vote, far ahead of the conservatives on 17%.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cy4zejgz3z9o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1788735765000
+    },
+    {
+      "title": "Zelensky says he expects war to continue into winter after talks with US envoys",
+      "summary": "There was no announcement of a major breakthrough, after Steve Witkoff and Jared Kushner travelled to Kyiv.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c6248nvqy8po?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1788727318000
+    },
+    {
+      "title": "Peace talks rich in symbolism but fundamental differences between Russia and Ukraine remain",
+      "summary": "Despite talks between US envoys and both Putin and Zelensky, the expectation in Kyiv is the fighting will continue, writes James Landale.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c980j5m8mpro?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1788727932000
+    },
+    {
+      "title": "Unleashing Unlicensed Spectrum for Direct-to-Device",
+      "summary": "The Federal Communications Commission (Commission or FCC) issues a Notice of Proposed Rulemaking proposes to expand opportunities for direct-to-device (D2D) communications by permitting certain unlicensed devices to communicate with satellites on a non-interference basis. Building on recent market growth and new industry investment in D2D technologies, the NPRM explores adding satellite allocations in specific unlicensed bands, clarifying that equipment may operate within spacecraft, and esta...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/08/2026-18282/unleashing-unlicensed-spectrum-for-direct-to-device",
+      "category": "gov",
+      "publishedAt": 1788825600000
+    },
+    {
+      "title": "Safety Zone; Laguna Madre, South Padre Island, TX",
+      "summary": "The Coast Guard is establishing a temporary safety zone for navigable waters on the Laguna Madre. The safety zone is needed to protect personnel, vessels, and the marine environment from potential hazards associated with an over water fireworks display. Entry of vessels or persons into this zone is prohibited unless specifically authorized by the Captain of the Port, Sector Corpus Christi, or their designated representative.",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/08/2026-18279/safety-zone-laguna-madre-south-padre-island-tx",
+      "category": "gov",
+      "publishedAt": 1788825600000
+    },
+    {
+      "title": "Sunshine Act Meetings",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/08/2026-18262/sunshine-act-meetings",
+      "category": "gov",
+      "publishedAt": 1788825600000
+    },
+    {
+      "title": "Emergency Stabilization BAER McConnell, Humboldt, Nevada",
+      "summary": "Wildfires • Magnitude 500 acres",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_23868",
+      "category": "disaster",
+      "publishedAt": 1788440580000
+    },
+    {
+      "title": "Wildfire Ayers Pond, Prairie, Montana",
+      "summary": "25 Miles SE from Terry, MT",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_23869",
+      "category": "disaster",
+      "publishedAt": 1788399900000
+    },
+    {
+      "title": "Wildfire Snow, Custer, Montana",
+      "summary": "30 Miles E from Miles City, MT",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_23870",
+      "category": "disaster",
+      "publishedAt": 1788387360000
+    }
+  ],
+  "generatedAt": "2026-09-06T23:12:34.504Z"
+}
