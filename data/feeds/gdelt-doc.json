@@ -1,0 +1,9 @@
+{
+  "id": "gdelt-doc",
+  "fetchedAt": 1789236758230,
+  "contentType": "text/plain;charset=UTF-8",
+  "body": "Oops... Request Timeout.",
+  "httpStatus": 408,
+  "error": "http_408",
+  "message": "HTTP 408"
+}

@@ -1,0 +1,7 @@
+{
+  "id": "arcgis-noaa-severe",
+  "fetchedAt": 1789236809625,
+  "contentType": "application/json; charset=utf-8",
+  "body": "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:4326\"}},\"features\":[{\"type\":\"Feature\",\"id\":1,\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[-95.4700012205066,37.2900009160244],[-95.3899993903101,37.3800010682515],[-95.089996338176,37.3499984738357],[-95.0699996953227,37.1899986273554],[-95.4700012205066,37.2900009160244]]]},\"properties\":{\"OBJECTID\":1,\"WFO\":\"KICT\",\"ETN\":\"0406\",\"UGC\":\" \",\"WFILE\":\"site=ICT&issuedby=ICT&product=SVS\",\"UTC_EXPIRE\":1789237800000,\"UTC_ISSUE\":1789236300000,\"Shape__Area\":711859280.24609375,\"Shape__Length\":118253.66550614149}}]}",
+  "httpStatus": 200
+}
