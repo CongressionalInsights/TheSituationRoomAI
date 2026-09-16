@@ -1,0 +1,318 @@
+{
+  "period": "2026-06",
+  "units": "cents per kilowatt-hour",
+  "values": {
+    "AK": {
+      "period": "2026-06",
+      "value": 28.21,
+      "state": "Alaska"
+    },
+    "AL": {
+      "period": "2026-06",
+      "value": 16.4,
+      "state": "Alabama"
+    },
+    "AR": {
+      "period": "2026-06",
+      "value": 14.12,
+      "state": "Arkansas"
+    },
+    "AZ": {
+      "period": "2026-06",
+      "value": 15.18,
+      "state": "Arizona"
+    },
+    "CA": {
+      "period": "2026-06",
+      "value": 34.74,
+      "state": "California"
+    },
+    "CO": {
+      "period": "2026-06",
+      "value": 17.13,
+      "state": "Colorado"
+    },
+    "CT": {
+      "period": "2026-06",
+      "value": 24.32,
+      "state": "Connecticut"
+    },
+    "DC": {
+      "period": "2026-06",
+      "value": 24.39,
+      "state": "District of Columbia"
+    },
+    "DE": {
+      "period": "2026-06",
+      "value": 19.29,
+      "state": "Delaware"
+    },
+    "ENC": {
+      "period": "2026-06",
+      "value": 19.81,
+      "state": "East North Central"
+    },
+    "ESC": {
+      "period": "2026-06",
+      "value": 14.89,
+      "state": "East South Central"
+    },
+    "FL": {
+      "period": "2026-06",
+      "value": 15.1,
+      "state": "Florida"
+    },
+    "GA": {
+      "period": "2026-06",
+      "value": 16.36,
+      "state": "Georgia"
+    },
+    "HI": {
+      "period": "2026-06",
+      "value": 52.72,
+      "state": "Hawaii"
+    },
+    "IA": {
+      "period": "2026-06",
+      "value": 15.93,
+      "state": "Iowa"
+    },
+    "ID": {
+      "period": "2026-06",
+      "value": 14.37,
+      "state": "Idaho"
+    },
+    "IL": {
+      "period": "2026-06",
+      "value": 19.89,
+      "state": "Illinois"
+    },
+    "IN": {
+      "period": "2026-06",
+      "value": 17.51,
+      "state": "Indiana"
+    },
+    "KS": {
+      "period": "2026-06",
+      "value": 15.71,
+      "state": "Kansas"
+    },
+    "KY": {
+      "period": "2026-06",
+      "value": 14.26,
+      "state": "Kentucky"
+    },
+    "LA": {
+      "period": "2026-06",
+      "value": 13.49,
+      "state": "Louisiana"
+    },
+    "MA": {
+      "period": "2026-06",
+      "value": 29.61,
+      "state": "Massachusetts"
+    },
+    "MAT": {
+      "period": "2026-06",
+      "value": 25.43,
+      "state": "Middle Atlantic"
+    },
+    "MD": {
+      "period": "2026-06",
+      "value": 21.84,
+      "state": "Maryland"
+    },
+    "ME": {
+      "period": "2026-06",
+      "value": 29.59,
+      "state": "Maine"
+    },
+    "MI": {
+      "period": "2026-06",
+      "value": 22.99,
+      "state": "Michigan"
+    },
+    "MN": {
+      "period": "2026-06",
+      "value": 17.52,
+      "state": "Minnesota"
+    },
+    "MO": {
+      "period": "2026-06",
+      "value": 16.22,
+      "state": "Missouri"
+    },
+    "MS": {
+      "period": "2026-06",
+      "value": 14.88,
+      "state": "Mississippi"
+    },
+    "MT": {
+      "period": "2026-06",
+      "value": 15.14,
+      "state": "Montana"
+    },
+    "MTN": {
+      "period": "2026-06",
+      "value": 14.95,
+      "state": "Mountain"
+    },
+    "NC": {
+      "period": "2026-06",
+      "value": 14.74,
+      "state": "North Carolina"
+    },
+    "ND": {
+      "period": "2026-06",
+      "value": 14.12,
+      "state": "North Dakota"
+    },
+    "NE": {
+      "period": "2026-06",
+      "value": 13.25,
+      "state": "Nebraska"
+    },
+    "NEW": {
+      "period": "2026-06",
+      "value": 27.6,
+      "state": "New England"
+    },
+    "NH": {
+      "period": "2026-06",
+      "value": 27.01,
+      "state": "New Hampshire"
+    },
+    "NJ": {
+      "period": "2026-06",
+      "value": 24.95,
+      "state": "New Jersey"
+    },
+    "NM": {
+      "period": "2026-06",
+      "value": 15.06,
+      "state": "New Mexico"
+    },
+    "NV": {
+      "period": "2026-06",
+      "value": 13.11,
+      "state": "Nevada"
+    },
+    "NY": {
+      "period": "2026-06",
+      "value": 29.49,
+      "state": "New York"
+    },
+    "OH": {
+      "period": "2026-06",
+      "value": 19.19,
+      "state": "Ohio"
+    },
+    "OK": {
+      "period": "2026-06",
+      "value": 14.33,
+      "state": "Oklahoma"
+    },
+    "OR": {
+      "period": "2026-06",
+      "value": 16.32,
+      "state": "Oregon"
+    },
+    "PA": {
+      "period": "2026-06",
+      "value": 21.73,
+      "state": "Pennsylvania"
+    },
+    "PACC": {
+      "period": "2026-06",
+      "value": 27.64,
+      "state": "Pacific Contiguous"
+    },
+    "PACN": {
+      "period": "2026-06",
+      "value": 43.14,
+      "state": "Pacific Noncontiguous"
+    },
+    "RI": {
+      "period": "2026-06",
+      "value": 29.23,
+      "state": "Rhode Island"
+    },
+    "SAT": {
+      "period": "2026-06",
+      "value": 16.04,
+      "state": "South Atlantic"
+    },
+    "SC": {
+      "period": "2026-06",
+      "value": 15.55,
+      "state": "South Carolina"
+    },
+    "SD": {
+      "period": "2026-06",
+      "value": 15.36,
+      "state": "South Dakota"
+    },
+    "TN": {
+      "period": "2026-06",
+      "value": 14.07,
+      "state": "Tennessee"
+    },
+    "TX": {
+      "period": "2026-06",
+      "value": 15.94,
+      "state": "Texas"
+    },
+    "US": {
+      "period": "2026-06",
+      "value": 18.34,
+      "state": "U.S. Total"
+    },
+    "UT": {
+      "period": "2026-06",
+      "value": 13.37,
+      "state": "Utah"
+    },
+    "VA": {
+      "period": "2026-06",
+      "value": 17.22,
+      "state": "Virginia"
+    },
+    "VT": {
+      "period": "2026-06",
+      "value": 24.44,
+      "state": "Vermont"
+    },
+    "WA": {
+      "period": "2026-06",
+      "value": 14.91,
+      "state": "Washington"
+    },
+    "WI": {
+      "period": "2026-06",
+      "value": 19.56,
+      "state": "Wisconsin"
+    },
+    "WNC": {
+      "period": "2026-06",
+      "value": 15.97,
+      "state": "West North Central"
+    },
+    "WSC": {
+      "period": "2026-06",
+      "value": 15.35,
+      "state": "West South Central"
+    },
+    "WV": {
+      "period": "2026-06",
+      "value": 15.45,
+      "state": "West Virginia"
+    },
+    "WY": {
+      "period": "2026-06",
+      "value": 15.24,
+      "state": "Wyoming"
+    }
+  },
+  "min": 13.11,
+  "max": 52.72
+}

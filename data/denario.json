@@ -1,0 +1,146 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 12 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 27,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 50,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 634,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "All support acts on Ed Sheeran's US tour quit after Macklemore dropped",
+      "summary": "The star said he was not responsible for Macklemore being dropped from the line-up after he made pro-Palestinian statements on stage.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c3vgyn49y4l7o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1789522160000
+    },
+    {
+      "title": "Denmark says Russian warship fired flares at military helicopter",
+      "summary": "The Danish prime minister has accused Russia of \"reckless\" behaviour, while the Kremlin is yet to comment.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cwn8mjl31p5yo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1789472400000
+    },
+    {
+      "title": "What weapon could the US have put into space?",
+      "summary": "The announcement by the US points to a developing field of modern warfare in the Earth's orbit.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cmy4zqgk97wlo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1789482194000
+    },
+    {
+      "title": "Patriot Day 2026, the 25th Anniversary of the September 11 Terrorist Attacks",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/15/2026-18959/patriot-day-2026-the-25th-anniversary-of-the-september-11-terrorist-attacks",
+      "category": "gov",
+      "publishedAt": 1789430400000
+    },
+    {
+      "title": "Federal Employees Health Benefits Program: Optimizing FEHB Plan Offerings",
+      "summary": "This request for information (RFI) seeks public input on how to optimize health benefits plan options offered in the Federal Employees Health Benefits (FEHB) Program, which includes the Postal Service Health Benefits (PSHB) Program, to give enrollees high value choices at competitive costs while ensuring the appropriate number and distribution of options are available to enrollees. Currently, health benefits plans in the FEHB Program are limited to offering three options or two options and a ...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/15/2026-18944/federal-employees-health-benefits-program-optimizing-fehb-plan-offerings",
+      "category": "gov",
+      "publishedAt": 1789430400000
+    },
+    {
+      "title": "Promoting Employee Accountability",
+      "summary": "OPM is reopening the public comment period for additional comments on OPM data and a new report published by a nongovernmental organization. OPM is releasing current data that is relevant to the proposed rule published on July 2, 2026, entitled \"Promoting Employee Accountability.\" OPM is also interested in receiving public comment on a report published by We the Doers published on August 27, 2026. Accordingly, OPM is reopening the rulemaking for public comment specifically with respect to the...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/15/2026-18943/promoting-employee-accountability",
+      "category": "gov",
+      "publishedAt": 1789430400000
+    },
+    {
+      "title": "Cyclone Norbert",
+      "summary": "Severe Storms • Magnitude 30 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24184",
+      "category": "disaster",
+      "publishedAt": 1789473600000
+    },
+    {
+      "title": "Iceberg A84",
+      "summary": "Sea and Lake Ice • Magnitude 72 NM^2",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_12618",
+      "category": "disaster",
+      "publishedAt": 1788998400000
+    },
+    {
+      "title": "Wildfire MEERS, Comanche, Oklahoma",
+      "summary": "1 Miles NE from State Highway 115 and Post Oak Rd, OK",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24189",
+      "category": "disaster",
+      "publishedAt": 1788886620000
+    },
+    {
+      "title": "ZGCM-1: A Fully Open and Extremely Efficient Foundation Model for Math and Agentic Search",
+      "summary": "arXiv:2609.13356v1 Announce Type: new Abstract: In this work, we present ZGCM-1, a fully open 7B dense foundation model trained from scratch with extreme data, system, and algorithmic efficiency. ZGCM-1 is founded on a core premise: compact models cannot passively memorize the open web, but can overcome parametric capacity limits by coupling deliberate internal thinking with active external tool use. To support this paradigm across a 256K context, we develop an end-to-end, high-efficiency ope...",
+      "source": "arXiv RSS (cs.AI)",
+      "url": "https://arxiv.org/abs/2609.13356",
+      "category": "research",
+      "publishedAt": 1789444800000
+    },
+    {
+      "title": "Converge Then Diversify: Decoupling Convergence and Diversity in Multi-Objective Bayesian Optimisation",
+      "summary": "arXiv:2609.13396v1 Announce Type: new Abstract: Multi-objective Bayesian optimisation (MOBO) is a sample-efficient approach for optimising expensive black-box functions with multiple objectives. In MOBO, the goal is to adequately approximate the Pareto front; that is, to obtain a high-quality solution set with 1) good convergence (closeness to the Pareto front) and 2) good diversity (spread across the Pareto front). Existing MOBO methods typically aim to accomplish these two tasks simultaneou...",
+      "source": "arXiv RSS (cs.AI)",
+      "url": "https://arxiv.org/abs/2609.13396",
+      "category": "research",
+      "publishedAt": 1789444800000
+    },
+    {
+      "title": "Generalized Agent Iteration: One Formal Framework for Iterative Policy Improvement and Recursive Self-Improvement",
+      "summary": "arXiv:2609.13406v1 Announce Type: new Abstract: When we speak of recursive self-improvement (RSI), are we speaking of a phenomenon, a mechanism, or a prospect? Towards autonomous and evolving intelligence, RSI is being claimed at many scales, while no single framework that formally describes these emerging instances exists. Its counterpart in the classical realm, iterative policy improvement, is characterized by generalized policy iteration (GPI), a framework of broad applicability with well-...",
+      "source": "arXiv RSS (cs.AI)",
+      "url": "https://arxiv.org/abs/2609.13406",
+      "category": "research",
+      "publishedAt": 1789444800000
+    }
+  ],
+  "generatedAt": "2026-09-16T02:18:07.125Z"
+}
