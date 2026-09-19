@@ -406,6 +406,52 @@ function selectList(data) {
                                             : [];
 }
 
+function normalizeCisaKevSignals(data, feed) {
+  if (!Array.isArray(data?.vulnerabilities)) return [];
+  const text = (value) => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  // Keep the complete catalog until query filtering and output limits, as for NWS.
+  return data.vulnerabilities.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+    const cveID = text(entry.cveID).toUpperCase();
+    if (!/^CVE-\d{4}-\d{4,}$/.test(cveID)) return [];
+    const vulnerabilityName = text(entry.vulnerabilityName);
+    const vendorProject = text(entry.vendorProject);
+    const product = text(entry.product);
+    const shortDescription = text(entry.shortDescription);
+    if (!vulnerabilityName || !shortDescription) return [];
+    const dateAdded = text(entry.dateAdded);
+    const timestamp = /^\d{4}-\d{2}-\d{2}$/.test(dateAdded)
+      ? Date.parse(`${dateAdded}T00:00:00Z`)
+      : NaN;
+    const publishedAt = Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === dateAdded
+      ? timestamp
+      : null;
+    const affectedProduct = [vendorProject, product].filter(Boolean).join(' ');
+    return [{
+      title: `${cveID} - ${vulnerabilityName}`,
+      url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+      docId: cveID,
+      // A shared evidence URL must not collapse distinct CVEs during smart search.
+      observationKey: JSON.stringify(['cisa-kev', cveID]),
+      summary: normalizeSummary([affectedProduct, shortDescription].filter(Boolean).join(' - ')),
+      publishedAt,
+      source: feed.name,
+      category: feed.category,
+      cveID,
+      vendorProject,
+      product,
+      vulnerabilityName,
+      shortDescription,
+      dateAdded: dateAdded || null,
+      requiredAction: text(entry.requiredAction),
+      dueDate: text(entry.dueDate) || null,
+      knownRansomwareCampaignUse: text(entry.knownRansomwareCampaignUse) || null,
+      notes: text(entry.notes),
+      cwes: Array.isArray(entry.cwes) ? entry.cwes.map(text).filter(Boolean) : []
+    }];
+  });
+}
+
 function normalizeNwsSignals(data, feed) {
   // Keep the complete fetched alert set until query filtering and output limits.
   return data.features.filter((feature) => feature?.properties).map((feature) => {
@@ -457,6 +503,7 @@ function normalizeNwsSignals(data, feed) {
 }
 
 export function parseGenericJsonFeed(data, feed) {
+  if (feed?.id === 'cisa-kev') return normalizeCisaKevSignals(data, feed);
   if (feed?.id === 'nws-alerts' && Array.isArray(data?.features)) {
     return normalizeNwsSignals(data, feed);
   }
