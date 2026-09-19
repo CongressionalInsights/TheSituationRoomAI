@@ -1,0 +1,122 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 9 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 29,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 50,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 0,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "Nato welcomes Greenland deal as Trump says it will give US 'permanent security control'",
+      "summary": "Denmark and the US have reached an agreement after months of threats from Donald Trump to annex the territory.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c63d7lexyym1o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1789817815000
+    },
+    {
+      "title": "Trump says he is banning CNN and Politico from White House",
+      "summary": "The US president has had a tense and fiery relationship with the US media throughout his political career.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c6e30580jqjpo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1789796196000
+    },
+    {
+      "title": "Google's Gemini AI hacked three companies in security test",
+      "summary": "The AI model accessed the internet and guessed credentials to three websites, a Google official told the BBC.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c607l0k72rlvo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1789825172000
+    },
+    {
+      "title": "Presidential Determination on Major Drug Transit or Major Illicit Drug Producing Countries for Fiscal Year 2027",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/18/2026-19251/presidential-determination-on-major-drug-transit-or-major-illicit-drug-producing-countries-for",
+      "category": "gov",
+      "publishedAt": 1789689600000
+    },
+    {
+      "title": "Employment in the Excepted Service",
+      "summary": "The Office of Personnel Management (OPM) proposes to amend its regulations governing the excepted service, Pathways Programs, and administrative law judge (ALJ) appointments. The proposed rule would conform OPM regulations to current excepted-service schedules, including Schedules E, Policy/Career, and G; modernize part 302 procedures while preserving veterans' preference, compensable-injury restoration rights, and other priority placement rights; authorize and clarify Pathways conversions to...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/18/2026-19222/employment-in-the-excepted-service",
+      "category": "gov",
+      "publishedAt": 1789689600000
+    },
+    {
+      "title": "International Traffic in Arms Regulations: Modification of U.S. Munitions List Category XX(a)",
+      "summary": "The Department of State (the Department) amends the International Traffic in Arms Regulations (ITAR) to remove from the U.S. Munitions List (USML) certain uncrewed underwater vehicles (UUVs) and make conforming changes to related controls. The Department also requests comments to assist in further refining ITAR controls on UUVs and to identify possible enhancements to the license exemption for certain UUV-related activities.",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/18/2026-19211/international-traffic-in-arms-regulations-modification-of-us-munitions-list-category-xxa",
+      "category": "gov",
+      "publishedAt": 1789689600000
+    },
+    {
+      "title": "Iceberg A83",
+      "summary": "Sea and Lake Ice • Magnitude 84 NM^2",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_6523",
+      "category": "disaster",
+      "publishedAt": 1789689600000
+    },
+    {
+      "title": "Iceberg B22F",
+      "summary": "Sea and Lake Ice • Magnitude 98 NM^2",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_10212",
+      "category": "disaster",
+      "publishedAt": 1789689600000
+    },
+    {
+      "title": "Wildfire Breezy, Starr, Texas",
+      "summary": "7 Miles NE from Rio Grande City, TX",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24483",
+      "category": "disaster",
+      "publishedAt": 1789589820000
+    }
+  ],
+  "generatedAt": "2026-09-19T18:13:54.736Z"
+}
