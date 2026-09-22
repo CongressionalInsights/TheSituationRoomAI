@@ -416,7 +416,7 @@ function isMatchingMcpResponse(parsed, requestId) {
     && (hasResult || hasError);
 }
 
-export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000) {
+export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000, options = {}) {
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
@@ -444,7 +444,8 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000) 
       let parsed = null;
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
       if (contentType.includes('text/event-stream')) {
-        const maxEventBufferChars = name === 'raw.fetch' && args?.sourceId === 'swpc-json'
+        const maxEventBufferChars = (name === 'raw.fetch' && args?.sourceId === 'swpc-json')
+          || (name === 'signals.list' && args?.sourceId === 'cisa-kev' && options.allowCompleteEvent === true)
           ? MAX_MCP_RESPONSE_BYTES
           : MAX_MCP_EVENT_BUFFER_CHARS;
         parsed = await readMatchingMcpEvent(response, payload.id, maxEventBufferChars);

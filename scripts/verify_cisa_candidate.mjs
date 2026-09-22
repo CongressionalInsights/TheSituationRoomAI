@@ -72,7 +72,8 @@ export async function verifyCisaCandidate(endpoint, { callTool = callMcpTool } =
   const calls = [];
   const invoke = async (name, args) => {
     calls.push(name);
-    const response = await callTool(endpoint, name, args, 60000);
+    const response = await callTool(endpoint, name, args, 60000,
+      name === 'signals.list' ? { allowCompleteEvent: true } : undefined);
     if (!response?.ok) fail('tool_failure', `${name} failed: ${response?.error || 'unknown error'}`);
     return response.data;
   };

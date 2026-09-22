@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { once } from 'node:events';
 
+import { callMcpTool } from '../../analysis/monitor/lib/client.mjs';
 import { verifyCisaCandidate } from '../verify_cisa_candidate.mjs';
 
 const endpoint = 'https://example.test/mcp';
@@ -45,8 +48,8 @@ function fixture() {
 
 async function run(data) {
   const calls = [];
-  const output = await verifyCisaCandidate(endpoint, { callTool: async (_endpoint, name, args, timeout) => {
-    calls.push({ name, args, timeout });
+  const output = await verifyCisaCandidate(endpoint, { callTool: async (_endpoint, name, args, timeout, options) => {
+    calls.push({ name, args, timeout, options });
     const response = name === 'raw.fetch' ? data.raw : name === 'signals.list' ? data.list
       : name === 'search.smart' ? data.search : data.get;
     return { ok: true, data: response };
@@ -70,6 +73,39 @@ test('complete catalog passes with five CISA-only calls and late-index proof', a
   assert.deepEqual(calls.map(({ name }) => name), ['raw.fetch', 'signals.list', 'search.smart', 'signals.get', 'signals.get']);
   assert.deepEqual(calls[2].args, { sources: ['cisa-kev'], maxSources: 1, query: cve(52), perSourceLimit: 1, totalLimit: 1 });
   assert.ok(calls.every(({ timeout }) => timeout === 60000));
+  assert.deepEqual(calls.map(({ options }) => options), [undefined, { allowCompleteEvent: true }, undefined, undefined, undefined]);
+});
+
+test('only opted-in CISA list reads a complete SSE event above the default limit', async (t) => {
+  const server = createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    const { id: requestId } = JSON.parse(body);
+    const event = { jsonrpc: '2.0', id: requestId, result: {
+      structuredContent: { sourceId: 'cisa-kev', padding: 'x'.repeat(
+        request.url === '/oversize' ? 16 * 1024 * 1024 : 2 * 1024 * 1024) }
+    } };
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end(`data: ${JSON.stringify(event)}\n\n`);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const localEndpoint = `http://127.0.0.1:${server.address().port}/mcp`;
+
+  const ordinary = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'cisa-kev' }, 10000);
+  assert.equal(ordinary.error, 'response_too_large');
+  const unrelated = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'other' }, 10000,
+    { allowCompleteEvent: true });
+  assert.equal(unrelated.error, 'response_too_large');
+  const approved = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'cisa-kev' }, 10000,
+    { allowCompleteEvent: true });
+  assert.equal(approved.ok, true);
+  assert.equal(approved.data.sourceId, 'cisa-kev');
+  assert.equal(approved.data.padding.length, 2 * 1024 * 1024);
+  const oversized = await callMcpTool(`http://127.0.0.1:${server.address().port}/oversize`,
+    'signals.list', { sourceId: 'cisa-kev' }, 10000, { allowCompleteEvent: true });
+  assert.equal(oversized.error, 'response_too_large');
 });
 
 test('empty and malformed catalogs fail closed', async () => {
