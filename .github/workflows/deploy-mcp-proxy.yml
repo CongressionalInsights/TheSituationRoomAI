@@ -184,8 +184,14 @@ jobs:
             --format=json > /tmp/mcp-service-before.json
 
           ROLLBACK_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-before.json)
-          SERVICE_URL=$(jq -er '.status.url' /tmp/mcp-service-before.json)
-          test "$SERVICE_URL" = "https://situation-room-mcp-382918878290.us-central1.run.app"
+          SERVICE_URL="https://situation-room-mcp-382918878290.us-central1.run.app"
+          jq -e --arg expected "$SERVICE_URL" \
+            --arg legacy "https://situation-room-mcp-xtas2c6vka-uc.a.run.app" '
+            (.metadata.annotations["run.googleapis.com/urls"] | fromjson) as $urls
+            | .status.url == $legacy
+              and ($urls | index($expected)) != null
+              and ($urls | index($legacy)) != null
+          ' /tmp/mcp-service-before.json >/dev/null
           printf '%s\n' "$GITHUB_SHA" > "$DIAG_DIR/source-sha.txt"
           sha256sum .github/workflows/deploy-mcp-proxy.yml > "$DIAG_DIR/workflow-sha256.txt"
           gcloud run revisions describe "$ROLLBACK_REVISION" \
