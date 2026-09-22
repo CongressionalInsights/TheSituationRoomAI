@@ -3,6 +3,15 @@ name: Deploy MCP Proxy (GCP)
 on:
   workflow_dispatch:
     inputs:
+      expected_sha:
+        description: Exact reviewed main commit to deploy
+        required: true
+        type: string
+      cisa_only:
+        description: Restrict candidate and canonical verification to CISA KEV
+        required: true
+        default: false
+        type: boolean
       sync_secret_versions:
         description: Sync configured GitHub secrets into Secret Manager before deploying
         required: false
@@ -10,14 +19,8 @@ on:
         type: boolean
   push:
     branches: [main]
-    paths:
-      - gcp/mcp-proxy/**
-      - .github/workflows/deploy-mcp-proxy.yml
   pull_request:
     branches: [main]
-    paths:
-      - gcp/mcp-proxy/**
-      - .github/workflows/deploy-mcp-proxy.yml
 
 permissions:
   contents: read
@@ -30,6 +33,20 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+      - name: Bind manual release to reviewed main commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+          ACTUAL_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_REF" = refs/heads/main
+          test "$EXPECTED_SHA" = "$ACTUAL_SHA"
+          test "$(git rev-parse HEAD)" = "$ACTUAL_SHA"
+          if [ "${{ inputs.cisa_only }}" = true ]; then
+            test "${{ inputs.sync_secret_versions }}" = false
+          fi
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
       - name: Verify MCP deploy source files
@@ -61,9 +78,13 @@ jobs:
           node --check gcp/mcp-proxy/public-payload-safety.js
       - name: Verify MCP response contracts
         run: node --test scripts/test/mcp-proxy.spec.mjs
+      - name: Verify CISA release fixtures
+        run: node --test scripts/test/verify_cisa_candidate.spec.mjs
+      - name: Verify unchanged monitor PID reuse test on Linux
+        run: node --test --test-name-pattern="^fresh same-host PID reuse evidence reclaims the prior owner immediately$" scripts/test/monitor.spec.mjs
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: preflight
     runs-on: ubuntu-latest
     concurrency:
@@ -163,6 +184,10 @@ jobs:
             --format=json > /tmp/mcp-service-before.json
 
           ROLLBACK_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-before.json)
+          SERVICE_URL=$(jq -er '.status.url' /tmp/mcp-service-before.json)
+          test "$SERVICE_URL" = "https://situation-room-mcp-382918878290.us-central1.run.app"
+          printf '%s\n' "$GITHUB_SHA" > "$DIAG_DIR/source-sha.txt"
+          sha256sum .github/workflows/deploy-mcp-proxy.yml > "$DIAG_DIR/workflow-sha256.txt"
           gcloud run revisions describe "$ROLLBACK_REVISION" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
@@ -183,6 +208,7 @@ jobs:
           done
 
           printf '%s\n' "$ROLLBACK_REVISION" | tee "$DIAG_DIR/rollback-revision.txt"
+          echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
           echo "rollback_revision=${ROLLBACK_REVISION}" >> "$GITHUB_OUTPUT"
       - name: Deploy MCP proxy service
         id: deploy
@@ -208,6 +234,10 @@ jobs:
             fi
           done
           ENV_UPDATES="^|^ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|ACLED_PROXY=${ACLED_PROXY}|STATE_CONNECTOR_BASE_URL=${STATE_CONNECTOR_BASE_URL}|STATE_CONNECTOR_KEY_HEADER=${STATE_CONNECTOR_KEY_HEADER}"
+          CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" --project "$PROJECT_ID" --format=json \
+            | jq -er -f scripts/cloud-run-serving-revision.jq)
+          test "$CURRENT_REVISION" = "${{ steps.current.outputs.rollback_revision }}"
           SECRET_ARGS=()
           if [ "$SYNC_SECRET_VERSIONS" = "true" ]; then
             SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,OPENSKY_CLIENTID=opensky-clientid:latest,OPENSKY_CLIENTSECRET=opensky-clientsecret:latest,SAMGOV_API_KEY=samgov-key:latest"
@@ -265,6 +295,8 @@ jobs:
 
           jq -S -c -f scripts/cloud-run-secret-schema.jq \
             /tmp/mcp-revision-after.json > "$DIAG_DIR/secret-bindings-after.json"
+          jq -er '(.status.imageDigest // .spec.containers[0].image) | select(test("sha256:"))' \
+            /tmp/mcp-revision-after.json > "$DIAG_DIR/candidate-image-digest.txt"
 
           if [ "$SYNC_SECRET_VERSIONS" != "true" ] \
             && ! cmp -s "$DIAG_DIR/secret-bindings-before.json" "$DIAG_DIR/secret-bindings-after.json"; then
@@ -304,17 +336,28 @@ jobs:
           echo "Testing isolated MCP candidate ${CANDIDATE_REVISION}."
           curl -fsS "${CANDIDATE_URL}/health" >/dev/null
           curl -fsS "${CANDIDATE_URL}/.well-known/mcp.json" >/dev/null
-          node scripts/verify_mcp_candidate.mjs "${CANDIDATE_URL}/mcp"
-          node analysis/monitor/run_core_sentinel.mjs \
-            --base https://situation-room-feed-382918878290.us-central1.run.app \
-            --mcp "${CANDIDATE_URL}/mcp" \
-            --static https://congressionalinsights.github.io/TheSituationRoomAI \
-            --allow-alerts
+          if [ "${{ inputs.cisa_only }}" = true ]; then
+            node scripts/verify_cisa_candidate.mjs "${CANDIDATE_URL}/mcp" \
+              | tee /tmp/mcp-diagnostics/cisa-candidate.json
+          else
+            node scripts/verify_mcp_candidate.mjs "${CANDIDATE_URL}/mcp"
+            node analysis/monitor/run_core_sentinel.mjs \
+              --base https://situation-room-feed-382918878290.us-central1.run.app \
+              --mcp "${CANDIDATE_URL}/mcp" \
+              --static https://congressionalinsights.github.io/TheSituationRoomAI \
+              --allow-alerts
+          fi
       - name: Promote verified MCP revision
+        id: promote
         if: steps.deploy.outputs.deploy_succeeded == 'true'
+        continue-on-error: true
         run: |
           set -euo pipefail
           CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
+          CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" --project "$PROJECT_ID" --format=json \
+            | jq -er -f scripts/cloud-run-serving-revision.jq)
+          test "$CURRENT_REVISION" = "${{ steps.current.outputs.rollback_revision }}"
           gcloud run services update-traffic "$SERVICE_NAME" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
@@ -329,8 +372,60 @@ jobs:
             echo "Verified candidate is not serving 100 percent of MCP traffic."
             exit 1
           fi
+      - name: Verify canonical CISA parity
+        id: canonical
+        if: inputs.cisa_only && steps.promote.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          SERVICE_URL=${{ steps.current.outputs.service_url }}
+          CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
+          CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" --project "$PROJECT_ID" --format=json \
+            | jq -er -f scripts/cloud-run-serving-revision.jq)
+          test "$CURRENT_REVISION" = "$CANDIDATE_REVISION"
+          curl -fsS "${SERVICE_URL}/health" >/dev/null
+          curl -fsS "${SERVICE_URL}/.well-known/mcp.json" >/dev/null
+          node scripts/verify_cisa_candidate.mjs "${SERVICE_URL}/mcp" \
+            | tee /tmp/mcp-diagnostics/cisa-canonical.json
+          jq -e --slurpfile candidate /tmp/mcp-diagnostics/cisa-candidate.json \
+            '.rawDigest == $candidate[0].rawDigest
+              and .catalogVersion == $candidate[0].catalogVersion
+              and .dateReleased == $candidate[0].dateReleased
+              and .eligibleCveDigest == $candidate[0].eligibleCveDigest
+              and .selectedId == $candidate[0].selectedId' \
+            /tmp/mcp-diagnostics/cisa-canonical.json
+      - name: Restore captured traffic after failed promotion or parity
+        if: always() && steps.deploy.outputs.deploy_succeeded == 'true' && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
+        run: |
+          set -euo pipefail
+          CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
+          ROLLBACK_REVISION=${{ steps.current.outputs.rollback_revision }}
+          CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" --project "$PROJECT_ID" --format=json \
+            | jq -er -f scripts/cloud-run-serving-revision.jq)
+          if [ "$CURRENT_REVISION" = "$CANDIDATE_REVISION" ]; then
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --region "$REGION" --project "$PROJECT_ID" \
+              --to-revisions "${ROLLBACK_REVISION}=100"
+            RESTORED_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+              --region "$REGION" --project "$PROJECT_ID" --format=json \
+              | jq -er -f scripts/cloud-run-serving-revision.jq)
+            test "$RESTORED_REVISION" = "$ROLLBACK_REVISION"
+            curl -fsS "${{ steps.current.outputs.service_url }}/health" >/dev/null
+            curl -fsS "${{ steps.current.outputs.service_url }}/.well-known/mcp.json" >/dev/null
+            printf '%s\n' "$RESTORED_REVISION" > /tmp/mcp-diagnostics/restored-revision.txt
+          elif [ "$CURRENT_REVISION" = "$ROLLBACK_REVISION" ]; then
+            echo "Previous revision still serves 100 percent; no rollback mutation."
+          else
+            echo "Traffic changed to an unknown revision; refusing rollback."
+            exit 1
+          fi
+      - name: Fail CISA release when promotion or parity failed
+        if: always() && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
+        run: exit 1
       - name: Collect Cloud Build diagnostics
-        if: always()
+        if: always() && !inputs.cisa_only
         run: |
           set +e
           DIAG_DIR=/tmp/mcp-diagnostics
@@ -384,7 +479,7 @@ jobs:
           echo "Deploy failed. Review the mcp-deploy-diagnostics artifact for Cloud Build IDs and logs."
           exit 1
       - name: Health check MCP proxy
-        if: steps.deploy.outputs.deploy_succeeded == 'true'
+        if: ${{ !inputs.cisa_only && steps.deploy.outputs.deploy_succeeded == 'true' }}
         run: |
           set -euo pipefail
           SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')

@@ -992,6 +992,166 @@ test('normalizeJsonSignals maps GeoJSON feature properties into signal fields', 
   assert.deepEqual(item.geo, { lat: 38.8283348083496, lon: -122.803833007812 });
 });
 
+const cisaFeed = {
+  id: 'cisa-kev', name: 'CISA Known Exploited Vulnerabilities', category: 'cyber', format: 'json',
+  url: 'https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json'
+};
+function cisaFixture(overrides = {}) {
+  return {
+    cveID: 'CVE-2026-12345', vendorProject: 'Fixture Vendor', product: 'Fixture Gateway',
+    vulnerabilityName: 'Fixture authentication bypass', dateAdded: '2026-09-01',
+    shortDescription: 'An authentication bypass in the fixture gateway.',
+    requiredAction: 'Apply the fixture update.', dueDate: '2026-09-22',
+    knownRansomwareCampaignUse: 'Unknown', notes: 'https://untrusted.example/notes', cwes: ['CWE-287'],
+    ...overrides
+  };
+}
+function cisaCatalog(vulnerabilities = []) {
+  return { catalogVersion: '2026.09.02', dateReleased: '2026-09-02T12:00:00Z', count: vulnerabilities.length, vulnerabilities };
+}
+
+test('CISA normalization maps CVE fields to source-dated signals with fixed official evidence', () => {
+  const record = cisaFixture({ url: 'https://untrusted.example/evidence', source: 'Untrusted source' });
+  const [item] = normalizeJsonSignals(JSON.stringify(cisaCatalog([record])), cisaFeed);
+  assert.equal(item.docId, record.cveID);
+  assert.equal(item.title, 'CVE-2026-12345 - Fixture authentication bypass');
+  assert.equal(item.summary, 'Fixture Vendor Fixture Gateway - An authentication bypass in the fixture gateway.');
+  assert.equal(item.url, 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog');
+  assert.equal(item.publishedAt, Date.parse('2026-09-01T00:00:00Z'));
+  assert.equal(item.source, cisaFeed.name);
+  assert.equal(item.category, 'cyber');
+  for (const field of ['cveID', 'vendorProject', 'product', 'vulnerabilityName', 'shortDescription', 'dateAdded', 'requiredAction', 'dueDate', 'knownRansomwareCampaignUse', 'notes', 'cwes']) {
+    assert.deepEqual(item[field], record[field], field);
+  }
+  for (const query of ['cve-2026-12345', 'fixture vendor', 'fixture gateway', 'authentication bypass']) {
+    assert.equal(matchesSignalQuery(item, query, cisaFeed), true, query);
+  }
+  assert.equal(matchesSignalQuery(item, 'unrelated vulnerability', cisaFeed), false);
+});
+
+test('CISA valid empty catalogs and malformed records do not fabricate signals', () => {
+  for (const payload of [cisaCatalog(), {}, null, [], { vulnerabilities: {} }, { items: [cisaFixture()] }]) {
+    assert.deepEqual(normalizeJsonSignals(JSON.stringify(payload), cisaFeed), []);
+  }
+  assert.deepEqual(normalizeJsonSignals('{"vulnerabilities":', cisaFeed), []);
+  const malformed = [null, false, 42, 'CVE-2026-12345', [], {}, { cveID: {} }, { cveID: 'CVE-2026-123' }, { cveID: 'CVE-2026-12345 extra' }];
+  const items = normalizeJsonSignals(JSON.stringify(cisaCatalog([...malformed, cisaFixture()])), cisaFeed);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].cveID, 'CVE-2026-12345');
+});
+
+test('CISA missing or invalid dates stay unknown without consulting the current clock', (t) => {
+  t.mock.method(Date, 'now', () => { throw new Error('CISA normalization must not consult the clock'); });
+  for (const dateAdded of [undefined, null, '', 'not-a-date', '2026-02-29', '2026-04-31', '2026-13-01', '2026-9-01', '2026-09-01T12:00:00Z', 1788220800000, {}]) {
+    const [item] = normalizeJsonSignals(JSON.stringify(cisaCatalog([cisaFixture({ dateAdded, publishedAt: '2026-09-10', updated: '2026-09-11' })])), cisaFeed);
+    assert.ok(item);
+    assert.equal(item.publishedAt, null, JSON.stringify(dateAdded));
+  }
+  const [leapDay] = normalizeJsonSignals(JSON.stringify(cisaCatalog([cisaFixture({ dateAdded: '2024-02-29' })])), cisaFeed);
+  assert.equal(leapDay.publishedAt, Date.parse('2024-02-29T00:00:00Z'));
+});
+
+test('CISA skips incomplete content but retains records with sparse optional fields', () => {
+  const incomplete = [
+    { cveID: ' cve-2026-12345 ', vulnerabilityName: {}, shortDescription: [], vendorProject: false, cwes: [null, {}, ' CWE-287 ', ''] },
+    { cveID: 'CVE-2026-12346', vendorProject: 'Fixture Vendor', product: 'Fixture Gateway' },
+    ...['vulnerabilityName', 'shortDescription'].flatMap((field) =>
+      [undefined, null, '', ' \t\n ', {}, [], false, 42].map((value) => cisaFixture({ [field]: value })))
+  ];
+  assert.deepEqual(normalizeJsonSignals(JSON.stringify(cisaCatalog(incomplete)), cisaFeed), []);
+  const items = normalizeJsonSignals(JSON.stringify(cisaCatalog([...incomplete, {
+    cveID: ' cve-2026-12347 ', vulnerabilityName: ' Fixture vulnerability ',
+    shortDescription: ' Fixture description. ', cwes: [null, {}, ' CWE-287 ', '']
+  }])), cisaFeed);
+  assert.equal(items.length, 1);
+  const [sparse] = items;
+  assert.equal(sparse.docId, 'CVE-2026-12347');
+  assert.equal(sparse.title, 'CVE-2026-12347 - Fixture vulnerability');
+  assert.equal(sparse.summary, 'Fixture description.');
+  assert.equal(sparse.publishedAt, null);
+  assert.equal(sparse.knownRansomwareCampaignUse, null);
+  assert.deepEqual(sparse.cwes, ['CWE-287']);
+});
+
+test('CISA keeps the full catalog and stable distinct CVE identities across reordering and metadata changes', () => {
+  const records = Array.from({ length: 55 }, (_, index) => cisaFixture({ cveID: `CVE-2026-${10000 + index}` }));
+  records.push(cisaFixture({ cveID: 'CVE-2026-99999', vulnerabilityName: 'Late catalog match' }));
+  const items = normalizeJsonSignals(JSON.stringify(cisaCatalog(records)), cisaFeed);
+  assert.equal(items.length, 56);
+  assert.equal(items.filter((item) => matchesSignalQuery(item, 'late catalog match', cisaFeed)).length, 1);
+  assert.equal(new Set(items.map(createItemId)).size, 56);
+  assert.equal(dedupeSignals([...items, items[0]]).length, 56);
+  const revised = normalizeJsonSignals(JSON.stringify(cisaCatalog([...records].reverse().map((record) => ({ ...record, vulnerabilityName: 'Revised title', dateAdded: null })))), cisaFeed);
+  assert.deepEqual(revised.map(createItemId).reverse(), items.map(createItemId));
+});
+
+test('CISA specialization leaves non-CISA JSON selection and mapping unchanged', () => {
+  const otherFeed = { id: 'other-json', name: 'Other JSON', category: 'other' };
+  assert.deepEqual(normalizeJsonSignals(JSON.stringify(cisaCatalog([cisaFixture()])), otherFeed), []);
+  const [item] = normalizeJsonSignals(JSON.stringify({ items: [{
+    title: 'Existing title', summary: 'Existing summary', url: 'https://example.test/item', publishedAt: '2026-08-01T10:00:00Z',
+    ...cisaFixture()
+  }] }), otherFeed);
+  assert.deepEqual(item, {
+    title: 'Existing title', summary: 'Existing summary', url: 'https://example.test/item', publishedAt: Date.parse('2026-08-01T10:00:00Z'),
+    source: otherFeed.name, category: otherFeed.category, geo: null
+  });
+});
+
+test('CISA MCP raw, list, search, and get preserve identities, query limits, and provenance', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  const records = Array.from({ length: 55 }, (_, index) => cisaFixture({ cveID: `CVE-2026-${10000 + index}` }));
+  records.push(cisaFixture({ cveID: 'CVE-2026-99999', vulnerabilityName: 'Late catalog match' }));
+  let payload = cisaCatalog(records);
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(String(url), cisaFeed.url, 'all acquisition remains mocked at the fixed source');
+    return new Response(JSON.stringify(payload), { headers: { 'content-type': 'application/json', etag: '"cisa-fixture"' } });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'cisa-contract-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const raw = await call('raw.fetch', { sourceId: 'cisa-kev', format: 'json' });
+  assert.deepEqual(raw.data, payload);
+  assert.equal(raw.fetchedUrl, cisaFeed.url);
+  assert.equal(raw.fallbackUsed, false);
+  assert.equal(raw.proxyUsed, null);
+  assert.equal(raw.warning, null);
+  const listed = await call('signals.list', { sourceId: 'cisa-kev' });
+  assert.equal(listed.items.length, 56);
+  assert.equal(listed.fetchedUrl, raw.fetchedUrl);
+  assert.equal(listed.fallbackUsed, false);
+  assert.equal(listed.warning, null);
+  // Existing non-state list queries are unfiltered; local query filtering belongs to smart search.
+  const limited = await call('signals.list', { sourceId: 'cisa-kev', query: 'Late catalog match', limit: 2 });
+  assert.deepEqual(limited.items, listed.items.slice(0, 2));
+  const all = await call('search.smart', { sources: ['cisa-kev'], perSourceLimit: 100, totalLimit: 100 });
+  assert.deepEqual(all.signals.map((item) => item.id), listed.items.map((item) => item.id));
+  const searched = await call('search.smart', { sources: ['cisa-kev'], query: 'CVE-2026-99999', perSourceLimit: 1, totalLimit: 1 });
+  assert.equal(searched.signals.length, 1);
+  assert.equal(searched.signals[0].id, listed.items[55].id);
+  assert.equal(searched.sourcesChecked[0].count, 1);
+  payload = cisaCatalog([...records].reverse());
+  const found = await call('signals.get', { sourceId: 'cisa-kev', id: searched.signals[0].id });
+  assert.deepEqual(found.item, listed.items[55]);
+  assert.equal(found.fallbackUsed, false);
+  const unmatched = await call('search.smart', { sources: ['cisa-kev'], query: 'unrelated vulnerability' });
+  assert.equal(unmatched.signals.length, 0);
+  assert.equal(unmatched.sourcesChecked[0].ok, true);
+  payload = cisaCatalog();
+  assert.deepEqual((await call('raw.fetch', { sourceId: 'cisa-kev', format: 'json' })).data, payload);
+  assert.deepEqual((await call('signals.list', { sourceId: 'cisa-kev' })).items, []);
+  const empty = await call('search.smart', { sources: ['cisa-kev'] });
+  assert.deepEqual(empty.signals, []);
+  assert.equal(empty.sourcesChecked[0].ok, true);
+  assert.equal((await call('signals.get', { sourceId: 'cisa-kev', id: searched.signals[0].id })).item, null);
+});
+
 const nwsFeed = { id: 'nws-alerts', name: 'NWS Alerts (US)', category: 'weather', format: 'json', url: 'https://api.weather.gov/alerts/active' };
 function nwsFixture(overrides = {}) {
   return {
