@@ -446,6 +446,7 @@ function normalizeCisaKevSignals(data, feed) {
       requiredAction: text(entry.requiredAction),
       dueDate: text(entry.dueDate) || null,
       knownRansomwareCampaignUse: text(entry.knownRansomwareCampaignUse) || null,
+      forensicTriage: text(entry.forensicTriage) || null,
       notes: text(entry.notes),
       cwes: Array.isArray(entry.cwes) ? entry.cwes.map(text).filter(Boolean) : []
     }];

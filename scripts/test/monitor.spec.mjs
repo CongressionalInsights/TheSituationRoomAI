@@ -2826,7 +2826,7 @@ test('documentation watch pins stable provider surfaces without accepting unknow
   const reviewed = {
     'docs:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
     'support:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
-    'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': '6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428',
+    'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774',
     'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
     'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
@@ -2837,6 +2837,11 @@ test('documentation watch pins stable provider surfaces without accepting unknow
     assert.deepEqual(surfaces.get(key)?.acceptedHashes, expectedHashes, key);
     assert.equal(surfaces.get(key)?.acceptedHashes.includes('unknown-contract-hash'), false, key);
   }
+
+  const cisaSchema = surfaces.get('docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json');
+  assert.equal(cisaSchema.acceptedHashes.includes('b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774'), true);
+  assert.equal(cisaSchema.acceptedHashes.includes('6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428'), false);
+  assert.equal(cisaSchema.enforceAcceptedHashes, true);
 
   for (const key of Object.keys(reviewed).filter((key) => (
     key.includes('cdc.gov/travel/page/rss')
@@ -2870,9 +2875,9 @@ test('documentation watch pins stable provider surfaces without accepting unknow
       hash: 'unknown-contract-hash',
       normalizedText: 'A required schema field was removed.'
     },
-    surfaceType: 'docs',
+    surfaceType: cisaSchema.surfaceType,
     tier: 'core',
-    acceptedHashRequired: true
+    acceptedHashRequired: cisaSchema.enforceAcceptedHashes
   }), {
     regressionClass: 'docs-contract-change',
     severity: 'critical',

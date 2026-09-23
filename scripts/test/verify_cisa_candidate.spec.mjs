@@ -17,7 +17,8 @@ const evidenceUrl = 'https://www.cisa.gov/known-exploited-vulnerabilities-catalo
 const cve = (n) => `CVE-2026-${String(n).padStart(4, '0')}`;
 const id = (value) => createHash('sha1').update(JSON.stringify(['cisa-kev', value])).digest('hex').slice(0, 12);
 const row = (n, dateAdded = '2026-09-01') => ({
-  cveID: cve(n), vulnerabilityName: `Name ${n}`, shortDescription: `Description ${n}`, dateAdded
+  cveID: cve(n), vulnerabilityName: `Name ${n}`, shortDescription: `Description ${n}`,
+  dateAdded, forensicTriage: 'Yes'
 });
 const signal = (source) => ({
   sourceId: 'cisa-kev', cveID: source.cveID, docId: source.cveID,
@@ -28,12 +29,18 @@ const signal = (source) => ({
     && !Number.isNaN(Date.parse(`${source.dateAdded}T00:00:00Z`))
     && new Date(`${source.dateAdded}T00:00:00Z`).toISOString().slice(0, 10) === source.dateAdded
     ? Date.parse(`${source.dateAdded}T00:00:00Z`) : null,
+  forensicTriage: typeof source.forensicTriage === 'string'
+    ? source.forensicTriage.replace(/\s+/g, ' ').trim() || null : null,
   url: evidenceUrl
 });
 
-function fixture() {
+function fixture(selectedTriage = 'Yes') {
   const vulnerabilities = Array.from({ length: 53 }, (_, n) => row(n + 1));
   vulnerabilities[0].dateAdded = 'invalid';
+  vulnerabilities[1].forensicTriage = 'No';
+  delete vulnerabilities[2].forensicTriage;
+  if (selectedTriage === null) delete vulnerabilities[51].forensicTriage;
+  else vulnerabilities[51].forensicTriage = selectedTriage;
   vulnerabilities.push({ cveID: 'bad', vulnerabilityName: 'bad', shortDescription: 'bad' });
   const items = vulnerabilities.slice(0, 53).map(signal);
   const selected = items[51];
@@ -74,6 +81,31 @@ test('complete catalog passes with five CISA-only calls and late-index proof', a
   assert.deepEqual(calls[2].args, { sources: ['cisa-kev'], maxSources: 1, query: cve(52), perSourceLimit: 1, totalLimit: 1 });
   assert.ok(calls.every(({ timeout }) => timeout === 60000));
   assert.deepEqual(calls.map(({ options }) => options), [undefined, { allowCompleteEvent: true }, undefined, undefined, undefined]);
+});
+
+test('forensic triage matches sanitized raw Yes, No, or missing values across list, search, and get', async () => {
+  for (const [rawValue, expected, driftValue] of [
+    ['Yes', 'Yes', 'No'],
+    ['No', 'No', 'Yes'],
+    [null, null, undefined],
+    [' \tYes\n ', 'Yes', 'No']
+  ]) {
+    const valid = fixture(rawValue);
+    assert.equal(valid.list.items[1].forensicTriage, 'No');
+    assert.equal(valid.list.items[2].forensicTriage, null);
+    assert.equal(valid.list.items[51].forensicTriage, expected);
+    assert.equal(valid.search.signals[0].forensicTriage, expected);
+    assert.equal(valid.get.item.forensicTriage, expected);
+    await run(valid);
+
+    for (const surface of ['list', 'search', 'get']) {
+      const drift = fixture(rawValue);
+      if (surface === 'list') drift.list.items[51] = { ...drift.list.items[51], forensicTriage: driftValue };
+      else if (surface === 'search') drift.search.signals[0] = { ...drift.search.signals[0], forensicTriage: driftValue };
+      else drift.get.item = { ...drift.get.item, forensicTriage: driftValue };
+      await assert.rejects(run(drift), { code: 'identity_or_provenance_mismatch' }, `${surface}: ${rawValue}`);
+    }
+  }
 });
 
 test('only opted-in CISA list reads a complete SSE event above the default limit', async (t) => {
