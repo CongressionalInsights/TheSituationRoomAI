@@ -21,7 +21,9 @@ function stripEiaCredentialFields(value) {
 }
 
 function redactEiaCredentialText(value) {
-  return String(value || '').replace(/([?&]\s*api[_-]?key=)[^&\s"'<>]+/gi, '$1REDACTED');
+  return String(value || '')
+    .replace(/([?&]\s*api[_-]?key=)[^&\s"'<>]+/gi, '$1REDACTED')
+    .replace(/((?:%3f|%26)api(?:_|-|%5f)?key%3d)(?:(?!%26)[^&\s"'<>])+/gi, '$1REDACTED');
 }
 
 export function isEiaFeed(feed) {
@@ -43,6 +45,7 @@ export function sanitizeEiaPayload(feed, payload) {
   return {
     ...payload,
     body: sanitizeEiaBody(payload.body),
-    message: typeof payload.message === 'string' ? sanitizeEiaBody(payload.message) : payload.message
+    message: typeof payload.message === 'string' ? sanitizeEiaBody(payload.message) : payload.message,
+    fetchedUrl: typeof payload.fetchedUrl === 'string' ? redactEiaCredentialText(payload.fetchedUrl) : payload.fetchedUrl
   };
 }
