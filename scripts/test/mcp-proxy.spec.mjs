@@ -1002,7 +1002,7 @@ function cisaFixture(overrides = {}) {
     vulnerabilityName: 'Fixture authentication bypass', dateAdded: '2026-09-01',
     shortDescription: 'An authentication bypass in the fixture gateway.',
     requiredAction: 'Apply the fixture update.', dueDate: '2026-09-22',
-    knownRansomwareCampaignUse: 'Unknown', notes: 'https://untrusted.example/notes', cwes: ['CWE-287'],
+    knownRansomwareCampaignUse: 'Unknown', forensicTriage: 'Yes', notes: 'https://untrusted.example/notes', cwes: ['CWE-287'],
     ...overrides
   };
 }
@@ -1020,7 +1020,7 @@ test('CISA normalization maps CVE fields to source-dated signals with fixed offi
   assert.equal(item.publishedAt, Date.parse('2026-09-01T00:00:00Z'));
   assert.equal(item.source, cisaFeed.name);
   assert.equal(item.category, 'cyber');
-  for (const field of ['cveID', 'vendorProject', 'product', 'vulnerabilityName', 'shortDescription', 'dateAdded', 'requiredAction', 'dueDate', 'knownRansomwareCampaignUse', 'notes', 'cwes']) {
+  for (const field of ['cveID', 'vendorProject', 'product', 'vulnerabilityName', 'shortDescription', 'dateAdded', 'requiredAction', 'dueDate', 'knownRansomwareCampaignUse', 'forensicTriage', 'notes', 'cwes']) {
     assert.deepEqual(item[field], record[field], field);
   }
   for (const query of ['cve-2026-12345', 'fixture vendor', 'fixture gateway', 'authentication bypass']) {
@@ -1038,6 +1038,18 @@ test('CISA valid empty catalogs and malformed records do not fabricate signals',
   const items = normalizeJsonSignals(JSON.stringify(cisaCatalog([...malformed, cisaFixture()])), cisaFeed);
   assert.equal(items.length, 1);
   assert.equal(items[0].cveID, 'CVE-2026-12345');
+});
+
+test('CISA forensic triage preserves Yes/No and normalizes missing or invalid values to null', () => {
+  const values = ['Yes', 'No', ' \tYes\n ', undefined, null, '', ' \t\n ', {}, 42];
+  const records = values.map((forensicTriage, index) => cisaFixture({
+    cveID: `CVE-2026-${20000 + index}`,
+    forensicTriage
+  }));
+  const items = normalizeJsonSignals(JSON.stringify(cisaCatalog(records)), cisaFeed);
+  assert.equal(items.length, values.length);
+  assert.deepEqual(items.map((item) => item.forensicTriage), ['Yes', 'No', 'Yes', null, null, null, null, null, null]);
+  assert.equal(new Set(items.map(createItemId)).size, values.length);
 });
 
 test('CISA missing or invalid dates stay unknown without consulting the current clock', (t) => {
@@ -1075,13 +1087,13 @@ test('CISA skips incomplete content but retains records with sparse optional fie
 
 test('CISA keeps the full catalog and stable distinct CVE identities across reordering and metadata changes', () => {
   const records = Array.from({ length: 55 }, (_, index) => cisaFixture({ cveID: `CVE-2026-${10000 + index}` }));
-  records.push(cisaFixture({ cveID: 'CVE-2026-99999', vulnerabilityName: 'Late catalog match' }));
+  records.push(cisaFixture({ cveID: 'CVE-2026-99999', vulnerabilityName: 'Late catalog match', forensicTriage: undefined }));
   const items = normalizeJsonSignals(JSON.stringify(cisaCatalog(records)), cisaFeed);
   assert.equal(items.length, 56);
   assert.equal(items.filter((item) => matchesSignalQuery(item, 'late catalog match', cisaFeed)).length, 1);
   assert.equal(new Set(items.map(createItemId)).size, 56);
   assert.equal(dedupeSignals([...items, items[0]]).length, 56);
-  const revised = normalizeJsonSignals(JSON.stringify(cisaCatalog([...records].reverse().map((record) => ({ ...record, vulnerabilityName: 'Revised title', dateAdded: null })))), cisaFeed);
+  const revised = normalizeJsonSignals(JSON.stringify(cisaCatalog([...records].reverse().map((record) => ({ ...record, vulnerabilityName: 'Revised title', dateAdded: null, forensicTriage: 'No' })))), cisaFeed);
   assert.deepEqual(revised.map(createItemId).reverse(), items.map(createItemId));
 });
 
@@ -1102,8 +1114,13 @@ test('CISA MCP raw, list, search, and get preserve identities, query limits, and
   const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
   const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
   const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
-  const records = Array.from({ length: 55 }, (_, index) => cisaFixture({ cveID: `CVE-2026-${10000 + index}` }));
-  records.push(cisaFixture({ cveID: 'CVE-2026-99999', vulnerabilityName: 'Late catalog match' }));
+  const records = Array.from({ length: 55 }, (_, index) => cisaFixture({
+    cveID: `CVE-2026-${10000 + index}`,
+    forensicTriage: index === 1 ? 'No' : 'Yes'
+  }));
+  const lateRecord = cisaFixture({ cveID: 'CVE-2026-99999', vulnerabilityName: 'Late catalog match' });
+  delete lateRecord.forensicTriage;
+  records.push(lateRecord);
   let payload = cisaCatalog(records);
   t.mock.method(globalThis, 'fetch', async (url) => {
     assert.equal(String(url), cisaFeed.url, 'all acquisition remains mocked at the fixed source');
@@ -1124,6 +1141,9 @@ test('CISA MCP raw, list, search, and get preserve identities, query limits, and
   assert.equal(raw.warning, null);
   const listed = await call('signals.list', { sourceId: 'cisa-kev' });
   assert.equal(listed.items.length, 56);
+  assert.equal(listed.items[0].forensicTriage, 'Yes');
+  assert.equal(listed.items[1].forensicTriage, 'No');
+  assert.equal(listed.items[55].forensicTriage, null);
   assert.equal(listed.fetchedUrl, raw.fetchedUrl);
   assert.equal(listed.fallbackUsed, false);
   assert.equal(listed.warning, null);
@@ -1132,9 +1152,11 @@ test('CISA MCP raw, list, search, and get preserve identities, query limits, and
   assert.deepEqual(limited.items, listed.items.slice(0, 2));
   const all = await call('search.smart', { sources: ['cisa-kev'], perSourceLimit: 100, totalLimit: 100 });
   assert.deepEqual(all.signals.map((item) => item.id), listed.items.map((item) => item.id));
+  assert.equal(all.signals[1].forensicTriage, 'No');
   const searched = await call('search.smart', { sources: ['cisa-kev'], query: 'CVE-2026-99999', perSourceLimit: 1, totalLimit: 1 });
   assert.equal(searched.signals.length, 1);
   assert.equal(searched.signals[0].id, listed.items[55].id);
+  assert.equal(searched.signals[0].forensicTriage, null);
   assert.equal(searched.sourcesChecked[0].count, 1);
   payload = cisaCatalog([...records].reverse());
   const found = await call('signals.get', { sourceId: 'cisa-kev', id: searched.signals[0].id });

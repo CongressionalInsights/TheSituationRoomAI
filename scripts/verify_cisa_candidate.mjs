@@ -58,7 +58,8 @@ function checkItem(item, cve, row, name) {
     || item.id !== itemId(cve) || item.title !== `${cve} - ${text(row.vulnerabilityName)}`
     || item.url !== EVIDENCE_URL || text(item.vulnerabilityName) !== text(row.vulnerabilityName)
     || text(item.shortDescription) !== text(row.shortDescription)
-    || item.publishedAt !== expectedDate || item.dateAdded !== (text(row.dateAdded) || null)) {
+    || item.publishedAt !== expectedDate || item.dateAdded !== (text(row.dateAdded) || null)
+    || item.forensicTriage !== (text(row.forensicTriage) || null)) {
     fail('identity_or_provenance_mismatch', `${name} disagrees with catalog row ${cve}`);
   }
 }
