@@ -31,8 +31,8 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
     hono: '4.12.34',
     'express-rate-limit': '8.5.2',
     'ip-address': '10.3.1',
-    'fast-uri': '3.1.5',
-    qs: '6.15.2',
+    'fast-uri': '3.1.6',
+    qs: '6.16.0',
     'path-to-regexp': '8.4.2'
   });
 
