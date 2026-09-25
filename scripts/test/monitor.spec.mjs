@@ -3093,6 +3093,8 @@ test('mcp proxy deploy workflow preserves the deployed secret bindings by defaul
     { revisionName: 'legacy', percent: 0 }
   ]).status, 0);
   assert.match(workflow, /name: Verify canonical MCP release\n\s*id: canonical\n\s*if: steps\.promote\.outcome == 'success'/);
+  const canonicalStep = workflow.split('name: Verify canonical MCP release')[1].split('name: Restore captured traffic')[0];
+  assert.match(canonicalStep, /else\n\s*node scripts\/verify_mcp_candidate\.mjs "\$\{SERVICE_URL\}\/mcp"\n\s*fi/);
   assert.match(workflow, /name: Remove this release's temporary smoke tag\n\s*if: always\(\) && steps\.deploy\.outputs\.candidate_revision != ''/);
   assert.match(workflow, /--remove-tags "\$CANDIDATE_TAG"/);
   assert.ok(workflow.indexOf('name: Verify canonical MCP release') < workflow.indexOf('name: Restore captured traffic after failed promotion or parity'));

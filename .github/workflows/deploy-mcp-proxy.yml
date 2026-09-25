@@ -416,6 +416,8 @@ jobs:
                 and .eligibleCveDigest == $candidate[0].eligibleCveDigest
                 and .selectedId == $candidate[0].selectedId' \
               /tmp/mcp-diagnostics/cisa-canonical.json
+          else
+            node scripts/verify_mcp_candidate.mjs "${SERVICE_URL}/mcp"
           fi
       - name: Restore captured traffic after failed promotion or parity
         if: always() && steps.deploy.outputs.deploy_succeeded == 'true' && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
