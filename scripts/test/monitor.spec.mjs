@@ -3070,6 +3070,8 @@ test('mcp proxy deploy workflow preserves the deployed secret bindings by defaul
   assert.match(workflow, /if \[ "\$SYNC_SECRET_VERSIONS" = "true" \]; then[\s\S]*?SECRET_ARGS=\(--update-secrets "\$SECRET_BINDINGS"\)/);
   assert.doesNotMatch(workflow, /--set-secrets/);
   assert.match(workflow, /--revision-suffix "\$REVISION_SUFFIX"[\s\S]*?--tag "\$REVISION_SUFFIX"[\s\S]*?--no-traffic[\s\S]*?"\$\{SECRET_ARGS\[@\]\}"/);
+  assert.match(workflow, /--min 1 \\\n\s*--min-instances 0 \\\n/);
+  assert.match(workflow, /Existing MCP traffic tags need owner review before this release/);
   assert.match(workflow, /--update-env-vars "\$ENV_UPDATES"/);
   assert.doesNotMatch(workflow, /--env-vars-file/);
   assert.match(workflow, /gcloud run revisions describe "\$CANDIDATE_REVISION"/);
@@ -3078,6 +3080,24 @@ test('mcp proxy deploy workflow preserves the deployed secret bindings by defaul
   assert.match(workflow, /CANDIDATE_URL=\$\(gcloud run services describe[\s\S]*?\.revisionName == \$revision and \.tag == \$tag/);
   assert.match(workflow, /node scripts\/verify_mcp_candidate\.mjs "\$\{CANDIDATE_URL\}\/mcp"/);
   assert.match(workflow, /gcloud run services update-traffic "\$SERVICE_NAME"[\s\S]*?--to-revisions "\$\{CANDIDATE_REVISION\}=100"/);
+  assert.match(workflow, /\[\.status\.traffic\[\]\? \| select\(\.revisionName != \$revision\)\] \| length\) == 0/);
+  const promotionFilter = workflow.match(/jq -e --arg revision "\$CANDIDATE_REVISION" '([\s\S]*?)' \/tmp\/mcp-service-promoted\.json/);
+  assert.ok(promotionFilter);
+  const checkPromotion = (traffic) => spawnSync('jq', ['-e', '--arg', 'revision', 'candidate', promotionFilter[1]], {
+    input: JSON.stringify({ status: { traffic } }),
+    encoding: 'utf8'
+  });
+  assert.equal(checkPromotion([{ revisionName: 'candidate', percent: 100, tag: 'smoke' }]).status, 0);
+  assert.notEqual(checkPromotion([
+    { revisionName: 'candidate', percent: 100, tag: 'smoke' },
+    { revisionName: 'legacy', percent: 0 }
+  ]).status, 0);
+  assert.match(workflow, /name: Verify canonical MCP release\n\s*id: canonical\n\s*if: steps\.promote\.outcome == 'success'/);
+  assert.match(workflow, /name: Remove this release's temporary smoke tag\n\s*if: always\(\) && steps\.deploy\.outputs\.candidate_revision != ''/);
+  assert.match(workflow, /--remove-tags "\$CANDIDATE_TAG"/);
+  assert.ok(workflow.indexOf('name: Verify canonical MCP release') < workflow.indexOf('name: Restore captured traffic after failed promotion or parity'));
+  assert.ok(workflow.indexOf('name: Restore captured traffic after failed promotion or parity') < workflow.indexOf("name: Remove this release's temporary smoke tag"));
+  assert.doesNotMatch(workflow, /name: Health check MCP proxy/);
 });
 
 test('MCP candidate verification fails closed on SWPC transport and contract errors', async () => {
