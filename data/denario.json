@@ -1,0 +1,122 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 9 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 24,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 50,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 0,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "Trump rejects Iran deal to reopen Strait of Hormuz in seven days",
+      "summary": "The US president says Tehran had only put forward the proposal because it is losing the war.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cqgmrr9ekr7ko?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1790441919000
+    },
+    {
+      "title": "Pope praises 'energy and commitment' of young people as huge crowds join open-air Mass in Paris",
+      "summary": "Around 700,000 people gathered in central Paris as the Pope celebrated an open-air Mass.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cm4gjjwvvlzro?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1790441612000
+    },
+    {
+      "title": "British national among six dead in building explosion close to Acropolis in Athens",
+      "summary": "Four Americans and a Greek national are among those killed in a suspected gas explosion, officials said.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c6p3kk78l4l1o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1790426845000
+    },
+    {
+      "title": "Information Reporting Regarding Qualified Opportunity Zones and Updated Qualified Opportunity Fund Certification and Decertification Procedures",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/28/C1-2026-18574/information-reporting-regarding-qualified-opportunity-zones-and-updated-qualified-opportunity-fund",
+      "category": "gov",
+      "publishedAt": 1790553600000
+    },
+    {
+      "title": "Notice of Policy Change and Rescission of Single-Pilot Training Exemptions for Certain Cessna Aircraft",
+      "summary": "Based on safety concerns and a review that revealed widespread non-compliance with the exemptions, the FAA is announcing its decision to cease issuing exemptions that allow certain Cessna aircraft that require two pilots to operate as a single-pilot operation, and notifying current exemption holders that their exemptions will be rescinded by separate action. This notice also serves to inform pilots who obtained single-pilot endorsements from training providers that held exemptions that they m...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/28/2026-19843/notice-of-policy-change-and-rescission-of-single-pilot-training-exemptions-for-certain-cessna",
+      "category": "gov",
+      "publishedAt": 1790553600000
+    },
+    {
+      "title": "Establishment, Modification, and Revocation of Class E Airspace; Alaska, AK",
+      "summary": "This action supplements a notice of proposed rulemaking (NPRM) published by the FAA in the Federal Register on June 17, 2025, which proposed to establish Class E domestic en route airspace (Class E6) within a designated landmass and within 12 miles from a designated shoreline associated with the state of Alaska to facilitate the vectoring of instrument flight rules (IFR) aircraft on direct routes where the current en route structure is insufficient or improper within the proposed airspace are...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/09/28/2026-19815/establishment-modification-and-revocation-of-class-e-airspace-alaska-ak",
+      "category": "gov",
+      "publishedAt": 1790553600000
+    },
+    {
+      "title": "Tropical Storm Gonzalo",
+      "summary": "Severe Storms • Magnitude 40 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24811",
+      "category": "disaster",
+      "publishedAt": 1790326800000
+    },
+    {
+      "title": "Hurricane Nolo",
+      "summary": "Severe Storms • Magnitude 90 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24786",
+      "category": "disaster",
+      "publishedAt": 1790402400000
+    },
+    {
+      "title": "Typhoon Surigae",
+      "summary": "Severe Storms • Magnitude 70 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24787",
+      "category": "disaster",
+      "publishedAt": 1790402400000
+    }
+  ],
+  "generatedAt": "2026-09-26T17:12:31.848Z"
+}
