@@ -201,9 +201,6 @@ printf '%s' "$KEY" | gcloud secrets versions add state-connector-key --data-file
 
 ### GitHub Actions (recommended)
 - Workflow: `.github/workflows/deploy-mcp-proxy.yml`
-- MCP releases require no pre-existing revision traffic tags; review and remove any existing tags separately before the first release with this workflow. Do not delete revisions needed for rollback.
-- A release keeps one service-level minimum instance for the revision serving production traffic and sets the new revision's minimum to zero. It smoke-tests a temporary tagged candidate at zero traffic, promotes it, verifies the canonical service URL, and removes only that release's tag. Failed promotion or canonical verification attempts to restore the captured serving revision before tag removal. Untagged revisions remain available for rollback.
-- One warm instance reduces typical cold starts but is a best-effort availability target, not high availability. Tagged smoke requests and traffic above the minimum can still start additional billable instances.
 - State connector workflow: `.github/workflows/deploy-state-connector.yml`
 - Required repo secrets:
   - `GCP_SA_KEY`
