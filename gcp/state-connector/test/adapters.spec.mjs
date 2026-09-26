@@ -19,6 +19,11 @@ import {
   parseStateRegister as parseNewYorkRulemaking
 } from '../adapters/ny.js';
 import {
+  parseExecutiveOrders as parseNorthCarolinaExecutiveOrders,
+  parseRegisterIssues as parseNorthCarolinaRulemaking
+} from '../adapters/nc.js';
+import northCarolina from '../adapters/nc.js';
+import {
   parseExecutiveOrders as parseTexasExecutiveOrders,
   parseRulemakingFeed as parseTexasRulemaking
 } from '../adapters/tx.js';
@@ -151,6 +156,36 @@ test('Minnesota rulemaking parser emits issue rows and skips non-issue navigatio
       }
     ]
   );
+});
+
+test('North Carolina Register parser emits dated official issue PDFs only', () => {
+  const rows = parseNorthCarolinaRulemaking(fixture('nc-rulemaking.html'));
+  assert.equal(rows.length, 1);
+  assert.deepEqual(pickStable(rows[0]), {
+    id: 'NC:rulemaking:41:06',
+    title: 'North Carolina Register: Volume 41 Issue 06',
+    url: 'https://files.nc.gov/oah/documents/2026-09/Volume-41-Issue-06-September-15-2026.pdf?VersionId=fixture',
+    agency: 'North Carolina Office of Administrative Hearings'
+  });
+  assert.equal(rows[0].updatedAt, '2026-09-15T12:00:00.000Z');
+});
+
+test('North Carolina executive order parser skips concurrence rows', () => {
+  const rows = parseNorthCarolinaExecutiveOrders(fixture('nc-executive-orders.html'));
+  assert.equal(rows.length, 2);
+  assert.deepEqual(pickStable(rows[0]), {
+    id: 'NC:executive_order:/executive-order-no36-increasing-housing-opportunities-all-north-carolinians',
+    title: 'Executive Order No.36: Increasing Housing Opportunities For All North Carolinians',
+    url: 'https://governor.nc.gov/executive-order-no36-increasing-housing-opportunities-all-north-carolinians',
+    agency: 'Office of the Governor'
+  });
+  assert.equal(rows[0].updatedAt, '2026-05-19T12:00:00.000Z');
+});
+
+test('North Carolina adapter fails closed when an official listing no longer parses', async () => {
+  const ctx = { fetchText: async () => '<html><body>Listing layout changed</body></html>' };
+  await assert.rejects(northCarolina.fetchRulemaking(ctx), /No North Carolina Register issues/);
+  await assert.rejects(northCarolina.fetchExecutiveOrders(ctx), /No North Carolina executive orders/);
 });
 
 test('New York executive order listing keeps title, URL, date, and agency scoped to one article', () => {

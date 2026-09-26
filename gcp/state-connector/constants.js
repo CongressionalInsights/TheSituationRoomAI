@@ -2,6 +2,7 @@ export const STATE_NAMES = {
   CA: 'California',
   FL: 'Florida',
   MN: 'Minnesota',
+  NC: 'North Carolina',
   NY: 'New York',
   TX: 'Texas',
   VA: 'Virginia'

@@ -1152,7 +1152,8 @@ function normalizeStateConnectorSignalType(value, fallback = '') {
   return raw.replace(/\s+/g, '_');
 }
 
-function buildStateConnectorConfigPayload(feed, message) {
+function buildStateConnectorConfigPayload(feed, message, stateCode = '') {
+  const coverageStatus = stateCode ? 'SUPPORTED' : 'PARTIAL';
   return {
     id: feed.id,
     fetchedAt: Date.now(),
@@ -1160,8 +1161,29 @@ function buildStateConnectorConfigPayload(feed, message) {
     httpStatus: 200,
     error: 'requires_config',
     message,
-    body: JSON.stringify({ error: 'requires_config', message })
+    coverageStatus,
+    requestedState: stateCode || null,
+    coveredStates: feed.coveredStates,
+    body: JSON.stringify({ error: 'requires_config', message, coverageStatus, requestedState: stateCode || null, coveredStates: feed.coveredStates })
   };
+}
+
+function verifiedStateConnectorZero(parsed, results, stateCode, signalType) {
+  const meta = parsed?.meta;
+  return Boolean(
+    stateCode
+    && results.length === 0
+    && meta?.verifiedZeroResults === true
+    && meta?.state === stateCode
+    && meta?.signalType === signalType
+    && meta?.coverageStatus === 'SUPPORTED'
+    && meta?.count === 0
+    && meta?.partial === false
+    && meta?.adapterCount === 1
+    && Array.isArray(meta?.errors) && meta.errors.length === 0
+    && Array.isArray(meta?.coveredStates) && meta.coveredStates.includes(stateCode)
+    && Number.isFinite(Date.parse(meta?.generatedAt))
+  );
 }
 
 function normalizeStateConnectorResult(entry, signalType, fallbackStateCode = '') {
@@ -1203,20 +1225,34 @@ function normalizeStateConnectorResult(entry, signalType, fallbackStateCode = ''
   };
 }
 
-async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETCH_TIMEOUT_MS) {
-  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
-    return buildStateConnectorConfigPayload(feed, 'State connector provider is not configured.');
-  }
-
+async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETCH_TIMEOUT_MS, requestParams = {}) {
   const signalType = normalizeStateConnectorSignalType(
     mergedParams.signalType,
     Array.isArray(feed?.capabilities) && feed.capabilities.length ? feed.capabilities[0] : ''
   );
-  const stateCode = normalizeJurisdictionCode(
-    mergedParams.state
-    || mergedParams.jurisdictionCode
-    || mergedParams.jurisdiction
-  );
+  const requestedState = requestParams.state || requestParams.jurisdictionCode || requestParams.jurisdiction
+    || mergedParams.state || mergedParams.jurisdictionCode || mergedParams.jurisdiction || '';
+  const stateCode = normalizeJurisdictionCode(requestedState);
+  if (requestedState && (!stateCode || !feed.coveredStates?.includes(stateCode))) {
+    const coverageStatus = stateCode ? 'UNSUPPORTED' : 'INVALID_STATE';
+    const error = stateCode ? 'unsupported_state' : 'invalid_state';
+    const message = stateCode ? `${feed.id} does not cover ${stateCode}.` : `Invalid state: ${requestedState}.`;
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      httpStatus: 400,
+      error,
+      message,
+      coverageStatus,
+      requestedState: stateCode || String(requestedState),
+      coveredStates: feed.coveredStates,
+      body: JSON.stringify({ error, message, coverageStatus, requestedState: stateCode || String(requestedState), coveredStates: feed.coveredStates })
+    };
+  }
+  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
+    return buildStateConnectorConfigPayload(feed, 'State connector provider is not configured.', stateCode);
+  }
   const requestedLimit = toPositiveInt(
     mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
     STATE_CONNECTOR_DEFAULT_LIMIT
@@ -1267,7 +1303,11 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
       };
     }
 
-    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    if (!Array.isArray(parsed?.results)) {
+      return { id: feed.id, fetchedAt: Date.now(), contentType: 'application/json', httpStatus: 502, error: 'invalid_response', message: 'State connector response has no results array.', body: JSON.stringify({ error: 'invalid_response' }) };
+    }
+    const results = parsed.results;
+    const verifiedZeroResults = verifiedStateConnectorZero(parsed, results, stateCode, signalType);
     const normalizedResults = results
       .map((entry) => normalizeStateConnectorResult(entry, signalType, stateCode))
       .filter(Boolean)
@@ -1277,6 +1317,7 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
       fetchedAt: Date.now(),
       contentType: 'application/json',
       httpStatus: 200,
+      coverageStatus: stateCode ? 'SUPPORTED' : 'PARTIAL',
       body: JSON.stringify({
         results: normalizedResults,
         meta: {
@@ -1284,7 +1325,9 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
           provider: 'state-connector',
           signalType: signalType || null,
           state: stateCode || null,
-          count: normalizedResults.length
+          count: normalizedResults.length,
+          coverageStatus: stateCode ? 'SUPPORTED' : 'PARTIAL',
+          verifiedZeroResults
         }
       })
     };
@@ -1303,7 +1346,8 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
 
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
   const mergedParams = mergeFeedParams(feed, params);
-  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}`;
+  const connectorRequestKey = isStateConnectorFeed(feed) ? `:${serializeParams(sanitizeParamsObject(params))}` : '';
+  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const timeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
   const cached = cache.get(cacheKey);
@@ -1334,7 +1378,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
 
   if (isStateConnectorFeed(feed)) {
-    const connectorPayload = await fetchStateConnectorFeed(feed, mergedParams, timeoutMs);
+    const connectorPayload = await fetchStateConnectorFeed(feed, mergedParams, timeoutMs, params);
     if (!connectorPayload.error) {
       cache.set(cacheKey, connectorPayload);
     }

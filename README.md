@@ -168,7 +168,7 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
 - `catalog.sources` reports `configured` and `configuration.requiredEnv` for connector-backed or key-backed sources.
 - Education alert sources include `congress-ew-bills`, `congress-help-bills`, and `federal-register-ed`. The committee bill sources default to Congress `119` and accept `params.congress` for future Congresses.
 - `money.flows` accepts optional `matchMode` (`strict`, `normal`, `loose`), `minScore`, and `entities` arguments. Entity alias expansion is loaded from `gcp/mcp-proxy/entity-aliases.json` or `MONEY_ENTITY_ALIASES_PATH`.
-- `state-rulemaking` and `state-executive-orders` are backed by the `gcp/state-connector` Cloud Run provider. Phase 1 covered states are `CA`, `FL`, `MN`, `NY`, `TX`, and `VA`.
+- `state-rulemaking` and `state-executive-orders` are backed by the `gcp/state-connector` Cloud Run provider. Covered states are `CA`, `FL`, `MN`, `NC`, `NY`, `TX`, and `VA`. For NC, rulemaking records are North Carolina Register issues and executive-order records are Governor listing entries; the connector does not yet extract individual rules or order text for Raleigh/Wake matching.
 
 ### State connector provider
 The state connector provider is a separate app-authenticated Cloud Run service used by the MCP and feed proxies.
@@ -178,7 +178,8 @@ The state connector provider is a separate app-authenticated Cloud Run service u
 - Live URL: `https://state-connector-382918878290.us-central1.run.app`
 - Auth header: `X-API-Key`
 - Accepted params: `signalType=rulemaking|executive_order`, optional `state`, `limit` (default 20, max 100), and `sort=updated_desc`
-- Phase 1 covered states: `CA`, `FL`, `MN`, `NY`, `TX`, `VA`
+- Covered states: `CA`, `FL`, `MN`, `NC`, `NY`, `TX`, `VA`
+- `catalog.sources` accepts optional `state` and reports `coverageStatus`. State-scoped source responses report `UNSUPPORTED` distinctly from a successful `verifiedZeroResults` response.
 - Upstream fetches are cached in memory for about 30 minutes.
 
 Manual provider deploy:
