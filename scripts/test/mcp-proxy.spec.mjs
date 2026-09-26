@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 
 const {
   getStateBillSortTimestamp,
@@ -25,6 +26,7 @@ const {
   findBestMoneyNameMatch,
   getOpenStatesCachedRaw,
   getFeedConfiguration,
+  getStateConnectorCoverage,
   getOpenStatesSuccessCacheTtl,
   resetOpenStatesRawCacheForTest,
   fetchFeedProxyFallback,
@@ -926,13 +928,16 @@ test('state connector configuration is explicit in catalog metadata', () => {
     configured: false,
     requiredEnv: ['STATE_CONNECTOR_BASE_URL', 'STATE_CONNECTOR_API_KEY'],
     optionalEnv: ['STATE_CONNECTOR_KEY_HEADER'],
-    coveredStates: ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'],
+    coveredStates: ['CA', 'FL', 'MN', 'NC', 'NY', 'TX', 'VA'],
     message: 'State connector provider is not configured.'
   });
   assert.equal(getFeedConfiguration(rulemakingFeed, {
     STATE_CONNECTOR_BASE_URL: 'https://state.example',
     STATE_CONNECTOR_API_KEY: 'secret'
   }).configured, true);
+  assert.deepEqual(getStateConnectorCoverage('North Carolina'), { coverageStatus: 'SUPPORTED', requestedState: 'NC' });
+  assert.deepEqual(getStateConnectorCoverage('MD'), { coverageStatus: 'UNSUPPORTED', requestedState: 'MD' });
+  assert.equal(getStateConnectorCoverage().coverageStatus, 'PARTIAL');
 
   assert.deepEqual(getFeedConfiguration({ id: 'acled-events', acledMode: 'aggregated', requiresConfig: true }, {}), {
     configured: false,
@@ -1256,15 +1261,51 @@ test('geographic zero coordinates survive while missing coordinates stay missing
   assert.equal(missing.geo, null);
 });
 
-test('unsupported NC state connector requests report coverage before any network request', async (t) => {
+test('unsupported state connector requests report coverage before any network request', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('should not fetch'); });
   for (const id of ['state-rulemaking', 'state-executive-orders']) {
-    const result = await fetchRaw({ id, supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'NC' } });
+    const result = await fetchRaw({ id, supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'MD' } });
     assert.equal(result.error, 'unsupported_state');
-    assert.match(result.message, /does not cover NC/);
-    assert.match(result.message, /CA, FL, MN, NY, TX, VA/);
+    assert.equal(result.coverageStatus, 'UNSUPPORTED');
+    assert.match(result.message, /does not cover MD/);
+    assert.match(result.message, /CA, FL, MN, NC, NY, TX, VA/);
   }
+  const invalid = await fetchRaw({ id: 'state-rulemaking', supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'not-a-state' } });
+  assert.equal(invalid.error, 'invalid_state');
+  assert.equal(invalid.coverageStatus, 'INVALID_STATE');
   assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test('supported state zero-result metadata remains bound to the requested state', () => {
+  const moduleUrl = new URL('../../gcp/mcp-proxy/server.js', import.meta.url).href;
+  const script = `
+    let providerState = 'NC';
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      results: [],
+      meta: {
+        state: providerState, signalType: 'rulemaking', coverageStatus: 'SUPPORTED', count: 0,
+        partial: false, adapterCount: 1, errors: [], coveredStates: ['NC'],
+        generatedAt: '2026-09-26T20:00:00Z', verifiedZeroResults: true
+      }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const { fetchRaw } = await import(${JSON.stringify(moduleUrl)});
+    const feed = { id: 'state-rulemaking', supportsParams: true, paramStrategy: 'state-code', capabilities: ['rulemaking'] };
+    const result = await fetchRaw(feed, { params: { state: 'NC' } });
+    providerState = 'VA';
+    const mismatched = await fetchRaw(feed, { params: { state: 'NC' } });
+    console.log(JSON.stringify({ coverageStatus: result.coverageStatus, requestedState: result.requestedState, verifiedZeroResults: result.verifiedZeroResults, fetchedUrl: result.fetchedUrl, mismatchVerified: mismatched.verifiedZeroResults }));
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8',
+    env: { ...process.env, STATE_CONNECTOR_BASE_URL: 'https://connector.example', STATE_CONNECTOR_API_KEY: 'fixture-key' }
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const result = JSON.parse(child.stdout.trim().split('\n').at(-1));
+  assert.equal(result.coverageStatus, 'SUPPORTED');
+  assert.equal(result.requestedState, 'NC');
+  assert.equal(result.verifiedZeroResults, true);
+  assert.equal(result.mismatchVerified, false);
+  assert.equal(new URL(result.fetchedUrl).searchParams.get('state'), 'NC');
 });
 
 test('NASA fire fallback keeps the raw response contract and identifies NOAA substitution', async (t) => {
@@ -1335,6 +1376,15 @@ test('MCP tool calls preserve NWS geography through raw, list, search, and get r
   const empty = await call('search.smart', { sources: ['nws-alerts'], query: 'Alaska' });
   assert.equal(empty.signals.length, 0);
   assert.equal(empty.sourcesChecked[0].ok, true);
-  const unsupported = await call('signals.list', { sourceId: 'state-rulemaking', params: { state: 'NC' } });
+  const catalog = await call('catalog.sources', { category: 'gov', state: 'NC' });
+  assert.equal(catalog.sources.find((source) => source.id === 'state-rulemaking').coverageStatus, 'SUPPORTED');
+  assert.equal(catalog.sources.find((source) => source.id === 'state-executive-orders').coverageStatus, 'SUPPORTED');
+  const unsupported = await call('signals.list', { sourceId: 'state-rulemaking', params: { state: 'MD' } });
   assert.equal(unsupported.error, 'unsupported_state');
+  assert.equal(unsupported.coverageStatus, 'UNSUPPORTED');
+  assert.equal(unsupported.requestedState, 'MD');
+  const rawUnsupported = await call('raw.fetch', { sourceId: 'state-executive-orders', params: { state: 'MD' } });
+  assert.equal(rawUnsupported.coverageStatus, 'UNSUPPORTED');
+  const smartUnsupported = await call('search.smart', { sources: ['state-rulemaking'], params: { state: 'MD' } });
+  assert.equal(smartUnsupported.sourcesChecked[0].coverageStatus, 'UNSUPPORTED');
 });

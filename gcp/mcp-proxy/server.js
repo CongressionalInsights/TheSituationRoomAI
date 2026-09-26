@@ -58,7 +58,7 @@ const STATE_CONNECTOR_API_KEY = String(process.env.STATE_CONNECTOR_API_KEY || ''
 const STATE_CONNECTOR_KEY_HEADER = String(process.env.STATE_CONNECTOR_KEY_HEADER || 'X-API-Key').trim() || 'X-API-Key';
 const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
-const STATE_CONNECTOR_COVERED_STATES = ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'];
+const STATE_CONNECTOR_COVERED_STATES = ['CA', 'FL', 'MN', 'NC', 'NY', 'TX', 'VA'];
 const OPENSTATES_CACHE_TTL_MS = Number(process.env.OPENSTATES_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const OPENSTATES_ERROR_CACHE_TTL_MS = Number(process.env.OPENSTATES_ERROR_CACHE_TTL_MS || 5 * 60 * 1000);
 const OPENSTATES_AGGREGATE_CACHE_TTL_MS = Number(process.env.OPENSTATES_AGGREGATE_CACHE_TTL_MS || 10 * 60 * 1000);
@@ -1198,6 +1198,45 @@ function isStateConnectorFeed(feed) {
   return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
 }
 
+export function getStateConnectorCoverage(state = '') {
+  const requested = String(state || '').trim();
+  if (!requested) return { coverageStatus: 'PARTIAL', requestedState: null };
+  const code = normalizeJurisdictionCode(requested);
+  if (!code) return { coverageStatus: 'INVALID_STATE', requestedState: requested };
+  return {
+    coverageStatus: STATE_CONNECTOR_COVERED_STATES.includes(code) ? 'SUPPORTED' : 'UNSUPPORTED',
+    requestedState: code
+  };
+}
+
+function coverageFields(result) {
+  if (!result?.coverageStatus) return {};
+  return {
+    coverageStatus: result.coverageStatus,
+    requestedState: result.requestedState || null,
+    coveredStates: result.coveredStates || STATE_CONNECTOR_COVERED_STATES,
+    verifiedZeroResults: Boolean(result.verifiedZeroResults)
+  };
+}
+
+function verifiedStateConnectorZero(parsed, results, stateCode, signalType) {
+  const meta = parsed?.meta;
+  return Boolean(
+    stateCode
+    && results.length === 0
+    && meta?.verifiedZeroResults === true
+    && meta?.state === stateCode
+    && meta?.signalType === signalType
+    && meta?.coverageStatus === 'SUPPORTED'
+    && meta?.count === 0
+    && meta?.partial === false
+    && meta?.adapterCount === 1
+    && Array.isArray(meta?.errors) && meta.errors.length === 0
+    && Array.isArray(meta?.coveredStates) && meta.coveredStates.includes(stateCode)
+    && Number.isFinite(Date.parse(meta?.generatedAt))
+  );
+}
+
 function normalizeStateConnectorSignalType(value, fallback = '') {
   const raw = String(value || fallback || '').trim().toLowerCase();
   if (!raw) return '';
@@ -1427,20 +1466,28 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     mergedParams.signalType,
     Array.isArray(feed?.capabilities) && feed.capabilities.length ? feed.capabilities[0] : ''
   );
-  const stateCode = normalizeJurisdictionCode(
-    mergedParams.state
+  const { coverageStatus, requestedState: stateCode } = getStateConnectorCoverage(
+    options.params?.state
+    || options.params?.jurisdictionCode
+    || options.params?.jurisdiction
+    || mergedParams.state
     || mergedParams.jurisdictionCode
     || mergedParams.jurisdiction
   );
-  if (stateCode && !STATE_CONNECTOR_COVERED_STATES.includes(stateCode)) {
+  if (coverageStatus === 'INVALID_STATE' || coverageStatus === 'UNSUPPORTED') {
     return {
-      error: 'unsupported_state',
+      error: coverageStatus === 'INVALID_STATE' ? 'invalid_state' : 'unsupported_state',
       httpStatus: 400,
-      message: `${feed.id} does not cover ${stateCode}. Covered states: ${STATE_CONNECTOR_COVERED_STATES.join(', ')}. Check the state's official primary sources directly.`
+      message: coverageStatus === 'INVALID_STATE'
+        ? `Invalid state: ${stateCode}.`
+        : `${feed.id} does not cover ${stateCode}. Covered states: ${STATE_CONNECTOR_COVERED_STATES.join(', ')}. Check the state's official primary sources directly.`,
+      coverageStatus,
+      requestedState: stateCode,
+      coveredStates: STATE_CONNECTOR_COVERED_STATES
     };
   }
   if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
-    return { error: 'config_required', message: 'State connector provider is not configured.' };
+    return { error: 'config_required', message: 'State connector provider is not configured.', coverageStatus, requestedState: stateCode || null };
   }
   const requestedLimit = toPositiveInt(
     mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
@@ -1465,10 +1512,15 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     const response = await fetchWithTimeout(requestUrl.toString(), { headers: requestHeaders }, timeoutMs);
     const text = await response.text();
     if (!response.ok) {
+      let providerError = null;
+      try { providerError = JSON.parse(text)?.error; } catch { /* Not JSON. */ }
       return {
-        error: 'fetch_failed',
+        error: providerError === 'state_not_covered' ? 'unsupported_state' : 'fetch_failed',
         httpStatus: response.status,
-        message: `HTTP ${response.status}`,
+        message: providerError === 'state_not_covered' ? `${stateCode} is not covered by the state connector provider.` : `HTTP ${response.status}`,
+        coverageStatus: providerError === 'state_not_covered' ? 'UNSUPPORTED' : coverageStatus,
+        requestedState: stateCode,
+        coveredStates: STATE_CONNECTOR_COVERED_STATES,
         body: text,
         fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
         proxyUsed: null,
@@ -1490,7 +1542,11 @@ async function fetchStateConnectorRaw(feed, options = {}) {
       };
     }
 
-    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    if (!Array.isArray(parsed?.results)) {
+      return { error: 'invalid_response', httpStatus: 502, message: 'State connector response has no results array.', coverageStatus };
+    }
+    const results = parsed.results;
+    const verifiedZeroResults = verifiedStateConnectorZero(parsed, results, stateCode, signalType);
     const normalizedResults = results
       .map((entry) => normalizeStateConnectorResult(entry, signalType, stateCode))
       .filter(Boolean)
@@ -1503,11 +1559,16 @@ async function fetchStateConnectorRaw(feed, options = {}) {
           provider: 'state-connector',
           signalType: signalType || null,
           state: stateCode || null,
-          count: normalizedResults.length
+          count: normalizedResults.length,
+          coverageStatus,
+          verifiedZeroResults
         }
       }),
       httpStatus: 200,
       contentType: 'application/json',
+      coverageStatus,
+      requestedState: stateCode || null,
+      verifiedZeroResults,
       fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
       proxyUsed: null,
       fallbackUsed: false
@@ -1516,6 +1577,7 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     return {
       error: 'fetch_failed',
       message: error?.message || 'State connector fetch failed.',
+      coverageStatus,
       fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
       proxyUsed: null,
       fallbackUsed: false
@@ -1851,6 +1913,7 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
   const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null;
   return {
     sourceId,
+    ...coverageFields(result),
     ...(range ? { range } : {}),
     contentType: result.contentType,
     url: stripSecretsFromUrl(feed.url),
@@ -2903,10 +2966,11 @@ server.registerTool(
     title: 'Catalog Sources',
     description: 'List available sources, formats, and capabilities.',
     inputSchema: z.object({
-      category: z.string().optional()
+      category: z.string().optional(),
+      state: z.string().optional()
     })
   },
-  async ({ category }) => {
+  async ({ category, state }) => {
     const filtered = category
       ? feeds.filter((feed) => feed.category === category)
       : feeds;
@@ -2925,6 +2989,7 @@ server.registerTool(
         configured: configuration.configured,
         configuration,
         coveredStates: configuration.coveredStates || null,
+        coverageStatus: isStateConnectorFeed(feed) ? getStateConnectorCoverage(state).coverageStatus : null,
         docsUrl: feed.docsUrl || null,
         urlTemplate: feed.url || null,
         tags: feed.tags || [],
@@ -2970,6 +3035,7 @@ server.registerTool(
         content: [{ type: 'text', text: `Fetch failed: ${safeResult.message || safeResult.error}` }],
         structuredContent: {
           error: safeResult.error,
+          ...coverageFields(safeResult),
           code: safeResult.code || null,
           message: safeResult.message,
           httpStatus: safeResult.httpStatus || null,
@@ -3018,6 +3084,7 @@ server.registerTool(
         content: [{ type: 'text', text: `History fetch failed: ${result.message || result.error}` }],
         structuredContent: {
           error: result.error,
+          ...coverageFields(result),
           sourceId,
           message: result.message,
           httpStatus: result.httpStatus || null
@@ -3099,7 +3166,7 @@ server.registerTool(
     if (safeResult.error) {
       return {
         content: [{ type: 'text', text: `Signals fetch failed: ${safeResult.message || safeResult.error}` }],
-        structuredContent: { error: safeResult.error, message: safeResult.message, httpStatus: safeResult.httpStatus || null }
+        structuredContent: { error: safeResult.error, ...coverageFields(safeResult), message: safeResult.message, httpStatus: safeResult.httpStatus || null }
       };
     }
 
@@ -3119,6 +3186,7 @@ server.registerTool(
       content: [{ type: 'text', text: `Signals: ${sliced.length}` }],
       structuredContent: {
         sourceId,
+        ...coverageFields(safeResult),
         items: sliced,
         fetchedUrl: safeResult.fetchedUrl || null,
         proxyUsed: safeResult.proxyUsed || null,
@@ -3154,7 +3222,7 @@ server.registerTool(
     if (result.error) {
       return {
         content: [{ type: 'text', text: `Signal fetch failed: ${result.message || result.error}` }],
-        structuredContent: { error: result.error, message: result.message, httpStatus: result.httpStatus || null }
+        structuredContent: { error: result.error, ...coverageFields(result), message: result.message, httpStatus: result.httpStatus || null }
       };
     }
 
@@ -3171,6 +3239,7 @@ server.registerTool(
       content: [{ type: 'text', text: match ? `Signal ${id}` : `Signal ${id} not found` }],
       structuredContent: {
         sourceId,
+        ...coverageFields(result),
         item: match,
         fetchedUrl: result.fetchedUrl || null,
         proxyUsed: result.proxyUsed || null,
@@ -3218,6 +3287,7 @@ server.registerTool(
           sourceName: feed.name,
           ok: false,
           error: result.error,
+          ...coverageFields(result),
           message: result.message || null,
           configured: configuration.configured,
           configuration,
@@ -3248,6 +3318,7 @@ server.registerTool(
         sourceId: feed.id,
         sourceName: feed.name,
         ok: true,
+        ...coverageFields(result),
         configured: getFeedConfiguration(feed).configured,
         count: filtered.length,
         fetchedUrl: result.fetchedUrl || null,

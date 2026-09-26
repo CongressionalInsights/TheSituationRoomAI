@@ -135,7 +135,7 @@ async function handleSignals(req, res, url) {
     return;
   }
   if (request.state && !coveredStates.includes(request.state)) {
-    sendJson(req, res, 400, { error: 'state_not_covered', state: request.state, coveredStates });
+    sendJson(req, res, 400, { error: 'state_not_covered', coverageStatus: 'UNSUPPORTED', state: request.state, coveredStates });
     return;
   }
   if (request.sort && request.sort !== 'updated_desc') {
@@ -153,6 +153,8 @@ async function handleSignals(req, res, url) {
       generatedAt: new Date().toISOString(),
       signalType: request.signalType,
       state: request.state || null,
+      coverageStatus: request.state ? 'SUPPORTED' : 'PARTIAL',
+      verifiedZeroResults: Boolean(request.state && status === 200 && results.length === 0 && errors.length === 0),
       count: results.length,
       partial: errors.length > 0,
       adapterCount,
