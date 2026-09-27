@@ -7,6 +7,11 @@ on:
         description: Exact reviewed main commit to deploy
         required: true
         type: string
+      expected_serving_tag:
+        description: Exact current serving tag approved for retirement on successful release; leave empty when untagged
+        required: false
+        default: ''
+        type: string
       cisa_only:
         description: Restrict candidate and canonical verification to CISA KEV
         required: true
@@ -174,6 +179,8 @@ jobs:
           if [ -n "$STATE_CONNECTOR_API_KEY" ]; then ensure_secret_version state-connector-key "$STATE_CONNECTOR_API_KEY"; fi
       - name: Capture deployed revision and secret bindings
         id: current
+        env:
+          EXPECTED_SERVING_TAG: ${{ inputs.expected_serving_tag }}
         run: |
           set -euo pipefail
           DIAG_DIR=/tmp/mcp-diagnostics
@@ -192,6 +199,20 @@ jobs:
               and ($urls | index($expected)) != null
               and ($urls | index($legacy)) != null
           ' /tmp/mcp-service-before.json >/dev/null
+          if ! jq -e --arg revision "$ROLLBACK_REVISION" --arg expected "$EXPECTED_SERVING_TAG" '
+            [.status.traffic[]? | select(.tag != null and .tag != "")] as $tags
+            | if $expected == "" then ($tags | length) == 0
+              else ($tags | length) == 1
+                and $tags[0].tag == $expected
+                and $tags[0].revisionName == $revision
+              end
+          ' \
+            /tmp/mcp-service-before.json >/dev/null; then
+            echo "MCP traffic tags differ from the exact serving tag approved for this release:"
+            jq -r '.status.traffic[]? | select(.tag != null and .tag != "") | "\(.tag) -> \(.revisionName)"' \
+              /tmp/mcp-service-before.json
+            exit 1
+          fi
           printf '%s\n' "$GITHUB_SHA" > "$DIAG_DIR/source-sha.txt"
           sha256sum .github/workflows/deploy-mcp-proxy.yml > "$DIAG_DIR/workflow-sha256.txt"
           gcloud run revisions describe "$ROLLBACK_REVISION" \
@@ -214,8 +235,11 @@ jobs:
           done
 
           printf '%s\n' "$ROLLBACK_REVISION" | tee "$DIAG_DIR/rollback-revision.txt"
-          echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
-          echo "rollback_revision=${ROLLBACK_REVISION}" >> "$GITHUB_OUTPUT"
+          {
+            echo "service_url=${SERVICE_URL}"
+            echo "rollback_revision=${ROLLBACK_REVISION}"
+            echo "serving_tag=${EXPECTED_SERVING_TAG}"
+          } >> "$GITHUB_OUTPUT"
       - name: Deploy MCP proxy service
         id: deploy
         env:
@@ -225,6 +249,8 @@ jobs:
           DIAG_DIR=/tmp/mcp-diagnostics
           mkdir -p "$DIAG_DIR"
           REVISION_SUFFIX="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "candidate_revision=${SERVICE_NAME}-${REVISION_SUFFIX}" >> "$GITHUB_OUTPUT"
+          echo "candidate_tag=${REVISION_SUFFIX}" >> "$GITHUB_OUTPUT"
           if [ -z "${STATE_CONNECTOR_BASE_URL}" ]; then
             STATE_CONNECTOR_BASE_URL="https://state-connector-382918878290.us-central1.run.app"
           fi
@@ -266,7 +292,8 @@ jobs:
             --region "$REGION" \
             --source gcp/mcp-proxy \
             --allow-unauthenticated \
-            --min-instances 1 \
+            --min 1 \
+            --min-instances 0 \
             --timeout 900 \
             --revision-suffix "$REVISION_SUFFIX" \
             --tag "$REVISION_SUFFIX" \
@@ -280,8 +307,6 @@ jobs:
             echo "deploy_exit=${DEPLOY_EXIT}"
             if [ "$DEPLOY_EXIT" -eq 0 ]; then
               echo "deploy_succeeded=true"
-              echo "candidate_revision=${SERVICE_NAME}-${REVISION_SUFFIX}"
-              echo "candidate_tag=${REVISION_SUFFIX}"
             else
               echo "deploy_succeeded=false"
             fi
@@ -298,6 +323,15 @@ jobs:
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --format=json > /tmp/mcp-revision-after.json
+          jq -e '(.metadata.annotations["autoscaling.knative.dev/minScale"] // "0") == "0"' \
+            /tmp/mcp-revision-after.json >/dev/null
+          gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" --project "$PROJECT_ID" --format=json \
+            > /tmp/mcp-service-candidate.json
+          jq -e --arg rollback "${{ steps.current.outputs.rollback_revision }}" '
+            .metadata.annotations["run.googleapis.com/minScale"] == "1"
+            and ([.status.traffic[]? | select(.percent == 100) | .revisionName] == [$rollback])
+          ' /tmp/mcp-service-candidate.json >/dev/null
 
           jq -S -c -f scripts/cloud-run-secret-schema.jq \
             /tmp/mcp-revision-after.json > "$DIAG_DIR/secret-bindings-after.json"
@@ -357,30 +391,47 @@ jobs:
         id: promote
         if: steps.deploy.outputs.deploy_succeeded == 'true'
         continue-on-error: true
+        env:
+          EXPECTED_SERVING_TAG: ${{ steps.current.outputs.serving_tag }}
         run: |
           set -euo pipefail
           CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
-          CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+          CANDIDATE_TAG=${{ steps.deploy.outputs.candidate_tag }}
+          gcloud run services describe "$SERVICE_NAME" \
             --region "$REGION" --project "$PROJECT_ID" --format=json \
-            | jq -er -f scripts/cloud-run-serving-revision.jq)
+            > /tmp/mcp-service-prepromote.json
+          CURRENT_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-prepromote.json)
           test "$CURRENT_REVISION" = "${{ steps.current.outputs.rollback_revision }}"
+          jq -e --arg rollback "$CURRENT_REVISION" --arg old_tag "$EXPECTED_SERVING_TAG" \
+            --arg candidate "$CANDIDATE_REVISION" --arg candidate_tag "$CANDIDATE_TAG" '
+            [.status.traffic[]? | select(.tag != null and .tag != "") | {tag, revisionName}]
+            | sort_by(.tag)
+            == ([{tag: $candidate_tag, revisionName: $candidate}]
+              + (if $old_tag == "" then [] else [{tag: $old_tag, revisionName: $rollback}] end)
+              | sort_by(.tag))
+          ' /tmp/mcp-service-prepromote.json >/dev/null
           gcloud run services update-traffic "$SERVICE_NAME" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --to-revisions "${CANDIDATE_REVISION}=100"
-          SERVING_PERCENT=$(gcloud run services describe "$SERVICE_NAME" \
-            --region "$REGION" \
-            --project "$PROJECT_ID" \
-            --format=json \
-            | jq -er --arg revision "$CANDIDATE_REVISION" \
-              '[.status.traffic[]? | select(.revisionName == $revision) | .percent] | add // 0')
-          if [ "$SERVING_PERCENT" -ne 100 ]; then
-            echo "Verified candidate is not serving 100 percent of MCP traffic."
-            exit 1
-          fi
-      - name: Verify canonical CISA parity
+          gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" --project "$PROJECT_ID" --format=json \
+            > /tmp/mcp-service-promoted.json
+          jq -e --arg revision "$CANDIDATE_REVISION" \
+            --arg rollback "${{ steps.current.outputs.rollback_revision }}" \
+            --arg old_tag "$EXPECTED_SERVING_TAG" '
+            ([.status.traffic[]? | select(.revisionName == $revision) | (.percent // 0)] | add // 0) == 100
+            and ([.status.traffic[]? | select(.revisionName != $revision)] as $old
+              | if $old_tag == "" then ($old | length) == 0
+                else ($old | length) == 1
+                  and $old[0].revisionName == $rollback
+                  and $old[0].tag == $old_tag
+                  and ($old[0].percent // 0) == 0
+                end)
+          ' /tmp/mcp-service-promoted.json >/dev/null
+      - name: Verify canonical MCP release
         id: canonical
-        if: inputs.cisa_only && steps.promote.outcome == 'success'
+        if: steps.promote.outcome == 'success'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -392,15 +443,19 @@ jobs:
           test "$CURRENT_REVISION" = "$CANDIDATE_REVISION"
           curl -fsS "${SERVICE_URL}/health" >/dev/null
           curl -fsS "${SERVICE_URL}/.well-known/mcp.json" >/dev/null
-          node scripts/verify_cisa_candidate.mjs "${SERVICE_URL}/mcp" \
-            | tee /tmp/mcp-diagnostics/cisa-canonical.json
-          jq -e --slurpfile candidate /tmp/mcp-diagnostics/cisa-candidate.json \
-            '.rawDigest == $candidate[0].rawDigest
-              and .catalogVersion == $candidate[0].catalogVersion
-              and .dateReleased == $candidate[0].dateReleased
-              and .eligibleCveDigest == $candidate[0].eligibleCveDigest
-              and .selectedId == $candidate[0].selectedId' \
-            /tmp/mcp-diagnostics/cisa-canonical.json
+          if [ "${{ inputs.cisa_only }}" = true ]; then
+            node scripts/verify_cisa_candidate.mjs "${SERVICE_URL}/mcp" \
+              | tee /tmp/mcp-diagnostics/cisa-canonical.json
+            jq -e --slurpfile candidate /tmp/mcp-diagnostics/cisa-candidate.json \
+              '.rawDigest == $candidate[0].rawDigest
+                and .catalogVersion == $candidate[0].catalogVersion
+                and .dateReleased == $candidate[0].dateReleased
+                and .eligibleCveDigest == $candidate[0].eligibleCveDigest
+                and .selectedId == $candidate[0].selectedId' \
+              /tmp/mcp-diagnostics/cisa-canonical.json
+          else
+            node scripts/verify_mcp_candidate.mjs "${SERVICE_URL}/mcp"
+          fi
       - name: Restore captured traffic after failed promotion or parity
         if: always() && steps.deploy.outputs.deploy_succeeded == 'true' && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
         run: |
@@ -427,7 +482,60 @@ jobs:
             echo "Traffic changed to an unknown revision; refusing rollback."
             exit 1
           fi
-      - name: Fail CISA release when promotion or parity failed
+      - name: Remove this release's temporary smoke tag
+        if: always() && steps.deploy.outputs.candidate_revision != ''
+        env:
+          EXPECTED_SERVING_TAG: ${{ steps.current.outputs.serving_tag }}
+        run: |
+          set -euo pipefail
+          CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
+          CANDIDATE_TAG=${{ steps.deploy.outputs.candidate_tag }}
+          gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" --project "$PROJECT_ID" --format=json \
+            > /tmp/mcp-service-cleanup.json
+          SERVING_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-cleanup.json)
+          if [ "$SERVING_REVISION" = "$CANDIDATE_REVISION" ]; then
+            test "${{ steps.promote.outcome }}" = success
+            test "${{ steps.canonical.outcome }}" = success
+            if [ -n "$EXPECTED_SERVING_TAG" ]; then
+              jq -e --arg tag "$EXPECTED_SERVING_TAG" --arg revision "${{ steps.current.outputs.rollback_revision }}" '
+                [.status.traffic[]? | select(.tag == $tag and .revisionName == $revision)] | length == 1
+              ' /tmp/mcp-service-cleanup.json >/dev/null
+              gcloud run services update-traffic "$SERVICE_NAME" \
+                --region "$REGION" --project "$PROJECT_ID" \
+                --remove-tags "$EXPECTED_SERVING_TAG"
+            fi
+          else
+            test "$SERVING_REVISION" = "${{ steps.current.outputs.rollback_revision }}"
+          fi
+          TAG_REVISION=$(jq -er --arg tag "$CANDIDATE_TAG" '
+            [.status.traffic[]? | select(.tag == $tag) | .revisionName]
+            | if length == 0 then "" elif length == 1 then .[0] else error("duplicate smoke tag") end
+          ' /tmp/mcp-service-cleanup.json)
+          if [ -n "$TAG_REVISION" ]; then
+            test "$TAG_REVISION" = "$CANDIDATE_REVISION"
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --region "$REGION" --project "$PROJECT_ID" \
+              --remove-tags "$CANDIDATE_TAG"
+          fi
+          gcloud run services describe "$SERVICE_NAME" \
+            --region "$REGION" --project "$PROJECT_ID" --format=json \
+            > /tmp/mcp-service-final.json
+          jq -e --arg tag "$CANDIDATE_TAG" --arg serving "$SERVING_REVISION" '
+            ([.status.traffic[]? | select(.tag == $tag)] | length) == 0
+            and ([.status.traffic[]? | select(.percent == 100) | .revisionName] == [$serving])
+          ' /tmp/mcp-service-final.json >/dev/null
+          if [ "$SERVING_REVISION" = "$CANDIDATE_REVISION" ]; then
+            jq -e '([.status.traffic[]? | select(.tag != null and .tag != "")] | length) == 0' \
+              /tmp/mcp-service-final.json >/dev/null
+            jq -e '.metadata.annotations["run.googleapis.com/minScale"] == "1"' \
+              /tmp/mcp-service-final.json >/dev/null
+          elif [ -n "$EXPECTED_SERVING_TAG" ]; then
+            jq -e --arg tag "$EXPECTED_SERVING_TAG" --arg revision "$SERVING_REVISION" '
+              [.status.traffic[]? | select(.tag == $tag and .revisionName == $revision)] | length == 1
+            ' /tmp/mcp-service-final.json >/dev/null
+          fi
+      - name: Fail release when promotion or canonical verification failed
         if: always() && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
         run: exit 1
       - name: Collect Cloud Build diagnostics
@@ -484,11 +592,3 @@ jobs:
         run: |
           echo "Deploy failed. Review the mcp-deploy-diagnostics artifact for Cloud Build IDs and logs."
           exit 1
-      - name: Health check MCP proxy
-        if: ${{ !inputs.cisa_only && steps.deploy.outputs.deploy_succeeded == 'true' }}
-        run: |
-          set -euo pipefail
-          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
-          echo "MCP proxy URL: ${SERVICE_URL}"
-          curl -fsS "${SERVICE_URL}/health" >/dev/null
-          curl -fsS "${SERVICE_URL}/.well-known/mcp.json" >/dev/null
