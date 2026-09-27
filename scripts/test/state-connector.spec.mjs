@@ -1,11 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { coveredStates } from '../../gcp/state-connector/constants.js';
+import { adaptersForState } from '../../gcp/state-connector/adapters/index.js';
 import { parseSignalsRequest, signalFetchStatus, sortAndLimitSignals } from '../../gcp/state-connector/request.js';
 
-test('state connector declares phase 1 covered states', () => {
-  assert.deepEqual(coveredStates, ['CA', 'FL', 'MN', 'NY', 'TX', 'VA']);
+test('state connector declares adapters for every covered state including North Carolina', () => {
+  assert.deepEqual(coveredStates, ['CA', 'FL', 'MN', 'NC', 'NY', 'TX', 'VA']);
+  assert.deepEqual(adaptersForState('NC').map((adapter) => adapter.state), ['NC']);
+  assert.deepEqual(adaptersForState().map((adapter) => adapter.state).sort(), coveredStates);
+  const feeds = JSON.parse(readFileSync(new URL('../../data/feeds.json', import.meta.url), 'utf8')).feeds;
+  for (const id of ['state-rulemaking', 'state-executive-orders']) {
+    assert.deepEqual(feeds.find((feed) => feed.id === id).coveredStates, coveredStates);
+  }
 });
 
 test('signals request defaults and clamps limit', () => {

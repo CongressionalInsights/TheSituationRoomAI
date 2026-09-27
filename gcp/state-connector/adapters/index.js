@@ -1,12 +1,13 @@
 import ca from './ca.js';
 import fl from './fl.js';
 import mn from './mn.js';
+import nc from './nc.js';
 import ny from './ny.js';
 import tx from './tx.js';
 import va from './va.js';
 import { coveredStates } from '../constants.js';
 
-export const adapters = [ca, fl, mn, ny, tx, va];
+export const adapters = [ca, fl, mn, nc, ny, tx, va];
 
 export { coveredStates };
 

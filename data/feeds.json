@@ -1166,6 +1166,7 @@
     {
       "id": "state-rulemaking",
       "name": "State Rulemaking (Connector)",
+      "coveredStates": ["CA", "FL", "MN", "NC", "NY", "TX", "VA"],
       "docsUrl": "https://s3-us-gov-west-1.amazonaws.com/cg-0817d6e3-93c4-4de8-8b32-da6919464e61/open_data_us.csv",
       "category": "gov",
       "format": "json",
@@ -1192,6 +1193,7 @@
     {
       "id": "state-executive-orders",
       "name": "State Executive Orders (Connector)",
+      "coveredStates": ["CA", "FL", "MN", "NC", "NY", "TX", "VA"],
       "docsUrl": "https://s3-us-gov-west-1.amazonaws.com/cg-0817d6e3-93c4-4de8-8b32-da6919464e61/open_data_us.csv",
       "category": "gov",
       "format": "json",
