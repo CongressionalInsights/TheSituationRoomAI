@@ -1585,11 +1585,13 @@ async function fetchStateConnectorRaw(feed, options = {}) {
   }
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS, consumeResponse = null) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    // Opt-in consumers keep cancellation active until the response body is read.
+    return consumeResponse ? await consumeResponse(response) : response;
   } finally {
     clearTimeout(id);
   }
@@ -2400,6 +2402,7 @@ export async function fetchRaw(feed, options) {
   let responseHeaders = null;
   let succeeded = false;
   const isEonetFeed = feed?.id === 'eonet-events';
+  const stooqDeadline = feed?.id === 'stooq-quote' ? startedAt + totalTimeoutMs : null;
   const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
   const rssDirectTimeoutMs = Math.max(15000, Math.floor(rssEffectiveTimeout * 0.75));
   const rssFallbackTimeoutMs = attempts.length > 1
@@ -2412,6 +2415,11 @@ export async function fetchRaw(feed, options) {
     : eonetDirectTimeoutMs;
 
   for (let index = 0; index < attempts.length; index += 1) {
+    const remainingStooqMs = stooqDeadline === null ? null : stooqDeadline - Date.now();
+    if (remainingStooqMs !== null && remainingStooqMs <= 0) {
+      lastError = { error: 'fetch_failed', message: 'Stooq request deadline exceeded.', code: 'timeout' };
+      break;
+    }
     const proxy = attempts[index];
     const proxiedUrl = proxy ? applyProxy(keyedUrl, proxy) : keyedUrl;
     fetchedUrl = proxiedUrl;
@@ -2419,12 +2427,17 @@ export async function fetchRaw(feed, options) {
       ? (index === 0 ? rssDirectTimeoutMs : rssFallbackTimeoutMs)
       : isEonetFeed
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
-      : totalTimeoutMs;
+      : remainingStooqMs ?? totalTimeoutMs;
     try {
-      response = openStatesRequest && !proxy
-        ? await fetchOpenStatesWithControls(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs)
-        : await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
-      body = await response.text();
+      if (stooqDeadline !== null) {
+        [response, body] = await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs,
+          async (upstream) => [upstream, await upstream.text()]);
+      } else {
+        response = openStatesRequest && !proxy
+          ? await fetchOpenStatesWithControls(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs)
+          : await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
+        body = await response.text();
+      }
       responseHeaders = extractSafeResponseHeaders(response.headers);
       if (response.ok) {
         if (feed.format === 'json' && isJsonHtmlError(response.headers.get('content-type') || '', body)) {

@@ -41,6 +41,127 @@ const {
 } = await import('../../gcp/mcp-proxy/server.js');
 const { sanitizeEiaPayload } = await import('../../gcp/mcp-proxy/public-payload-safety.js');
 
+const stooqTransportFeed = {
+  id: 'stooq-quote', format: 'csv', supportsQuery: true,
+  url: 'https://fixture.invalid/stooq.csv', timeoutMs: 100
+};
+const stooqTransportCsv = 'Symbol,Date,Time,Open,High,Low,Close,Volume\nFIXTURE,2026-09-27,12:00:00,1,1,1,1,1';
+const flushStooqTimers = () => new Promise((resolve) => setImmediate(resolve));
+function waitForStooqAbort(signal) {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+for (const stalledPhase of ['headers', 'body']) {
+  test(`Stooq stalled ${stalledPhase} consumes one total deadline`, async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+    const signals = [];
+    t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+      assert.match(String(url), /fixture\.invalid/);
+      signals.push(signal);
+      if (stalledPhase === 'headers') return waitForStooqAbort(signal);
+      return { ok: true, status: 200, headers: new Headers(), text: () => waitForStooqAbort(signal) };
+    });
+    const pending = fetchRaw(stooqTransportFeed, { query: 'fixture' });
+    await flushStooqTimers();
+    t.mock.timers.tick(99);
+    assert.equal(signals[0].aborted, false);
+    t.mock.timers.tick(1);
+    await flushStooqTimers();
+    const result = await pending;
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.code, 'timeout');
+    assert.equal(result.fetchedUrl, stooqTransportFeed.url);
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(signals.length, 1, 'exhausted budget must not start proxy requests');
+    assert.equal(signals[0].aborted, true);
+    assert.equal(normalizeCsvSignals(result.body || '', stooqTransportFeed).length, 0);
+  });
+}
+
+test('Stooq fallback body gets only the deadline remaining after direct failure', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const signals = [];
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+    assert.match(String(url), /fixture\.invalid/);
+    urls.push(String(url));
+    signals.push(signal);
+    if (signals.length === 1) {
+      return new Promise((resolve) => setTimeout(() => resolve(new Response('upstream down', { status: 502 })), 40));
+    }
+    return { ok: true, status: 200, headers: new Headers(), text: () => waitForStooqAbort(signal) };
+  });
+  const pending = fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+  await flushStooqTimers();
+  t.mock.timers.tick(40);
+  await flushStooqTimers();
+  assert.equal(signals.length, 2);
+  t.mock.timers.tick(59);
+  assert.equal(signals[1].aborted, false);
+  t.mock.timers.tick(1);
+  await flushStooqTimers();
+  const result = await pending;
+  assert.equal(result.error, 'fetch_failed');
+  assert.equal(result.code, 'timeout');
+  assert.equal(result.fetchedUrl, urls[1]);
+  assert.equal(signals.length, 2);
+  assert.equal(signals[0].aborted, false, 'completed attempt timer must be cleared');
+  assert.equal(signals[1].aborted, true);
+});
+
+test('Stooq CSV success and fallback provenance remain intact', async (t) => {
+  let calls = 0;
+  let directFails = false;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.match(String(url), /fixture\.invalid/);
+    calls += 1;
+    return directFails && calls === 1
+      ? new Response('upstream down', { status: 502 })
+      : new Response(stooqTransportCsv, { headers: { 'content-type': 'text/csv' } });
+  });
+  const direct = await fetchRaw(stooqTransportFeed, { query: 'fixture' });
+  assert.equal(direct.body, stooqTransportCsv);
+  assert.equal(direct.httpStatus, 200);
+  assert.equal(direct.contentType, 'text/csv');
+  assert.equal(direct.fetchedUrl, stooqTransportFeed.url);
+  assert.equal(direct.proxyUsed, null);
+  assert.equal(direct.fallbackUsed, false);
+  assert.equal(normalizeCsvSignals(direct.body, stooqTransportFeed).length, 1);
+  directFails = true;
+  calls = 0;
+  const fallback = await fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+  assert.equal(calls, 2);
+  assert.equal(fallback.body, stooqTransportCsv);
+  assert.equal(fallback.proxyUsed, 'allorigins');
+  assert.equal(fallback.fallbackUsed, false, 'explicit primary proxy is not an implicit fallback');
+  assert.match(fallback.fetchedUrl, /allorigins/);
+});
+
+test('Stooq retains independent HTTP failures and non-retryable 404/408', async (t) => {
+  for (const status of [404, 408, 502]) {
+    let calls = 0;
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.match(String(url), /fixture\.invalid/);
+      calls += 1;
+      return new Response('provider failure', { status });
+    });
+    const result = await fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.httpStatus, status);
+    assert.equal(result.upstreamStatus, status);
+    assert.equal(result.body, 'provider failure');
+    assert.equal(result.code, undefined, 'HTTP failure must not become a transport timeout');
+    assert.match(result.message, new RegExp(`HTTP ${status}`));
+    if (status !== 502) assert.equal(calls, 1);
+    else assert.ok(calls > 1, 'server failures retain proxy attempts within budget');
+    globalThis.fetch.mock.restore();
+  }
+});
+
 test('MCP EIA sanitization covers success, error, and legacy response bodies', () => {
   const feed = { id: 'energy-eia-brent', keyGroup: 'eia' };
   for (const body of [
