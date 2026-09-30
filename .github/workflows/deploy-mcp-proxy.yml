@@ -592,3 +592,12 @@ jobs:
         run: |
           echo "Deploy failed. Review the mcp-deploy-diagnostics artifact for Cloud Build IDs and logs."
           exit 1
+      - name: Upload MCP core sentinel reports
+        if: always() && !inputs.cisa_only && hashFiles('analysis/monitor/latest.json', 'analysis/monitor/latest.md') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-core-sentinel-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            analysis/monitor/latest.json
+            analysis/monitor/latest.md
+          if-no-files-found: warn
