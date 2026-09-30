@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 
 const {
   getStateBillSortTimestamp,
@@ -14,11 +16,17 @@ const {
   buildFeedUrl,
   buildMoneyQueryProfile,
   buildRawStructuredContent,
+  buildMcpServer,
+  createItemId,
+  dedupeSignals,
+  fetchRaw,
+  matchesSignalQuery,
   buildUsaspendingTransactionKey,
   attachMoneyMatch,
   findBestMoneyNameMatch,
   getOpenStatesCachedRaw,
   getFeedConfiguration,
+  getStateConnectorCoverage,
   getOpenStatesSuccessCacheTtl,
   resetOpenStatesRawCacheForTest,
   fetchFeedProxyFallback,
@@ -32,6 +40,127 @@ const {
   supportsHistoryRange
 } = await import('../../gcp/mcp-proxy/server.js');
 const { sanitizeEiaPayload } = await import('../../gcp/mcp-proxy/public-payload-safety.js');
+
+const stooqTransportFeed = {
+  id: 'stooq-quote', format: 'csv', supportsQuery: true,
+  url: 'https://fixture.invalid/stooq.csv', timeoutMs: 100
+};
+const stooqTransportCsv = 'Symbol,Date,Time,Open,High,Low,Close,Volume\nFIXTURE,2026-09-27,12:00:00,1,1,1,1,1';
+const flushStooqTimers = () => new Promise((resolve) => setImmediate(resolve));
+function waitForStooqAbort(signal) {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+for (const stalledPhase of ['headers', 'body']) {
+  test(`Stooq stalled ${stalledPhase} consumes one total deadline`, async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+    const signals = [];
+    t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+      assert.match(String(url), /fixture\.invalid/);
+      signals.push(signal);
+      if (stalledPhase === 'headers') return waitForStooqAbort(signal);
+      return { ok: true, status: 200, headers: new Headers(), text: () => waitForStooqAbort(signal) };
+    });
+    const pending = fetchRaw(stooqTransportFeed, { query: 'fixture' });
+    await flushStooqTimers();
+    t.mock.timers.tick(99);
+    assert.equal(signals[0].aborted, false);
+    t.mock.timers.tick(1);
+    await flushStooqTimers();
+    const result = await pending;
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.code, 'timeout');
+    assert.equal(result.fetchedUrl, stooqTransportFeed.url);
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(signals.length, 1, 'exhausted budget must not start proxy requests');
+    assert.equal(signals[0].aborted, true);
+    assert.equal(normalizeCsvSignals(result.body || '', stooqTransportFeed).length, 0);
+  });
+}
+
+test('Stooq fallback body gets only the deadline remaining after direct failure', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const signals = [];
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+    assert.match(String(url), /fixture\.invalid/);
+    urls.push(String(url));
+    signals.push(signal);
+    if (signals.length === 1) {
+      return new Promise((resolve) => setTimeout(() => resolve(new Response('upstream down', { status: 502 })), 40));
+    }
+    return { ok: true, status: 200, headers: new Headers(), text: () => waitForStooqAbort(signal) };
+  });
+  const pending = fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+  await flushStooqTimers();
+  t.mock.timers.tick(40);
+  await flushStooqTimers();
+  assert.equal(signals.length, 2);
+  t.mock.timers.tick(59);
+  assert.equal(signals[1].aborted, false);
+  t.mock.timers.tick(1);
+  await flushStooqTimers();
+  const result = await pending;
+  assert.equal(result.error, 'fetch_failed');
+  assert.equal(result.code, 'timeout');
+  assert.equal(result.fetchedUrl, urls[1]);
+  assert.equal(signals.length, 2);
+  assert.equal(signals[0].aborted, false, 'completed attempt timer must be cleared');
+  assert.equal(signals[1].aborted, true);
+});
+
+test('Stooq CSV success and fallback provenance remain intact', async (t) => {
+  let calls = 0;
+  let directFails = false;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.match(String(url), /fixture\.invalid/);
+    calls += 1;
+    return directFails && calls === 1
+      ? new Response('upstream down', { status: 502 })
+      : new Response(stooqTransportCsv, { headers: { 'content-type': 'text/csv' } });
+  });
+  const direct = await fetchRaw(stooqTransportFeed, { query: 'fixture' });
+  assert.equal(direct.body, stooqTransportCsv);
+  assert.equal(direct.httpStatus, 200);
+  assert.equal(direct.contentType, 'text/csv');
+  assert.equal(direct.fetchedUrl, stooqTransportFeed.url);
+  assert.equal(direct.proxyUsed, null);
+  assert.equal(direct.fallbackUsed, false);
+  assert.equal(normalizeCsvSignals(direct.body, stooqTransportFeed).length, 1);
+  directFails = true;
+  calls = 0;
+  const fallback = await fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+  assert.equal(calls, 2);
+  assert.equal(fallback.body, stooqTransportCsv);
+  assert.equal(fallback.proxyUsed, 'allorigins');
+  assert.equal(fallback.fallbackUsed, false, 'explicit primary proxy is not an implicit fallback');
+  assert.match(fallback.fetchedUrl, /allorigins/);
+});
+
+test('Stooq retains independent HTTP failures and non-retryable 404/408', async (t) => {
+  for (const status of [404, 408, 502]) {
+    let calls = 0;
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.match(String(url), /fixture\.invalid/);
+      calls += 1;
+      return new Response('provider failure', { status });
+    });
+    const result = await fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.httpStatus, status);
+    assert.equal(result.upstreamStatus, status);
+    assert.equal(result.body, 'provider failure');
+    assert.equal(result.code, undefined, 'HTTP failure must not become a transport timeout');
+    assert.match(result.message, new RegExp(`HTTP ${status}`));
+    if (status !== 502) assert.equal(calls, 1);
+    else assert.ok(calls > 1, 'server failures retain proxy attempts within budget');
+    globalThis.fetch.mock.restore();
+  }
+});
 
 test('MCP EIA sanitization covers success, error, and legacy response bodies', () => {
   const feed = { id: 'energy-eia-brent', keyGroup: 'eia' };
@@ -930,13 +1059,16 @@ test('state connector configuration is explicit in catalog metadata', () => {
     configured: false,
     requiredEnv: ['STATE_CONNECTOR_BASE_URL', 'STATE_CONNECTOR_API_KEY'],
     optionalEnv: ['STATE_CONNECTOR_KEY_HEADER'],
-    coveredStates: ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'],
+    coveredStates: ['CA', 'FL', 'MN', 'NC', 'NY', 'TX', 'VA'],
     message: 'State connector provider is not configured.'
   });
   assert.equal(getFeedConfiguration(rulemakingFeed, {
     STATE_CONNECTOR_BASE_URL: 'https://state.example',
     STATE_CONNECTOR_API_KEY: 'secret'
   }).configured, true);
+  assert.deepEqual(getStateConnectorCoverage('North Carolina'), { coverageStatus: 'SUPPORTED', requestedState: 'NC' });
+  assert.deepEqual(getStateConnectorCoverage('MD'), { coverageStatus: 'UNSUPPORTED', requestedState: 'MD' });
+  assert.equal(getStateConnectorCoverage().coverageStatus, 'PARTIAL');
 
   assert.deepEqual(getFeedConfiguration({ id: 'acled-events', acledMode: 'aggregated', requiresConfig: true }, {}), {
     configured: false,
@@ -994,4 +1126,459 @@ test('normalizeJsonSignals maps GeoJSON feature properties into signal fields', 
   assert.equal(item.url, 'https://earthquake.usgs.gov/earthquakes/eventpage/nc75360036');
   assert.equal(item.publishedAt, 1778683419930);
   assert.deepEqual(item.geo, { lat: 38.8283348083496, lon: -122.803833007812 });
+});
+
+const cisaFeed = {
+  id: 'cisa-kev', name: 'CISA Known Exploited Vulnerabilities', category: 'cyber', format: 'json',
+  url: 'https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json'
+};
+function cisaFixture(overrides = {}) {
+  return {
+    cveID: 'CVE-2026-12345', vendorProject: 'Fixture Vendor', product: 'Fixture Gateway',
+    vulnerabilityName: 'Fixture authentication bypass', dateAdded: '2026-09-01',
+    shortDescription: 'An authentication bypass in the fixture gateway.',
+    requiredAction: 'Apply the fixture update.', dueDate: '2026-09-22',
+    knownRansomwareCampaignUse: 'Unknown', forensicTriage: 'Yes', notes: 'https://untrusted.example/notes', cwes: ['CWE-287'],
+    ...overrides
+  };
+}
+function cisaCatalog(vulnerabilities = []) {
+  return { catalogVersion: '2026.09.02', dateReleased: '2026-09-02T12:00:00Z', count: vulnerabilities.length, vulnerabilities };
+}
+
+test('CISA normalization maps CVE fields to source-dated signals with fixed official evidence', () => {
+  const record = cisaFixture({ url: 'https://untrusted.example/evidence', source: 'Untrusted source' });
+  const [item] = normalizeJsonSignals(JSON.stringify(cisaCatalog([record])), cisaFeed);
+  assert.equal(item.docId, record.cveID);
+  assert.equal(item.title, 'CVE-2026-12345 - Fixture authentication bypass');
+  assert.equal(item.summary, 'Fixture Vendor Fixture Gateway - An authentication bypass in the fixture gateway.');
+  assert.equal(item.url, 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog');
+  assert.equal(item.publishedAt, Date.parse('2026-09-01T00:00:00Z'));
+  assert.equal(item.source, cisaFeed.name);
+  assert.equal(item.category, 'cyber');
+  for (const field of ['cveID', 'vendorProject', 'product', 'vulnerabilityName', 'shortDescription', 'dateAdded', 'requiredAction', 'dueDate', 'knownRansomwareCampaignUse', 'forensicTriage', 'notes', 'cwes']) {
+    assert.deepEqual(item[field], record[field], field);
+  }
+  for (const query of ['cve-2026-12345', 'fixture vendor', 'fixture gateway', 'authentication bypass']) {
+    assert.equal(matchesSignalQuery(item, query, cisaFeed), true, query);
+  }
+  assert.equal(matchesSignalQuery(item, 'unrelated vulnerability', cisaFeed), false);
+});
+
+test('CISA valid empty catalogs and malformed records do not fabricate signals', () => {
+  for (const payload of [cisaCatalog(), {}, null, [], { vulnerabilities: {} }, { items: [cisaFixture()] }]) {
+    assert.deepEqual(normalizeJsonSignals(JSON.stringify(payload), cisaFeed), []);
+  }
+  assert.deepEqual(normalizeJsonSignals('{"vulnerabilities":', cisaFeed), []);
+  const malformed = [null, false, 42, 'CVE-2026-12345', [], {}, { cveID: {} }, { cveID: 'CVE-2026-123' }, { cveID: 'CVE-2026-12345 extra' }];
+  const items = normalizeJsonSignals(JSON.stringify(cisaCatalog([...malformed, cisaFixture()])), cisaFeed);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].cveID, 'CVE-2026-12345');
+});
+
+test('CISA forensic triage preserves Yes/No and normalizes missing or invalid values to null', () => {
+  const values = ['Yes', 'No', ' \tYes\n ', undefined, null, '', ' \t\n ', {}, 42];
+  const records = values.map((forensicTriage, index) => cisaFixture({
+    cveID: `CVE-2026-${20000 + index}`,
+    forensicTriage
+  }));
+  const items = normalizeJsonSignals(JSON.stringify(cisaCatalog(records)), cisaFeed);
+  assert.equal(items.length, values.length);
+  assert.deepEqual(items.map((item) => item.forensicTriage), ['Yes', 'No', 'Yes', null, null, null, null, null, null]);
+  assert.equal(new Set(items.map(createItemId)).size, values.length);
+});
+
+test('CISA missing or invalid dates stay unknown without consulting the current clock', (t) => {
+  t.mock.method(Date, 'now', () => { throw new Error('CISA normalization must not consult the clock'); });
+  for (const dateAdded of [undefined, null, '', 'not-a-date', '2026-02-29', '2026-04-31', '2026-13-01', '2026-9-01', '2026-09-01T12:00:00Z', 1788220800000, {}]) {
+    const [item] = normalizeJsonSignals(JSON.stringify(cisaCatalog([cisaFixture({ dateAdded, publishedAt: '2026-09-10', updated: '2026-09-11' })])), cisaFeed);
+    assert.ok(item);
+    assert.equal(item.publishedAt, null, JSON.stringify(dateAdded));
+  }
+  const [leapDay] = normalizeJsonSignals(JSON.stringify(cisaCatalog([cisaFixture({ dateAdded: '2024-02-29' })])), cisaFeed);
+  assert.equal(leapDay.publishedAt, Date.parse('2024-02-29T00:00:00Z'));
+});
+
+test('CISA skips incomplete content but retains records with sparse optional fields', () => {
+  const incomplete = [
+    { cveID: ' cve-2026-12345 ', vulnerabilityName: {}, shortDescription: [], vendorProject: false, cwes: [null, {}, ' CWE-287 ', ''] },
+    { cveID: 'CVE-2026-12346', vendorProject: 'Fixture Vendor', product: 'Fixture Gateway' },
+    ...['vulnerabilityName', 'shortDescription'].flatMap((field) =>
+      [undefined, null, '', ' \t\n ', {}, [], false, 42].map((value) => cisaFixture({ [field]: value })))
+  ];
+  assert.deepEqual(normalizeJsonSignals(JSON.stringify(cisaCatalog(incomplete)), cisaFeed), []);
+  const items = normalizeJsonSignals(JSON.stringify(cisaCatalog([...incomplete, {
+    cveID: ' cve-2026-12347 ', vulnerabilityName: ' Fixture vulnerability ',
+    shortDescription: ' Fixture description. ', cwes: [null, {}, ' CWE-287 ', '']
+  }])), cisaFeed);
+  assert.equal(items.length, 1);
+  const [sparse] = items;
+  assert.equal(sparse.docId, 'CVE-2026-12347');
+  assert.equal(sparse.title, 'CVE-2026-12347 - Fixture vulnerability');
+  assert.equal(sparse.summary, 'Fixture description.');
+  assert.equal(sparse.publishedAt, null);
+  assert.equal(sparse.knownRansomwareCampaignUse, null);
+  assert.deepEqual(sparse.cwes, ['CWE-287']);
+});
+
+test('CISA keeps the full catalog and stable distinct CVE identities across reordering and metadata changes', () => {
+  const records = Array.from({ length: 55 }, (_, index) => cisaFixture({ cveID: `CVE-2026-${10000 + index}` }));
+  records.push(cisaFixture({ cveID: 'CVE-2026-99999', vulnerabilityName: 'Late catalog match', forensicTriage: undefined }));
+  const items = normalizeJsonSignals(JSON.stringify(cisaCatalog(records)), cisaFeed);
+  assert.equal(items.length, 56);
+  assert.equal(items.filter((item) => matchesSignalQuery(item, 'late catalog match', cisaFeed)).length, 1);
+  assert.equal(new Set(items.map(createItemId)).size, 56);
+  assert.equal(dedupeSignals([...items, items[0]]).length, 56);
+  const revised = normalizeJsonSignals(JSON.stringify(cisaCatalog([...records].reverse().map((record) => ({ ...record, vulnerabilityName: 'Revised title', dateAdded: null, forensicTriage: 'No' })))), cisaFeed);
+  assert.deepEqual(revised.map(createItemId).reverse(), items.map(createItemId));
+});
+
+test('CISA specialization leaves non-CISA JSON selection and mapping unchanged', () => {
+  const otherFeed = { id: 'other-json', name: 'Other JSON', category: 'other' };
+  assert.deepEqual(normalizeJsonSignals(JSON.stringify(cisaCatalog([cisaFixture()])), otherFeed), []);
+  const [item] = normalizeJsonSignals(JSON.stringify({ items: [{
+    title: 'Existing title', summary: 'Existing summary', url: 'https://example.test/item', publishedAt: '2026-08-01T10:00:00Z',
+    ...cisaFixture()
+  }] }), otherFeed);
+  assert.deepEqual(item, {
+    title: 'Existing title', summary: 'Existing summary', url: 'https://example.test/item', publishedAt: Date.parse('2026-08-01T10:00:00Z'),
+    source: otherFeed.name, category: otherFeed.category, geo: null
+  });
+});
+
+test('CISA MCP raw, list, search, and get preserve identities, query limits, and provenance', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  const records = Array.from({ length: 55 }, (_, index) => cisaFixture({
+    cveID: `CVE-2026-${10000 + index}`,
+    forensicTriage: index === 1 ? 'No' : 'Yes'
+  }));
+  const lateRecord = cisaFixture({ cveID: 'CVE-2026-99999', vulnerabilityName: 'Late catalog match' });
+  delete lateRecord.forensicTriage;
+  records.push(lateRecord);
+  let payload = cisaCatalog(records);
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(String(url), cisaFeed.url, 'all acquisition remains mocked at the fixed source');
+    return new Response(JSON.stringify(payload), { headers: { 'content-type': 'application/json', etag: '"cisa-fixture"' } });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'cisa-contract-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const raw = await call('raw.fetch', { sourceId: 'cisa-kev', format: 'json' });
+  assert.deepEqual(raw.data, payload);
+  assert.equal(raw.fetchedUrl, cisaFeed.url);
+  assert.equal(raw.fallbackUsed, false);
+  assert.equal(raw.proxyUsed, null);
+  assert.equal(raw.warning, null);
+  const listed = await call('signals.list', { sourceId: 'cisa-kev' });
+  assert.equal(listed.items.length, 56);
+  assert.equal(listed.items[0].forensicTriage, 'Yes');
+  assert.equal(listed.items[1].forensicTriage, 'No');
+  assert.equal(listed.items[55].forensicTriage, null);
+  assert.equal(listed.fetchedUrl, raw.fetchedUrl);
+  assert.equal(listed.fallbackUsed, false);
+  assert.equal(listed.warning, null);
+  // Existing non-state list queries are unfiltered; local query filtering belongs to smart search.
+  const limited = await call('signals.list', { sourceId: 'cisa-kev', query: 'Late catalog match', limit: 2 });
+  assert.deepEqual(limited.items, listed.items.slice(0, 2));
+  const all = await call('search.smart', { sources: ['cisa-kev'], perSourceLimit: 100, totalLimit: 100 });
+  assert.deepEqual(all.signals.map((item) => item.id), listed.items.map((item) => item.id));
+  assert.equal(all.signals[1].forensicTriage, 'No');
+  const searched = await call('search.smart', { sources: ['cisa-kev'], query: 'CVE-2026-99999', perSourceLimit: 1, totalLimit: 1 });
+  assert.equal(searched.signals.length, 1);
+  assert.equal(searched.signals[0].id, listed.items[55].id);
+  assert.equal(searched.signals[0].forensicTriage, null);
+  assert.equal(searched.sourcesChecked[0].count, 1);
+  payload = cisaCatalog([...records].reverse());
+  const found = await call('signals.get', { sourceId: 'cisa-kev', id: searched.signals[0].id });
+  assert.deepEqual(found.item, listed.items[55]);
+  assert.equal(found.fallbackUsed, false);
+  const unmatched = await call('search.smart', { sources: ['cisa-kev'], query: 'unrelated vulnerability' });
+  assert.equal(unmatched.signals.length, 0);
+  assert.equal(unmatched.sourcesChecked[0].ok, true);
+  payload = cisaCatalog();
+  assert.deepEqual((await call('raw.fetch', { sourceId: 'cisa-kev', format: 'json' })).data, payload);
+  assert.deepEqual((await call('signals.list', { sourceId: 'cisa-kev' })).items, []);
+  const empty = await call('search.smart', { sources: ['cisa-kev'] });
+  assert.deepEqual(empty.signals, []);
+  assert.equal(empty.sourcesChecked[0].ok, true);
+  assert.equal((await call('signals.get', { sourceId: 'cisa-kev', id: searched.signals[0].id })).item, null);
+});
+
+const nwsFeed = { id: 'nws-alerts', name: 'NWS Alerts (US)', category: 'weather', format: 'json', url: 'https://api.weather.gov/alerts/active' };
+function nwsFixture(overrides = {}) {
+  return {
+    type: 'Feature',
+    id: 'https://api.weather.gov/alerts/fixture-nc',
+    geometry: { type: 'Polygon', coordinates: [[[-83, 35], [-82, 35], [-82, 36], [-83, 35]]] },
+    properties: {
+      id: 'urn:fixture:nc', event: 'Flood Warning', headline: 'Flood Warning for Buncombe',
+      description: 'Fixture warning description.', instruction: 'Fixture action.',
+      status: 'Actual', messageType: 'Alert', severity: 'Severe', urgency: 'Immediate', certainty: 'Observed',
+      sent: '2026-09-04T12:00:00-04:00', effective: '2026-09-04T12:05:00-04:00', expires: '2026-09-04T14:00:00-04:00',
+      areaDesc: 'Buncombe', geocode: { UGC: ['NCC021'] }, affectedZones: ['https://api.weather.gov/zones/county/NCC021'],
+      ...overrides
+    }
+  };
+}
+
+test('NWS normalization preserves alert details, polygons, source timestamps, and state search', () => {
+  const feature = nwsFixture();
+  const [item] = normalizeJsonSignals(JSON.stringify({ features: [feature] }), nwsFeed);
+  assert.equal(item.title, feature.properties.headline);
+  assert.equal(item.url, feature.id);
+  assert.equal(item.docId, feature.properties.id);
+  assert.equal(item.publishedAt, Date.parse(feature.properties.sent));
+  assert.equal(item.expires, feature.properties.expires);
+  assert.equal(item.instruction, feature.properties.instruction);
+  assert.equal(item.severity, 'Severe');
+  assert.equal(item.status, 'Actual');
+  assert.deepEqual(item.geometry, feature.geometry);
+  assert.equal(item.geo, null, 'do not turn a polygon into a fabricated point');
+  assert.deepEqual(item.jurisdictionCodes, ['NC']);
+  assert.deepEqual(item.jurisdictionNames, ['North Carolina']);
+  assert.equal(matchesSignalQuery(item, 'north carolina', nwsFeed), true);
+  assert.equal(matchesSignalQuery(item, 'buncombe', nwsFeed), true);
+  assert.equal(matchesSignalQuery(item, 'california', nwsFeed), false);
+  assert.equal(shouldFilterSmartFeedLocally({ feed: nwsFeed, query: 'North Carolina' }), true);
+});
+
+test('NWS searches include records beyond the generic first-50 cap and suppress test alerts', () => {
+  const features = Array.from({ length: 55 }, (_, index) => nwsFixture({ id: `urn:fixture:${index}`, areaDesc: 'Virginia', geocode: { UGC: ['VAC001'] }, affectedZones: [] }));
+  features.push(nwsFixture(), nwsFixture({ status: 'Test' }), nwsFixture({ status: 'Exercise' }));
+  const items = normalizeJsonSignals(JSON.stringify({ features }), nwsFeed);
+  assert.equal(items.length, 56);
+  assert.equal(items.filter((item) => matchesSignalQuery(item, 'north carolina', nwsFeed)).length, 1);
+  assert.equal(items.filter((item) => matchesSignalQuery(item, 'alaska', nwsFeed)).length, 0);
+  assert.deepEqual(normalizeJsonSignals('{"features":[]}', nwsFeed), []);
+});
+
+test('NWS missing dates stay unknown, fallback event titles work, and multi-state zones remain searchable', () => {
+  const [item] = normalizeJsonSignals(JSON.stringify({ features: [nwsFixture({
+    headline: null, sent: 'bad-date', effective: null,
+    geocode: { UGC: ['NCC021', 'SCC001'] }, affectedZones: []
+  })] }), nwsFeed);
+  assert.equal(item.title, 'Flood Warning');
+  assert.equal(item.publishedAt, null);
+  assert.equal(matchesSignalQuery(item, 'south carolina', nwsFeed), true);
+});
+
+test('fire identities and deduplication preserve distinct detections with equal titles and times', () => {
+  const fireFeed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster' };
+  const rows = [
+    { title: 'Fire detection', publishedAt: 1788548983402, source: 'NOAA HMS', latitude: 46.47, longitude: -105.15, summary: 'FRP 10' },
+    { title: 'Fire detection', publishedAt: 1788548983402, source: 'NOAA HMS', latitude: 46.48, longitude: -105.16, summary: 'FRP 10' },
+    { title: 'Fire detection', publishedAt: 1788548983402, source: 'NOAA HMS', latitude: 46.47, longitude: -105.15, summary: 'FRP 20' }
+  ];
+  const items = normalizeJsonSignals(JSON.stringify({ items: rows }), fireFeed);
+  assert.equal(new Set(items.map(createItemId)).size, 3);
+  assert.equal(dedupeSignals([...items, items[0]]).length, 3);
+  assert.equal(items[0].source, 'NOAA HMS');
+  const reordered = normalizeJsonSignals(JSON.stringify({ items: [...rows].reverse() }), fireFeed);
+  assert.deepEqual(reordered.map(createItemId).reverse(), items.map(createItemId));
+});
+
+test('geographic zero coordinates survive while missing coordinates stay missing', () => {
+  const [zero, missing] = normalizeJsonSignals(JSON.stringify({ items: [
+    { title: 'Zero', latitude: 0, longitude: 0 },
+    { title: 'Missing', latitude: null, longitude: null }
+  ] }), { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster' });
+  assert.deepEqual(zero.geo, { lat: 0, lon: 0 });
+  assert.equal(missing.geo, null);
+});
+
+test('unsupported state connector requests report coverage before any network request', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('should not fetch'); });
+  for (const id of ['state-rulemaking', 'state-executive-orders']) {
+    const result = await fetchRaw({ id, supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'MD' } });
+    assert.equal(result.error, 'unsupported_state');
+    assert.equal(result.coverageStatus, 'UNSUPPORTED');
+    assert.match(result.message, /does not cover MD/);
+    assert.match(result.message, /CA, FL, MN, NC, NY, TX, VA/);
+  }
+  const invalid = await fetchRaw({ id: 'state-rulemaking', supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'not-a-state' } });
+  assert.equal(invalid.error, 'invalid_state');
+  assert.equal(invalid.coverageStatus, 'INVALID_STATE');
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test('supported state zero-result metadata remains bound to the requested state', () => {
+  const moduleUrl = new URL('../../gcp/mcp-proxy/server.js', import.meta.url).href;
+  const script = `
+    let providerState = 'NC';
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      results: [],
+      meta: {
+        state: providerState, signalType: 'rulemaking', coverageStatus: 'SUPPORTED', count: 0,
+        partial: false, adapterCount: 1, errors: [], coveredStates: ['NC'],
+        generatedAt: '2026-09-26T20:00:00Z', verifiedZeroResults: true
+      }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const { fetchRaw } = await import(${JSON.stringify(moduleUrl)});
+    const feed = { id: 'state-rulemaking', supportsParams: true, paramStrategy: 'state-code', capabilities: ['rulemaking'] };
+    const result = await fetchRaw(feed, { params: { state: 'NC' } });
+    providerState = 'VA';
+    const mismatched = await fetchRaw(feed, { params: { state: 'NC' } });
+    console.log(JSON.stringify({ coverageStatus: result.coverageStatus, requestedState: result.requestedState, verifiedZeroResults: result.verifiedZeroResults, fetchedUrl: result.fetchedUrl, mismatchVerified: mismatched.verifiedZeroResults }));
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8',
+    env: { ...process.env, STATE_CONNECTOR_BASE_URL: 'https://connector.example', STATE_CONNECTOR_API_KEY: 'fixture-key' }
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const result = JSON.parse(child.stdout.trim().split('\n').at(-1));
+  assert.equal(result.coverageStatus, 'SUPPORTED');
+  assert.equal(result.requestedState, 'NC');
+  assert.equal(result.verifiedZeroResults, true);
+  assert.equal(result.mismatchVerified, false);
+  assert.equal(new URL(result.fetchedUrl).searchParams.get('state'), 'NC');
+});
+
+test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and redacted URL', async (t) => {
+  const csv = 'latitude,longitude,acq_date,acq_time,frp,confidence\n0,-118.2,2026-09-22,35,12.4,n';
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
+    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(String(url), feed.url.replace('{{key}}', 'fixture-secret'));
+    return new Response(csv, { headers: { 'content-type': 'text/csv' } });
+  });
+  const result = await fetchRaw(feed, { key: 'fixture-secret' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.contentType, 'application/json');
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.proxyUsed, null);
+  assert.equal(result.fetchedUrl.includes('fixture-secret'), false);
+  assert.match(result.fetchedUrl, /\/csv\/REDACTED\//);
+  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+  assert.equal(raw.warning, null);
+  assert.equal(raw.data.items[0].latitude, 0);
+  assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-22T00:35:00Z'));
+  assert.equal(raw.data.items[0].source, 'NASA FIRMS');
+  assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+});
+
+test('NASA FIRMS invalid or empty CSV retains NOAA fallback attribution and warnings', async (t) => {
+  let primary = 'latitude,longitude,acq_date,acq_time';
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('fixture.invalid')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    assert.match(String(url), /arcgis/i);
+    return new Response(JSON.stringify({ features: [{
+      geometry: { type: 'Point', coordinates: [-105, 46] }, properties: { frp: 10, acq_date: '2026-09-04' }
+    }] }), { headers: { 'content-type': 'application/json' } });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://fixture.invalid/fire' };
+  for (const body of [primary, 'Invalid MAP_KEY', 'latitude,longitude,acq_date,acq_time\n91,0,2026-09-22,0']) {
+    primary = body;
+    const result = await fetchRaw(feed, {});
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.proxyUsed, 'arcgis-hms-fire');
+    assert.equal(result.contentType, 'application/json');
+    const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+    assert.equal(raw.data.items[0].source, 'NOAA HMS');
+    assert.match(raw.warning, /NASA FIRMS unavailable.*NOAA HMS/);
+  }
+});
+
+test('NASA FIRMS unusable CSV without a fallback remains an explicit redacted failure', async (t) => {
+  let primary = 'latitude,longitude,acq_date,acq_time';
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('fixture.invalid')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    return new Response('unavailable', { status: 403 });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
+    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+  for (const [body, error] of [[primary, 'empty_payload'], ['Invalid MAP_KEY fixture-secret', 'invalid_response']]) {
+    primary = body;
+    const result = await fetchRaw(feed, { key: 'fixture-secret' });
+    assert.equal(result.error, error);
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(result.body, undefined);
+    assert.equal(JSON.stringify(result).includes('fixture-secret'), false);
+  }
+});
+
+test('NASA fire fallback keeps the raw response contract and identifies NOAA substitution', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('upstream.test')) return new Response('unavailable', { status: 403 });
+    return new Response(JSON.stringify({ features: [{ geometry: { type: 'Point', coordinates: [-105, 46] }, properties: { frp: 10, acq_date: '2026-09-04' } }] }), { headers: { 'content-type': 'application/json' } });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://upstream.test/fire' };
+  const result = await fetchRaw(feed, {});
+  assert.equal(result.error, undefined);
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(result.proxyUsed, 'arcgis-hms-fire');
+  assert.equal(result.httpStatus, 200);
+  assert.equal(result.data, undefined, 'raw result fields must not be nested under data');
+  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+  assert.equal(raw.data.items[0].source, 'NOAA HMS');
+  assert.match(raw.warning, /NASA FIRMS unavailable.*NOAA HMS/);
+  assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+});
+
+test('published NASA snapshots remain flagged as fallback and retain record attribution', async (t) => {
+  const body = JSON.stringify({ items: [{ title: 'Fire detection', latitude: 40, longitude: -100, source: 'NOAA HMS', publishedAt: 1788548983402 }] });
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('/data/feeds/nasa-firms.json')) return new Response(JSON.stringify({ body, contentType: 'application/json', httpStatus: 200 }));
+    return new Response('unavailable', { status: 403 });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://upstream.test/fire' };
+  const result = await fetchRaw(feed, {});
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(result.proxyUsed, 'live-cache');
+  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+  assert.match(raw.warning, /cache snapshot/);
+  assert.equal(raw.data.items[0].source, 'NOAA HMS');
+});
+
+test('malformed NWS responses are failures while a real empty alert set is successful', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('{}', { headers: { 'content-type': 'application/json' } }));
+  const bad = await fetchRaw(nwsFeed, {});
+  assert.equal(bad.error, 'invalid_response');
+  globalThis.fetch.mock.mockImplementation(async () => new Response('{"features":[]}', { headers: { 'content-type': 'application/json' } }));
+  const empty = await fetchRaw(nwsFeed, {});
+  assert.equal(empty.error, undefined);
+  assert.deepEqual(normalizeJsonSignals(empty.body, nwsFeed), []);
+});
+
+test('MCP tool calls preserve NWS geography through raw, list, search, and get routes', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ features: [nwsFixture(), nwsFixture({ status: 'Test' })] }), { headers: { 'content-type': 'application/geo+json' } }));
+  const server = buildMcpServer();
+  const client = new Client({ name: 'signal-contract-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const raw = await call('raw.fetch', { sourceId: 'nws-alerts', format: 'json' });
+  assert.equal(raw.data.features.length, 2, 'raw access preserves upstream test messages');
+  const listed = await call('signals.list', { sourceId: 'nws-alerts', query: 'North Carolina', limit: 5 });
+  assert.equal(listed.items.length, 1);
+  assert.deepEqual(listed.items[0].geometry, nwsFixture().geometry);
+  const searched = await call('search.smart', { sources: ['nws-alerts'], query: 'North Carolina', totalLimit: 5 });
+  assert.equal(searched.signals.length, 1);
+  assert.equal(searched.signals[0].id, listed.items[0].id);
+  const found = await call('signals.get', { sourceId: 'nws-alerts', id: listed.items[0].id });
+  assert.equal(found.item.docId, 'urn:fixture:nc');
+  const empty = await call('search.smart', { sources: ['nws-alerts'], query: 'Alaska' });
+  assert.equal(empty.signals.length, 0);
+  assert.equal(empty.sourcesChecked[0].ok, true);
+  const catalog = await call('catalog.sources', { category: 'gov', state: 'NC' });
+  assert.equal(catalog.sources.find((source) => source.id === 'state-rulemaking').coverageStatus, 'SUPPORTED');
+  assert.equal(catalog.sources.find((source) => source.id === 'state-executive-orders').coverageStatus, 'SUPPORTED');
+  const unsupported = await call('signals.list', { sourceId: 'state-rulemaking', params: { state: 'MD' } });
+  assert.equal(unsupported.error, 'unsupported_state');
+  assert.equal(unsupported.coverageStatus, 'UNSUPPORTED');
+  assert.equal(unsupported.requestedState, 'MD');
+  const rawUnsupported = await call('raw.fetch', { sourceId: 'state-executive-orders', params: { state: 'MD' } });
+  assert.equal(rawUnsupported.coverageStatus, 'UNSUPPORTED');
+  const smartUnsupported = await call('search.smart', { sources: ['state-rulemaking'], params: { state: 'MD' } });
+  assert.equal(smartUnsupported.sourcesChecked[0].coverageStatus, 'UNSUPPORTED');
 });

@@ -57,9 +57,13 @@ async function callMcpTool(endpoint, name, args) {
     body: JSON.stringify(body)
   });
   const text = await response.text();
-  const payload = parseMcpResponse(text);
+  if (!response.ok) throw new Error(`MCP request failed: HTTP ${response.status}`);
+  const payload = response.headers.get('content-type')?.includes('application/json')
+    ? JSON.parse(text)
+    : parseMcpResponse(text);
   if (!payload) throw new Error('Unable to parse MCP response');
   if (payload.error) throw new Error(payload.error.message || 'MCP error');
+  if (payload.result?.isError) throw new Error('MCP tool returned an error');
   return payload.result?.structuredContent ?? payload.result ?? null;
 }
 
@@ -97,14 +101,25 @@ async function main() {
   }
 
   const data = await callMcpTool(endpoint, 'search.smart', {
-    query: 'top signals',
-    limit: 40
+    sources: ['bbc-world', 'federal-register', 'eonet-events', 'arxiv-rss-ai'],
+    maxSources: 4,
+    perSourceLimit: 3,
+    totalLimit: 12
   });
   const items = normalizeItems(data).slice(0, 12);
-  const summary = data?.summary || data?.overview || `Top signals across ${items.length} items.`;
+  if (data?.error || !Array.isArray(data?.sourcesChecked) || data.sourcesChecked.length !== 4) {
+    throw new Error('Source coverage metadata is missing or incomplete');
+  }
+  const checked = data.sourcesChecked;
+  const failed = checked.filter((source) => !source.ok);
+  const fallback = checked.filter((source) => source.fallbackUsed);
+  const summary = `Source records for review. ${items.length} records; ${failed.length} sources unavailable; ${fallback.length} using fallback data.`;
 
   const payload = {
+    kind: 'source-highlights',
     summary,
+    coverage: checked,
+    warnings: data?.warnings || [],
     items,
     generatedAt: new Date().toISOString()
   };

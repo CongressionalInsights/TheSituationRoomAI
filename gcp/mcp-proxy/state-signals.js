@@ -84,6 +84,11 @@ export function normalizeJurisdictionCode(value) {
   return US_STATE_CODE_SET.has(parsed) ? parsed : '';
 }
 
+export function jurisdictionNameForCode(value) {
+  const code = normalizeJurisdictionCode(value);
+  return US_STATE_OPTIONS.find((entry) => entry.code === code)?.name || '';
+}
+
 function inferSignalType(feed) {
   if (!Array.isArray(feed?.capabilities) || !feed.capabilities.length) return '';
   return String(feed.capabilities[0] || '');

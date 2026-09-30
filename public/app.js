@@ -11031,26 +11031,37 @@ function renderDenario() {
     const metaParts = [];
     if (state.denario.summary) metaParts.push(state.denario.summary);
     if (Number.isFinite(state.denario.generatedAt)) metaParts.push(`Updated ${safeRelativeTime(state.denario.generatedAt)}`);
-    elements.denarioMeta.textContent = metaParts.length ? metaParts.join(' • ') : 'Denario insights loaded.';
+    elements.denarioMeta.textContent = metaParts.length ? metaParts.join(' • ') : 'Recent source records for review.';
   }
   if (!elements.denarioList) return;
   elements.denarioList.innerHTML = '';
   const items = Array.isArray(state.denario.items) ? state.denario.items : [];
   if (!items.length) {
-    elements.denarioList.innerHTML = '<div class="denario-empty">No deep analysis available yet.</div>';
+    elements.denarioList.innerHTML = '<div class="denario-empty">No source highlights available yet.</div>';
     return;
   }
   items.slice(0, 6).forEach((item) => {
     const entry = document.createElement('div');
     entry.className = 'denario-item';
-    const title = document.createElement('div');
+    const sourceUrl = /^https?:\/\//i.test(item.url || '') ? item.url : '';
+    const title = document.createElement(sourceUrl ? 'a' : 'div');
     title.className = 'denario-item-title';
-    title.textContent = item.title || item.label || 'Insight';
+    title.textContent = item.title || item.label || 'Source record';
+    if (sourceUrl) {
+      title.href = sourceUrl;
+      title.target = '_blank';
+      title.rel = 'noopener noreferrer';
+    }
     const summary = document.createElement('div');
     summary.className = 'denario-item-summary';
     summary.textContent = truncateText(stripHtml(item.summary || item.detail || ''), 180);
     entry.appendChild(title);
     entry.appendChild(summary);
+    const source = document.createElement('div');
+    source.className = 'denario-item-summary';
+    const publishedAt = item.publishedAt == null ? NaN : (typeof item.publishedAt === 'number' ? item.publishedAt : Date.parse(item.publishedAt));
+    source.textContent = [item.source || '', Number.isFinite(publishedAt) ? safeRelativeTime(publishedAt) : 'Record date unavailable'].filter(Boolean).join(' • ');
+    entry.appendChild(source);
     elements.denarioList.appendChild(entry);
   });
 }

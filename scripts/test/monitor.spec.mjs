@@ -2826,7 +2826,7 @@ test('documentation watch pins stable provider surfaces without accepting unknow
   const reviewed = {
     'docs:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
     'support:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
-    'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': '6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428',
+    'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774',
     'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
     'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
@@ -2837,6 +2837,11 @@ test('documentation watch pins stable provider surfaces without accepting unknow
     assert.deepEqual(surfaces.get(key)?.acceptedHashes, expectedHashes, key);
     assert.equal(surfaces.get(key)?.acceptedHashes.includes('unknown-contract-hash'), false, key);
   }
+
+  const cisaSchema = surfaces.get('docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json');
+  assert.equal(cisaSchema.acceptedHashes.includes('b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774'), true);
+  assert.equal(cisaSchema.acceptedHashes.includes('6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428'), false);
+  assert.equal(cisaSchema.enforceAcceptedHashes, true);
 
   for (const key of Object.keys(reviewed).filter((key) => (
     key.includes('cdc.gov/travel/page/rss')
@@ -2870,9 +2875,9 @@ test('documentation watch pins stable provider surfaces without accepting unknow
       hash: 'unknown-contract-hash',
       normalizedText: 'A required schema field was removed.'
     },
-    surfaceType: 'docs',
+    surfaceType: cisaSchema.surfaceType,
     tier: 'core',
-    acceptedHashRequired: true
+    acceptedHashRequired: cisaSchema.enforceAcceptedHashes
   }), {
     regressionClass: 'docs-contract-change',
     severity: 'critical',
@@ -3065,6 +3070,38 @@ test('mcp proxy deploy workflow preserves the deployed secret bindings by defaul
   assert.match(workflow, /if \[ "\$SYNC_SECRET_VERSIONS" = "true" \]; then[\s\S]*?SECRET_ARGS=\(--update-secrets "\$SECRET_BINDINGS"\)/);
   assert.doesNotMatch(workflow, /--set-secrets/);
   assert.match(workflow, /--revision-suffix "\$REVISION_SUFFIX"[\s\S]*?--tag "\$REVISION_SUFFIX"[\s\S]*?--no-traffic[\s\S]*?"\$\{SECRET_ARGS\[@\]\}"/);
+  assert.match(workflow, /--min 1 \\\n\s*--min-instances 0 \\\n/);
+  assert.match(workflow, /expected_serving_tag:\s*\n[\s\S]*?default: ''/);
+  assert.match(workflow, /MCP traffic tags differ from the exact serving tag approved for this release/);
+  const tagGuard = workflow.match(/jq -e --arg revision "\$ROLLBACK_REVISION" --arg expected "\$EXPECTED_SERVING_TAG" '([\s\S]*?)' \\\n\s*\/tmp\/mcp-service-before\.json/);
+  assert.ok(tagGuard);
+  const checkTagGuard = (traffic, expected) => spawnSync('jq', ['-e', '--arg', 'revision', 'serving', '--arg', 'expected', expected, tagGuard[1]], {
+    input: JSON.stringify({ status: { traffic } }),
+    encoding: 'utf8'
+  });
+  assert.equal(checkTagGuard([{ revisionName: 'serving', percent: 100, tag: 'gha-123-1' }], 'gha-123-1').status, 0);
+  assert.notEqual(checkTagGuard([{ revisionName: 'other', percent: 0, tag: 'gha-123-1' }], 'gha-123-1').status, 0);
+  assert.notEqual(checkTagGuard([{ revisionName: 'serving', percent: 100, tag: 'gha-123-1' }], '').status, 0);
+  assert.notEqual(checkTagGuard([{ revisionName: 'serving', percent: 100, tag: 'gha-123-1' }, { revisionName: 'other', percent: 0, tag: 'legacy' }], 'gha-123-1').status, 0);
+  const prepromotionFilter = workflow.match(/jq -e --arg rollback "\$CURRENT_REVISION" --arg old_tag "\$EXPECTED_SERVING_TAG" \\\n\s*--arg candidate "\$CANDIDATE_REVISION" --arg candidate_tag "\$CANDIDATE_TAG" '([\s\S]*?)' \/tmp\/mcp-service-prepromote\.json/);
+  assert.ok(prepromotionFilter);
+  const checkPrepromotion = (traffic, oldTag = '') => spawnSync('jq', ['-e', '--arg', 'rollback', 'serving', '--arg', 'old_tag', oldTag, '--arg', 'candidate', 'candidate', '--arg', 'candidate_tag', 'smoke', prepromotionFilter[1]], {
+    input: JSON.stringify({ status: { traffic } }),
+    encoding: 'utf8'
+  });
+  assert.equal(checkPrepromotion([
+    { revisionName: 'serving', percent: 100, tag: 'gha-123-1' },
+    { revisionName: 'candidate', percent: 0, tag: 'smoke' }
+  ], 'gha-123-1').status, 0);
+  assert.notEqual(checkPrepromotion([
+    { revisionName: 'other', percent: 0, tag: 'gha-123-1' },
+    { revisionName: 'candidate', percent: 0, tag: 'smoke' }
+  ], 'gha-123-1').status, 0);
+  assert.notEqual(checkPrepromotion([
+    { revisionName: 'serving', percent: 100, tag: 'gha-123-1' },
+    { revisionName: 'candidate', percent: 0, tag: 'smoke' },
+    { revisionName: 'other', percent: 0, tag: 'legacy' }
+  ], 'gha-123-1').status, 0);
   assert.match(workflow, /--update-env-vars "\$ENV_UPDATES"/);
   assert.doesNotMatch(workflow, /--env-vars-file/);
   assert.match(workflow, /gcloud run revisions describe "\$CANDIDATE_REVISION"/);
@@ -3073,6 +3110,35 @@ test('mcp proxy deploy workflow preserves the deployed secret bindings by defaul
   assert.match(workflow, /CANDIDATE_URL=\$\(gcloud run services describe[\s\S]*?\.revisionName == \$revision and \.tag == \$tag/);
   assert.match(workflow, /node scripts\/verify_mcp_candidate\.mjs "\$\{CANDIDATE_URL\}\/mcp"/);
   assert.match(workflow, /gcloud run services update-traffic "\$SERVICE_NAME"[\s\S]*?--to-revisions "\$\{CANDIDATE_REVISION\}=100"/);
+  assert.match(workflow, /\[\.status\.traffic\[\]\? \| select\(\.revisionName != \$revision\)\] as \$old/);
+  const promotionFilter = workflow.match(/jq -e --arg revision "\$CANDIDATE_REVISION" \\\n\s*--arg rollback "\$\{\{ steps\.current\.outputs\.rollback_revision \}\}" \\\n\s*--arg old_tag "\$EXPECTED_SERVING_TAG" '([\s\S]*?)' \/tmp\/mcp-service-promoted\.json/);
+  assert.ok(promotionFilter);
+  const checkPromotion = (traffic, oldTag = '') => spawnSync('jq', ['-e', '--arg', 'revision', 'candidate', '--arg', 'rollback', 'serving', '--arg', 'old_tag', oldTag, promotionFilter[1]], {
+    input: JSON.stringify({ status: { traffic } }),
+    encoding: 'utf8'
+  });
+  assert.equal(checkPromotion([{ revisionName: 'candidate', percent: 100, tag: 'smoke' }]).status, 0);
+  assert.equal(checkPromotion([
+    { revisionName: 'candidate', percent: 100, tag: 'smoke' },
+    { revisionName: 'serving', percent: 0, tag: 'gha-123-1' }
+  ], 'gha-123-1').status, 0);
+  assert.notEqual(checkPromotion([
+    { revisionName: 'candidate', percent: 100, tag: 'smoke' },
+    { revisionName: 'legacy', percent: 0 }
+  ]).status, 0);
+  assert.notEqual(checkPromotion([
+    { revisionName: 'candidate', percent: 100, tag: 'smoke' },
+    { revisionName: 'other', percent: 0, tag: 'gha-123-1' }
+  ], 'gha-123-1').status, 0);
+  assert.match(workflow, /--remove-tags "\$EXPECTED_SERVING_TAG"/);
+  assert.match(workflow, /name: Verify canonical MCP release\n\s*id: canonical\n\s*if: steps\.promote\.outcome == 'success'/);
+  const canonicalStep = workflow.split('name: Verify canonical MCP release')[1].split('name: Restore captured traffic')[0];
+  assert.match(canonicalStep, /else\n\s*node scripts\/verify_mcp_candidate\.mjs "\$\{SERVICE_URL\}\/mcp"\n\s*fi/);
+  assert.match(workflow, /name: Remove this release's temporary smoke tag\n\s*if: always\(\) && steps\.deploy\.outputs\.candidate_revision != ''/);
+  assert.match(workflow, /--remove-tags "\$CANDIDATE_TAG"/);
+  assert.ok(workflow.indexOf('name: Verify canonical MCP release') < workflow.indexOf('name: Restore captured traffic after failed promotion or parity'));
+  assert.ok(workflow.indexOf('name: Restore captured traffic after failed promotion or parity') < workflow.indexOf("name: Remove this release's temporary smoke tag"));
+  assert.doesNotMatch(workflow, /name: Health check MCP proxy/);
 });
 
 test('MCP candidate verification fails closed on SWPC transport and contract errors', async () => {

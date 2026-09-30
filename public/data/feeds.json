@@ -1166,6 +1166,15 @@
     {
       "id": "state-rulemaking",
       "name": "State Rulemaking (Connector)",
+      "coveredStates": [
+        "CA",
+        "FL",
+        "MN",
+        "NC",
+        "NY",
+        "TX",
+        "VA"
+      ],
       "docsUrl": "https://s3-us-gov-west-1.amazonaws.com/cg-0817d6e3-93c4-4de8-8b32-da6919464e61/open_data_us.csv",
       "category": "gov",
       "format": "json",
@@ -1192,6 +1201,15 @@
     {
       "id": "state-executive-orders",
       "name": "State Executive Orders (Connector)",
+      "coveredStates": [
+        "CA",
+        "FL",
+        "MN",
+        "NC",
+        "NY",
+        "TX",
+        "VA"
+      ],
       "docsUrl": "https://s3-us-gov-west-1.amazonaws.com/cg-0817d6e3-93c4-4de8-8b32-da6919464e61/open_data_us.csv",
       "category": "gov",
       "format": "json",
@@ -1656,7 +1674,7 @@
       "format": "json",
       "requiresKey": true,
       "keySource": "server",
-      "url": "https://firms.modaps.eosdis.nasa.gov/api/area/json/{{key}}/VIIRS_SNPP_NRT/world/1",
+      "url": "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1",
       "ttlMinutes": 60,
       "tags": [
         "global",

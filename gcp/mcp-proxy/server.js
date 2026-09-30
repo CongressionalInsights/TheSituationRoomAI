@@ -10,6 +10,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
 import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
 import { sanitizeEiaPayload } from './public-payload-safety.js';
+import { parseNasaFirmsRows } from './firms-csv.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,7 +59,7 @@ const STATE_CONNECTOR_API_KEY = String(process.env.STATE_CONNECTOR_API_KEY || ''
 const STATE_CONNECTOR_KEY_HEADER = String(process.env.STATE_CONNECTOR_KEY_HEADER || 'X-API-Key').trim() || 'X-API-Key';
 const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
-const STATE_CONNECTOR_COVERED_STATES = ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'];
+const STATE_CONNECTOR_COVERED_STATES = ['CA', 'FL', 'MN', 'NC', 'NY', 'TX', 'VA'];
 const OPENSTATES_CACHE_TTL_MS = Number(process.env.OPENSTATES_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const OPENSTATES_ERROR_CACHE_TTL_MS = Number(process.env.OPENSTATES_ERROR_CACHE_TTL_MS || 5 * 60 * 1000);
 const OPENSTATES_AGGREGATE_CACHE_TTL_MS = Number(process.env.OPENSTATES_AGGREGATE_CACHE_TTL_MS || 10 * 60 * 1000);
@@ -247,12 +248,12 @@ function stripSecretsFromUrl(rawUrl) {
         parsed.searchParams.set(param, 'REDACTED');
       }
     });
-    parsed.pathname = parsed.pathname.replace(/\/api\/area\/json\/[^/]+/i, '/api/area/json/REDACTED');
+    parsed.pathname = parsed.pathname.replace(/(\/api\/area\/(?:json|csv)\/)[^/]+/i, '$1REDACTED');
     return parsed.toString();
   } catch {
     return rawUrl
       .replace(/(api_key=)[^&]+/gi, '$1REDACTED')
-      .replace(/(\/api\/area\/json\/)[^/]+/i, '$1REDACTED');
+      .replace(/(\/api\/area\/(?:json|csv)\/)[^/]+/i, '$1REDACTED');
   }
 }
 
@@ -409,7 +410,7 @@ async function buildArcgisFireFallback() {
   if (!fireFeed?.url) return null;
   try {
     const response = await fetchWithTimeout(fireFeed.url, {
-      headers: { 'User-Agent': appConfig.userAgent, 'Accept': 'application/json' }
+      headers: { 'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0', 'Accept': 'application/json' }
     }, 15000);
     if (!response.ok) return null;
     const data = await response.json();
@@ -885,6 +886,11 @@ function buildSignalSearchHaystack(item, feed) {
     item?.url,
     item?.jurisdictionName,
     item?.jurisdictionCode,
+    item?.jurisdictionCodes,
+    item?.jurisdictionNames,
+    item?.areaDesc,
+    item?.description,
+    item?.event,
     item?.agency,
     item?.signalType,
     item?.status,
@@ -900,7 +906,7 @@ function buildSignalSearchHaystack(item, feed) {
     .toLowerCase();
 }
 
-function matchesSignalQuery(item, normalizedQuery, feed) {
+export function matchesSignalQuery(item, normalizedQuery, feed) {
   if (!normalizedQuery) return true;
   if (isStateSignal(item, feed)) {
     return matchesStateAwareSignalQuery(item, normalizedQuery, feed);
@@ -913,6 +919,7 @@ function matchesSignalQuery(item, normalizedQuery, feed) {
 
 function matchesStateAwareSignalQuery(item, normalizedQuery, feed) {
   if (!normalizedQuery) return true;
+  if (feed?.id === 'nws-alerts') return matchesSignalQuery(item, normalizedQuery, feed);
   if (isStateSignal(item, feed)) {
     return buildStateSignalSearchHaystack(item, feed).includes(normalizedQuery);
   }
@@ -1192,6 +1199,45 @@ function isStateConnectorFeed(feed) {
   return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
 }
 
+export function getStateConnectorCoverage(state = '') {
+  const requested = String(state || '').trim();
+  if (!requested) return { coverageStatus: 'PARTIAL', requestedState: null };
+  const code = normalizeJurisdictionCode(requested);
+  if (!code) return { coverageStatus: 'INVALID_STATE', requestedState: requested };
+  return {
+    coverageStatus: STATE_CONNECTOR_COVERED_STATES.includes(code) ? 'SUPPORTED' : 'UNSUPPORTED',
+    requestedState: code
+  };
+}
+
+function coverageFields(result) {
+  if (!result?.coverageStatus) return {};
+  return {
+    coverageStatus: result.coverageStatus,
+    requestedState: result.requestedState || null,
+    coveredStates: result.coveredStates || STATE_CONNECTOR_COVERED_STATES,
+    verifiedZeroResults: Boolean(result.verifiedZeroResults)
+  };
+}
+
+function verifiedStateConnectorZero(parsed, results, stateCode, signalType) {
+  const meta = parsed?.meta;
+  return Boolean(
+    stateCode
+    && results.length === 0
+    && meta?.verifiedZeroResults === true
+    && meta?.state === stateCode
+    && meta?.signalType === signalType
+    && meta?.coverageStatus === 'SUPPORTED'
+    && meta?.count === 0
+    && meta?.partial === false
+    && meta?.adapterCount === 1
+    && Array.isArray(meta?.errors) && meta.errors.length === 0
+    && Array.isArray(meta?.coveredStates) && meta.coveredStates.includes(stateCode)
+    && Number.isFinite(Date.parse(meta?.generatedAt))
+  );
+}
+
 function normalizeStateConnectorSignalType(value, fallback = '') {
   const raw = String(value || fallback || '').trim().toLowerCase();
   if (!raw) return '';
@@ -1414,9 +1460,6 @@ async function fetchAllStatesLegislationRaw(feed, keyedUrl, headers, proxy, time
 }
 
 async function fetchStateConnectorRaw(feed, options = {}) {
-  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
-    return { error: 'config_required', message: 'State connector provider is not configured.' };
-  }
   const mergedParams = feed.supportsParams
     ? mergeFeedParams(feed, options.params)
     : sanitizeParamsObject(options.params);
@@ -1424,11 +1467,29 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     mergedParams.signalType,
     Array.isArray(feed?.capabilities) && feed.capabilities.length ? feed.capabilities[0] : ''
   );
-  const stateCode = normalizeJurisdictionCode(
-    mergedParams.state
+  const { coverageStatus, requestedState: stateCode } = getStateConnectorCoverage(
+    options.params?.state
+    || options.params?.jurisdictionCode
+    || options.params?.jurisdiction
+    || mergedParams.state
     || mergedParams.jurisdictionCode
     || mergedParams.jurisdiction
   );
+  if (coverageStatus === 'INVALID_STATE' || coverageStatus === 'UNSUPPORTED') {
+    return {
+      error: coverageStatus === 'INVALID_STATE' ? 'invalid_state' : 'unsupported_state',
+      httpStatus: 400,
+      message: coverageStatus === 'INVALID_STATE'
+        ? `Invalid state: ${stateCode}.`
+        : `${feed.id} does not cover ${stateCode}. Covered states: ${STATE_CONNECTOR_COVERED_STATES.join(', ')}. Check the state's official primary sources directly.`,
+      coverageStatus,
+      requestedState: stateCode,
+      coveredStates: STATE_CONNECTOR_COVERED_STATES
+    };
+  }
+  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
+    return { error: 'config_required', message: 'State connector provider is not configured.', coverageStatus, requestedState: stateCode || null };
+  }
   const requestedLimit = toPositiveInt(
     mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
     STATE_CONNECTOR_DEFAULT_LIMIT
@@ -1452,10 +1513,15 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     const response = await fetchWithTimeout(requestUrl.toString(), { headers: requestHeaders }, timeoutMs);
     const text = await response.text();
     if (!response.ok) {
+      let providerError = null;
+      try { providerError = JSON.parse(text)?.error; } catch { /* Not JSON. */ }
       return {
-        error: 'fetch_failed',
+        error: providerError === 'state_not_covered' ? 'unsupported_state' : 'fetch_failed',
         httpStatus: response.status,
-        message: `HTTP ${response.status}`,
+        message: providerError === 'state_not_covered' ? `${stateCode} is not covered by the state connector provider.` : `HTTP ${response.status}`,
+        coverageStatus: providerError === 'state_not_covered' ? 'UNSUPPORTED' : coverageStatus,
+        requestedState: stateCode,
+        coveredStates: STATE_CONNECTOR_COVERED_STATES,
         body: text,
         fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
         proxyUsed: null,
@@ -1477,7 +1543,11 @@ async function fetchStateConnectorRaw(feed, options = {}) {
       };
     }
 
-    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    if (!Array.isArray(parsed?.results)) {
+      return { error: 'invalid_response', httpStatus: 502, message: 'State connector response has no results array.', coverageStatus };
+    }
+    const results = parsed.results;
+    const verifiedZeroResults = verifiedStateConnectorZero(parsed, results, stateCode, signalType);
     const normalizedResults = results
       .map((entry) => normalizeStateConnectorResult(entry, signalType, stateCode))
       .filter(Boolean)
@@ -1490,11 +1560,16 @@ async function fetchStateConnectorRaw(feed, options = {}) {
           provider: 'state-connector',
           signalType: signalType || null,
           state: stateCode || null,
-          count: normalizedResults.length
+          count: normalizedResults.length,
+          coverageStatus,
+          verifiedZeroResults
         }
       }),
       httpStatus: 200,
       contentType: 'application/json',
+      coverageStatus,
+      requestedState: stateCode || null,
+      verifiedZeroResults,
       fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
       proxyUsed: null,
       fallbackUsed: false
@@ -1503,6 +1578,7 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     return {
       error: 'fetch_failed',
       message: error?.message || 'State connector fetch failed.',
+      coverageStatus,
       fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
       proxyUsed: null,
       fallbackUsed: false
@@ -1510,11 +1586,13 @@ async function fetchStateConnectorRaw(feed, options = {}) {
   }
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS, consumeResponse = null) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    // Opt-in consumers keep cancellation active until the response body is read.
+    return consumeResponse ? await consumeResponse(response) : response;
   } finally {
     clearTimeout(id);
   }
@@ -1838,16 +1916,25 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
   const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null;
   return {
     sourceId,
+    ...coverageFields(result),
     ...(range ? { range } : {}),
     contentType: result.contentType,
     url: stripSecretsFromUrl(feed.url),
     fetchedUrl: result.fetchedUrl || null,
     proxyUsed: result.proxyUsed || null,
     fallbackUsed: Boolean(result.fallbackUsed),
+    warning: fallbackWarning(result),
     responseHeaders: result.responseHeaders || null,
     body: responseFormat === 'text' || responseFormat === 'csv' ? result.body : undefined,
     data: parsed
   };
+}
+
+function fallbackWarning(result) {
+  if (!result.fallbackUsed) return null;
+  if (result.proxyUsed === 'arcgis-hms-fire') return 'NASA FIRMS unavailable; returning NOAA HMS fire detections.';
+  if (result.proxyUsed === 'live-cache') return 'Upstream unavailable; returning a published cache snapshot. Check record dates and source attribution.';
+  return `Fetched via fallback (${result.proxyUsed || 'unknown'}).`;
 }
 
 function translateQueryForFeed(feed, query) {
@@ -1958,6 +2045,7 @@ export function selectSmartFeeds({ query, categories, sources, maxSources }) {
 
 export function shouldFilterSmartFeedLocally({ feed, query, categories, sources }) {
   if (!String(query || '').trim() || feed?.supportsQuery) return false;
+  if (feed?.id === 'nws-alerts') return true;
   return (Array.isArray(categories) && categories.length > 0)
     || (Array.isArray(sources) && sources.length > 0);
 }
@@ -2033,11 +2121,11 @@ export function shouldUseLiveFallback(feedOrOptions = {}, maybeOptions = null) {
   return paramsEqual(defaultParams, requestParams);
 }
 
-function dedupeSignals(items) {
+export function dedupeSignals(items) {
   const seen = new Set();
   const output = [];
   items.forEach((item) => {
-    const key = item.url || `${item.title || ''}|${item.publishedAt || ''}`;
+    const key = item.observationKey || item.url || `${item.title || ''}|${item.publishedAt || ''}`;
     if (!key || seen.has(key)) return;
     seen.add(key);
     output.push(item);
@@ -2045,7 +2133,10 @@ function dedupeSignals(items) {
   return output;
 }
 
-function createItemId(item) {
+export function createItemId(item) {
+  if (item.observationKey) {
+    return createHash('sha1').update(item.observationKey).digest('hex').slice(0, 12);
+  }
   const stableSourceId = item.apiUrl || item.docId || item.documentNumber || item.packageId || item.sourceId || '';
   const base = stableSourceId
     ? `${stableSourceId}|${item.url || ''}`
@@ -2194,7 +2285,7 @@ async function fetchOpenStatesWithControls(url, requestOptions, timeoutMs) {
   }
 }
 
-async function fetchRaw(feed, options) {
+export async function fetchRaw(feed, options) {
   if (options?.history && !supportsHistoryRange(feed)) {
     return {
       error: 'history_not_supported',
@@ -2312,6 +2403,7 @@ async function fetchRaw(feed, options) {
   let responseHeaders = null;
   let succeeded = false;
   const isEonetFeed = feed?.id === 'eonet-events';
+  const stooqDeadline = feed?.id === 'stooq-quote' ? startedAt + totalTimeoutMs : null;
   const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
   const rssDirectTimeoutMs = Math.max(15000, Math.floor(rssEffectiveTimeout * 0.75));
   const rssFallbackTimeoutMs = attempts.length > 1
@@ -2324,6 +2416,11 @@ async function fetchRaw(feed, options) {
     : eonetDirectTimeoutMs;
 
   for (let index = 0; index < attempts.length; index += 1) {
+    const remainingStooqMs = stooqDeadline === null ? null : stooqDeadline - Date.now();
+    if (remainingStooqMs !== null && remainingStooqMs <= 0) {
+      lastError = { error: 'fetch_failed', message: 'Stooq request deadline exceeded.', code: 'timeout' };
+      break;
+    }
     const proxy = attempts[index];
     const proxiedUrl = proxy ? applyProxy(keyedUrl, proxy) : keyedUrl;
     fetchedUrl = proxiedUrl;
@@ -2331,12 +2428,17 @@ async function fetchRaw(feed, options) {
       ? (index === 0 ? rssDirectTimeoutMs : rssFallbackTimeoutMs)
       : isEonetFeed
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
-      : totalTimeoutMs;
+      : remainingStooqMs ?? totalTimeoutMs;
     try {
-      response = openStatesRequest && !proxy
-        ? await fetchOpenStatesWithControls(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs)
-        : await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
-      body = await response.text();
+      if (stooqDeadline !== null) {
+        [response, body] = await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs,
+          async (upstream) => [upstream, await upstream.text()]);
+      } else {
+        response = openStatesRequest && !proxy
+          ? await fetchOpenStatesWithControls(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs)
+          : await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
+        body = await response.text();
+      }
       responseHeaders = extractSafeResponseHeaders(response.headers);
       if (response.ok) {
         if (feed.format === 'json' && isJsonHtmlError(response.headers.get('content-type') || '', body)) {
@@ -2357,15 +2459,18 @@ async function fetchRaw(feed, options) {
           };
           continue;
         }
-        if (feed.id === 'nasa-firms' && normalizeContentType(response.headers.get('content-type')).includes('json')) {
+        if (feed.id === 'nws-alerts' && !Array.isArray(parseJsonBody(body, feed)?.features)) {
+          lastError = { error: 'invalid_response', message: 'NWS response is missing its alert features array.', httpStatus: response.status };
+          continue;
+        }
+        if (feed.id === 'nasa-firms') {
           try {
-            const items = buildNasaFirmsItems(JSON.parse(body));
+            const items = buildNasaFirmsItems(parseNasaFirmsRows(body, response.headers.get('content-type')));
             if (!items.length) {
               lastError = {
-                error: 'fetch_failed',
+                error: 'empty_payload',
                 httpStatus: response.status,
                 message: 'NASA FIRMS returned no usable geolocated detections.',
-                body
               };
               continue;
             }
@@ -2374,8 +2479,7 @@ async function fetchRaw(feed, options) {
             lastError = {
               error: 'invalid_response',
               httpStatus: response.status,
-              message: 'NASA FIRMS returned invalid JSON.',
-              body
+              message: 'NASA FIRMS returned an invalid detection payload.',
             };
             continue;
           }
@@ -2400,8 +2504,8 @@ async function fetchRaw(feed, options) {
         error: 'fetch_failed',
         httpStatus: response.status,
         upstreamStatus: response.status,
-        message: extractUpstreamErrorMessage(response.status, body),
-        body
+        message: feed.id === 'nasa-firms' ? 'HTTP ' + response.status : extractUpstreamErrorMessage(response.status, body),
+        body: feed.id === 'nasa-firms' ? undefined : body
       };
       // Client-side upstream errors are not recoverable via proxy fallback.
       if (!isRssFeed && response.status >= 400 && response.status < 500 && response.status !== 429 && feed.id !== 'gdelt-doc') {
@@ -2417,14 +2521,13 @@ async function fetchRaw(feed, options) {
       const fireFallback = await buildArcgisFireFallback();
       if (fireFallback) {
         return {
-          error: null,
-          status: 200,
-          data: {
-            body: fireFallback.body,
-            contentType: fireFallback.contentType,
-            httpStatus: fireFallback.httpStatus,
-            fetchedUrl: fireFallback.fetchedUrl || null
-          }
+          body: fireFallback.body,
+          contentType: fireFallback.contentType,
+          httpStatus: fireFallback.httpStatus,
+          fetchedUrl: fireFallback.fetchedUrl || null,
+          proxyUsed: 'arcgis-hms-fire',
+          fallbackUsed: true,
+          responseHeaders: null
         };
       }
     }
@@ -2441,7 +2544,6 @@ async function fetchRaw(feed, options) {
         || feed.id === 'federal-register-ed'
         || feed.id === 'fda-medwatch'
         || feed.id === 'gdelt-doc'
-        || feed.id === 'nasa-firms'
         || feed.id === 'transport-opensky';
       console.log(JSON.stringify({
         event: 'mcp_raw_fetch',
@@ -2497,7 +2599,7 @@ async function fetchRaw(feed, options) {
   const successResult = {
     body,
     httpStatus: response.status,
-    contentType: response.headers.get('content-type') || null,
+    contentType: feed.id === 'nasa-firms' ? 'application/json' : (response.headers.get('content-type') || null),
     fetchedUrl: stripSecretsFromUrl(fetchedUrl),
     proxyUsed: usedProxy,
     fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy && !configuredProxies.includes(usedProxy)),
@@ -2864,7 +2966,7 @@ async function fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, 
   return results;
 }
 
-function buildMcpServer() {
+export function buildMcpServer() {
   const server = new McpServer({
     name: 'Situation Room MCP',
     version: '0.1.0'
@@ -2876,10 +2978,11 @@ server.registerTool(
     title: 'Catalog Sources',
     description: 'List available sources, formats, and capabilities.',
     inputSchema: z.object({
-      category: z.string().optional()
+      category: z.string().optional(),
+      state: z.string().optional()
     })
   },
-  async ({ category }) => {
+  async ({ category, state }) => {
     const filtered = category
       ? feeds.filter((feed) => feed.category === category)
       : feeds;
@@ -2898,6 +3001,7 @@ server.registerTool(
         configured: configuration.configured,
         configuration,
         coveredStates: configuration.coveredStates || null,
+        coverageStatus: isStateConnectorFeed(feed) ? getStateConnectorCoverage(state).coverageStatus : null,
         docsUrl: feed.docsUrl || null,
         urlTemplate: feed.url || null,
         tags: feed.tags || [],
@@ -2943,6 +3047,7 @@ server.registerTool(
         content: [{ type: 'text', text: `Fetch failed: ${safeResult.message || safeResult.error}` }],
         structuredContent: {
           error: safeResult.error,
+          ...coverageFields(safeResult),
           code: safeResult.code || null,
           message: safeResult.message,
           httpStatus: safeResult.httpStatus || null,
@@ -2991,6 +3096,7 @@ server.registerTool(
         content: [{ type: 'text', text: `History fetch failed: ${result.message || result.error}` }],
         structuredContent: {
           error: result.error,
+          ...coverageFields(result),
           sourceId,
           message: result.message,
           httpStatus: result.httpStatus || null
@@ -3072,7 +3178,7 @@ server.registerTool(
     if (safeResult.error) {
       return {
         content: [{ type: 'text', text: `Signals fetch failed: ${safeResult.message || safeResult.error}` }],
-        structuredContent: { error: safeResult.error, message: safeResult.message, httpStatus: safeResult.httpStatus || null }
+        structuredContent: { error: safeResult.error, ...coverageFields(safeResult), message: safeResult.message, httpStatus: safeResult.httpStatus || null }
       };
     }
 
@@ -3087,13 +3193,12 @@ server.registerTool(
       : items;
     const sliced = Number.isFinite(limit) ? filtered.slice(0, Math.max(1, limit)) : filtered;
 
-    const warning = safeResult.fallbackUsed
-      ? `Fetched via proxy (${safeResult.proxyUsed || 'unknown'}).`
-      : null;
+    const warning = fallbackWarning(safeResult);
     return {
       content: [{ type: 'text', text: `Signals: ${sliced.length}` }],
       structuredContent: {
         sourceId,
+        ...coverageFields(safeResult),
         items: sliced,
         fetchedUrl: safeResult.fetchedUrl || null,
         proxyUsed: safeResult.proxyUsed || null,
@@ -3129,7 +3234,7 @@ server.registerTool(
     if (result.error) {
       return {
         content: [{ type: 'text', text: `Signal fetch failed: ${result.message || result.error}` }],
-        structuredContent: { error: result.error, message: result.message, httpStatus: result.httpStatus || null }
+        structuredContent: { error: result.error, ...coverageFields(result), message: result.message, httpStatus: result.httpStatus || null }
       };
     }
 
@@ -3141,13 +3246,12 @@ server.registerTool(
     }));
     const match = items.find((item) => item.id === id) || null;
 
-    const warning = result.fallbackUsed
-      ? `Fetched via proxy (${result.proxyUsed || 'unknown'}).`
-      : null;
+    const warning = fallbackWarning(result);
     return {
       content: [{ type: 'text', text: match ? `Signal ${id}` : `Signal ${id} not found` }],
       structuredContent: {
         sourceId,
+        ...coverageFields(result),
         item: match,
         fetchedUrl: result.fetchedUrl || null,
         proxyUsed: result.proxyUsed || null,
@@ -3195,6 +3299,7 @@ server.registerTool(
           sourceName: feed.name,
           ok: false,
           error: result.error,
+          ...coverageFields(result),
           message: result.message || null,
           configured: configuration.configured,
           configuration,
@@ -3218,13 +3323,14 @@ server.registerTool(
         : items;
 
       if (result.fallbackUsed) {
-        warnings.push(`Fetched ${feed.name} via proxy (${result.proxyUsed || 'unknown'}).`);
+        warnings.push(`${feed.name}: ${fallbackWarning(result)}`);
       }
 
       sourcesChecked.push({
         sourceId: feed.id,
         sourceName: feed.name,
         ok: true,
+        ...coverageFields(result),
         configured: getFeedConfiguration(feed).configured,
         count: filtered.length,
         fetchedUrl: result.fetchedUrl || null,

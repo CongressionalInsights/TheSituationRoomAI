@@ -1,4 +1,4 @@
-import { normalizeJurisdictionCode } from './state-signals.js';
+import { jurisdictionNameForCode, normalizeJurisdictionCode } from './state-signals.js';
 
 function normalizeSummary(text = '') {
   const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
@@ -354,6 +354,7 @@ function buildCommitteeReportSummary(entry, fallbackSummary) {
 }
 
 function selectList(data) {
+  if (Array.isArray(data)) return data;
   return Array.isArray(data?.items)
     ? data.items
     : Array.isArray(data?.packages)
@@ -405,7 +406,108 @@ function selectList(data) {
                                             : [];
 }
 
+function normalizeCisaKevSignals(data, feed) {
+  if (!Array.isArray(data?.vulnerabilities)) return [];
+  const text = (value) => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  // Keep the complete catalog until query filtering and output limits, as for NWS.
+  return data.vulnerabilities.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+    const cveID = text(entry.cveID).toUpperCase();
+    if (!/^CVE-\d{4}-\d{4,}$/.test(cveID)) return [];
+    const vulnerabilityName = text(entry.vulnerabilityName);
+    const vendorProject = text(entry.vendorProject);
+    const product = text(entry.product);
+    const shortDescription = text(entry.shortDescription);
+    if (!vulnerabilityName || !shortDescription) return [];
+    const dateAdded = text(entry.dateAdded);
+    const timestamp = /^\d{4}-\d{2}-\d{2}$/.test(dateAdded)
+      ? Date.parse(`${dateAdded}T00:00:00Z`)
+      : NaN;
+    const publishedAt = Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === dateAdded
+      ? timestamp
+      : null;
+    const affectedProduct = [vendorProject, product].filter(Boolean).join(' ');
+    return [{
+      title: `${cveID} - ${vulnerabilityName}`,
+      url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+      docId: cveID,
+      // A shared evidence URL must not collapse distinct CVEs during smart search.
+      observationKey: JSON.stringify(['cisa-kev', cveID]),
+      summary: normalizeSummary([affectedProduct, shortDescription].filter(Boolean).join(' - ')),
+      publishedAt,
+      source: feed.name,
+      category: feed.category,
+      cveID,
+      vendorProject,
+      product,
+      vulnerabilityName,
+      shortDescription,
+      dateAdded: dateAdded || null,
+      requiredAction: text(entry.requiredAction),
+      dueDate: text(entry.dueDate) || null,
+      knownRansomwareCampaignUse: text(entry.knownRansomwareCampaignUse) || null,
+      forensicTriage: text(entry.forensicTriage) || null,
+      notes: text(entry.notes),
+      cwes: Array.isArray(entry.cwes) ? entry.cwes.map(text).filter(Boolean) : []
+    }];
+  });
+}
+
+function normalizeNwsSignals(data, feed) {
+  // Keep the complete fetched alert set until query filtering and output limits.
+  return data.features.filter((feature) => feature?.properties).map((feature) => {
+    const props = feature.properties;
+    const zoneCodes = [
+      ...(Array.isArray(props.geocode?.UGC) ? props.geocode.UGC : []),
+      ...(Array.isArray(props.affectedZones) ? props.affectedZones.map((url) => String(url).split('/').pop()) : [])
+    ];
+    const jurisdictionCodes = [...new Set(zoneCodes.map((zone) => {
+      const match = String(zone).match(/^([A-Z]{2})[CZ]\d{3}$/);
+      return match ? normalizeJurisdictionCode(match[1]) : '';
+    }).filter(Boolean))];
+    const geometry = feature.geometry || null;
+    const coords = geometry?.type === 'Point' ? geometry.coordinates : [];
+    const lat = normalizeFiniteNumber(coords?.[1]);
+    const lon = normalizeFiniteNumber(coords?.[0]);
+    const publishedAt = [props.sent, props.effective, props.onset].map(parseTimestamp).find((value) => value !== null) ?? null;
+    return {
+      title: props.headline || props.event || 'Weather alert',
+      url: props['@id'] || feature.id || '',
+      docId: props.id || feature.id || props['@id'] || null,
+      summary: normalizeSummary([props.areaDesc, props.description].filter(Boolean).join(' — ')),
+      description: props.description || '',
+      instruction: props.instruction || '',
+      publishedAt,
+      source: feed.name,
+      category: feed.category,
+      agency: props.senderName || null,
+      event: props.event || null,
+      signalType: props.event || null,
+      status: props.status || null,
+      messageType: props.messageType || null,
+      severity: props.severity || null,
+      certainty: props.certainty || null,
+      urgency: props.urgency || null,
+      effectiveDate: props.effective || null,
+      onset: props.onset || null,
+      expires: props.expires || null,
+      ends: props.ends || null,
+      areaDesc: props.areaDesc || '',
+      affectedZones: props.affectedZones || [],
+      geocode: props.geocode || {},
+      jurisdictionCodes,
+      jurisdictionNames: jurisdictionCodes.map(jurisdictionNameForCode),
+      geometry,
+      geo: lat !== null && lon !== null ? { lat, lon } : null
+    };
+  }).filter((item) => !['test', 'exercise', 'draft', 'system'].includes(String(item.status || '').toLowerCase()));
+}
+
 export function parseGenericJsonFeed(data, feed) {
+  if (feed?.id === 'cisa-kev') return normalizeCisaKevSignals(data, feed);
+  if (feed?.id === 'nws-alerts' && Array.isArray(data?.features)) {
+    return normalizeNwsSignals(data, feed);
+  }
   if (feed?.id === 'transport-opensky' && Array.isArray(data?.states)) {
     const observedAt = Number.isFinite(Number(data?.time)) ? Number(data.time) * 1000 : Date.now();
     return data.states.slice(0, 200).map((row) => {
@@ -539,10 +641,15 @@ export function parseGenericJsonFeed(data, feed) {
     );
     const eventCoords = Array.isArray(latestEonetGeometry?.coordinates) ? latestEonetGeometry.coordinates : [];
     const featureCoords = Array.isArray(entry?.geometry?.coordinates) ? entry.geometry.coordinates : [];
-    const geo = entry.geo
-      || (entry.latitude && entry.longitude ? { lat: Number(entry.latitude), lon: Number(entry.longitude) } : null)
-      || (featureCoords.length >= 2 ? { lat: Number(featureCoords[1]), lon: Number(featureCoords[0]) } : null)
-      || (eventCoords.length >= 2 ? { lat: Number(eventCoords[1]), lon: Number(eventCoords[0]) } : null);
+    const point = (latValue, lonValue) => {
+      const lat = normalizeFiniteNumber(latValue);
+      const lon = normalizeFiniteNumber(lonValue);
+      return lat !== null && lon !== null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
+    };
+    const geo = point(entry.geo?.lat, entry.geo?.lon)
+      || point(entry.latitude, entry.longitude)
+      || (entry.geometry?.type === 'Point' ? point(featureCoords[1], featureCoords[0]) : null)
+      || (latestEonetGeometry?.type === 'Point' ? point(eventCoords[1], eventCoords[0]) : null);
     const stateMeta = extractStateMetadata(entry, feed);
     const hasStateMeta = Object.values(stateMeta).some((value) => value !== null && value !== '');
     const stateIdentifier = String(entry.identifier || entry.bill_id || entry.billId || '').trim();
@@ -570,6 +677,12 @@ export function parseGenericJsonFeed(data, feed) {
       source: entry.source || feed.name,
       category: feed.category,
       geo,
+      ...(feed?.id === 'nasa-firms' ? {
+        observationKey: JSON.stringify([
+          entry.source || feed.name, entry.id || entry.docId || null, geo,
+          publishedAt, entry.satellite || null, entry.instrument || null, finalSummary
+        ])
+      } : {}),
       ...(hasStateMeta ? stateMeta : {}),
       ...congressBillMeta
     };
