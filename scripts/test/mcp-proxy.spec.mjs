@@ -1380,16 +1380,41 @@ test('fire identities and deduplication preserve distinct detections with equal 
   assert.equal(dedupeSignals([...items, items[0]]).length, 3);
   assert.equal(items[0].source, 'NOAA HMS');
   const reordered = normalizeJsonSignals(JSON.stringify({ items: [...rows].reverse() }), fireFeed);
-  assert.deepEqual(reordered.map(createItemId).reverse(), items.map(createItemId));
+  assert.deepEqual(reordered.map(createItemId), items.map(createItemId));
+  for (const row of rows) {
+    const key = JSON.stringify([row.source, null, { lat: row.latitude, lon: row.longitude }, row.publishedAt, null, null, row.summary]);
+    assert.ok(items.some((item) => item.observationKey === key), 'existing observation identity is preserved');
+  }
 });
 
 test('geographic zero coordinates survive while missing coordinates stay missing', () => {
-  const [zero, missing] = normalizeJsonSignals(JSON.stringify({ items: [
+  const items = normalizeJsonSignals(JSON.stringify({ items: [
     { title: 'Zero', latitude: 0, longitude: 0 },
     { title: 'Missing', latitude: null, longitude: null }
   ] }), { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster' });
-  assert.deepEqual(zero.geo, { lat: 0, lon: 0 });
-  assert.equal(missing.geo, null);
+  assert.deepEqual(items.find((item) => item.title === 'Zero').geo, { lat: 0, lon: 0 });
+  assert.equal(items.find((item) => item.title === 'Missing').geo, null);
+  assert.ok(items.every((item) => item.publishedAt === null), 'missing acquisition time is not fetch time');
+});
+
+test('FIRMS signal selection ranks full JSON snapshots and ties without changing observation identity', () => {
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster' };
+  const rows = Array.from({ length: 220 }, (_, index) => ({
+    title: 'Fire detection', source: 'NASA FIRMS', latitude: index / 10, longitude: -100,
+    publishedAt: '2026-09-22T00:35:00Z', summary: `FRP ${index}`
+  }));
+  const newest = { ...rows[0], publishedAt: '2026-09-30T13:00:00Z', summary: 'Newest' };
+  const unknown = { ...rows[0], publishedAt: '2026-02-30T13:00:00Z' };
+  const parse = (items) => normalizeJsonSignals(JSON.stringify({ items }), feed);
+  const selected = parse([unknown, ...rows, newest, unknown]);
+  assert.equal(selected.length, 200);
+  assert.equal(selected[0].publishedAt, Date.parse(newest.publishedAt));
+  assert.deepEqual(parse([unknown, newest, ...rows.toReversed(), unknown]), selected);
+  assert.deepEqual(parse([...rows.filter((_, i) => i % 2), newest, ...rows.filter((_, i) => !(i % 2))]), selected);
+  assert.ok(selected.every((item) => item.publishedAt !== null));
+  const [old, undated] = parse([unknown, rows[0]]);
+  assert.equal(old.publishedAt, Date.parse('2026-09-22T00:35:00Z'));
+  assert.equal(undated.publishedAt, null);
 });
 
 test('unsupported state connector requests report coverage before any network request', async (t) => {
@@ -1460,6 +1485,68 @@ test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and red
   assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-22T00:35:00Z'));
   assert.equal(raw.data.items[0].source, 'NASA FIRMS');
   assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+});
+
+test('NASA FIRMS MCP raw, bounded signals, search and get retain the newest tail acquisition', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  const feed = JSON.parse(fs.readFileSync(new URL('../../gcp/mcp-proxy/feeds.json', import.meta.url), 'utf8'))
+    .feeds.find((entry) => entry.id === 'nasa-firms');
+  const header = 'latitude,longitude,acq_date,acq_time,frp';
+  const rows = Array.from({ length: 220 }, (_, index) =>
+    `10,-100,2026-09-30,${String(Math.floor(index / 60)).padStart(2, '0')}${String(index % 60).padStart(2, '0')},${index}`);
+  rows.push('0,0,2026-09-30,1300,900');
+  let primary = [header, ...rows].join('\n');
+  t.mock.property(process, 'env', { ...process.env, NASA_FIRMS: 'fixture-only-key' });
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('firms.modaps')) {
+      assert.equal(String(url), feed.url.replace('{{key}}', 'fixture-only-key'));
+      return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    }
+    assert.match(String(url), /arcgis/i, 'only the existing NOAA fallback may be requested');
+    return new Response(JSON.stringify({ features: [{
+      geometry: { coordinates: [-105, 46] }, properties: { frp: 10 }
+    }] }), { headers: { 'content-type': 'application/json' } });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'firms-freshness-fixture', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const raw = await call('raw.fetch', { sourceId: feed.id, format: 'json' });
+  assert.equal(raw.data.items.length, 200);
+  assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-30T13:00:00Z'));
+  assert.equal(raw.fallbackUsed, false);
+  assert.equal(raw.warning, null);
+  assert.equal(JSON.stringify(raw).includes('fixture-only-key'), false);
+  const listed = await call('signals.list', { sourceId: feed.id, limit: 25 });
+  assert.equal(listed.items.length, 25);
+  assert.equal(listed.items[0].publishedAt, raw.data.items[0].publishedAt);
+  assert.deepEqual(listed.items[0].geo, { lat: 0, lon: 0 });
+  assert.equal(listed.fetchedUrl, raw.fetchedUrl);
+  assert.equal(listed.fallbackUsed, false);
+  const searched = await call('search.smart', { sources: [feed.id], query: 'FRP 900', perSourceLimit: 1, totalLimit: 1 });
+  assert.equal(searched.signals[0].id, listed.items[0].id);
+  primary = [header, ...rows.toReversed()].join('\n');
+  assert.deepEqual((await call('raw.fetch', { sourceId: feed.id, format: 'json' })).data, raw.data);
+  assert.deepEqual((await call('signals.list', { sourceId: feed.id, limit: 25 })).items, listed.items);
+  assert.deepEqual((await call('signals.get', { sourceId: feed.id, id: listed.items[0].id })).item, listed.items[0]);
+  primary = [header, ...rows, '0,0,2026-09-30,1400,"unfinished'].join('\n');
+  const fallbackRaw = await call('raw.fetch', { sourceId: feed.id, format: 'json' });
+  assert.equal(fallbackRaw.fallbackUsed, true);
+  assert.equal(fallbackRaw.proxyUsed, 'arcgis-hms-fire');
+  assert.match(fallbackRaw.warning, /NASA FIRMS unavailable.*NOAA HMS/);
+  assert.equal(fallbackRaw.data.items[0].publishedAt, null);
+  const fallbackList = await call('signals.list', { sourceId: feed.id, limit: 25 });
+  assert.equal(fallbackList.items[0].source, 'NOAA HMS');
+  assert.equal(fallbackList.items[0].publishedAt, null);
+  assert.equal(fallbackList.fallbackUsed, true);
+  assert.equal(fallbackList.warning, fallbackRaw.warning);
+  const foundFallback = await call('signals.get', { sourceId: feed.id, id: fallbackList.items[0].id });
+  assert.deepEqual(foundFallback.item, fallbackList.items[0]);
 });
 
 test('NASA FIRMS invalid or empty CSV retains NOAA fallback attribution and warnings', async (t) => {

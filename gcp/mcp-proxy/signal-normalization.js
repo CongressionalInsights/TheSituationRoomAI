@@ -1,4 +1,5 @@
 import { jurisdictionNameForCode, normalizeJurisdictionCode } from './state-signals.js';
+import { nasaFirmsCoordinates, nasaFirmsObservationKey, nasaFirmsTimestamp, selectNewestFirmsItems } from './firms-csv.js';
 
 function normalizeSummary(text = '') {
   const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
@@ -503,7 +504,28 @@ function normalizeNwsSignals(data, feed) {
   }).filter((item) => !['test', 'exercise', 'draft', 'system'].includes(String(item.status || '').toLowerCase()));
 }
 
+function normalizeFirmsSignals(data, feed) {
+  return selectNewestFirmsItems((function* () {
+    for (const entry of selectList(data)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const properties = entry.properties || {};
+      const item = {
+        title: properties.title || entry.title || entry.name || entry.headline || entry.label || 'Untitled',
+        url: properties.url || entry.url || entry.html_url || entry.link || entry.permalink || '',
+        summary: normalizeSummary(entry.summary || entry.description || entry.body || entry.abstract || properties.status || properties.type || properties.place || ''),
+        publishedAt: nasaFirmsTimestamp(entry),
+        source: entry.source || feed.name,
+        category: feed.category,
+        geo: nasaFirmsCoordinates(entry)
+      };
+      item.observationKey = nasaFirmsObservationKey({ ...entry, ...item });
+      yield item;
+    }
+  })());
+}
+
 export function parseGenericJsonFeed(data, feed) {
+  if (feed?.id === 'nasa-firms') return normalizeFirmsSignals(data, feed);
   if (feed?.id === 'cisa-kev') return normalizeCisaKevSignals(data, feed);
   if (feed?.id === 'nws-alerts' && Array.isArray(data?.features)) {
     return normalizeNwsSignals(data, feed);
@@ -677,12 +699,6 @@ export function parseGenericJsonFeed(data, feed) {
       source: entry.source || feed.name,
       category: feed.category,
       geo,
-      ...(feed?.id === 'nasa-firms' ? {
-        observationKey: JSON.stringify([
-          entry.source || feed.name, entry.id || entry.docId || null, geo,
-          publishedAt, entry.satellite || null, entry.instrument || null, finalSummary
-        ])
-      } : {}),
       ...(hasStateMeta ? stateMeta : {}),
       ...congressBillMeta
     };
