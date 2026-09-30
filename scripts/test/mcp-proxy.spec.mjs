@@ -1415,6 +1415,15 @@ test('FIRMS signal selection ranks full JSON snapshots and ties without changing
   const [old, undated] = parse([unknown, rows[0]]);
   assert.equal(old.publishedAt, Date.parse('2026-09-22T00:35:00Z'));
   assert.equal(undated.publishedAt, null);
+  const valid = parse([...rows, newest]);
+  for (const candidates of [
+    { publishedAt: 'not-a-date', date: newest.publishedAt },
+    { publishedAt: '', date: 'invalid', timestamp: newest.publishedAt },
+    { publishedAt: false, timestamp: 'invalid', acquired: newest.publishedAt }
+  ]) {
+    assert.deepEqual(parse([...rows, { ...newest, ...candidates }]), valid,
+      'direct signal normalization also resolves later timestamps before the bound');
+  }
 });
 
 test('unsupported state connector requests report coverage before any network request', async (t) => {
@@ -1498,11 +1507,12 @@ test('NASA FIRMS MCP raw, bounded signals, search and get retain the newest tail
     `10,-100,2026-09-30,${String(Math.floor(index / 60)).padStart(2, '0')}${String(index % 60).padStart(2, '0')},${index}`);
   rows.push('0,0,2026-09-30,1300,900');
   let primary = [header, ...rows].join('\n');
+  let contentType = 'text/csv';
   t.mock.property(process, 'env', { ...process.env, NASA_FIRMS: 'fixture-only-key' });
   t.mock.method(globalThis, 'fetch', async (url) => {
     if (String(url).includes('firms.modaps')) {
       assert.equal(String(url), feed.url.replace('{{key}}', 'fixture-only-key'));
-      return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+      return new Response(primary, { headers: { 'content-type': contentType } });
     }
     assert.match(String(url), /arcgis/i, 'only the existing NOAA fallback may be requested');
     return new Response(JSON.stringify({ features: [{
@@ -1534,6 +1544,29 @@ test('NASA FIRMS MCP raw, bounded signals, search and get retain the newest tail
   assert.deepEqual((await call('raw.fetch', { sourceId: feed.id, format: 'json' })).data, raw.data);
   assert.deepEqual((await call('signals.list', { sourceId: feed.id, limit: 25 })).items, listed.items);
   assert.deepEqual((await call('signals.get', { sourceId: feed.id, id: listed.items[0].id })).item, listed.items[0]);
+  contentType = 'application/json';
+  const jsonRows = Array.from({ length: 220 }, (_, index) => ({
+    latitude: 10, longitude: -100, acq_date: '2026-09-30',
+    acq_time: `${String(Math.floor(index / 60)).padStart(2, '0')}${String(index % 60).padStart(2, '0')}`, frp: index
+  }));
+  for (const candidates of [
+    { publishedAt: 'not-a-date', date: '2026-09-30T13:00:00Z' },
+    { publishedAt: '', date: 'invalid', timestamp: '2026-09-30T13:00:00Z' },
+    { publishedAt: false, date: null, timestamp: 'invalid', acquired: '2026-09-30T13:00:00Z' }
+  ]) {
+    const recovered = { latitude: 0, longitude: 0, frp: 900, ...candidates };
+    for (const items of [[...jsonRows, recovered], [recovered, ...jsonRows.toReversed()]]) {
+      primary = JSON.stringify({ items });
+      const aliasRaw = await call('raw.fetch', { sourceId: feed.id, format: 'json' });
+      assert.deepEqual(aliasRaw.data, raw.data, 'JSON aliases retain the same bounded raw acquisitions as CSV');
+      assert.equal(aliasRaw.fallbackUsed, false);
+      assert.equal(aliasRaw.warning, null);
+      assert.deepEqual((await call('signals.list', { sourceId: feed.id, limit: 25 })).items, listed.items,
+        'recovered timestamps retain observation identities');
+      assert.deepEqual((await call('signals.get', { sourceId: feed.id, id: listed.items[0].id })).item, listed.items[0]);
+    }
+  }
+  contentType = 'text/csv';
   primary = [header, ...rows, '0,0,2026-09-30,1400,"unfinished'].join('\n');
   const fallbackRaw = await call('raw.fetch', { sourceId: feed.id, format: 'json' });
   assert.equal(fallbackRaw.fallbackUsed, true);
@@ -1608,18 +1641,28 @@ test('NASA fire fallback keeps the raw response contract and identifies NOAA sub
 });
 
 test('published NASA snapshots remain flagged as fallback and retain record attribution', async (t) => {
-  const body = JSON.stringify({ items: [{ title: 'Fire detection', latitude: 40, longitude: -100, source: 'NOAA HMS', publishedAt: 1788548983402 }] });
+  let body;
   t.mock.method(globalThis, 'fetch', async (url) => {
     if (String(url).includes('/data/feeds/nasa-firms.json')) return new Response(JSON.stringify({ body, contentType: 'application/json', httpStatus: 200 }));
     return new Response('unavailable', { status: 403 });
   });
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://upstream.test/fire' };
-  const result = await fetchRaw(feed, {});
-  assert.equal(result.fallbackUsed, true);
-  assert.equal(result.proxyUsed, 'live-cache');
-  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
-  assert.match(raw.warning, /cache snapshot/);
-  assert.equal(raw.data.items[0].source, 'NOAA HMS');
+  for (const publishedAt of [1788548983402, null]) {
+    body = JSON.stringify({ items: [{ title: 'Fire detection', latitude: 40, longitude: -100, source: 'NOAA HMS', publishedAt }] });
+    const result = await fetchRaw(feed, {});
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.proxyUsed, 'live-cache');
+    const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+    assert.match(raw.warning, /cache snapshot/);
+    assert.equal(raw.data.items[0].source, 'NOAA HMS');
+    assert.equal(raw.data.items[0].publishedAt, publishedAt);
+    const [signal] = normalizeJsonSignals(result.body, feed);
+    assert.equal(signal.source, 'NOAA HMS');
+    assert.equal(signal.publishedAt, publishedAt, 'cached unknown acquisitions remain unknown');
+    assert.equal(signal.observationKey, JSON.stringify([
+      'NOAA HMS', null, { lat: 40, lon: -100 }, publishedAt, null, null, ''
+    ]), 'cached observations keep the existing identity tuple');
+  }
 });
 
 test('malformed NWS responses are failures while a real empty alert set is successful', async (t) => {

@@ -26,7 +26,11 @@ export function nasaFirmsTimestamp(entry) {
     const padded = time.padStart(4, '0');
     return parseFirmsTimestamp(date + 'T' + padded.slice(0, 2) + ':' + padded.slice(2) + ':00Z');
   }
-  return parseFirmsTimestamp(entry?.publishedAt ?? entry?.date ?? entry?.timestamp ?? entry?.acquired);
+  for (const value of [entry?.publishedAt, entry?.date, entry?.timestamp, entry?.acquired]) {
+    const timestamp = parseFirmsTimestamp(value);
+    if (timestamp !== null) return timestamp;
+  }
+  return null;
 }
 
 export function nasaFirmsCoordinates(entry) {

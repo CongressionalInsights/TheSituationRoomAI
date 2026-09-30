@@ -625,7 +625,15 @@ function isUsableJsonSnapshot(payload, feed = null) {
       return false;
     }
     if (feed?.id === 'nasa-firms') {
-      return buildNasaFirmsItems(parsed).length > 0;
+      if (parsed?.error) return false;
+      if (buildNasaFirmsItems(parsed).length) return true;
+      const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.items) ? parsed.items : []);
+      // NOAA substitutions can explicitly lack acquisition time; NASA primaries cannot.
+      return rows.some((entry) => entry?.source === 'NOAA HMS'
+        && entry.publishedAt === null
+        && [entry.acq_date, entry.acq_time, entry.date, entry.timestamp, entry.acquired]
+          .every((value) => value === null || value === undefined)
+        && nasaFirmsCoordinates(entry));
     }
     return true;
   } catch {
