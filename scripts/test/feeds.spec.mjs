@@ -24,6 +24,12 @@ const firmsHelperPaths = [
 const firmsHeader = 'latitude,longitude,acq_date,acq_time,bright_ti4,frp,confidence';
 const firmsValid = '0,-118.2,2026-09-22,0035,310.5,12.4,n';
 
+function firmsBuilder(file) {
+  const source = fs.readFileSync(path.join(root, file), 'utf8');
+  const start = source.indexOf('function buildNasaFirmsItems(');
+  return source.slice(start, source.indexOf('\n}', start) + 2);
+}
+
 test('NASA FIRMS uses the documented CSV route while preserving the public JSON contract', () => {
   const paths = ['data/feeds.json', 'public/data/feeds.json', 'gcp/feed-proxy/feeds.json', 'gcp/mcp-proxy/feeds.json'];
   for (const file of paths) {
@@ -89,8 +95,235 @@ test('NASA FIRMS CSV rejects provider error text and malformed records, retainin
   }
 });
 
+test('NASA FIRMS selects newest valid acquisitions across the complete CSV in any input order', async () => {
+  const old = Array.from({ length: 220 }, (_, index) =>
+    `10,-100,2026-09-30,${String(Math.floor(index / 60)).padStart(2, '0')}${String(index % 60).padStart(2, '0')},310,${index},n`);
+  const newest = '0,0,2026-09-30,1300,310,900,h';
+  const invalid = ['91,0,2026-09-30,2359,310,1,h', '0,0,2026-02-30,2359,310,1,h', '0,0,2026-09-30,2400,310,1,h'];
+  const source = [...invalid, ...old, ...invalid, newest];
+  for (const modulePath of firmsHelperPaths) {
+    const { parseNasaFirmsRows, normalizeNasaFirmsItems } = await import(modulePath);
+    const expected = parseNasaFirmsRows([firmsHeader, ...source].join('\n'));
+    assert.equal(expected.length, 200);
+    assert.equal(expected[0].acq_time, '1300');
+    assert.equal(expected.at(-1).acq_time, '0021');
+    for (const reordered of [source.toReversed(), [...source.filter((_, i) => i % 2), ...source.filter((_, i) => !(i % 2))]]) {
+      assert.deepEqual(parseNasaFirmsRows([firmsHeader, ...reordered].join('\n')), expected);
+    }
+    assert.equal(normalizeNasaFirmsItems(expected)[0].publishedAt, Date.parse('2026-09-30T13:00:00Z'));
+  }
+});
+
+test('NASA FIRMS tied acquisitions have deterministic membership and malformed late CSV still fails', async () => {
+  const tied = Array.from({ length: 221 }, (_, index) => `${index / 10},-100,2026-09-30,1300,310,${index},h`);
+  tied.push('0,-100,2026-09-30,1300,310,0,h', '0,-100,2026-09-30,1300,310,,h');
+  for (const modulePath of firmsHelperPaths) {
+    const { parseNasaFirmsRows } = await import(modulePath);
+    const parse = (rows) => parseNasaFirmsRows([firmsHeader, ...rows].join('\n'));
+    const expected = parse(tied);
+    assert.equal(expected.length, 200);
+    assert.deepEqual(parse(tied.toReversed()), expected);
+    for (const malformed of ['0,0,2026-09-30,1400,310,1,h,extra', '0,0,2026-09-30,1400,310,1,"unfinished']) {
+      assert.throws(() => parse([...tied, malformed]), /invalid_firms_csv_record/);
+    }
+    const old = parse(Array(205).fill(firmsValid));
+    assert.equal(old[0].acq_date, '2026-09-22', 'old acquisition stays old, regardless of fetch time');
+  }
+});
+
+test('NASA FIRMS JSON normalization ranks valid acquisitions before the cap in every owning lane', async () => {
+  const { normalizeNasaFirmsItems } = await import('../../scripts/firms-csv.js');
+  const rows = Array.from({ length: 220 }, (_, index) => ({
+    latitude: index / 10, longitude: -100, acq_date: '2026-09-30', acq_time: '0100', frp: index
+  }));
+  const newest = { title: 'Newest', latitude: 0, longitude: 0, publishedAt: '2026-09-30T13:00:00Z', source: 'NASA FIRMS', summary: 'Retained summary' };
+  const invalid = [
+    { ...newest, publishedAt: '2026-02-30T13:00:00Z' }, { ...newest, latitude: null },
+    { ...newest, latitude: ' ' }, { ...newest, latitude: true }, { ...newest, longitude: 181 },
+    { ...newest, publishedAt: null }, { ...newest, acq_date: '2026-09-30', acq_time: '2400' }
+  ];
+  for (const file of ['server.mjs', 'scripts/build_static_cache.mjs', 'gcp/feed-proxy/server.js', 'gcp/mcp-proxy/server.js']) {
+    const context = { normalizeNasaFirmsItems };
+    vm.runInNewContext(firmsBuilder(file) + '\nthis.build = buildNasaFirmsItems;', context);
+    const expected = context.build([...invalid, ...rows, ...invalid, newest]);
+    assert.equal(expected.length, 200, file);
+    assert.deepEqual(expected[0], { ...newest, publishedAt: Date.parse(newest.publishedAt), alertType: 'Fire' });
+    assert.deepEqual(context.build({ items: [...rows, newest].toReversed() }), expected, file);
+    assert.deepEqual(context.build(invalid), [], file);
+  }
+});
+
+test('NASA FIRMS tries each supported timestamp without relaxing acquisition validation', async () => {
+  const date = '2026-09-30T13:00:00Z';
+  const timestamp = Date.parse(date);
+  const detection = { latitude: 0, longitude: 0, title: 'Recovered', summary: 'FRP 900', source: 'NASA FIRMS' };
+  const recovered = [
+    { ...detection, publishedAt: 'not-a-date', date },
+    { ...detection, publishedAt: '', date: '2026-02-30', timestamp: date },
+    { ...detection, publishedAt: false, date: null, timestamp: 'invalid', acquired: date }
+  ];
+  const invalid = [
+    { ...detection, publishedAt: 'invalid', date: '2026-02-30', timestamp: '', acquired: null },
+    { ...detection, acq_date: '2026-02-30', acq_time: '1300', publishedAt: date },
+    { ...detection, acq_date: '2026-09-30', acq_time: '2400', date },
+    { ...detection, acq_date: '2026-09-30', acq_time: '', acquired: date }
+  ];
+  for (const modulePath of firmsHelperPaths) {
+    const { nasaFirmsTimestamp, normalizeNasaFirmsItems, selectNewestFirmsItems } = await import(modulePath);
+    for (const row of recovered) assert.equal(nasaFirmsTimestamp(row), timestamp, modulePath);
+    for (const row of invalid) assert.equal(nasaFirmsTimestamp(row), null, modulePath);
+    assert.equal(nasaFirmsTimestamp({ publishedAt: 0, date }), 0, 'valid zero retains priority');
+    assert.equal(nasaFirmsTimestamp({ acq_date: '2026-09-22', acq_time: '35', publishedAt: date }),
+      Date.parse('2026-09-22T00:35:00Z'), 'valid explicit acquisition retains priority');
+    assert.deepEqual(normalizeNasaFirmsItems(invalid), [], modulePath);
+    assert.deepEqual(normalizeNasaFirmsItems([{ ...detection, source: 'NOAA HMS', publishedAt: null }]), [],
+      'primary normalizer remains strict even for undated NOAA');
+    assert.equal(selectNewestFirmsItems([invalid[0], recovered[0]])[0], recovered[0]);
+  }
+  const { normalizeNasaFirmsItems } = await import('../../scripts/firms-csv.js');
+  const older = Array.from({ length: 220 }, (_, index) => ({
+    latitude: index / 10, longitude: -100, publishedAt: '2026-09-22T00:35:00Z', frp: index
+  }));
+  for (const file of ['server.mjs', 'scripts/build_static_cache.mjs', 'gcp/feed-proxy/server.js', 'gcp/mcp-proxy/server.js']) {
+    const context = { normalizeNasaFirmsItems };
+    vm.runInNewContext(firmsBuilder(file) + '\nthis.build = buildNasaFirmsItems;', context);
+    for (const row of recovered) {
+      const selected = context.build({ items: [...invalid, ...older, row] });
+      assert.equal(selected.length, 200, file);
+      assert.deepEqual(selected[0], { ...detection, publishedAt: timestamp, alertType: 'Fire' }, file);
+      assert.deepEqual(context.build([row, ...older.toReversed(), ...invalid]), selected, file);
+    }
+  }
+});
+
+test('static FIRMS fallback ladder reuses undated NOAA snapshots after direct ArcGIS failure', async () => {
+  const { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, selectNewestFirmsItems } =
+    await import('../../scripts/firms-csv.js');
+  const source = fs.readFileSync(path.join(root, 'scripts/build_static_cache.mjs'), 'utf8');
+  const declarations = [
+    'function normalizeContentType(', 'function looksLikeHtmlDocument(', 'function isJsonHtmlError(',
+    'function resolveServerKey(', 'function isEiaFeed(', 'function buildNasaFirmsItems(',
+    'async function buildArcgisFireFallback(', 'async function fetchLiveFallback(',
+    'async function fetchFeedProxyFallback(', 'function buildFeedProxyFallbackParams(',
+    'function buildStaticRequestParams(', 'function isUsableJsonSnapshot(',
+    'async function loadSeedFeedFallbacks(', 'async function loadBestFallbackPayload(',
+    'async function buildFeedPayload('
+  ];
+  const code = declarations.map((declaration) => {
+    const start = source.indexOf(declaration);
+    assert.ok(start >= 0, declaration);
+    return source.slice(start, source.indexOf('\n}', start) + 2);
+  }).join('\n');
+  const feed = { id: 'nasa-firms', format: 'json', requiresKey: true, keySource: 'server' };
+  const calls = [];
+  let directAvailable = true;
+  let snapshots = {};
+  const context = {
+    nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, selectNewestFirmsItems,
+    process: { env: {} }, Date: class extends Date { static now() { return 1790794800000; } },
+    feedsConfig: { feeds: [feed, { id: 'arcgis-hms-fire', url: 'https://fixture.invalid/arcgis' }] },
+    appConfig: { userAgent: 'fixture' }, TIMEOUT_MS: 1, EIA_FEED_IDS: new Set(),
+    LIVE_BASE: 'https://fixture.invalid/live', FEED_PROXY_BASE: 'https://fixture.invalid/proxy',
+    FEED_DIR: '/fixture/feeds', join: path.join,
+    SEEDED_JSON_FALLBACK_IDS: new Set(['nasa-firms']), seededFeedFallbacks: new Map(),
+    readFile: async (file) => {
+      assert.equal(file, '/fixture/feeds/nasa-firms.json');
+      return JSON.stringify(snapshots['seed-cache'] || null);
+    },
+    fetchWithFallbacks: async (url) => {
+      assert.equal(url, 'https://fixture.invalid/arcgis');
+      calls.push('arcgis');
+      return directAvailable ? new Response(JSON.stringify({ features: [{
+        geometry: { coordinates: [0, 0] }, properties: { frp: 10 }
+      }] })) : new Response('unavailable', { status: 503 });
+    },
+    fetchWithTimeout: async (url) => {
+      const lane = String(url).includes('/live/') ? 'live-cache' : 'feed-proxy';
+      assert.ok(String(url).startsWith('https://fixture.invalid/'));
+      calls.push(lane);
+      return new Response(JSON.stringify(snapshots[lane] || null));
+    }
+  };
+  vm.runInNewContext(code + '\nthis.build = buildFeedPayload; this.seed = loadSeedFeedFallbacks; this.arcgis = buildArcgisFireFallback;', context);
+  const noaa = await context.arcgis();
+  assert.equal(JSON.parse(noaa.body).items[0].publishedAt, null);
+  directAvailable = false;
+  const proxyNoaa = { ...noaa, proxyUsed: 'arcgis-hms-fire', fallbackUsed: true };
+  for (const lane of ['live-cache', 'feed-proxy', 'seed-cache']) {
+    snapshots = { [lane]: lane === 'feed-proxy' ? proxyNoaa : noaa };
+    context.seededFeedFallbacks.clear();
+    calls.length = 0;
+    await context.seed();
+    const result = await context.build(feed);
+    assert.equal(result.error, undefined, lane);
+    assert.equal(result.body, noaa.body, lane);
+    assert.equal(result.fallback, lane);
+    assert.equal(result.stale, true);
+    assert.equal(result.fetchedAt, context.Date.now());
+    assert.equal(JSON.parse(result.body).items[0].source, 'NOAA HMS');
+    assert.equal(JSON.parse(result.body).items[0].publishedAt, null, 'fetch time never substitutes for acquisition');
+    if (lane === 'feed-proxy') {
+      assert.equal(result.proxyUsed, 'arcgis-hms-fire');
+      assert.equal(result.fallbackUsed, true);
+    }
+    assert.deepEqual(calls, lane === 'live-cache' ? ['arcgis', 'live-cache'] : ['arcgis', 'live-cache', 'feed-proxy']);
+  }
+  const snapshot = (items) => ({ ...noaa, body: JSON.stringify({ items }) });
+  const entry = JSON.parse(noaa.body).items[0];
+  for (const invalid of [
+    { ...noaa, error: 'http_503' }, { ...noaa, body: '{"error":"provider_failure","items":[' + JSON.stringify(entry) + ']}' },
+    { ...noaa, body: '{invalid' }, { ...noaa, body: '<html>error</html>', contentType: 'text/html' },
+    snapshot([]), snapshot([{ ...entry, latitude: 91 }]), snapshot([{ ...entry, longitude: null }]),
+    snapshot([{ ...entry, source: 'NASA FIRMS' }]), snapshot([{ ...entry, source: undefined }]),
+    snapshot([{ ...entry, publishedAt: 'not-a-date' }]), snapshot([{ ...entry, date: 'invalid' }]),
+    snapshot([{ ...entry, acq_date: '2026-02-30', acq_time: '1300' }])
+  ]) {
+    snapshots = { 'live-cache': invalid, 'feed-proxy': invalid, 'seed-cache': invalid };
+    context.seededFeedFallbacks.clear();
+    calls.length = 0;
+    await context.seed();
+    assert.equal(context.seededFeedFallbacks.size, 0, 'invalid seed is never admitted');
+    const result = await context.build(feed);
+    assert.equal(result.error, 'missing_server_key');
+    assert.deepEqual(calls, ['arcgis', 'live-cache', 'feed-proxy']);
+  }
+});
+
+test('NASA FIRMS NOAA fallback ranks before the cap and preserves old or unknown times in each lane', async () => {
+  const { nasaFirmsCoordinates, parseFirmsTimestamp, selectNewestFirmsItems } = await import('../../scripts/firms-csv.js');
+  let features = Array.from({ length: 205 }, (_, index) => ({
+    geometry: { coordinates: [-100, index / 10] }, properties: { acq_date: '2026-09-22', frp: index }
+  }));
+  features.push({ geometry: { coordinates: [0, 0] }, properties: { acq_date: '2026-09-30T13:00:00Z' } });
+  features.push({ geometry: { coordinates: [null, null] }, properties: { acq_date: '2026-09-30T23:59:00Z' } });
+  const original = features;
+  for (const file of ['scripts/build_static_cache.mjs', 'gcp/feed-proxy/server.js', 'gcp/mcp-proxy/server.js']) {
+    features = original;
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    const start = source.indexOf('async function buildArcgisFireFallback()');
+    const fetchFixture = async () => new Response(JSON.stringify({ features }));
+    const context = {
+      nasaFirmsCoordinates, parseFirmsTimestamp, selectNewestFirmsItems,
+      feedsConfig: { feeds: [{ id: 'arcgis-hms-fire', url: 'https://fixture.invalid/noaa' }] },
+      appConfig: { userAgent: 'fixture' }, FETCH_TIMEOUT_MS: 1, TIMEOUT_MS: 1,
+      fetchWithFallbacks: fetchFixture, fetchWithTimeout: fetchFixture
+    };
+    vm.runInNewContext(source.slice(start, source.indexOf('\n}', start) + 2) + '\nthis.build = buildArcgisFireFallback;', context);
+    const expected = JSON.parse((await context.build()).body).items;
+    assert.equal(expected.length, 200, file);
+    assert.equal(expected[0].publishedAt, Date.parse('2026-09-30T13:00:00Z'), file);
+    assert.equal(expected[0].source, 'NOAA HMS', file);
+    features = original.toReversed();
+    assert.deepEqual(JSON.parse((await context.build()).body).items, expected, file);
+    features = [{ geometry: { coordinates: [0, 0] }, properties: {} }];
+    assert.equal(JSON.parse((await context.build()).body).items[0].publishedAt, null, file);
+    features = [{ geometry: { coordinates: [0, 0] }, properties: { acq_date: '2026-09-22' } }];
+    assert.equal(JSON.parse((await context.build()).body).items[0].publishedAt, Date.parse('2026-09-22T00:00:00Z'), file);
+  }
+});
+
 test('NASA FIRMS local and static normalization distinguish invalid and empty fixtures without provider calls', async () => {
-  const { parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
+  const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
   const lanes = [
     ['server.mjs', "  if (!payload.error && feed.id === 'nasa-firms'", '  if (!payload.error && feed.congressCommitteeBills'],
     ['scripts/build_static_cache.mjs', "  if (!payload.error && feed.id === 'nasa-firms'", "  if (!payload.error && feed.id === 'govinfo-api'"]
@@ -108,7 +341,7 @@ test('NASA FIRMS local and static normalization distinguish invalid and empty fi
       ['Invalid MAP_KEY fixture-secret', 'invalid_response']
     ]) {
       const payload = { body, contentType: 'text/csv', httpStatus: 200 };
-      const context = { feed: { id: 'nasa-firms' }, payload, body, contentType: 'text/csv', parseNasaFirmsRows };
+      const context = { feed: { id: 'nasa-firms' }, payload, body, contentType: 'text/csv', normalizeNasaFirmsItems, parseNasaFirmsRows };
       vm.runInNewContext(helper + '\n' + branch, context);
       assert.equal(payload.error, expectedError, file);
       if (!expectedError) {
@@ -123,14 +356,14 @@ test('NASA FIRMS local and static normalization distinguish invalid and empty fi
 });
 
 test('NASA FIRMS feed proxy normalization flags invalid and empty primary CSV before fallback', async () => {
-  const { parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
+  const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
   const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
   const helperStart = source.indexOf('function buildNasaFirmsItems(');
   const helper = source.slice(helperStart, source.indexOf('\n}', helperStart) + 2);
   const start = source.indexOf("    if (feed.id === 'nasa-firms' && responseOk");
   const branch = source.slice(start, source.indexOf('    if (feed.congressCommitteeBills', start));
   for (const [body, error] of [[firmsHeader + '\n' + firmsValid, undefined], [firmsHeader, 'empty_payload'], ['Invalid MAP_KEY', 'invalid_response']]) {
-    const context = { feed: { id: 'nasa-firms' }, body, contentType: 'text/csv', responseOk: true, firmsError: null, parseNasaFirmsRows };
+    const context = { feed: { id: 'nasa-firms' }, body, contentType: 'text/csv', responseOk: true, firmsError: null, normalizeNasaFirmsItems, parseNasaFirmsRows };
     vm.runInNewContext(helper + '\n' + branch, context);
     assert.equal(context.responseOk, !error);
     assert.equal(context.firmsError?.error, error);

@@ -11,7 +11,7 @@ import {
   STATE_LEGISLATION_SCOPED_TIMEOUT_MS
 } from './state-legislation-timeout.js';
 import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
-import { parseNasaFirmsRows } from './firms-csv.js';
+import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -710,46 +710,7 @@ function applyProxy(url, proxy) {
 }
 
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
-  const rows = Array.isArray(data)
-    ? data
-    : (Array.isArray(data?.items) ? data.items : []);
-  return rows.slice(0, 200).map((entry) => {
-    const geoLat = Number(entry?.geo?.lat);
-    const geoLon = Number(entry?.geo?.lon);
-    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
-    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
-    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
-    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
-    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
-    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
-    const frp = entry.frp ?? entry.fire_radiative_power;
-    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
-    const parts = [];
-    if (brightness) parts.push(`Brightness ${brightness}`);
-    if (frp) parts.push(`FRP ${frp}`);
-    if (confidence) parts.push(`Confidence ${confidence}`);
-    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
-    let publishedAt = Date.now();
-    if (date) {
-      const time = String(entry.acq_time || '').padStart(4, '0');
-      if (time.length === 4 && /^\d+$/.test(time)) {
-        const parsed = Date.parse(`${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      } else {
-        const parsed = Date.parse(date);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      }
-    }
-    return {
-      title: entry.title || 'Fire detection',
-      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
-      latitude: resolvedLat,
-      longitude: resolvedLon,
-      publishedAt,
-      source,
-      alertType: 'Fire'
-    };
-  }).filter(Boolean);
+  return normalizeNasaFirmsItems(data, source);
 }
 
 async function buildArcgisFireFallback() {
@@ -760,23 +721,24 @@ async function buildArcgisFireFallback() {
     if (!response.ok) return null;
     const data = await response.json();
     const features = Array.isArray(data?.features) ? data.features : [];
-    const items = features.slice(0, 200).map((feature) => {
-      const props = feature.properties || {};
-      const coords = feature.geometry?.coordinates || [];
-      const lon = Number(coords[0]);
-      const lat = Number(coords[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      const publishedAt = props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now();
-      return {
-        title: props.name || props.NAME || props.fire_name || 'Fire detection',
-        summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
-        latitude: lat,
-        longitude: lon,
-        publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
-        source: 'NOAA HMS',
-        alertType: 'Fire'
-      };
-    }).filter(Boolean);
+    const items = selectNewestFirmsItems((function* () {
+      for (const feature of features) {
+        const props = feature?.properties || {};
+        const coords = feature?.geometry?.coordinates || [];
+        const geo = nasaFirmsCoordinates({ latitude: coords[1], longitude: coords[0] });
+        if (!geo) continue;
+        const publishedAt = parseFirmsTimestamp(props.acq_date || props.date);
+        yield {
+          title: props.name || props.NAME || props.fire_name || 'Fire detection',
+          summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
+          latitude: geo.lat,
+          longitude: geo.lon,
+          publishedAt,
+          source: 'NOAA HMS',
+          alertType: 'Fire'
+        };
+      }
+    })());
     if (!items.length) return null;
     return {
       id: 'nasa-firms',
