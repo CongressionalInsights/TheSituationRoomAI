@@ -4,6 +4,7 @@ import { dirname, extname, join, normalize } from 'path';
 import { fileURLToPath } from 'url';
 import { gunzipSync } from 'zlib';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './shared/state-signals.mjs';
+import { parseNasaFirmsRows } from './scripts/firms-csv.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1549,9 +1550,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     payload.error = 'invalid_html';
     payload.message = 'Upstream returned HTML instead of JSON.';
   }
-  if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
+  if (!payload.error && feed.id === 'nasa-firms') {
     try {
-      const items = buildNasaFirmsItems(JSON.parse(body));
+      const items = buildNasaFirmsItems(parseNasaFirmsRows(body, contentType));
       if (items.length) {
         body = JSON.stringify({ items });
         contentType = 'application/json';
@@ -1562,9 +1563,13 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         payload.message = 'NASA FIRMS returned no usable geolocated detections.';
       }
     } catch {
-      payload.error = 'invalid_json';
-      payload.message = 'NASA FIRMS returned invalid JSON.';
+      payload.error = 'invalid_response';
+      payload.message = 'NASA FIRMS returned an invalid detection payload.';
     }
+  }
+  if (payload.error && feed.id === 'nasa-firms') {
+    payload.body = JSON.stringify({ error: payload.error, message: payload.message });
+    payload.contentType = 'application/json';
   }
   if (!payload.error && feed.congressCommitteeBills && contentType.includes('json')) {
     body = filterCongressCommitteeBillsBody(body, mergedParams.congress || feed.defaultParams?.congress);

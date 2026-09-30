@@ -1674,7 +1674,7 @@
       "format": "json",
       "requiresKey": true,
       "keySource": "server",
-      "url": "https://firms.modaps.eosdis.nasa.gov/api/area/json/{{key}}/VIIRS_SNPP_NRT/world/1",
+      "url": "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1",
       "ttlMinutes": 60,
       "tags": [
         "global",
