@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { redactCredentialFields, sanitizeEiaBody } from '../analysis/monitor/lib/public_payload_safety.mjs';
+import { parseNasaFirmsRows } from './firms-csv.js';
 
 const ROOT = process.cwd();
 const FEEDS_PATH = join(ROOT, 'data', 'feeds.json');
@@ -901,10 +902,9 @@ async function buildFeedPayload(feed) {
     if (fallback) return fallback;
   }
 
-  if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
+  if (!payload.error && feed.id === 'nasa-firms') {
     try {
-      const parsed = JSON.parse(body);
-      const items = buildNasaFirmsItems(parsed);
+      const items = buildNasaFirmsItems(parseNasaFirmsRows(body, contentType));
       if (items.length) {
         payload.body = JSON.stringify({ items });
         payload.contentType = 'application/json';
@@ -914,8 +914,8 @@ async function buildFeedPayload(feed) {
         payload.message = 'NASA FIRMS returned no usable geolocated detections.';
       }
     } catch {
-      payload.error = 'invalid_json';
-      payload.message = 'NASA FIRMS returned invalid JSON.';
+      payload.error = 'invalid_response';
+      payload.message = 'NASA FIRMS returned an invalid detection payload.';
     }
   }
 
@@ -948,6 +948,8 @@ async function buildFeedPayload(feed) {
   }
 
   if (payload.error && feed.id === 'nasa-firms') {
+    payload.body = JSON.stringify({ error: payload.error, message: payload.message });
+    payload.contentType = 'application/json';
     const fireFallback = await buildArcgisFireFallback();
     if (fireFallback) return fireFallback;
   }
@@ -982,7 +984,7 @@ async function buildFeedPayload(feed) {
       const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
       const fallbackBody = await fallbackResponse.text();
       if (fallbackResponse.ok && fallbackBody) {
-        const items = buildNasaFirmsItems(JSON.parse(fallbackBody));
+        const items = buildNasaFirmsItems(parseNasaFirmsRows(fallbackBody, fallbackResponse.headers.get('content-type')));
         if (items.length) {
         payload = {
           id: feed.id,

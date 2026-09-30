@@ -11,6 +11,7 @@ import {
   STATE_LEGISLATION_SCOPED_TIMEOUT_MS
 } from './state-legislation-timeout.js';
 import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
+import { parseNasaFirmsRows } from './firms-csv.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1481,6 +1482,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   let responseOk = false;
   let contentType = 'text/plain';
   let body = '';
+  let firmsError = null;
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
@@ -1531,17 +1533,19 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     if (feed.id === 'gdelt-doc' && responseOk && !hasUsableGdeltPayload(body)) {
       responseOk = false;
     }
-    if (feed.id === 'nasa-firms' && responseOk && typeof body === 'string' && contentType.includes('json')) {
+    if (feed.id === 'nasa-firms' && responseOk && typeof body === 'string') {
       try {
-        const items = buildNasaFirmsItems(JSON.parse(body));
+        const items = buildNasaFirmsItems(parseNasaFirmsRows(body, contentType));
         if (items.length) {
           body = JSON.stringify({ items });
           contentType = 'application/json';
         } else {
           responseOk = false;
+          firmsError = { error: 'empty_payload', message: 'NASA FIRMS returned no usable geolocated detections.' };
         }
       } catch {
         responseOk = false;
+        firmsError = { error: 'invalid_response', message: 'NASA FIRMS returned an invalid detection payload.' };
       }
     }
     if (feed.congressCommitteeBills && responseOk && typeof body === 'string' && contentType.includes('json')) {
@@ -1660,8 +1664,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     payload.error = 'invalid_rss';
     payload.message = 'Upstream response was not valid RSS/Atom XML.';
   } else if (feed.id === 'nasa-firms' && !responseOk) {
-    payload.error = 'empty_payload';
-    payload.message = 'NASA FIRMS returned no usable geolocated detections.';
+    payload.error = firmsError?.error || 'empty_payload';
+    payload.message = firmsError?.message || 'NASA FIRMS returned no usable geolocated detections.';
+  }
+  if (payload.error && feed.id === 'nasa-firms') {
+    payload.body = JSON.stringify({ error: payload.error, message: payload.message });
+    payload.contentType = 'application/json';
   }
   const shouldCache = isEiaSeries
     ? responseOk

@@ -10,6 +10,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
 import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
 import { sanitizeEiaPayload } from './public-payload-safety.js';
+import { parseNasaFirmsRows } from './firms-csv.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -247,12 +248,12 @@ function stripSecretsFromUrl(rawUrl) {
         parsed.searchParams.set(param, 'REDACTED');
       }
     });
-    parsed.pathname = parsed.pathname.replace(/\/api\/area\/json\/[^/]+/i, '/api/area/json/REDACTED');
+    parsed.pathname = parsed.pathname.replace(/(\/api\/area\/(?:json|csv)\/)[^/]+/i, '$1REDACTED');
     return parsed.toString();
   } catch {
     return rawUrl
       .replace(/(api_key=)[^&]+/gi, '$1REDACTED')
-      .replace(/(\/api\/area\/json\/)[^/]+/i, '$1REDACTED');
+      .replace(/(\/api\/area\/(?:json|csv)\/)[^/]+/i, '$1REDACTED');
   }
 }
 
@@ -2462,15 +2463,14 @@ export async function fetchRaw(feed, options) {
           lastError = { error: 'invalid_response', message: 'NWS response is missing its alert features array.', httpStatus: response.status };
           continue;
         }
-        if (feed.id === 'nasa-firms' && normalizeContentType(response.headers.get('content-type')).includes('json')) {
+        if (feed.id === 'nasa-firms') {
           try {
-            const items = buildNasaFirmsItems(JSON.parse(body));
+            const items = buildNasaFirmsItems(parseNasaFirmsRows(body, response.headers.get('content-type')));
             if (!items.length) {
               lastError = {
-                error: 'fetch_failed',
+                error: 'empty_payload',
                 httpStatus: response.status,
                 message: 'NASA FIRMS returned no usable geolocated detections.',
-                body
               };
               continue;
             }
@@ -2479,8 +2479,7 @@ export async function fetchRaw(feed, options) {
             lastError = {
               error: 'invalid_response',
               httpStatus: response.status,
-              message: 'NASA FIRMS returned invalid JSON.',
-              body
+              message: 'NASA FIRMS returned an invalid detection payload.',
             };
             continue;
           }
@@ -2505,8 +2504,8 @@ export async function fetchRaw(feed, options) {
         error: 'fetch_failed',
         httpStatus: response.status,
         upstreamStatus: response.status,
-        message: extractUpstreamErrorMessage(response.status, body),
-        body
+        message: feed.id === 'nasa-firms' ? 'HTTP ' + response.status : extractUpstreamErrorMessage(response.status, body),
+        body: feed.id === 'nasa-firms' ? undefined : body
       };
       // Client-side upstream errors are not recoverable via proxy fallback.
       if (!isRssFeed && response.status >= 400 && response.status < 500 && response.status !== 429 && feed.id !== 'gdelt-doc') {
@@ -2600,7 +2599,7 @@ export async function fetchRaw(feed, options) {
   const successResult = {
     body,
     httpStatus: response.status,
-    contentType: response.headers.get('content-type') || null,
+    contentType: feed.id === 'nasa-firms' ? 'application/json' : (response.headers.get('content-type') || null),
     fetchedUrl: stripSecretsFromUrl(fetchedUrl),
     proxyUsed: usedProxy,
     fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy && !configuredProxies.includes(usedProxy)),

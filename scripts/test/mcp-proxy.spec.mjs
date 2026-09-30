@@ -1429,6 +1429,69 @@ test('supported state zero-result metadata remains bound to the requested state'
   assert.equal(new URL(result.fetchedUrl).searchParams.get('state'), 'NC');
 });
 
+test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and redacted URL', async (t) => {
+  const csv = 'latitude,longitude,acq_date,acq_time,frp,confidence\n0,-118.2,2026-09-22,35,12.4,n';
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
+    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(String(url), feed.url.replace('{{key}}', 'fixture-secret'));
+    return new Response(csv, { headers: { 'content-type': 'text/csv' } });
+  });
+  const result = await fetchRaw(feed, { key: 'fixture-secret' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.contentType, 'application/json');
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.proxyUsed, null);
+  assert.equal(result.fetchedUrl.includes('fixture-secret'), false);
+  assert.match(result.fetchedUrl, /\/csv\/REDACTED\//);
+  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+  assert.equal(raw.warning, null);
+  assert.equal(raw.data.items[0].latitude, 0);
+  assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-22T00:35:00Z'));
+  assert.equal(raw.data.items[0].source, 'NASA FIRMS');
+  assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+});
+
+test('NASA FIRMS invalid or empty CSV retains NOAA fallback attribution and warnings', async (t) => {
+  let primary = 'latitude,longitude,acq_date,acq_time';
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('fixture.invalid')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    assert.match(String(url), /arcgis/i);
+    return new Response(JSON.stringify({ features: [{
+      geometry: { type: 'Point', coordinates: [-105, 46] }, properties: { frp: 10, acq_date: '2026-09-04' }
+    }] }), { headers: { 'content-type': 'application/json' } });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://fixture.invalid/fire' };
+  for (const body of [primary, 'Invalid MAP_KEY', 'latitude,longitude,acq_date,acq_time\n91,0,2026-09-22,0']) {
+    primary = body;
+    const result = await fetchRaw(feed, {});
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.proxyUsed, 'arcgis-hms-fire');
+    assert.equal(result.contentType, 'application/json');
+    const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+    assert.equal(raw.data.items[0].source, 'NOAA HMS');
+    assert.match(raw.warning, /NASA FIRMS unavailable.*NOAA HMS/);
+  }
+});
+
+test('NASA FIRMS unusable CSV without a fallback remains an explicit redacted failure', async (t) => {
+  let primary = 'latitude,longitude,acq_date,acq_time';
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('fixture.invalid')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    return new Response('unavailable', { status: 403 });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
+    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+  for (const [body, error] of [[primary, 'empty_payload'], ['Invalid MAP_KEY fixture-secret', 'invalid_response']]) {
+    primary = body;
+    const result = await fetchRaw(feed, { key: 'fixture-secret' });
+    assert.equal(result.error, error);
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(result.body, undefined);
+    assert.equal(JSON.stringify(result).includes('fixture-secret'), false);
+  }
+});
+
 test('NASA fire fallback keeps the raw response contract and identifies NOAA substitution', async (t) => {
   t.mock.method(globalThis, 'fetch', async (url) => {
     if (String(url).includes('upstream.test')) return new Response('unavailable', { status: 403 });

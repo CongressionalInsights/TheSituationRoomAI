@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 
 const root = process.cwd();
 const feedsPath = path.join(root, 'data', 'feeds.json');
@@ -15,6 +16,141 @@ test('feeds.json parses and has feeds', () => {
   const data = JSON.parse(raw);
   assert.ok(Array.isArray(data.feeds), 'feeds.json should have feeds array');
   assert.ok(data.feeds.length > 0, 'feeds array should not be empty');
+});
+
+const firmsHelperPaths = [
+  '../../scripts/firms-csv.js', '../../gcp/feed-proxy/firms-csv.js', '../../gcp/mcp-proxy/firms-csv.js'
+];
+const firmsHeader = 'latitude,longitude,acq_date,acq_time,bright_ti4,frp,confidence';
+const firmsValid = '0,-118.2,2026-09-22,0035,310.5,12.4,n';
+
+test('NASA FIRMS uses the documented CSV route while preserving the public JSON contract', () => {
+  const paths = ['data/feeds.json', 'public/data/feeds.json', 'gcp/feed-proxy/feeds.json', 'gcp/mcp-proxy/feeds.json'];
+  for (const file of paths) {
+    const feed = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8')).feeds.find((row) => row.id === 'nasa-firms');
+    assert.equal(feed.url, 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1');
+    assert.equal(feed.format, 'json');
+    assert.equal(feed.requiresKey, true);
+    assert.equal(feed.keySource, 'server');
+    assert.equal(feed.ttlMinutes, 60);
+  }
+});
+
+test('NASA FIRMS CSV adapters validate dates, times, numeric coordinates and the 200-item bound', async () => {
+  const invalid = [
+    '91,-118.2,2026-09-22,0035,310.5,12.4,n',
+    '34,-181,2026-09-22,0035,310.5,12.4,n',
+    '34,-118.2,2026-02-30,0035,310.5,12.4,n',
+    '34,-118.2,2026-09-22,2400,310.5,12.4,n',
+    '34,-118.2,2026-09-22,1260,310.5,12.4,n',
+    ',-118.2,2026-09-22,0035,310.5,12.4,n',
+    '0x10,-118.2,2026-09-22,0035,310.5,12.4,n'
+  ];
+  for (const modulePath of firmsHelperPaths) {
+    const { parseNasaFirmsRows } = await import(modulePath);
+    const rows = parseNasaFirmsRows([firmsHeader, ...invalid, ...Array(205).fill(firmsValid)].join('\r\n'), 'text/csv');
+    assert.equal(rows.length, 200);
+    assert.deepEqual(rows[0], {
+      latitude: 0, longitude: -118.2, acq_date: '2026-09-22', acq_time: '0035',
+      bright_ti4: '310.5', bright_ti5: '', frp: '12.4', confidence: 'n'
+    });
+    assert.deepEqual(parseNasaFirmsRows(firmsHeader + '\n' + invalid.join('\n'), 'text/plain'), []);
+  }
+});
+
+test('NASA FIRMS CSV handles quoted records, BOM, reordered headers and header-only responses', async () => {
+  for (const modulePath of firmsHelperPaths) {
+    const { parseNasaFirmsRows } = await import(modulePath);
+    const body = '\uFEFF"confidence",acq_time,longitude,latitude,acq_date,extra\r\n"n",35,-118.2,0,2026-09-22,"comma, quote "" and\r\nnewline"';
+    const [row] = parseNasaFirmsRows(body, 'text/plain');
+    assert.equal(row.latitude, 0);
+    assert.equal(row.acq_time, '0035');
+    assert.equal(row.confidence, 'n');
+    assert.deepEqual(parseNasaFirmsRows(firmsHeader, 'text/csv'), []);
+    assert.deepEqual(parseNasaFirmsRows(firmsHeader + '\r\n\r\n', 'text/csv'), []);
+    assert.equal(parseNasaFirmsRows(firmsHeader + '\n90,180,2024-02-29,2359,1,1,h', 'text/csv').length, 1);
+  }
+});
+
+test('NASA FIRMS CSV rejects provider error text and malformed records, retaining JSON compatibility', async () => {
+  const bad = [
+    '', '<html>error</html>', 'Invalid MAP_KEY', 'latitude,longitude\n1,2',
+    firmsHeader + ',latitude\n' + firmsValid + ',1',
+    firmsHeader + '\n' + firmsValid + ',extra',
+    firmsHeader + '\n' + firmsValid.slice(0, -1) + '"n',
+    firmsHeader + '\n' + firmsValid.slice(0, -1) + '"n"x'
+  ];
+  for (const modulePath of firmsHelperPaths) {
+    const { parseNasaFirmsRows } = await import(modulePath);
+    for (const body of bad) assert.throws(() => parseNasaFirmsRows(body, 'text/csv'), /invalid_firms_csv/);
+    const json = { items: [{ latitude: 1, longitude: 2, acq_date: '2026-09-22', acq_time: '35' }] };
+    assert.deepEqual(parseNasaFirmsRows(JSON.stringify(json), 'application/json'), json);
+    assert.throws(() => parseNasaFirmsRows('{"error":', 'application/json'), SyntaxError);
+  }
+});
+
+test('NASA FIRMS local and static normalization distinguish invalid and empty fixtures without provider calls', async () => {
+  const { parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
+  const lanes = [
+    ['server.mjs', "  if (!payload.error && feed.id === 'nasa-firms'", '  if (!payload.error && feed.congressCommitteeBills'],
+    ['scripts/build_static_cache.mjs', "  if (!payload.error && feed.id === 'nasa-firms'", "  if (!payload.error && feed.id === 'govinfo-api'"]
+  ];
+  for (const [file, start, end] of lanes) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    const helperStart = source.indexOf('function buildNasaFirmsItems(');
+    const helperEnd = source.indexOf('\n}', helperStart) + 2;
+    const helper = source.slice(helperStart, helperEnd);
+    const branchStart = source.indexOf(start);
+    const branch = source.slice(branchStart, source.indexOf(end, branchStart));
+    for (const [body, expectedError] of [
+      [firmsHeader + '\n' + firmsValid, undefined],
+      [firmsHeader, 'empty_payload'],
+      ['Invalid MAP_KEY fixture-secret', 'invalid_response']
+    ]) {
+      const payload = { body, contentType: 'text/csv', httpStatus: 200 };
+      const context = { feed: { id: 'nasa-firms' }, payload, body, contentType: 'text/csv', parseNasaFirmsRows };
+      vm.runInNewContext(helper + '\n' + branch, context);
+      assert.equal(payload.error, expectedError, file);
+      if (!expectedError) {
+        assert.equal(payload.contentType, 'application/json');
+        const [item] = JSON.parse(payload.body).items;
+        assert.equal(item.latitude, 0);
+        assert.equal(item.publishedAt, Date.parse('2026-09-22T00:35:00Z'));
+        assert.equal(item.source, 'NASA FIRMS');
+      }
+    }
+  }
+});
+
+test('NASA FIRMS feed proxy normalization flags invalid and empty primary CSV before fallback', async () => {
+  const { parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
+  const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
+  const helperStart = source.indexOf('function buildNasaFirmsItems(');
+  const helper = source.slice(helperStart, source.indexOf('\n}', helperStart) + 2);
+  const start = source.indexOf("    if (feed.id === 'nasa-firms' && responseOk");
+  const branch = source.slice(start, source.indexOf('    if (feed.congressCommitteeBills', start));
+  for (const [body, error] of [[firmsHeader + '\n' + firmsValid, undefined], [firmsHeader, 'empty_payload'], ['Invalid MAP_KEY', 'invalid_response']]) {
+    const context = { feed: { id: 'nasa-firms' }, body, contentType: 'text/csv', responseOk: true, firmsError: null, parseNasaFirmsRows };
+    vm.runInNewContext(helper + '\n' + branch, context);
+    assert.equal(context.responseOk, !error);
+    assert.equal(context.firmsError?.error, error);
+    if (!error) assert.equal(context.contentType, 'application/json');
+  }
+});
+
+test('NASA FIRMS MCP URL redaction covers CSV and legacy JSON path keys', () => {
+  const source = fs.readFileSync(path.join(root, 'gcp/mcp-proxy/server.js'), 'utf8');
+  const start = source.indexOf('function stripSecretsFromUrl(');
+  const code = source.slice(start, source.indexOf('\nfunction resolveServerKey', start));
+  const context = { URL };
+  vm.runInNewContext(code + '\nthis.redact = stripSecretsFromUrl;', context);
+  for (const format of ['json', 'csv']) {
+    for (const prefix of ['https://firms.modaps.eosdis.nasa.gov', 'invalid-url']) {
+      const redacted = context.redact(prefix + '/api/area/' + format + '/fixture-secret/VIIRS_SNPP_NRT/world/1');
+      assert.equal(redacted.includes('fixture-secret'), false);
+      assert.ok(redacted.includes('/' + format + '/REDACTED/'));
+    }
+  }
 });
 
 test('feeds have required keys', () => {
