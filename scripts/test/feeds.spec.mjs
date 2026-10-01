@@ -30,6 +30,65 @@ function firmsBuilder(file) {
   return source.slice(start, source.indexOf('\n}', start) + 2);
 }
 
+test('OpenAQ retains the original HTTPS failure without forwarding its key over HTTP', async () => {
+  const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
+  const declarations = [
+    'function applyKey(', 'function buildFetchCandidates(',
+    'async function fetchWithFallbacks(', 'async function fetchFeed('
+  ];
+  const code = declarations.map((declaration) => {
+    const start = source.indexOf(declaration);
+    assert.ok(start >= 0, declaration);
+    return source.slice(start, source.indexOf('\n}', start) + 2);
+  }).join('\n');
+  const feed = JSON.parse(fs.readFileSync(feedsPath, 'utf8')).feeds.find(f => f.id === 'openaq-api');
+  const requests = [];
+  let status = 401;
+  const context = {
+    cache: new Map(), appConfig: { userAgent: 'fixture', defaultRefreshMinutes: 60 },
+    FETCH_TIMEOUT_MS: 100, URL, Date,
+    mergeFeedParams: () => ({}), serializeParams: () => '',
+    isStateConnectorFeed: () => false, isEiaFeed: () => false,
+    resolveServerKey: () => 'fixture-only-not-a-real-key',
+    getUrlTemplateParamNames: () => [], getRuntimeOnlyParamNames: () => [],
+    buildUrl: url => url, applyUrlParams: url => url,
+    applyCongressCommitteeDateWindow: url => url,
+    canUseLiveFeedFallback: () => false,
+    isStateLegislationScopedRequest: () => false,
+    isStateLegislationAllStatesRequest: () => false,
+    isJsonHtmlError: () => false,
+    fetchWithTimeout: async (url, options) => {
+      requests.push({ url, key: options.headers['X-API-Key'] });
+      assert.equal(url, 'https://api.openaq.org/v3/locations?limit=20');
+      assert.equal(options.headers['X-API-Key'], 'fixture-only-not-a-real-key');
+      return new Response(JSON.stringify(status === 200
+        ? { results: [{ id: 123 }] } : { detail: `fixture_https_${status}` }), {
+        status, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  };
+  vm.runInNewContext(code + '\nthis.fetchFeed = fetchFeed; this.fetchWithFallbacks = fetchWithFallbacks;', context);
+  for (status of [401, 403, 200]) {
+    requests.length = 0;
+    const payload = await context.fetchFeed(feed);
+    assert.equal(payload.httpStatus, status);
+    assert.equal(requests.length, 1);
+    assert.equal(payload.error, status === 200 ? undefined : `http_${status}`);
+    if (status !== 200) {
+      assert.equal(JSON.parse(payload.body).detail, `fixture_https_${status}`);
+      assert.equal(context.cache.size, 0, 'upstream errors must not become healthy snapshots');
+    }
+  }
+  context.fetchWithTimeout = async (url) => {
+    requests.push({ url });
+    return new Response('fixture', { status: url.startsWith('https:') ? 503 : 200 });
+  };
+  requests.length = 0;
+  const other = await context.fetchWithFallbacks('https://fixture.invalid/public', {});
+  assert.equal(other.status, 200);
+  assert.deepEqual(requests.map(r => r.url), ['https://fixture.invalid/public', 'http://fixture.invalid/public']);
+});
+
 test('NASA FIRMS uses the documented CSV route while preserving the public JSON contract', () => {
   const paths = ['data/feeds.json', 'public/data/feeds.json', 'gcp/feed-proxy/feeds.json', 'gcp/mcp-proxy/feeds.json'];
   for (const file of paths) {
