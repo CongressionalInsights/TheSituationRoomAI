@@ -1392,7 +1392,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const applied = applyKey(url, feed, effectiveKey, keyParam, keyHeader);
   const headers = {
     'User-Agent': appConfig.userAgent,
-    'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
+    'Accept': feed.id === 'openaq-api'
+      ? 'application/json, text/plain, */*'
+      : 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.9',
     ...applied.headers
   };
