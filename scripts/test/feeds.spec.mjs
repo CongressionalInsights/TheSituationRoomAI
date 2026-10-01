@@ -30,7 +30,7 @@ function firmsBuilder(file) {
   return source.slice(start, source.indexOf('\n}', start) + 2);
 }
 
-test('OpenAQ retains the original HTTPS failure without forwarding its key over HTTP', async () => {
+test('OpenAQ requests JSON and retains the original HTTPS failure without forwarding its key over HTTP', async () => {
   const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
   const declarations = [
     'function applyKey(', 'function buildFetchCandidates(',
@@ -61,6 +61,8 @@ test('OpenAQ retains the original HTTPS failure without forwarding its key over 
       requests.push({ url, key: options.headers['X-API-Key'] });
       assert.equal(url, 'https://api.openaq.org/v3/locations?limit=20');
       assert.equal(options.headers['X-API-Key'], 'fixture-only-not-a-real-key');
+      assert.equal(options.headers.Accept, 'application/json, text/plain, */*');
+      assert.equal(options.headers['Accept-Language'], 'en-US,en;q=0.9');
       return new Response(JSON.stringify(status === 200
         ? { results: [{ id: 123 }] } : { detail: `fixture_https_${status}` }), {
         status, headers: { 'Content-Type': 'application/json' }
@@ -87,6 +89,15 @@ test('OpenAQ retains the original HTTPS failure without forwarding its key over 
   const other = await context.fetchWithFallbacks('https://fixture.invalid/public', {});
   assert.equal(other.status, 200);
   assert.deepEqual(requests.map(r => r.url), ['https://fixture.invalid/public', 'http://fixture.invalid/public']);
+  let otherAccept;
+  context.fetchWithTimeout = async (_url, options) => {
+    otherAccept = options.headers.Accept;
+    return new Response('{"results":[{"id":123}]}', {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+  await context.fetchFeed({ ...feed, id: 'other-json-fixture' }, { force: true });
+  assert.equal(otherAccept, 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*');
 });
 
 test('NASA FIRMS uses the documented CSV route while preserving the public JSON contract', () => {
