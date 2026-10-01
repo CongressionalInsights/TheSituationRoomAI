@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { fetchOpenAqMcp, isDefaultOpenAqRequest } from '../../gcp/feed-proxy/openaq-mcp.js';
+import { mergeFeedParams, sanitizeParamsObject } from '../../gcp/feed-proxy/state-signals.js';
 
 const root = process.cwd();
 const feedsPath = path.join(root, 'data', 'feeds.json');
@@ -30,6 +32,266 @@ function firmsBuilder(file) {
   return source.slice(start, source.indexOf('\n}', start) + 2);
 }
 
+const openAqSourceUrl = 'https://api.openaq.org/v3/locations?limit=20';
+const openAqMcpUrl = 'https://situation-room-mcp-382918878290.us-central1.run.app/mcp';
+function openAqRpc(id, overrides = {}) {
+  return {
+    jsonrpc: '2.0', id,
+    result: { structuredContent: {
+      sourceId: 'openaq-api', url: openAqSourceUrl, fetchedUrl: openAqSourceUrl,
+      contentType: 'application/json', proxyUsed: null, fallbackUsed: false,
+      responseHeaders: { 'x-ratelimit-remaining': '59', 'authorization': 'fixture-only-not-a-real-key' },
+      data: { meta: { limit: 20 }, results: [{ id: 123, name: 'caf\u00e9', datetimeLast: { utc: '2025-01-01T00:00:00Z' } }] },
+      ...overrides
+    } }
+  };
+}
+
+function openAqFeedFixture(overrides = {}) {
+  const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
+  const code = [
+    'function applyKey(', 'function buildFetchCandidates(',
+    'async function fetchWithFallbacks(', 'async function fetchFeed('
+  ].map(declaration => {
+    const start = source.indexOf(declaration);
+    assert.ok(start >= 0, declaration);
+    return source.slice(start, source.indexOf('\n}', start) + 2);
+  }).join('\n');
+  const feed = JSON.parse(fs.readFileSync(feedsPath, 'utf8')).feeds.find(f => f.id === 'openaq-api');
+  const context = {
+    cache: new Map(), appConfig: { userAgent: 'fixture', defaultRefreshMinutes: 60 },
+    FETCH_TIMEOUT_MS: 100, URL, Date, fetchOpenAqMcp, isDefaultOpenAqRequest,
+    mergeFeedParams, sanitizeParamsObject, serializeParams: params => JSON.stringify(params),
+    isStateConnectorFeed: () => false, isEiaFeed: () => false,
+    resolveServerKey: () => 'fixture-server-key',
+    getUrlTemplateParamNames: () => [], getRuntimeOnlyParamNames: () => [],
+    buildUrl: url => url,
+    applyUrlParams: (url, params) => {
+      const parsed = new URL(url);
+      Object.entries(params).forEach(([key, value]) => parsed.searchParams.set(key, value));
+      return parsed.toString();
+    },
+    applyCongressCommitteeDateWindow: url => url,
+    canUseLiveFeedFallback: () => false,
+    isStateLegislationScopedRequest: () => false, isStateLegislationAllStatesRequest: () => false,
+    isJsonHtmlError: () => false,
+    fetchWithTimeout: async () => { throw new Error('unexpected direct provider request'); },
+    ...overrides
+  };
+  vm.runInNewContext(code + '\nthis.fetchFeed = fetchFeed;', context);
+  return { feed, context };
+}
+
+test('OpenAQ MCP primary sends only the fixed public operation and retains original source data', async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls += 1;
+    assert.equal(url, openAqMcpUrl);
+    assert.equal(options.method, 'POST');
+    assert.equal(options.redirect, 'error');
+    assert.deepEqual(Object.keys(options.headers).sort(), ['Accept', 'Content-Type']);
+    const request = JSON.parse(options.body);
+    assert.equal(request.method, 'tools/call');
+    assert.deepEqual(request.params, { name: 'raw.fetch', arguments: { sourceId: 'openaq-api', format: 'json' } });
+    return new Response(JSON.stringify(openAqRpc(request.id)), { headers: { 'content-type': 'application/json' } });
+  });
+  const result = await fetchOpenAqMcp(100);
+  assert.equal(calls, 1);
+  assert.equal(result.error, undefined);
+  assert.equal(result.httpStatus, 200);
+  assert.equal(result.httpStatusSource, 'mcp-tool-success');
+  assert.equal(result.sourceTransport, 'mcp');
+  assert.deepEqual(JSON.parse(result.body), openAqRpc('fixture').result.structuredContent.data);
+  assert.deepEqual(result.responseHeaders, { 'x-ratelimit-remaining': '59' });
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.stale, false);
+});
+
+test('OpenAQ MCP matches fragmented UTF-8 and multiline SSE, ignoring other IDs and notifications', async (t) => {
+  let cancelled = false;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    const { id } = JSON.parse(options.body);
+    const rpc = JSON.stringify(openAqRpc(id)).replace(',', ',\n');
+    const text = ': heartbeat\r\n\r\n'
+      + 'data: {"jsonrpc":"2.0","method":"notifications/message"}\r\n\r\n'
+      + `data: ${JSON.stringify(openAqRpc('stale'))}\r\n\r\n`
+      + rpc.split('\n').map(line => `data: ${line}`).join('\r\n') + '\r\n\r\n';
+    const bytes = new TextEncoder().encode(text);
+    const stream = new ReadableStream({
+      start(controller) {
+        for (let i = 0; i < bytes.length; i += 1) controller.enqueue(bytes.slice(i, i + 1));
+      },
+      cancel() { cancelled = true; }
+    });
+    return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+  });
+  const result = await fetchOpenAqMcp(100);
+  assert.equal(result.error, undefined);
+  assert.equal(JSON.parse(result.body).results[0].name, 'caf\u00e9');
+  assert.equal(cancelled, true, 'the matching frame ends consumption without waiting for stream EOF');
+});
+
+test('OpenAQ MCP rejects malformed identity, schema, lineage and error-bearing results', async (t) => {
+  let mutation = rpc => rpc;
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    calls += 1;
+    const rpc = mutation(openAqRpc(JSON.parse(options.body).id));
+    return new Response(typeof rpc === 'string' ? rpc : JSON.stringify(rpc), {
+      headers: { 'content-type': 'application/json' }
+    });
+  });
+  const changeSource = fields => rpc => {
+    Object.assign(rpc.result.structuredContent, fields);
+    return rpc;
+  };
+  const mutations = [
+    rpc => ({ ...rpc, id: 'stale' }), rpc => ({ ...rpc, jsonrpc: '1.0' }),
+    rpc => ({ ...rpc, method: 'notifications/message' }), () => 'not JSON',
+    rpc => ({ ...rpc, error: { message: 'fixture' } }),
+    changeSource({ sourceId: 'other-source' }), changeSource({ url: 'https://fixture.invalid' }),
+    changeSource({ fetchedUrl: 'https://fixture.invalid' }), changeSource({ fallbackUsed: true }),
+    changeSource({ stale: true }), changeSource({ warning: 'fixture fallback warning' }),
+    changeSource({ proxyUsed: 'live-cache' }), changeSource({ contentType: 'text/html' }),
+    changeSource({ data: { meta: {}, error: 'provider_failure', results: [] } }),
+    changeSource({ data: { meta: {}, errors: ['provider_failure'], results: [] } }),
+    changeSource({ data: { results: [] } }),
+    changeSource({ data: { results: null } }), changeSource({ data: { results: [null] } }),
+    changeSource({ data: { results: [{}] } }),
+    rpc => { rpc.result.isError = true; return rpc; }
+  ];
+  for (mutation of mutations) {
+    const before = calls;
+    const result = await fetchOpenAqMcp(100);
+    assert.ok(result.error);
+    assert.equal(result.httpStatus, 502);
+    assert.equal(calls, before + 1, 'failure never triggers a transport or provider retry');
+  }
+  mutation = changeSource({ error: 'fetch_failed', httpStatus: 403, upstreamStatus: 403 });
+  const failure = await fetchOpenAqMcp(100);
+  assert.equal(failure.error, 'http_403');
+  assert.equal(failure.httpStatus, 403);
+  assert.equal(failure.upstreamError, 'fetch_failed');
+  assert.equal(failure.httpStatusSource, 'mcp-tool-error');
+  mutation = rpc => { delete rpc.result; rpc.error = { message: 'fixture RPC failure' }; return rpc; };
+  assert.equal((await fetchOpenAqMcp(100)).error, 'mcp_rpc_error');
+});
+
+test('OpenAQ MCP keeps genuine empty results empty and rejects HTTP, redirects and oversized responses', async (t) => {
+  let mode = 'empty';
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    calls += 1;
+    assert.equal(options.redirect, 'error');
+    if (mode === 'oversized') return new Response('{}', { headers: { 'content-type': 'application/json', 'content-length': '3000000' } });
+    if (mode === 'oversized-stream') return new Response(' '.repeat(2 * 1024 * 1024 + 1), { headers: { 'content-type': 'application/json' } });
+    if (mode === 'http') return new Response('fixture', { status: 503 });
+    if (mode === 'redirect') return new Response('', { status: 302, headers: { location: 'https://fixture.invalid' } });
+    if (mode === 'html') return new Response('fixture', { headers: { 'content-type': 'text/html' } });
+    return new Response(JSON.stringify(openAqRpc(JSON.parse(options.body).id, { data: { meta: { limit: 20 }, results: [] } })), {
+      headers: { 'content-type': 'application/json' }
+    });
+  });
+  const empty = await fetchOpenAqMcp(100);
+  assert.equal(empty.error, undefined);
+  assert.deepEqual(JSON.parse(empty.body).results, []);
+  for (const [nextMode, expected] of [
+    ['oversized', 'mcp_response_too_large'], ['oversized-stream', 'mcp_response_too_large'],
+    ['http', 'mcp_http_503'], ['redirect', 'mcp_http_302'], ['html', 'invalid_mcp_response']
+  ]) {
+    mode = nextMode;
+    const before = calls;
+    assert.equal((await fetchOpenAqMcp(100)).error, expected);
+    assert.equal(calls, before + 1);
+  }
+});
+
+for (const phase of ['headers', 'body']) {
+  test(`OpenAQ MCP ${phase} stalls respect the complete response deadline`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'], now: 1000 });
+    let calls = 0;
+    let aborted = false;
+    t.mock.method(globalThis, 'fetch', async (_url, { signal }) => {
+      calls += 1;
+      const abortError = () => { aborted = true; return new DOMException('fixture timeout', 'AbortError'); };
+      if (phase === 'headers') return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(abortError()), { once: true });
+      });
+      return new Response(new ReadableStream({ start(controller) {
+        signal.addEventListener('abort', () => controller.error(abortError()), { once: true });
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const pending = fetchOpenAqMcp(100);
+    await new Promise(resolve => setImmediate(resolve));
+    t.mock.timers.tick(99);
+    assert.equal(aborted, false);
+    t.mock.timers.tick(1);
+    const result = await pending;
+    assert.equal(aborted, true);
+    assert.equal(calls, 1);
+    assert.equal(result.error, 'timeout');
+  });
+}
+
+test('OpenAQ Feed defaults cache MCP data, while forced errors remain errors and explicit options stay direct', async (t) => {
+  let mcpCalls = 0;
+  let failMcp = false;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, openAqMcpUrl);
+    mcpCalls += 1;
+    return new Response(JSON.stringify(openAqRpc(JSON.parse(options.body).id,
+      failMcp ? { error: 'fetch_failed', upstreamStatus: 403 } : {})), {
+      headers: { 'content-type': 'application/json' }
+    });
+  });
+  const directCalls = [];
+  const { feed, context } = openAqFeedFixture({ fetchWithTimeout: async (url, options) => {
+    directCalls.push({ url, headers: options.headers });
+    return new Response('{"results":[{"id":456}]}', { headers: { 'content-type': 'application/json' } });
+  } });
+  assert.deepEqual(mergeFeedParams(feed, { limit: 1 }), {}, 'undeclared params are dropped by the real merger');
+  const first = await context.fetchFeed(feed);
+  assert.equal(first.sourceTransport, 'mcp');
+  assert.equal(JSON.parse(first.body).results[0].id, 123);
+  assert.equal((await context.fetchFeed(feed)).body, first.body);
+  assert.equal((await context.fetchFeed(feed, { params: { limit: null } })).body, first.body);
+  assert.equal(mcpCalls, 1);
+  await context.fetchFeed(feed, { force: true });
+  assert.equal(mcpCalls, 2);
+  failMcp = true;
+  const failure = await context.fetchFeed(feed, { force: true });
+  assert.equal(failure.error, 'http_403');
+  assert.equal(failure.stale, undefined, 'do not replace the failure with cached success');
+  assert.equal(JSON.parse(failure.body).error, 'http_403');
+  assert.equal(directCalls.length, 0, 'no direct-provider fallback from the MCP primary');
+  for (const options of [
+    { key: 'fixture-user-a' }, { key: 'fixture-user-b' },
+    { keyHeader: 'X-Fixture-Key' }, { keyParam: 'fixture' },
+    { query: 'fixture-query' }, { params: { limit: 1 }, force: true },
+    { params: { 'param.limit': 1 }, force: true }
+  ]) {
+    const result = await context.fetchFeed(feed, options);
+    assert.equal(result.error, undefined);
+    assert.equal(JSON.parse(result.body).results[0].id, 456);
+  }
+  assert.equal(mcpCalls, 3);
+  assert.equal(directCalls.length, 7);
+  assert.equal(directCalls[0].headers['X-API-Key'], 'fixture-user-a');
+  assert.equal(directCalls[1].headers['X-API-Key'], 'fixture-user-b');
+  assert.equal(directCalls[2].headers['X-Fixture-Key'], 'fixture-server-key');
+  assert.equal(directCalls[5].url, openAqSourceUrl, 'preserve the existing direct-source parameter contract');
+  assert.equal(directCalls[6].url, openAqSourceUrl);
+  assert.ok(directCalls.every(call => call.url.startsWith('https://api.openaq.org/')));
+  const before = directCalls.length;
+  await context.fetchFeed(feed, { key: 'fixture-user-a' });
+  assert.equal(directCalls.length, before + 1, 'explicit credentials do not share cached data');
+  context.cache.clear();
+  context.resolveServerKey = () => null;
+  const missing = await context.fetchFeed(feed);
+  assert.equal(missing.error, 'missing_server_key');
+  assert.equal(mcpCalls, 3, 'existing required-key failure contract remains intact');
+});
+
 test('OpenAQ requests JSON and retains the original HTTPS failure without forwarding its key over HTTP', async () => {
   const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
   const declarations = [
@@ -47,8 +309,9 @@ test('OpenAQ requests JSON and retains the original HTTPS failure without forwar
   const context = {
     cache: new Map(), appConfig: { userAgent: 'fixture', defaultRefreshMinutes: 60 },
     FETCH_TIMEOUT_MS: 100, URL, Date,
-    mergeFeedParams: () => ({}), serializeParams: () => '',
+    mergeFeedParams, sanitizeParamsObject, serializeParams: () => '',
     isStateConnectorFeed: () => false, isEiaFeed: () => false,
+    fetchOpenAqMcp, isDefaultOpenAqRequest,
     resolveServerKey: () => 'fixture-only-not-a-real-key',
     getUrlTemplateParamNames: () => [], getRuntimeOnlyParamNames: () => [],
     buildUrl: url => url, applyUrlParams: url => url,
@@ -72,7 +335,7 @@ test('OpenAQ requests JSON and retains the original HTTPS failure without forwar
   vm.runInNewContext(code + '\nthis.fetchFeed = fetchFeed; this.fetchWithFallbacks = fetchWithFallbacks;', context);
   for (status of [401, 403, 200]) {
     requests.length = 0;
-    const payload = await context.fetchFeed(feed);
+    const payload = await context.fetchFeed(feed, { key: 'fixture-only-not-a-real-key' });
     assert.equal(payload.httpStatus, status);
     assert.equal(requests.length, 1);
     assert.equal(payload.error, status === 200 ? undefined : `http_${status}`);
