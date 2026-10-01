@@ -954,8 +954,8 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false } = {}) {
-  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: true });
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false, includeHttpFallback = true } = {}) {
+  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback });
   const perAttemptTimeout = budgetAttempts
     ? Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)))
     : timeoutMs;
@@ -1482,7 +1482,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
           }
           response = scopedResult.response;
         } else {
-          response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, { budgetAttempts });
+          // OpenAQ authenticates with a header; never replay it over plaintext HTTP.
+          response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
+            budgetAttempts,
+            includeHttpFallback: feed.id !== 'openaq-api'
+          });
         }
         responseOk = response.ok;
         contentType = response.headers.get('content-type') || 'text/plain';
