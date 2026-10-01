@@ -2068,6 +2068,7 @@ export function shouldUseLiveFallback(feedOrOptions = {}, maybeOptions = null) {
   const options = legacyCall ? feedOrOptions : (maybeOptions || {});
   if (options?.history || options?.start || options?.end) return false;
   if (!feed) return true;
+  if (feed.id === 'openaq-api') return false;
 
   const requestQuery = getFallbackComparableQuery(feed, options);
   if (feed.supportsQuery) {
@@ -2264,6 +2265,15 @@ export async function fetchRaw(feed, options) {
   if (!feed?.url) {
     return { error: 'missing_url', message: 'Feed url missing.' };
   }
+  if (feed.id === 'openaq-api') {
+    let sourceUrl;
+    try { sourceUrl = new URL(feed.url); } catch {}
+    if (!sourceUrl || sourceUrl.origin !== 'https://api.openaq.org'
+      || sourceUrl.pathname !== '/v3/locations'
+      || sourceUrl.username || sourceUrl.password || sourceUrl.hash) {
+      return { error: 'invalid_source_url', message: 'OpenAQ requires its canonical HTTPS locations endpoint.' };
+    }
+  }
 
   const startedAt = Date.now();
   const key = options.key || resolveServerKey(feed);
@@ -2347,7 +2357,9 @@ export async function fetchRaw(feed, options) {
     }
     return aggregatePayload;
   }
-  const attemptList = openStatesRequest ? [null] : [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
+  // Keep OpenAQ's authenticated request on its provider origin.
+  const directOnlyRequest = openStatesRequest || feed.id === 'openaq-api';
+  const attemptList = directOnlyRequest ? [null] : [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
   const isRssFeed = feed.format === 'rss';
   const seen = new Set();
   const attempts = attemptList.filter((proxy) => {
@@ -2392,8 +2404,11 @@ export async function fetchRaw(feed, options) {
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
       : remainingStooqMs ?? totalTimeoutMs;
     try {
-      if (stooqDeadline !== null) {
-        [response, body] = await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs,
+      if (stooqDeadline !== null || feed.id === 'openaq-api') {
+        [response, body] = await fetchWithTimeout(proxiedUrl, {
+          headers: requestHeaders,
+          ...(feed.id === 'openaq-api' ? { redirect: 'error' } : {})
+        }, perAttemptTimeoutMs,
           async (upstream) => [upstream, await upstream.text()]);
       } else {
         response = openStatesRequest && !proxy

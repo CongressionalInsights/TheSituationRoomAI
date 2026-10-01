@@ -41,6 +41,80 @@ const {
 } = await import('../../gcp/mcp-proxy/server.js');
 const { sanitizeEiaPayload } = await import('../../gcp/mcp-proxy/public-payload-safety.js');
 
+test('OpenAQ keeps its key on one direct HTTPS request and never substitutes a snapshot', async (t) => {
+  const feed = {
+    ...JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', import.meta.url))).feeds.find(f => f.id === 'openaq-api'),
+    proxy: ['allorigins', 'jina']
+  };
+  const key = 'fixture-only-not-a-real-key';
+  const requests = [];
+  let status = 200;
+  let networkFailure = false;
+  const successBody = JSON.stringify({ meta: { page: 1, limit: 20 }, results: [{ id: 123 }] });
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push(String(url));
+    assert.equal(String(url), 'https://api.openaq.org/v3/locations?limit=20');
+    assert.equal(options.headers['X-API-Key'], key);
+    assert.equal(options.redirect, 'error');
+    if (networkFailure) throw new Error('fixture network failure');
+    return new Response(status === 200 ? successBody : `fixture HTTPS failure ${status}`, {
+      status, headers: { 'Content-Type': 'application/json' }
+    });
+  });
+  assert.equal(shouldUseLiveFallback(feed, {}), false);
+  assert.equal(shouldUseLiveFallback(feed, { params: { limit: 20 } }), false);
+  for (status of [200, 301, 302, 307, 308, 401, 403, 429, 500, 502, 503, 504]) {
+    requests.length = 0;
+    const result = await fetchRaw(feed, { key, proxy: 'allorigins' });
+    assert.equal(requests.length, 1, 'no proxy, plaintext, Feed or published-cache attempt');
+    assert.equal(result.httpStatus, status);
+    assert.equal(result.proxyUsed, null);
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(result.fetchedUrl, feed.url);
+    if (status === 200) {
+      assert.equal(result.error, undefined);
+      assert.equal(result.body, successBody);
+    } else {
+      assert.equal(result.error, 'fetch_failed');
+      assert.equal(result.upstreamStatus, status);
+      assert.equal(result.body, `fixture HTTPS failure ${status}`);
+    }
+  }
+  requests.length = 0;
+  networkFailure = true;
+  const failure = await fetchRaw(feed, { key, proxy: 'jina' });
+  assert.equal(requests.length, 1);
+  assert.equal(failure.error, 'fetch_failed');
+  assert.equal(failure.message, 'fixture network failure');
+  assert.equal(failure.proxyUsed, null);
+  assert.equal(failure.fallbackUsed, false);
+  assert.equal(failure.fetchedUrl, feed.url);
+});
+
+test('OpenAQ rejects noncanonical source URLs before injecting or forwarding its key', async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls += 1;
+    throw new Error('invalid OpenAQ URLs must not reach transport');
+  });
+  const url = 'https://api.openaq.org/v3/locations?limit=20';
+  const feed = { id: 'openaq-api', format: 'json', requiresKey: true, keyHeader: 'X-API-Key', url };
+  for (const invalid of [
+    url.replace('https:', 'http:'),
+    url.replace('api.openaq.org', 'fixture.invalid'),
+    url.replace('api.openaq.org', 'api.openaq.org.fixture.invalid'),
+    url.replace('/v3/locations', '/v3/other'),
+    url.replace('https://', 'https://fixture:fixture@'),
+    `${url}#fixture`,
+    'not a URL'
+  ]) {
+    const result = await fetchRaw({ ...feed, url: invalid }, { key: 'fixture-only-not-a-real-key' });
+    assert.equal(result.error, 'invalid_source_url');
+    assert.equal(result.body, undefined);
+  }
+  assert.equal(calls, 0);
+});
+
 const stooqTransportFeed = {
   id: 'stooq-quote', format: 'csv', supportsQuery: true,
   url: 'https://fixture.invalid/stooq.csv', timeoutMs: 100
@@ -52,6 +126,38 @@ function waitForStooqAbort(signal) {
     const abort = () => reject(new DOMException('Aborted', 'AbortError'));
     if (signal.aborted) abort();
     else signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+for (const stalledPhase of ['headers', 'body']) {
+  test(`OpenAQ stalled ${stalledPhase} consumes one deadline without fallback`, async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+    const feed = {
+      id: 'openaq-api', format: 'json', requiresKey: true, keyHeader: 'X-API-Key',
+      url: 'https://api.openaq.org/v3/locations?limit=20', timeoutMs: 100
+    };
+    const signals = [];
+    t.mock.method(globalThis, 'fetch', async (url, { signal, redirect, headers }) => {
+      assert.equal(String(url), feed.url);
+      assert.equal(redirect, 'error');
+      assert.equal(headers['X-API-Key'], 'fixture-only-not-a-real-key');
+      signals.push(signal);
+      if (stalledPhase === 'headers') return waitForStooqAbort(signal);
+      return { ok: true, status: 200, headers: new Headers(), text: () => waitForStooqAbort(signal) };
+    });
+    const pending = fetchRaw(feed, { key: 'fixture-only-not-a-real-key' });
+    await flushStooqTimers();
+    t.mock.timers.tick(99);
+    assert.equal(signals[0].aborted, false);
+    t.mock.timers.tick(1);
+    await flushStooqTimers();
+    const result = await pending;
+    assert.equal(signals.length, 1);
+    assert.equal(signals[0].aborted, true);
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.code, 'timeout');
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(result.fetchedUrl, feed.url);
   });
 }
 
