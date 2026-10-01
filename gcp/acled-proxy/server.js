@@ -328,16 +328,51 @@ async function getAccessToken() {
   return accessToken;
 }
 
+function parseAcledCursor(value = 0) {
+  if (typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value)) value = Number(value);
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error('invalid_acled_cursor');
+  return value;
+}
+
+function resolveAcledCursor(cursor, page) {
+  if (cursor !== undefined && cursor !== null) return parseAcledCursor(cursor);
+  if (page !== undefined && page !== null && String(page) !== '1') throw new Error('page_pagination_unsupported');
+  return 0;
+}
+
+function readAcledNextCursor(payload, requestedCursors) {
+  let reason = '';
+  if (!Array.isArray(payload?.data)) reason = 'invalid_data';
+  else if (!Object.prototype.hasOwnProperty.call(payload, 'next_cursor')) reason = 'missing_next_cursor';
+  else if (payload.next_cursor !== null) {
+    if (!Number.isSafeInteger(payload.next_cursor) || payload.next_cursor < 0) reason = 'invalid_next_cursor';
+    else if (requestedCursors.has(payload.next_cursor)) reason = 'repeated_next_cursor';
+  }
+  if (reason) {
+    const error = new Error(`acled_pagination_${reason}`);
+    error.pagination = { complete: false, resumable: false, reason };
+    throw error;
+  }
+  return payload.next_cursor;
+}
+
 function buildAcledUrl(params) {
   const query = new URLSearchParams();
   query.set('_format', 'json');
   if (params.limit) query.set('limit', params.limit);
-  if (params.page) query.set('page', params.page);
+  query.set('cursor', resolveAcledCursor(params.cursor, params.page));
   if (params.country) query.set('country', params.country);
   if (params.event_date) query.set('event_date', params.event_date);
   if (params.event_date_where) query.set('event_date_where', params.event_date_where);
   if (params.fields) query.set('fields', params.fields);
   return `${ACLED_ENDPOINT}?${query.toString()}`;
+}
+
+function withEventsContinuation(payload, params, nextCursor) {
+  return {
+    ...payload,
+    continuation_params: nextCursor === null ? null : { ...params, cursor: nextCursor }
+  };
 }
 
 async function handleEvents(req, res) {
@@ -347,10 +382,19 @@ async function handleEvents(req, res) {
   const end = url.searchParams.get('end');
   const country = url.searchParams.get('country');
   const limit = url.searchParams.get('limit') || '500';
-  const page = url.searchParams.get('page');
+  let cursor;
+  try {
+    cursor = resolveAcledCursor(url.searchParams.get('cursor'), url.searchParams.get('page'));
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message === 'page_pagination_unsupported' ? err.message : 'invalid_cursor', message: err.message }, origin);
+  }
 
-  const event_date = start && end ? `${start}|${end}` : (start || end || '');
-  const event_date_where = start && end ? 'BETWEEN' : '';
+  const nativeDate = url.searchParams.has('event_date');
+  const event_date = nativeDate ? url.searchParams.get('event_date') : (start && end ? `${start}|${end}` : (start || end || ''));
+  const event_date_where = nativeDate ? (url.searchParams.get('event_date_where') || '') : (start && end ? 'BETWEEN' : '');
+  if ((!nativeDate && url.searchParams.has('event_date_where')) || !['', 'BETWEEN'].includes(event_date_where)) {
+    return sendJson(res, 400, { error: 'invalid_event_date_where', message: 'Use event_date with an omitted, empty or BETWEEN predicate.' }, origin);
+  }
   const fields = url.searchParams.get('fields') || [
     'event_id_cnty',
     'event_date',
@@ -377,14 +421,15 @@ async function handleEvents(req, res) {
     return sendJson(res, 401, { error: 'auth_error', message: err.message }, origin);
   }
 
-  const apiUrl = buildAcledUrl({
+  const params = {
     limit,
-    page,
+    cursor,
     country: country || '',
     event_date: event_date || '',
     event_date_where,
     fields
-  });
+  };
+  const apiUrl = buildAcledUrl(params);
 
   try {
     const response = await fetch(apiUrl, {
@@ -402,7 +447,8 @@ async function handleEvents(req, res) {
     } catch (err) {
       return sendJson(res, 500, { error: 'parse_error', message: 'Invalid ACLED response.' }, origin);
     }
-    if (payload?.count === 0 && Array.isArray(payload?.data) && payload.data.length === 0) {
+    const nextCursor = readAcledNextCursor(payload, new Set([cursor]));
+    if (cursor === 0 && nextCursor === null && payload?.count === 0 && payload.data.length === 0) {
       const recency = payload?.data_query_restrictions?.date_recency?.date;
       if (recency && (!event_date || !event_date.includes(recency))) {
         const recencyEnd = new Date(recency);
@@ -410,13 +456,15 @@ async function handleEvents(req, res) {
           const recencyStart = new Date(recencyEnd);
           recencyStart.setDate(recencyEnd.getDate() - DEFAULT_LOOKBACK_DAYS);
           const fallbackEventDate = `${formatIsoDate(recencyStart)}|${formatIsoDate(recencyEnd)}`;
-          const fallbackUrl = buildAcledUrl({
+          const fallbackParams = {
             limit,
-            page,
+            cursor: 0,
             country: country || '',
             event_date: fallbackEventDate,
+            event_date_where: '',
             fields
-          });
+          };
+          const fallbackUrl = buildAcledUrl(fallbackParams);
           if (fallbackUrl && fallbackUrl !== apiUrl) {
             const fallbackResponse = await fetch(fallbackUrl, {
               headers: { Authorization: `Bearer ${token}` }
@@ -425,9 +473,11 @@ async function handleEvents(req, res) {
             if (fallbackResponse.ok) {
               try {
                 const fallbackPayload = JSON.parse(fallbackText);
+                const fallbackNextCursor = readAcledNextCursor(fallbackPayload, new Set([0]));
                 fallbackPayload.acled_lag_date = recency;
-                return sendJson(res, 200, fallbackPayload, origin);
+                return sendJson(res, 200, withEventsContinuation(fallbackPayload, fallbackParams, fallbackNextCursor), origin);
               } catch (err) {
+                if (err.pagination) throw err;
                 // ignore parse errors and return original payload
               }
             }
@@ -435,8 +485,11 @@ async function handleEvents(req, res) {
         }
       }
     }
-    return sendJson(res, 200, payload, origin);
+    return sendJson(res, 200, withEventsContinuation(payload, params, nextCursor), origin);
   } catch (err) {
+    if (err.pagination) {
+      return sendJson(res, 502, { error: 'pagination_error', message: err.message, pagination: err.pagination }, origin);
+    }
     return sendJson(res, 500, { error: 'proxy_error', message: err.message || 'Proxy error' }, origin);
   }
 }
@@ -478,7 +531,7 @@ async function probeEventRange({ start, end, country }) {
   const token = await getAccessToken();
   const apiUrl = buildAcledUrl({
     limit: 1,
-    page: 1,
+    cursor: 0,
     country: country || '',
     event_date,
     event_date_where,
@@ -497,11 +550,11 @@ async function probeEventRange({ start, end, country }) {
   } catch (err) {
     throw new Error('acled_parse_error');
   }
-  const data = Array.isArray(payload?.data) ? payload.data : [];
-  return data.length > 0;
+  const nextCursor = readAcledNextCursor(payload, new Set([0]));
+  return payload.data.length > 0 || nextCursor !== null;
 }
 
-async function fetchEventRows({ start, end, country, limit }) {
+async function fetchEventRows({ start, end, country, limit, cursor: initialCursor = 0 }) {
   const fields = [
     'event_date',
     'disorder_type',
@@ -520,36 +573,67 @@ async function fetchEventRows({ start, end, country, limit }) {
   const token = await getAccessToken();
   const pageLimit = Math.max(1, Number(limit) || 5000);
   const rows = [];
-  let page = 1;
-  const maxPages = 6;
-  while (page <= maxPages) {
+  let cursor = parseAcledCursor(initialCursor);
+  const requestedCursors = new Set();
+  const maxRequests = 6;
+  const pagination = (requests, nextCursor, complete) => ({
+    complete,
+    partial: !complete,
+    resumable: !complete,
+    initial_cursor: parseAcledCursor(initialCursor),
+    next_cursor: nextCursor,
+    requests,
+    request_limit: maxRequests,
+    row_count: rows.length,
+    start: start || '',
+    end: end || '',
+    country: country || ''
+  });
+  for (let requests = 1; requests <= maxRequests; requests += 1) {
+    requestedCursors.add(cursor);
     const apiUrl = buildAcledUrl({
       limit: pageLimit,
-      page,
+      cursor,
       country: country || '',
       event_date,
       event_date_where,
       fields
     });
-    const response = await fetch(apiUrl, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(text || `acled_error_${response.status}`);
-    }
-    let payload;
     try {
-      payload = JSON.parse(text);
+      const response = await fetch(apiUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(text || `acled_error_${response.status}`);
+      }
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch (err) {
+        throw new Error('acled_parse_error');
+      }
+      const nextCursor = readAcledNextCursor(payload, requestedCursors);
+      if (payload.data.length > pageLimit) {
+        const error = new Error('acled_pagination_row_limit_exceeded');
+        error.pagination = { complete: false, resumable: false, reason: 'row_limit_exceeded' };
+        throw error;
+      }
+      rows.push(...payload.data);
+      if (nextCursor === null) return { rows, pagination: pagination(requests, null, true) };
+      cursor = nextCursor;
     } catch (err) {
-      throw new Error('acled_parse_error');
+      err.pagination = {
+        ...pagination(requests, cursor, false),
+        ...err.pagination,
+        partial: rows.length > 0,
+        resumable: false
+      };
+      delete err.pagination.next_cursor;
+      throw err;
     }
-    const data = Array.isArray(payload?.data) ? payload.data : [];
-    rows.push(...data);
-    if (data.length < pageLimit) break;
-    page += 1;
   }
-  return rows;
+  return { rows, pagination: { ...pagination(maxRequests, cursor, false), reason: 'request_limit' } };
 }
 
 function aggregateEvents(rows) {
@@ -610,16 +694,24 @@ async function handleAggregated(req, res) {
   const end = url.searchParams.get('end') || '';
   const country = url.searchParams.get('country') || '';
   const limit = Number(url.searchParams.get('limit') || 2000);
+  let cursor;
   try {
-    const cacheKey = `${region}:${start || ''}:${end || ''}:${country || ''}:${limit || ''}`;
+    cursor = resolveAcledCursor(url.searchParams.get('cursor'), url.searchParams.get('page'));
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message === 'page_pagination_unsupported' ? err.message : 'invalid_cursor', message: err.message }, origin);
+  }
+  try {
+    const cacheKey = `${region}:${start || ''}:${end || ''}:${country || ''}:${limit || ''}:${cursor}`;
     const cached = aggregatedCache.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < AGGREGATED_CACHE_TTL) {
       return sendJson(res, 200, cached.payload, origin);
     }
     let effectiveStart = start;
     let effectiveEnd = end;
-    let rows = [];
-    if (start && end) {
+    let harvest = null;
+    if (cursor !== 0) {
+      harvest = await fetchEventRows({ start, end, country, limit: 5000, cursor });
+    } else if (start && end) {
       const windowDays = Math.max(1, daysBetween(start, end));
       let probeStart = start;
       let probeEnd = end;
@@ -637,33 +729,50 @@ async function handleAggregated(req, res) {
         if (!probeStart || !probeEnd) break;
       }
       if (found) {
-        rows = await fetchEventRows({ start: effectiveStart, end: effectiveEnd, country, limit: 5000 });
+        const harvestCursor = effectiveStart === start && effectiveEnd === end ? cursor : 0;
+        harvest = await fetchEventRows({ start: effectiveStart, end: effectiveEnd, country, limit: 5000, cursor: harvestCursor });
       }
     } else {
-      rows = await fetchEventRows({ start, end, country, limit: 5000 });
+      harvest = await fetchEventRows({ start, end, country, limit: 5000, cursor });
     }
-    if (!rows.length && start && end) {
+    if (cursor === 0 && (!harvest || (harvest.pagination.complete && !harvest.rows.length)) && start && end) {
       const fallbackStart = shiftIsoDate(start, -365);
       const fallbackEnd = shiftIsoDate(end, -365);
       if (fallbackStart && fallbackEnd) {
-        rows = await fetchEventRows({ start: fallbackStart, end: fallbackEnd, country, limit: 5000 });
+        harvest = await fetchEventRows({ start: fallbackStart, end: fallbackEnd, country, limit: 5000, cursor: 0 });
         effectiveStart = fallbackStart;
         effectiveEnd = fallbackEnd;
       }
     }
-    const aggregated = aggregateEvents(rows);
+    const aggregated = aggregateEvents(harvest?.rows || []);
+    const data = aggregated.slice(0, limit);
+    const outputTruncated = data.length < aggregated.length;
+    const pagination = harvest?.pagination || { complete: false, partial: false, resumable: false, reason: 'range_not_harvested' };
     const payload = {
-      data: aggregated.slice(0, limit),
+      data,
       count: aggregated.length,
       source: 'acled',
       region,
       range_start: effectiveStart || start || '',
-      range_end: effectiveEnd || end || ''
+      range_end: effectiveEnd || end || '',
+      pagination: {
+        ...pagination,
+        resumable: pagination.resumable && !outputTruncated,
+        ...(outputTruncated && pagination.next_cursor !== null && { next_cursor_role: 'provenance_only' })
+      },
+      delivery: {
+        complete: pagination.complete && !outputTruncated,
+        output_truncated: outputTruncated,
+        output_limit: limit,
+        group_count: aggregated.length,
+        returned_count: data.length,
+        discarded_count: aggregated.length - data.length
+      }
     };
     aggregatedCache.set(cacheKey, { fetchedAt: Date.now(), payload });
     return sendJson(res, 200, payload, origin);
   } catch (err) {
-    return sendJson(res, 502, { error: 'aggregated_error', message: err.message || 'Aggregated fetch failed.' }, origin);
+    return sendJson(res, 502, { error: 'aggregated_error', message: err.message || 'Aggregated fetch failed.', ...(err.pagination && { pagination: err.pagination }) }, origin);
   }
 }
 

@@ -2,6 +2,12 @@ name: Deploy ACLED Proxy (GCP)
 
 on:
   workflow_dispatch:
+    inputs:
+      sync_secret_versions:
+        description: Sync configured GitHub secrets into Secret Manager before deploying
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -28,6 +34,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
       - name: Ensure ACLED secrets
+        if: github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions
         env:
           ACLED_NAME: ${{ secrets.ACLED_NAME }}
           ACLED_PASS: ${{ secrets.ACLED_PASS }}
@@ -52,7 +59,13 @@ jobs:
           ensure_secret_version acled-name "$ACLED_NAME"
           ensure_secret_version acled-pass "$ACLED_PASS"
       - name: Deploy ACLED proxy service
+        env:
+          SYNC_SECRET_VERSIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions }}
         run: |
+          SECRET_ARGS=()
+          if [ "$SYNC_SECRET_VERSIONS" = "true" ]; then
+            SECRET_ARGS=(--update-secrets "ACLED_NAME=acled-name:latest,ACLED_PASS=acled-pass:latest")
+          fi
           cat > /tmp/sr-acled-env.yaml <<EOF
           ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
           EOF
@@ -60,5 +73,5 @@ jobs:
             --region "$REGION" \
             --source gcp/acled-proxy \
             --allow-unauthenticated \
-            --set-secrets ACLED_NAME=acled-name:latest,ACLED_PASS=acled-pass:latest \
+            "${SECRET_ARGS[@]}" \
             --env-vars-file /tmp/sr-acled-env.yaml
