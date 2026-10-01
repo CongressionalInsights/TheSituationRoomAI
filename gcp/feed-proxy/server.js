@@ -12,6 +12,7 @@ import {
 } from './state-legislation-timeout.js';
 import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
+import { fetchOpenAqMcp, isDefaultOpenAqRequest } from './openaq-mcp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1309,11 +1310,15 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
 
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
   const mergedParams = mergeFeedParams(feed, params);
+  // Keep caller options visible when the feed does not declare parameter support.
+  const useOpenAqMcp = isDefaultOpenAqRequest(feed, { query, key, keyParam, keyHeader, params: sanitizeParamsObject(params) });
+  const bypassOpenAqUserCache = feed.id === 'openaq-api' && Boolean(key || keyParam || keyHeader);
+  const sourceCacheKey = feed.id === 'openaq-api' ? `:${useOpenAqMcp ? 'mcp' : 'direct'}` : '';
   const connectorRequestKey = isStateConnectorFeed(feed) ? `:${serializeParams(sanitizeParamsObject(params))}` : '';
-  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}`;
+  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}${sourceCacheKey}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const timeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
-  const cached = cache.get(cacheKey);
+  const cached = bypassOpenAqUserCache ? undefined : cache.get(cacheKey);
   const staleCache = cached;
   if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
     return cached;
@@ -1338,6 +1343,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         message
       })
     };
+  }
+
+  if (useOpenAqMcp) {
+    const payload = await fetchOpenAqMcp(timeoutMs);
+    if (!payload.error) cache.set(cacheKey, payload);
+    return payload;
   }
 
   if (isStateConnectorFeed(feed)) {
@@ -1639,9 +1650,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     payload.body = JSON.stringify({ error: payload.error, message: payload.message });
     payload.contentType = 'application/json';
   }
-  const shouldCache = isEiaSeries
+  const shouldCache = !bypassOpenAqUserCache && (isEiaSeries
     ? responseOk
-    : !payload.error;
+    : !payload.error);
   if (shouldCache) {
     cache.set(cacheKey, payload);
   }
