@@ -3274,6 +3274,32 @@ test('Cloud Run secret schema canonicalizer detects complete contract drift', ()
   assert.notEqual(canonicalize(changedAliasContract), canonicalize(revision));
 });
 
+test('acled proxy deploy workflow preserves deployed secret bindings unless manually opted in', () => {
+  const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-acled-proxy.yml'), 'utf8');
+  assert.match(workflow, /workflow_dispatch:\n\s*inputs:\n\s*sync_secret_versions:\n\s*description:[^\n]+\n\s*required: false\n\s*default: false\n\s*type: boolean/);
+  assert.match(workflow, /name: Ensure ACLED secrets\n\s*if: github\.event_name == 'workflow_dispatch' && inputs\.sync_secret_versions\n\s*env:/);
+  assert.match(workflow, /SYNC_SECRET_VERSIONS: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.sync_secret_versions \}\}/);
+  assert.doesNotMatch(workflow, /--set-secrets|--clear-secrets|--remove-secrets/);
+  const deployStep = workflow.split('      - name: Deploy ACLED proxy service\n')[1];
+  assert.ok(deployStep);
+  assert.doesNotMatch(deployStep, /secrets\.ACLED_|gcloud secrets/);
+  const setup = deployStep.match(/          SECRET_ARGS=\(\)\n[\s\S]*?          fi\n/)?.[0];
+  const command = deployStep.match(/          gcloud run deploy "\$SERVICE_NAME" \\\n[\s\S]*?--env-vars-file \/tmp\/sr-acled-env\.yaml/)?.[0];
+  assert.ok(setup && command);
+  const runFixture = (sync) => {
+    const result = spawnSync('bash', ['-c', `${setup}\ngcloud() { printf '%s\\n' "$@"; }\n${command}`], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, SERVICE_NAME: 'fixture-acled', REGION: 'fixture-region', SYNC_SECRET_VERSIONS: sync }
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim().split('\n');
+  };
+  const ordinary = ['run', 'deploy', 'fixture-acled', '--region', 'fixture-region', '--source', 'gcp/acled-proxy', '--allow-unauthenticated', '--env-vars-file', '/tmp/sr-acled-env.yaml'];
+  assert.deepEqual(runFixture(''), ordinary);
+  assert.deepEqual(runFixture('false'), ordinary);
+  assert.deepEqual(runFixture('true'), [...ordinary.slice(0, 8), '--update-secrets', 'ACLED_NAME=acled-name:latest,ACLED_PASS=acled-pass:latest', ...ordinary.slice(8)]);
+});
+
 test('proxy deploy workflows preserve an unchanged Secret Manager version', () => {
   const workflows = [
     'deploy-acled-proxy.yml',
