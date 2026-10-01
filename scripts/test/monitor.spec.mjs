@@ -3057,6 +3057,18 @@ test('feed proxy deploy workflow injects OpenSky credentials', () => {
   assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
 });
 
+test('proxy deploy workflows retain eligible core sentinel reports as artifacts', () => {
+  const expected = [
+    ['deploy-feed-proxy.yml', 'Feed', 'feed-core-sentinel', ''],
+    ['deploy-mcp-proxy.yml', 'MCP', 'mcp-core-sentinel', ' && !inputs.cisa_only']
+  ];
+  for (const [file, label, artifact, extraGuard] of expected) {
+    const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', file), 'utf8');
+    const step = new RegExp(`- name: Upload ${label} core sentinel reports\\n\\s*if: always\\(\\)${RegExp.escape(extraGuard)} && hashFiles\\('analysis/monitor/latest\\.json', 'analysis/monitor/latest\\.md'\\) != ''\\n\\s*uses: actions/upload-artifact@v7\\n\\s*with:\\n\\s*name: ${artifact}-\\$\\{\\{ github\\.run_id \\}\\}-\\$\\{\\{ github\\.run_attempt \\}\\}\\n\\s*path: \\|\\n\\s*analysis/monitor/latest\\.json\\n\\s*analysis/monitor/latest\\.md\\n\\s*if-no-files-found: warn`);
+    assert.match(workflow, step, file);
+  }
+});
+
 test('mcp proxy deploy workflow preserves the deployed secret bindings by default', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-mcp-proxy.yml'), 'utf8');
   assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);
