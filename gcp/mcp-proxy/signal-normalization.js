@@ -36,6 +36,125 @@ function normalizeFiniteNumber(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+export function isTypedSeriesFeed(feed) {
+  return ['energy-eia', 'energy-eia-brent', 'energy-eia-ng', 'bls-cpi'].includes(feed?.id);
+}
+
+// Observation periods are not release or retrieval dates. Reject calendar rollover.
+export function parseObservationPeriod(period) {
+  const text = String(period ?? '').trim();
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(text);
+  const month = /^\d{4}-\d{2}$/.test(text);
+  if (!day && !month) return null;
+  const date = month ? `${text}-01` : text;
+  const timestamp = Date.parse(`${date}T00:00:00Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === date
+    ? timestamp : null;
+}
+
+function seriesNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string' || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim())) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function seriesText(value) {
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}
+
+function seriesObservation(feed, { seriesId, period, observationDate, periodType, description, units, rawValue, facets, ...fields }) {
+  const value = seriesNumber(rawValue);
+  const publishedAt = parseObservationPeriod(observationDate);
+  return {
+    title: description || seriesId || feed.name,
+    // Public evidence pages, never a request URL that might contain a key.
+    url: feed.id === 'bls-cpi' ? 'https://www.bls.gov/cpi/' : 'https://www.eia.gov/opendata/',
+    summary: normalizeSummary(`${description || seriesId || feed.name} | ${period || 'Unknown period'} | ${value === null ? 'Value unavailable' : value}${units ? ` ${units}` : ''}`),
+    source: feed.name,
+    category: feed.category,
+    seriesId: seriesId || null,
+    period: period || null,
+    periodType,
+    observationDate: publishedAt === null ? null : new Date(publishedAt).toISOString().slice(0, periodType === 'monthly' ? 7 : 10),
+    publishedAt,
+    description,
+    value,
+    rawValue: typeof rawValue === 'string' || typeof rawValue === 'number' ? rawValue : null,
+    valueStatus: value === null ? 'unavailable' : 'available',
+    units: units || null,
+    facets,
+    observationKey: seriesId && period ? JSON.stringify([feed.id, seriesId, period]) : null,
+    ...fields
+  };
+}
+
+export function normalizeTypedSeriesSignals(data, feed) {
+  if (!isTypedSeriesFeed(feed)) return [];
+  if (feed.id === 'bls-cpi') {
+    const results = Array.isArray(data?.Results) ? data.Results : [data?.Results];
+    const series = results.flatMap((result) => Array.isArray(result?.series) ? result.series : []);
+    return series.flatMap((entry) => {
+      const seriesId = seriesText(entry?.seriesID);
+      const catalog = entry?.catalog || {};
+      const description = seriesText(catalog.series_title) || (seriesId === 'CUUR0000SA0' ? feed.name : seriesId);
+      const facets = Object.fromEntries(['series_title', 'survey_name', 'survey_abbreviation', 'measure', 'base_period', 'area', 'item', 'seasonality']
+        .filter((key) => seriesText(catalog[key])).map((key) => [key, seriesText(catalog[key])]));
+      return (Array.isArray(entry?.data) ? entry.data : []).filter((row) => row && typeof row === 'object').map((row) => {
+        const year = seriesText(row.year);
+        const periodCode = seriesText(row.period);
+        const monthly = /^\d{4}$/.test(year) && /^M(?:0[1-9]|1[0-2])$/.test(periodCode);
+        const annual = /^\d{4}$/.test(year) && periodCode === 'M13';
+        return seriesObservation(feed, {
+          seriesId,
+          period: year && periodCode ? `${year}-${periodCode}` : '',
+          observationDate: monthly ? `${year}-${periodCode.slice(1)}` : null,
+          periodType: monthly ? 'monthly' : annual ? 'annual-average' : 'unknown',
+          description,
+          // The public v1 response often omits units; do not invent them.
+          units: seriesText(row.units) || seriesText(entry.units) || seriesText(catalog.units),
+          rawValue: row.value,
+          facets,
+          seriesID: seriesId || null,
+          year: year || null,
+          periodCode: periodCode || null,
+          periodName: seriesText(row.periodName) || null
+        });
+      });
+    });
+  }
+  if (Array.isArray(data?.response?.data)) {
+    return data.response.data.filter((row) => row && typeof row === 'object').map((row) => {
+      const period = seriesText(row.period);
+      const facets = Object.fromEntries(['duoarea', 'area-name', 'product', 'product-name', 'process', 'process-name']
+        .filter((key) => Object.hasOwn(row, key)).map((key) => [key, seriesText(row[key])]));
+      return seriesObservation(feed, {
+        seriesId: seriesText(row.series), period, observationDate: period,
+        periodType: /^\d{4}-\d{2}$/.test(period) ? 'monthly' : /^\d{4}-\d{2}-\d{2}$/.test(period) ? 'date' : 'unknown',
+        description: seriesText(row['series-description']), units: seriesText(row.units), rawValue: row.value, facets,
+        series: seriesText(row.series) || null,
+        'series-description': seriesText(row['series-description']),
+        frequency: seriesText(data.response.frequency) || null
+      });
+    });
+  }
+  // Retain the supported legacy EIA series/data-tuple contract as well.
+  return (Array.isArray(data?.series) ? data.series : []).flatMap((entry) => (
+    (Array.isArray(entry?.data) ? entry.data : []).filter(Array.isArray).map(([rawPeriod, rawValue]) => {
+      const period = seriesText(rawPeriod);
+      const date = /^\d{8}$/.test(period) ? `${period.slice(0, 4)}-${period.slice(4, 6)}-${period.slice(6)}`
+        : /^\d{6}$/.test(period) ? `${period.slice(0, 4)}-${period.slice(4)}` : period;
+      return seriesObservation(feed, {
+        seriesId: seriesText(entry.series_id), period, observationDate: date,
+        periodType: /^\d{4}-\d{2}$/.test(date) ? 'monthly' : /^\d{4}-\d{2}-\d{2}$/.test(date) ? 'date' : 'unknown',
+        description: seriesText(entry.name), units: seriesText(entry.units), rawValue, facets: {},
+        series: seriesText(entry.series_id) || null,
+        frequency: seriesText(entry.f) || null
+      });
+    })
+  ));
+}
+
 function normalizeSwpcSignals(data, feed) {
   return data.slice(0, 50).map((entry) => {
     const spacecraft = String(entry?.source || '').trim();
@@ -525,6 +644,7 @@ function normalizeFirmsSignals(data, feed) {
 }
 
 export function parseGenericJsonFeed(data, feed) {
+  if (isTypedSeriesFeed(feed)) return normalizeTypedSeriesSignals(data, feed);
   if (feed?.id === 'nasa-firms') return normalizeFirmsSignals(data, feed);
   if (feed?.id === 'cisa-kev') return normalizeCisaKevSignals(data, feed);
   if (feed?.id === 'nws-alerts' && Array.isArray(data?.features)) {
