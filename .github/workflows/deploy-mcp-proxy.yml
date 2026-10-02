@@ -87,6 +87,8 @@ jobs:
         run: node --test scripts/test/verify_cisa_candidate.spec.mjs
       - name: Verify unchanged monitor PID reuse test on Linux
         run: node --test --test-name-pattern="^fresh same-host PID reuse evidence reclaims the prior owner immediately$" scripts/test/monitor.spec.mjs
+      - name: Verify typed series release report fixtures
+        run: node --test --test-name-pattern="typed series release report" scripts/test/monitor.spec.mjs
 
   deploy:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -386,6 +388,8 @@ jobs:
               --mcp "${CANDIDATE_URL}/mcp" \
               --static https://congressionalinsights.github.io/TheSituationRoomAI \
               --allow-alerts
+            node scripts/verify_typed_series_report.mjs analysis/monitor/latest.json "${CANDIDATE_URL}/mcp" \
+              | tee /tmp/mcp-diagnostics/typed-series-candidate.json
           fi
       - name: Promote verified MCP revision
         id: promote
