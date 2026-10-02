@@ -85,6 +85,8 @@ jobs:
         run: node --test scripts/test/mcp-proxy.spec.mjs
       - name: Verify CISA release fixtures
         run: node --test scripts/test/verify_cisa_candidate.spec.mjs
+      - name: Verify ACLED pagination fixtures
+        run: node --test scripts/test/acled-pagination.spec.mjs
       - name: Verify unchanged monitor PID reuse test on Linux
         run: node --test --test-name-pattern="^fresh same-host PID reuse evidence reclaims the prior owner immediately$" scripts/test/monitor.spec.mjs
       - name: Verify typed series release report fixtures
