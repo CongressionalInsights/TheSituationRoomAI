@@ -114,6 +114,7 @@ export function resolveMonitoringEntry(feed, override = {}, appConfig = {}) {
       ? override.requiredSurfaceMarkers
       : {},
     freshnessWindowMinutes: Number(override.freshnessWindowMinutes || deriveFreshnessWindowMinutes(feed, appConfig)),
+    ...(feed.id === 'bls-cpi' && override.publicationSchedule ? { publicationSchedule: override.publicationSchedule } : {}),
     staticSnapshotLagWindowMinutes: Number(override.staticSnapshotLagWindowMinutes || override.freshnessWindowMinutes || deriveFreshnessWindowMinutes(feed, appConfig)),
     sampleParams: {
       ...buildDefaultSampleParams(feed),

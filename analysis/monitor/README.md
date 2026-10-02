@@ -86,6 +86,47 @@ Alert deltas use durable, mode-specific baselines outside the checkout:
 
 ## Outputs
 
+### CPI Publication Cadence
+
+`bls-cpi` monitors the canonical monthly `CUUR0000SA0` series against the
+explicit reference-month/release-date pairs in its `publicationSchedule`
+override. The [official BLS CPI calendar](https://www.bls.gov/schedule/news_release/cpi.htm)
+is the source of scheduled dates; its Eastern times retain explicit UTC offsets.
+The [BLS CPI FAQ](https://www.bls.gov/cpi/questions-and-answers.htm) explains that
+CPI estimates a whole reference month, not a particular publication date.
+
+JSON `feedResults[].publication` and the Markdown CPI section distinguish:
+
+- Observation month and age of its month-start anchor: descriptive, not release lateness.
+- Most recently scheduled reference month and next scheduled release: publication expectations.
+- Actual publication timestamp: `null`, because the retained API rows do not supply one.
+- Proxy/raw/signals collection availability and fallback: independent of publication cadence.
+
+Only usable returned numeric observations for the configured series prove the
+expected period. A fresh raw snapshot, another series, an annual M13 average,
+or an unavailable numeric value cannot make old/absent list observations current.
+The due boundary uses the official schedule, not a widened age window or quirk
+suppression. Missing due periods remain warnings: they establish that the
+scheduled period was not observed, not that BLS failed to publish it or that
+the API violated an availability SLA. No unverified ingestion grace is assumed.
+Transport failures, typed identity/value defects, fabricated dates, and fallback
+alerts retain their existing classifications and severity.
+
+The checked calendar is bounded: a check requires both a most recent due row
+and a following future row. Before/after that coverage, or with malformed or
+gapped rows, publication freshness is explicitly unknown and warning-visible.
+The current projection ends at November 2026's December 10 release; refresh
+official schedule evidence before that boundary. BLS may revise scheduled
+dates, so reconcile calendar changes rather than claiming this snapshot is
+permanent. The existing `4320`-minute threshold remains unchanged for legacy
+non-cadence and static-lag comparisons, not CPI publication lateness.
+
+Offline regression command:
+
+```bash
+node --test --test-name-pattern="CPI publication cadence" scripts/test/monitor.spec.mjs
+```
+
 - `analysis/monitor/latest.json`: most recent combined report
 - `analysis/monitor/latest.md`: short human-readable summary
 - `analysis/monitor/latest-commit.json`: the final publication marker, written
