@@ -524,34 +524,54 @@ function daysBetween(start, end) {
   return Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
 }
 
-async function probeEventRange({ start, end, country }) {
+async function probeEventRange({ start, end, country, requestBudget = { remaining: 24 } }) {
   const fields = 'event_date';
   const event_date = start && end ? `${start}|${end}` : (start || end || '');
   const event_date_where = start && end ? 'BETWEEN' : '';
+  const requestedCursors = new Set();
+  let cursor = 0;
+  const budgetError = () => {
+    const error = new Error('acled_probe_request_limit');
+    error.pagination = {
+      stage: 'probe', complete: false, partial: false, resumable: false, reason: 'probe_request_limit',
+      requests: 24 - requestBudget.remaining, request_limit: 24,
+      next_cursor: cursor, next_cursor_role: 'provenance_only',
+      start: start || '', end: end || '', country: country || ''
+    };
+    return error;
+  };
+  if (requestBudget.remaining <= 0) throw budgetError();
   const token = await getAccessToken();
-  const apiUrl = buildAcledUrl({
-    limit: 1,
-    cursor: 0,
-    country: country || '',
-    event_date,
-    event_date_where,
-    fields
-  });
-  const response = await fetch(apiUrl, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(text || `acled_error_${response.status}`);
+  while (requestBudget.remaining > 0) {
+    requestBudget.remaining -= 1;
+    requestedCursors.add(cursor);
+    const apiUrl = buildAcledUrl({
+      limit: 1,
+      cursor,
+      country: country || '',
+      event_date,
+      event_date_where,
+      fields
+    });
+    const response = await fetch(apiUrl, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(text || `acled_error_${response.status}`);
+    }
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch (err) {
+      throw new Error('acled_parse_error');
+    }
+    const nextCursor = readAcledNextCursor(payload, requestedCursors);
+    if (payload.data.length > 0) return true;
+    if (nextCursor === null) return false;
+    cursor = nextCursor;
   }
-  let payload;
-  try {
-    payload = JSON.parse(text);
-  } catch (err) {
-    throw new Error('acled_parse_error');
-  }
-  const nextCursor = readAcledNextCursor(payload, new Set([0]));
-  return payload.data.length > 0 || nextCursor !== null;
+  throw budgetError();
 }
 
 async function fetchEventRows({ start, end, country, limit, cursor: initialCursor = 0 }) {
@@ -716,8 +736,9 @@ async function handleAggregated(req, res) {
       let probeStart = start;
       let probeEnd = end;
       let found = false;
+      const requestBudget = { remaining: 24 };
       for (let i = 0; i < 24; i += 1) {
-        const hasEvents = await probeEventRange({ start: probeStart, end: probeEnd, country });
+        const hasEvents = await probeEventRange({ start: probeStart, end: probeEnd, country, requestBudget });
         if (hasEvents) {
           found = true;
           effectiveStart = probeStart;
