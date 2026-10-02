@@ -7,6 +7,9 @@ import {
 } from './client.mjs';
 import { redactCredentialFields } from './public_payload_safety.mjs';
 import { createAlert, applyKnownUpstreamQuirks, dedupeAlerts } from './reporting.mjs';
+import { summarizeCpiPublication } from './cpi_cadence.mjs';
+import { createHash } from 'node:crypto';
+import { isTypedSeriesFeed, normalizeTypedSeriesSignals, parseObservationPeriod } from '../../../gcp/mcp-proxy/signal-normalization.js';
 
 const PRIMARY_ARRAY_PATHS = [
   ['items'],
@@ -294,11 +297,12 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
     };
   }
 
-  const items = body ? findPrimaryItems(body) : [];
+  const typed = isTypedSeriesFeed(feed);
+  const items = body ? (typed ? normalizeTypedSeriesSignals(body, feed) : findPrimaryItems(body)) : [];
   const newestTimestamp = items
-    .map((item) => extractTimestamp(item))
-    .filter(Boolean)
-    .sort((a, b) => b - a)[0] || null;
+    .map((item) => typed ? item.publishedAt : extractTimestamp(item))
+    .filter((stamp) => typed ? stamp !== null : Boolean(stamp))
+    .sort((a, b) => b - a)[0] ?? null;
   const identifiers = items
     .map((item) => extractIdentifier(item))
     .filter(Boolean)
@@ -342,7 +346,12 @@ function summarizeMcpRaw(feed, result) {
   return summary;
 }
 
-function summarizeSignals(result) {
+function typedSignalTimestamp(value) {
+  // Typed signal publishedAt is epoch milliseconds, including historical dates.
+  return typeof value === 'number' ? (Number.isFinite(value) ? value : null) : coerceTimestamp(value);
+}
+
+export function summarizeSignals(result, feed) {
   const payload = result?.data || {};
   const items = Array.isArray(payload.items) ? payload.items : [];
   return {
@@ -351,9 +360,9 @@ function summarizeSignals(result) {
     count: items.length,
     items,
     newestTimestamp: items
-      .map((item) => extractTimestamp(item))
-      .filter(Boolean)
-      .sort((a, b) => b - a)[0] || null,
+      .map((item) => isTypedSeriesFeed(feed) ? typedSignalTimestamp(item?.publishedAt) : extractTimestamp(item))
+      .filter((stamp) => isTypedSeriesFeed(feed) ? stamp !== null : Boolean(stamp))
+      .sort((a, b) => b - a)[0] ?? null,
     identifiers: items
       .map((item) => extractIdentifier(item))
       .filter(Boolean)
@@ -478,6 +487,103 @@ export function compareStaticSnapshot(entry, liveSummary, staticSummary) {
   return null;
 }
 
+function typedSeriesReference(entry, proxySummary, rawSummary) {
+  if (!isTypedSeriesFeed(entry)) return null;
+  // Raw MCP data is the closest acquisition boundary to normalized MCP output.
+  const healthy = [rawSummary, proxySummary].find((summary) => summary
+    && !summary.error && !summary.parseError && summary.rawItemCount > 0
+    && summary.parsedBody && (!summary.httpStatus || summary.httpStatus === 200));
+  if (!healthy) return null;
+  const observations = normalizeTypedSeriesSignals(healthy.parsedBody, entry);
+  return { summary: healthy, byKey: new Map(observations.map((item) => [item.observationKey, item])) };
+}
+
+function signalObservationTimestamp(item, entry) {
+  const period = String(item.period ?? '');
+  if (entry.id === 'bls-cpi') {
+    return /^\d{4}-M(?:0[1-9]|1[0-2])$/.test(period)
+      ? parseObservationPeriod(`${period.slice(0, 4)}-${period.slice(6)}`) : null;
+  }
+  const date = /^\d{8}$/.test(period) ? `${period.slice(0, 4)}-${period.slice(4, 6)}-${period.slice(6)}`
+    : /^\d{6}$/.test(period) ? `${period.slice(0, 4)}-${period.slice(4)}` : period;
+  return parseObservationPeriod(date);
+}
+
+export function inspectTypedSeriesSignals(entry, signalSummary, rawSummary = null, proxySummary = null) {
+  const reference = typedSeriesReference(entry, proxySummary, rawSummary);
+  const items = Array.isArray(signalSummary?.items) ? signalSummary.items : [];
+  const ids = new Set();
+  let invalidCount = 0;
+  let fabricatedCount = 0;
+  let matchedCount = 0;
+  let availabilityLossCount = 0;
+  let availableCount = 0;
+  const rawAvailableCount = reference ? [...reference.byKey.values()].filter((item) => item.valueStatus === 'available').length : 0;
+  const usableTimestamps = [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      invalidCount += 1;
+      continue;
+    }
+    const key = JSON.stringify([entry.id, item.seriesId, item.period]);
+    const id = createHash('sha1').update(key).digest('hex').slice(0, 12);
+    const expected = reference?.byKey.get(key);
+    if (expected) matchedCount += 1;
+    if (expected?.valueStatus === 'available' && item.valueStatus === 'unavailable') availabilityLossCount += 1;
+    // Independent acquisitions may contain different periods or revised values.
+    // Reuse the typed mapper to check the list's own value representation.
+    const intrinsic = normalizeTypedSeriesSignals(entry.id === 'bls-cpi'
+      ? { Results: { series: [{ seriesID: item.seriesId, data: [{ year: item.year, period: item.periodCode, value: item.rawValue }] }] } }
+      : { response: { data: [{ series: item.seriesId, period: item.period, value: item.rawValue }] } }, entry)[0];
+    const facetsValid = item.facets && typeof item.facets === 'object' && !Array.isArray(item.facets)
+      && Object.values(item.facets).every((value) => typeof value === 'string');
+    const invalid = typeof item.seriesId !== 'string' || !item.seriesId.trim()
+      || typeof item.period !== 'string' || !item.period.trim()
+      || item.sourceId !== entry.id || item.id !== id || item.observationKey !== key || ids.has(item.id)
+      || typeof item.title !== 'string' || !item.title.trim() || item.title === 'Untitled'
+      || typeof item.summary !== 'string' || !item.summary.trim()
+      || typeof item.description !== 'string' || !facetsValid
+      || !(item.units === null || (typeof item.units === 'string' && item.units.trim()))
+      || !Object.hasOwn(item, 'rawValue') || !(item.rawValue === null || typeof item.rawValue === 'string' || Number.isFinite(item.rawValue))
+      || !Object.hasOwn(item, 'value') || item.value !== intrinsic?.value || item.valueStatus !== intrinsic?.valueStatus
+      || (entry.id === 'bls-cpi' ? item.seriesID !== item.seriesId || item.period !== intrinsic?.period : item.series !== item.seriesId)
+      || (expected && (item.description !== expected.description || item.units !== expected.units
+        || Object.keys(item.facets || {}).length !== Object.keys(expected.facets).length
+        || Object.entries(expected.facets).some(([name, value]) => item.facets?.[name] !== value)));
+    ids.add(item.id);
+    if (invalid) invalidCount += 1;
+    const timestamp = signalObservationTimestamp(item, entry);
+    const monthly = entry.id === 'bls-cpi' ? /^\d{4}-M(?:0[1-9]|1[0-2])$/.test(item.period)
+      : /^(?:\d{4}-\d{2}|\d{6})$/.test(item.period);
+    const observationDate = timestamp === null ? null : new Date(timestamp).toISOString().slice(0, monthly ? 7 : 10);
+    const periodType = monthly ? 'monthly' : entry.id === 'bls-cpi'
+      ? /^\d{4}-M13$/.test(item.period) ? 'annual-average' : 'unknown'
+      : /^(?:\d{4}-\d{2}-\d{2}|\d{8})$/.test(item.period) ? 'date' : 'unknown';
+    const fabricated = item.publishedAt !== timestamp || item.observationDate !== observationDate || item.periodType !== periodType;
+    if (fabricated) fabricatedCount += 1;
+    if (!invalid && !fabricated && item.valueStatus === 'available') {
+      availableCount += 1;
+      if (timestamp !== null) usableTimestamps.push(timestamp);
+    }
+  }
+  return {
+    invalidCount,
+    fabricatedCount,
+    empty: items.length === 0,
+    newestTimestamp: usableTimestamps.sort((a, b) => b - a)[0] ?? null,
+    rawNewestTimestamp: reference?.summary.newestTimestamp ?? null,
+    comparison: {
+      status: !reference ? 'unavailable' : matchedCount === items.length && !availabilityLossCount ? 'complete' : 'partial',
+      matchedCount,
+      unmatchedCount: items.length - matchedCount,
+      availabilityLossCount,
+      availableCount,
+      rawAvailableCount,
+      rawItemCount: reference?.summary.rawItemCount ?? null
+    }
+  };
+}
+
 export function evaluateInvariant(name, context) {
   const { entry, proxySummary, rawSummary, signalSummary } = context;
   const payloadSummary = proxySummary.error
@@ -505,10 +611,73 @@ export function evaluateInvariant(name, context) {
           metadata: { identity: 'signals' }
         });
       }
+      if (!signalSummary.error) {
+        const typed = isTypedSeriesFeed(entry) ? inspectTypedSeriesSignals(entry, signalSummary, rawSummary, proxySummary) : null;
+        if (typed && (typed.invalidCount || (typed.empty && typed.comparison.status !== 'unavailable'))) {
+          return createAlert({
+            feedId: entry.id,
+            regressionClass: 'signal-normalization-unusable',
+            severity: entry.tier === 'core' ? 'critical' : 'warning',
+            message: 'Typed series normalized output is empty or violates its observation contract.',
+            metadata: { identity: 'typed-signals', ...typed.comparison, invalidCount: typed.invalidCount, signalCount: signalSummary.count }
+          });
+        }
+        if (typed && (typed.comparison.availabilityLossCount
+          || (typed.comparison.rawAvailableCount && !typed.comparison.availableCount))) {
+          return createAlert({
+            feedId: entry.id,
+            regressionClass: 'signal-normalization-availability-degraded',
+            severity: 'warning',
+            message: 'Returned numeric availability is reduced relative to raw evidence. Independent snapshots may reflect an availability transition; normalization or comparison proof is degraded.',
+            metadata: { identity: 'typed-availability', ...typed.comparison, signalCount: signalSummary.count }
+          });
+        }
+      }
       return null;
     case 'freshness': {
-      const newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp || payloadSummary?.fetchedAt;
-      if (!newest) return null;
+      let newest;
+      if (isTypedSeriesFeed(entry)) {
+        const typed = inspectTypedSeriesSignals(entry, signalSummary, rawSummary, proxySummary);
+        if (typed.fabricatedCount) {
+          return createAlert({
+            feedId: entry.id,
+            regressionClass: 'observation-freshness-fabricated',
+            severity: entry.tier === 'core' ? 'critical' : 'warning',
+            message: 'Normalized publication timestamps do not match source observation periods.',
+            metadata: { identity: 'observation-freshness' }
+          });
+        }
+        const publication = context.publication || summarizeCpiPublication(entry, signalSummary, typed, rawSummary, proxySummary);
+        if (publication) {
+          const findings = {
+            'missing': ['cpi-publication-period-missing', 'The scheduled CPI reference period is not observed in usable returned signals; check collection and the current BLS calendar. This does not establish a BLS publication failure.'],
+            'unavailable': ['cpi-publication-observation-unavailable', 'No usable monthly observation for the configured CPI series was returned; publication cadence cannot be established.'],
+            'unknown-schedule': ['cpi-publication-schedule-unknown', 'The saved BLS calendar does not bracket this check; refresh official schedule evidence before claiming CPI publication freshness.'],
+            'unexpected-period': ['cpi-publication-period-unexpected', 'Returned CPI observations are ahead of the saved release calendar; reconcile the schedule or observation evidence. Actual publication time is unknown.']
+          };
+          const finding = findings[publication.status];
+          return finding ? createAlert({
+            feedId: entry.id,
+            regressionClass: finding[0],
+            severity: 'warning',
+            message: finding[1],
+            metadata: { identity: 'cpi-publication', ...publication }
+          }) : null;
+        }
+        newest = typed.newestTimestamp ?? (typed.empty ? typed.rawNewestTimestamp : null);
+        if ((!typed.empty || typed.comparison.status !== 'unavailable') && newest === null) {
+          return createAlert({
+            feedId: entry.id,
+            regressionClass: 'observation-freshness-unknown',
+            severity: entry.tier === 'core' ? 'warning' : 'info',
+            message: 'Series observations have no known monthly or daily observation date.',
+            metadata: { identity: 'observation-freshness' }
+          });
+        }
+      } else {
+        newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp || payloadSummary?.fetchedAt;
+      }
+      if (isTypedSeriesFeed(entry) ? newest === null || newest === undefined || newest === '' : !newest) return null;
       const ageMinutes = (Date.now() - newest) / (1000 * 60);
       if (ageMinutes > entry.freshnessWindowMinutes) {
         return createAlert({
@@ -787,7 +956,14 @@ export async function auditEntry(entry, options) {
     ...(Object.keys(params).length ? { params } : {}),
     limit: 25
   }, timeoutMs);
-  const signalSummary = summarizeSignals(signalResult);
+  const signalSummary = summarizeSignals(signalResult, entry);
+  let publication = null;
+  if (isTypedSeriesFeed(entry)) {
+    const inspection = inspectTypedSeriesSignals(entry, signalSummary, rawSummary, proxySummary);
+    signalSummary.comparison = inspection.comparison;
+    signalSummary.newestTimestamp = inspection.newestTimestamp;
+    publication = summarizeCpiPublication(entry, signalSummary, inspection, rawSummary, proxySummary);
+  }
 
   let staticSummary = { skipped: true };
   if (options.includeStatic && options.staticBase && shouldCompareStatic(entry)) {
@@ -814,7 +990,8 @@ export async function auditEntry(entry, options) {
       entry,
       proxySummary,
       rawSummary,
-      signalSummary
+      signalSummary,
+      publication
     });
     if (alert) alerts.push(alert);
   }
@@ -854,6 +1031,7 @@ export async function auditEntry(entry, options) {
     proxy: proxySummary,
     raw: rawSummary,
     signals: signalSummary,
+    ...(publication ? { publication } : {}),
     static: staticSummary
   };
 }

@@ -479,6 +479,26 @@
     "supportUrl": "https://www.bls.gov/developers/",
     "timeoutMs": 60000,
     "freshnessWindowMinutes": 4320,
+    "publicationSchedule": {
+      "seriesId": "CUUR0000SA0",
+      "sourceUrl": "https://www.bls.gov/schedule/news_release/cpi.htm",
+      "checkedAt": "2026-10-02T02:23:01Z",
+      "releases": [
+        { "period": "2025-M11", "scheduledAt": "2025-12-18T08:30:00-05:00" },
+        { "period": "2025-M12", "scheduledAt": "2026-01-13T08:30:00-05:00" },
+        { "period": "2026-M01", "scheduledAt": "2026-02-13T08:30:00-05:00" },
+        { "period": "2026-M02", "scheduledAt": "2026-03-11T08:30:00-04:00" },
+        { "period": "2026-M03", "scheduledAt": "2026-04-10T08:30:00-04:00" },
+        { "period": "2026-M04", "scheduledAt": "2026-05-12T08:30:00-04:00" },
+        { "period": "2026-M05", "scheduledAt": "2026-06-10T08:30:00-04:00" },
+        { "period": "2026-M06", "scheduledAt": "2026-07-14T08:30:00-04:00" },
+        { "period": "2026-M07", "scheduledAt": "2026-08-12T08:30:00-04:00" },
+        { "period": "2026-M08", "scheduledAt": "2026-09-11T08:30:00-04:00" },
+        { "period": "2026-M09", "scheduledAt": "2026-10-14T08:30:00-04:00" },
+        { "period": "2026-M10", "scheduledAt": "2026-11-10T08:30:00-05:00" },
+        { "period": "2026-M11", "scheduledAt": "2026-12-10T08:30:00-05:00" }
+      ]
+    },
     "sampleParams": {},
     "invariants": [
       "feed-fetch",

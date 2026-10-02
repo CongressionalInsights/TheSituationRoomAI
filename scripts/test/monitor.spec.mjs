@@ -44,8 +44,12 @@ import {
   compareStaticSnapshot,
   getRawFetchFormat,
   summarizeProxyPayload,
+  summarizeSignals,
+  auditEntry,
   evaluateInvariant
 } from '../../analysis/monitor/lib/audit.mjs';
+import { normalizeJsonSignals } from '../../gcp/mcp-proxy/signal-normalization.js';
+import { createItemId } from '../../gcp/mcp-proxy/server.js';
 import { redactCredentialFields } from '../../analysis/monitor/lib/public_payload_safety.mjs';
 import {
   buildMarkdownReport,
@@ -59,10 +63,605 @@ import {
   shouldFailMonitorRun
 } from '../../analysis/monitor/lib/run.mjs';
 import { verifyMcpCandidate } from '../../scripts/verify_mcp_candidate.mjs';
+import { verifyTypedSeriesReport } from '../../scripts/verify_typed_series_report.mjs';
 
 const fixture = (name) => fs.readFileSync(path.join(process.cwd(), 'scripts', 'test', 'fixtures', 'monitor', name), 'utf8');
 const parseFixture = (name) => JSON.parse(fixture(name));
 const baselineModuleUrl = new URL('../../analysis/monitor/lib/baseline.mjs', import.meta.url).href;
+
+const retainedTypedFixtures = parseFixture('eia-bls-retained.json');
+const typedMonitorFeeds = JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', import.meta.url))).feeds;
+const typedMonitorOverrides = JSON.parse(fs.readFileSync(new URL('../../data/feed-monitoring.json', import.meta.url)));
+function typedMonitorContext(id, body = retainedTypedFixtures[id]) {
+  const feed = typedMonitorFeeds.find((entry) => entry.id === id);
+  const entry = { ...feed, ...typedMonitorOverrides[id] };
+  const raw = summarizeProxyPayload(entry, { body, httpStatus: 200 });
+  const items = normalizeJsonSignals(JSON.stringify(body), feed).map((item) => ({ ...item, id: createItemId(item), sourceId: id }));
+  return { entry, proxySummary: raw, rawSummary: raw, signalSummary: summarizeSignals({ data: { items } }, entry) };
+}
+
+function cpiPeriodFixture(period, value = '0', seriesID = 'CUUR0000SA0') {
+  const body = structuredClone(retainedTypedFixtures['bls-cpi']);
+  body.Results.series = [{ seriesID, data: [{ year: period.slice(0, 4), period: period.slice(5), value }] }];
+  return body;
+}
+
+async function auditCpiCadence(t, body, { rawBody = body, signalError, proxyError, fallbackUsed = false, corrupt, entryOverride = {} } = {}) {
+  const context = typedMonitorContext('bls-cpi', rawBody);
+  const entry = resolveMonitoringEntry(typedMonitorFeeds.find((feed) => feed.id === 'bls-cpi'), typedMonitorOverrides['bls-cpi']);
+  Object.assign(entry, entryOverride);
+  const items = typedMonitorContext('bls-cpi', body).signalSummary.items;
+  if (corrupt) corrupt(items);
+  const calls = [];
+  const mock = t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(new URL(url).hostname, 'fixture.invalid', 'no provider transport');
+    if (new URL(url).pathname === '/api/feed') {
+      calls.push('proxy');
+      return new Response(JSON.stringify(proxyError ? { error: proxyError } : { body: rawBody, httpStatus: 200 }));
+    }
+    const request = JSON.parse(options.body);
+    calls.push(request.params.name);
+    const output = request.params.name === 'raw.fetch' ? { data: rawBody, httpStatus: 200 }
+      : signalError ? { error: signalError } : { items, fallbackUsed };
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { structuredContent: output } }));
+  });
+  try {
+    const result = await auditEntry(entry, { base: 'https://fixture.invalid', mcp: 'https://fixture.invalid/mcp', timeoutMs: 1000, includeStatic: false });
+    assert.deepEqual(calls, ['proxy', 'raw.fetch', 'signals.list']);
+    return result;
+  } finally {
+    mock.mock.restore();
+  }
+}
+
+test('CPI publication cadence keeps normal monthly observation age distinct from publication freshness', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  const result = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi']);
+  assert.deepEqual(result.alerts, []);
+  assert.equal(result.publication.status, 'current');
+  assert.equal(result.publication.expectedPeriod, '2026-M08');
+  assert.equal(result.publication.observationDate, '2026-08');
+  assert.equal(result.publication.observationAgeMinutes, 88560);
+  assert.equal(result.publication.actualPublicationAt, null);
+  assert.equal(result.publication.scheduledPublicationAt, '2026-09-11T08:30:00-04:00');
+  assert.equal(result.publication.nextScheduledPublicationAt, '2026-10-14T08:30:00-04:00');
+  assert.equal(result.signals.items[0].publishedAt, Date.parse('2026-08-01T00:00:00Z'));
+  t.diagnostic(JSON.stringify({ retainedFixtureProof: { publication: result.publication, observations: result.signals.items.map(({ seriesId, period, publishedAt, value, units, id }) => ({ seriesId, period, publishedAt, value, units, id })) } }));
+  const markdown = buildMarkdownReport({ mode: 'core', feedResults: [result] });
+  assert.match(markdown, /CPI Publication Cadence/);
+  assert.match(markdown, /actual publication time unknown/);
+});
+
+test('CPI publication cadence changes expected month at the exact Eastern scheduled boundary, not after an age window', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-14T12:29:59Z') });
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M08'))).publication.status, 'current');
+  t.mock.timers.setTime(Date.parse('2026-10-14T12:30:00Z'));
+  const missing = await auditCpiCadence(t, cpiPeriodFixture('2026-M08'));
+  assert.equal(missing.publication.expectedPeriod, '2026-M09');
+  assert.equal(missing.publication.status, 'missing');
+  const alert = missing.alerts.find((item) => item.regressionClass === 'cpi-publication-period-missing');
+  assert.equal(alert.severity, 'warning');
+  assert.match(alert.message, /not observed/);
+  assert.ok(!missing.alerts.some((item) => item.regressionClass === 'feed-fetch-failed'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M09'))).publication.status, 'current');
+});
+
+test('CPI publication cadence uses returned usable canonical series, not fresh raw, another series, or unavailable values', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-15T12:00:00Z') });
+  const freshRaw = cpiPeriodFixture('2026-M09');
+  const stale = await auditCpiCadence(t, cpiPeriodFixture('2026-M08'), { rawBody: freshRaw });
+  assert.equal(stale.publication.status, 'missing');
+  assert.equal(stale.publication.observedPeriod, '2026-M08');
+  for (const body of [cpiPeriodFixture('2026-M09', '-'), cpiPeriodFixture('2026-M09', '1', 'OTHER'), cpiPeriodFixture('2026-M13'), cpiPeriodFixture('2026-M99')]) {
+    const result = await auditCpiCadence(t, body);
+    assert.equal(result.publication.status, 'unavailable');
+    assert.ok(result.alerts.some((item) => item.regressionClass === 'cpi-publication-observation-unavailable'));
+    assert.equal(result.publication.actualPublicationAt, null);
+  }
+  assert.equal((await auditCpiCadence(t, freshRaw)).publication.status, 'current', 'zero is usable');
+});
+
+test('CPI publication cadence retains transport, fallback and typed integrity failures separately', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  const failed = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi'], { signalError: 'timeout', proxyError: 'timeout' });
+  assert.equal(failed.publication.status, 'unavailable');
+  assert.equal(failed.publication.collectionAvailability.signals, 'unavailable');
+  assert.ok(failed.alerts.some((item) => item.regressionClass === 'signal-normalization-failed' && item.severity === 'critical'));
+  assert.ok(failed.alerts.some((item) => item.regressionClass === 'feed-fetch-failed'));
+  const fallback = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi'], { fallbackUsed: true });
+  assert.equal(fallback.publication.status, 'current');
+  assert.equal(fallback.publication.collectionAvailability.signals, 'fallback');
+  assert.equal(fallback.status, 'warning');
+  assert.ok(fallback.alerts.some((item) => item.regressionClass === 'fallback-engaged'));
+  for (const corrupt of [(items) => { items[0].publishedAt = Date.now(); }, (items) => { items[0] = null; }, (items) => { items.push({ ...items[0] }); }]) {
+    const result = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi'], { corrupt });
+    assert.equal(result.publication.status, 'unusable');
+    assert.ok(result.alerts.some((item) => item.regressionClass === 'observation-freshness-fabricated' || item.regressionClass === 'signal-normalization-unusable'));
+  }
+});
+
+test('CPI publication cadence is explicitly unknown outside a complete bounded official calendar or with malformed policy', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-12-11T12:00:00Z') });
+  const exhausted = await auditCpiCadence(t, cpiPeriodFixture('2026-M11'));
+  assert.equal(exhausted.publication.status, 'unknown-schedule');
+  assert.ok(exhausted.alerts.some((item) => item.regressionClass === 'cpi-publication-schedule-unknown'));
+  t.mock.timers.setTime(Date.parse('2025-12-01T12:00:00Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2025-M10'))).publication.status, 'unknown-schedule');
+  t.mock.timers.setTime(Date.parse('2026-10-01T12:00:00Z'));
+  for (const releases of [[], [{ period: 'bad', scheduledAt: 'not-a-date' }], [{ period: '2026-M08', scheduledAt: '2026-09-11T08:30:00-04:00' }, { period: '2026-M10', scheduledAt: '2026-11-10T08:30:00-05:00' }], [{ period: '2026-M01', scheduledAt: '2026-02-30T08:30:00-05:00' }, { period: '2026-M02', scheduledAt: '2026-03-11T08:30:00-04:00' }]]) {
+    const result = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi'], { entryOverride: { publicationSchedule: { seriesId: 'CUUR0000SA0', releases } } });
+    assert.equal(result.publication.status, 'unknown-schedule');
+  }
+});
+
+test('CPI publication cadence handles year rollover and Eastern daylight changes from explicit source dates', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-01-13T13:29:59Z') });
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2025-M11'))).publication.expectedPeriod, '2025-M11');
+  t.mock.timers.setTime(Date.parse('2026-01-13T13:30:00Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2025-M12'))).publication.expectedPeriod, '2025-M12');
+  t.mock.timers.setTime(Date.parse('2026-03-11T12:30:00Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M02'))).publication.status, 'current');
+  t.mock.timers.setTime(Date.parse('2026-11-10T13:29:59Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M09'))).publication.status, 'current');
+  t.mock.timers.setTime(Date.parse('2026-11-10T13:30:00Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M10'))).publication.status, 'current');
+});
+
+test('CPI publication cadence flags a period ahead of the saved schedule without inventing a publication timestamp', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  const result = await auditCpiCadence(t, cpiPeriodFixture('2026-M09'));
+  assert.equal(result.publication.status, 'unexpected-period');
+  assert.ok(result.alerts.some((item) => item.regressionClass === 'cpi-publication-period-unexpected'));
+  assert.equal(result.publication.actualPublicationAt, null);
+});
+
+test('CPI publication cadence resolves only the configured canonical CPI feed and retains unrelated freshness policy', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  const feed = typedMonitorFeeds.find((entry) => entry.id === 'bls-cpi');
+  const resolved = resolveMonitoringEntry(feed, typedMonitorOverrides['bls-cpi']);
+  assert.deepEqual(resolved.publicationSchedule, typedMonitorOverrides['bls-cpi'].publicationSchedule);
+  assert.equal(resolved.freshnessWindowMinutes, 4320, 'not an arbitrary window widening');
+  assert.deepEqual(resolved.knownUpstreamQuirks, [], 'not warning suppression');
+  assert.equal(resolveMonitoringEntry({ ...feed, id: 'not-cpi' }, typedMonitorOverrides['bls-cpi']).publicationSchedule, undefined);
+  const context = typedMonitorContext('bls-cpi');
+  delete context.entry.publicationSchedule;
+  assert.equal(evaluateInvariant('freshness', context).regressionClass, 'freshness-window-exceeded', 'legacy non-cadence behavior is unchanged');
+  const expected = parseFixture('bls-cpi-calendar.json');
+  assert.equal(resolved.publicationSchedule.sourceUrl, expected.sourceUrl);
+  assert.deepEqual(resolved.publicationSchedule.releases.map(({ period, scheduledAt }) => [period, new Date(scheduledAt).toISOString()]), expected.releases);
+});
+
+test('typed monitor detects empty or generic normalized output without calling healthy raw transport failed', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  for (const id of ['energy-eia', 'energy-eia-brent', 'energy-eia-ng', 'bls-cpi']) {
+    const context = typedMonitorContext(id);
+    const items = id === 'bls-cpi' ? [] : [
+      { id: 'same-id', title: 'Untitled', summary: '', url: '', publishedAt: Date.now() },
+      { id: 'same-id', title: 'Untitled', summary: '', url: '', publishedAt: Date.now() }
+    ];
+    context.signalSummary = summarizeSignals({ data: { items } }, context.entry);
+    assert.equal(context.rawSummary.error, null);
+    assert.equal(evaluateInvariant('feed-fetch', context), null);
+    const alert = evaluateInvariant('signal-normalization', context);
+    assert.equal(alert.regressionClass, 'signal-normalization-unusable');
+    assert.equal(alert.severity, context.entry.tier === 'core' ? 'critical' : 'warning');
+    assert.equal(alert.metadata.rawItemCount, 3);
+    assert.equal(evaluateInvariant('non-empty', context), null, 'nonempty raw is not mislabeled an empty upstream payload');
+    if (items.length) assert.equal(evaluateInvariant('freshness', context).regressionClass, 'observation-freshness-fabricated');
+  }
+});
+
+test('typed monitor rejects stripped values, units, facets, identities and duplicate IDs', () => {
+  for (const corrupt of [
+    (items) => { delete items[0].value; },
+    (items) => { items[0].value = null; },
+    (items) => { items[0].units = null; },
+    (items) => { items[0].description = ''; },
+    (items) => { items[0].facets = {}; },
+    (items) => { items[0].seriesId = 'wrong-series'; },
+    (items) => { items[0].id = 'clock-dependent-id'; },
+    (items) => { items.push({ ...items[0] }); }
+  ]) {
+    const context = typedMonitorContext('energy-eia');
+    corrupt(context.signalSummary.items);
+    assert.equal(evaluateInvariant('signal-normalization', context).regressionClass, 'signal-normalization-unusable');
+  }
+});
+
+test('typed monitor honors observation freshness, not retrieval time, while preserving other feeds', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-01T12:00:00Z') });
+  const context = typedMonitorContext('energy-eia');
+  context.rawSummary.fetchedAt = Date.now();
+  assert.equal(evaluateInvariant('signal-normalization', context), null);
+  assert.equal(evaluateInvariant('freshness', context).regressionClass, 'freshness-window-exceeded');
+  context.signalSummary.items[0].publishedAt = Date.now();
+  context.signalSummary.newestTimestamp = Date.now();
+  assert.equal(evaluateInvariant('freshness', context).regressionClass, 'observation-freshness-fabricated');
+  context.entry = { ...context.entry, id: 'unrelated-feed' };
+  assert.equal(evaluateInvariant('freshness', context), null, 'generic feed freshness selection is unchanged');
+});
+
+test('typed monitor keeps unknown dates and BLS M13 annual averages unknown even when just fetched', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01') });
+  for (const [id, body] of [
+    ['energy-eia', { response: { data: [{ ...retainedTypedFixtures['energy-eia'].response.data[0], period: '2026-02-30', value: 0 }] } }],
+    ['bls-cpi', { Results: { series: [{ seriesID: 'CUUR0000SA0', data: [{ year: '2025', period: 'M13', periodName: 'Annual', value: '-' }] }] } }]
+  ]) {
+    const context = typedMonitorContext(id, body);
+    context.rawSummary.fetchedAt = Date.now();
+    assert.equal(context.rawSummary.newestTimestamp, null);
+    assert.equal(context.signalSummary.newestTimestamp, null);
+    assert.equal(evaluateInvariant('signal-normalization', context), null, 'unavailable value status and zero are explicit, not empty-output defects');
+    assert.equal(evaluateInvariant('freshness', context).regressionClass, id === 'bls-cpi' ? 'cpi-publication-observation-unavailable' : 'observation-freshness-unknown');
+    context.signalSummary.items[0].publishedAt = Date.now();
+    assert.equal(evaluateInvariant('freshness', context).regressionClass, 'observation-freshness-fabricated');
+  }
+});
+
+test('typed raw summarization includes every BLS series and ignores retrieval metadata for dates', () => {
+  const body = { Results: [{ series: [
+    { seriesID: 'A', data: [{ year: '2024', period: 'M12', value: '0' }] },
+    { seriesID: 'B', data: [{ year: '2026', period: 'M08', value: '1' }, { year: '2026', period: 'M13', value: '2' }] }
+  ] }], fetchedAt: '2099-01-01', publishedAt: '2099-01-01' };
+  const context = typedMonitorContext('bls-cpi', body);
+  assert.equal(context.rawSummary.rawItemCount, 3);
+  assert.equal(context.rawSummary.newestTimestamp, Date.parse('2026-08-01T00:00:00Z'));
+  assert.equal(evaluateInvariant('signal-normalization', context), null);
+});
+
+test('typed monitor treats historical epoch milliseconds as observation dates, not seconds', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01') });
+  for (const period of ['1970-01-01', '1986-01-03', '1999-12-31']) {
+    const body = { response: { data: [{ ...retainedTypedFixtures['energy-eia-brent'].response.data[0], period }] } };
+    const context = typedMonitorContext('energy-eia-brent', body);
+    assert.equal(context.signalSummary.newestTimestamp, Date.parse(`${period}T00:00:00Z`));
+    assert.equal(evaluateInvariant('signal-normalization', context), null);
+    assert.equal(evaluateInvariant('freshness', context).regressionClass, 'freshness-window-exceeded');
+  }
+});
+
+test('typed semantic checks do not disguise explicit normalization errors or invent proof from failed raw transport', () => {
+  const context = typedMonitorContext('energy-eia');
+  context.signalSummary.error = 'fixture-normalization-failure';
+  assert.equal(evaluateInvariant('signal-normalization', context).regressionClass, 'signal-normalization-failed');
+  context.signalSummary.error = 'requires_config';
+  assert.equal(evaluateInvariant('signal-normalization', context), null);
+  context.signalSummary.error = null;
+  context.signalSummary.items = [];
+  context.rawSummary = { ...context.rawSummary, error: 'timeout' };
+  context.proxySummary = context.rawSummary;
+  assert.equal(evaluateInvariant('signal-normalization', context), null);
+});
+
+test('typed freshness still audits source periods when raw and proxy transport are unavailable', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-01') });
+  for (const id of ['energy-eia', 'bls-cpi']) {
+    const context = typedMonitorContext(id);
+    context.rawSummary = { error: 'timeout' };
+    context.proxySummary = { error: 'timeout' };
+    assert.equal(evaluateInvariant('freshness', context).regressionClass, id === 'bls-cpi' ? 'cpi-publication-period-missing' : 'freshness-window-exceeded');
+    context.signalSummary.items[0].publishedAt = Date.now();
+    assert.equal(evaluateInvariant('freshness', context).regressionClass, 'observation-freshness-fabricated');
+  }
+});
+
+test('actual typed audit reports semantic defects and corrected retained output through mocked transport', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-30T12:00:00Z') });
+  let current;
+  let broken = true;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(new URL(url).hostname, 'fixture.invalid', 'no provider or live monitor transport');
+    if (new URL(url).pathname === '/api/feed') return new Response(JSON.stringify({ body: retainedTypedFixtures[current.entry.id], httpStatus: 200 }), { headers: { 'content-type': 'application/json' } });
+    const request = JSON.parse(options.body);
+    const raw = request.params.name === 'raw.fetch';
+    const output = raw ? { data: retainedTypedFixtures[current.entry.id], httpStatus: 200 }
+      : { items: broken ? (current.entry.id === 'bls-cpi' ? [] : [{ id: 'bad', title: 'Untitled', publishedAt: Date.now() }]) : current.signalSummary.items };
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { structuredContent: output } }), { headers: { 'content-type': 'application/json' } });
+  });
+  for (const id of ['energy-eia', 'energy-eia-brent', 'energy-eia-ng', 'bls-cpi']) {
+    current = typedMonitorContext(id);
+    const options = { base: 'https://fixture.invalid', mcp: 'https://fixture.invalid/mcp', timeoutMs: 1000, includeStatic: false };
+    broken = true;
+    const before = await auditEntry(current.entry, options);
+    assert.equal(before.raw.error, null);
+    assert.equal(before.proxy.error, null);
+    assert.ok(before.alerts.some((alert) => alert.regressionClass === 'signal-normalization-unusable'));
+    assert.ok(!before.alerts.some((alert) => alert.regressionClass === 'feed-fetch-failed'));
+    broken = false;
+    const after = await auditEntry(current.entry, options);
+    assert.equal(after.signals.count, 3);
+    assert.ok(!after.alerts.some((alert) => alert.regressionClass.startsWith('signal-normalization') || alert.regressionClass === 'observation-freshness-fabricated'));
+    assert.equal(after.signals.items[0].value, current.signalSummary.items[0].value);
+  }
+});
+
+async function auditTypedSnapshots(t, id, signalBody, { fallbackUsed = false, corrupt, rawBody = retainedTypedFixtures[id] } = {}) {
+  const context = typedMonitorContext(id, rawBody);
+  const signalContext = typedMonitorContext(id, signalBody);
+  const items = signalContext.signalSummary.items;
+  if (corrupt) corrupt(items);
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(new URL(url).hostname, 'fixture.invalid');
+    if (new URL(url).pathname === '/api/feed') return new Response(JSON.stringify({ body: rawBody, httpStatus: 200 }), { headers: { 'content-type': 'application/json' } });
+    const request = JSON.parse(options.body);
+    const output = request.params.name === 'raw.fetch'
+      ? { data: rawBody, httpStatus: 200, fallbackUsed: false }
+      : { items, fallbackUsed, proxyUsed: fallbackUsed ? 'live-cache' : null };
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { structuredContent: output } }), { headers: { 'content-type': 'application/json' } });
+  });
+  try {
+    return await auditEntry(context.entry, { base: 'https://fixture.invalid', mcp: 'https://fixture.invalid/mcp', timeoutMs: 1000, includeStatic: false });
+  } finally {
+    fetchMock.mock.restore();
+  }
+}
+
+test('typed full audit accepts independent unmatched snapshots with reduced comparison coverage and honest fallback severity', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-30T12:00:00Z') });
+  const body = structuredClone(retainedTypedFixtures['energy-eia']);
+  body.response.data = [{ ...body.response.data[0], period: '2026-03-09' }];
+  const result = await auditTypedSnapshots(t, 'energy-eia', body, { fallbackUsed: true });
+  assert.ok(!result.alerts.some((alert) => alert.regressionClass.startsWith('signal-normalization') || alert.regressionClass === 'observation-freshness-fabricated'));
+  assert.equal(result.signals.comparison.status, 'partial');
+  assert.equal(result.signals.comparison.unmatchedCount, 1);
+  assert.ok(result.alerts.some((alert) => alert.regressionClass === 'freshness-window-exceeded'));
+  assert.equal(result.alerts.find((alert) => alert.regressionClass === 'fallback-engaged').severity, 'warning');
+});
+
+test('typed full audit measures returned stale observations even when fresh raw has the same keys', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-30T12:00:00Z') });
+  const body = structuredClone(retainedTypedFixtures['energy-eia-brent']);
+  body.response.data = [body.response.data[2]];
+  const result = await auditTypedSnapshots(t, 'energy-eia-brent', body, { fallbackUsed: true });
+  assert.equal(result.signals.comparison.status, 'complete');
+  assert.ok(!result.alerts.some((alert) => alert.regressionClass === 'signal-normalization-unusable' || alert.regressionClass === 'observation-freshness-fabricated'));
+  assert.ok(result.alerts.some((alert) => alert.regressionClass === 'freshness-window-exceeded'));
+  assert.equal(result.alerts.find((alert) => alert.regressionClass === 'fallback-engaged').severity, 'info');
+});
+
+test('typed full audit does not let an unavailable latest value freshen older usable observations', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-30T12:00:00Z') });
+  const body = structuredClone(retainedTypedFixtures['energy-eia-brent']);
+  body.response.data = [{ ...body.response.data[0], value: '-' }, body.response.data[2]];
+  const result = await auditTypedSnapshots(t, 'energy-eia-brent', body);
+  assert.equal(result.signals.newestTimestamp, Date.parse('2026-09-11T00:00:00Z'));
+  assert.ok(result.alerts.some((alert) => alert.regressionClass === 'freshness-window-exceeded'));
+  assert.equal(result.alerts.find((alert) => alert.regressionClass === 'signal-normalization-availability-degraded').metadata.availabilityLossCount, 1);
+  assert.ok(!result.alerts.some((alert) => alert.regressionClass === 'signal-normalization-unusable'));
+});
+
+test('typed full audit retains corruption failures within otherwise legitimate unmatched snapshots', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-30T12:00:00Z') });
+  const body = structuredClone(retainedTypedFixtures['energy-eia']);
+  body.response.data[0].period = '2026-03-09';
+  for (const corrupt of [
+    (items) => { items[0].observationKey = 'malformed-key'; },
+    (items) => { items.push({ ...items[0] }); },
+    (items) => { delete items[0].value; },
+    (items) => { items[0].rawValue = '0'; items[0].value = 99; },
+    (items) => { items[0].sourceId = 'energy-eia-ng'; }
+  ]) {
+    const result = await auditTypedSnapshots(t, 'energy-eia', body, { corrupt });
+    assert.ok(result.alerts.some((alert) => alert.regressionClass === 'signal-normalization-unusable'));
+  }
+  const fabricated = await auditTypedSnapshots(t, 'energy-eia', body, { corrupt: (items) => { items[0].publishedAt = Date.now(); } });
+  assert.ok(fabricated.alerts.some((alert) => alert.regressionClass === 'observation-freshness-fabricated'));
+});
+
+test('typed full audit exposes coherent numeric availability loss without asserting revision corruption', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-30T12:00:00Z') });
+  for (const id of ['energy-eia', 'bls-cpi']) {
+    const result = await auditTypedSnapshots(t, id, retainedTypedFixtures[id], { corrupt: (items) => {
+      for (const item of items) Object.assign(item, { rawValue: null, value: null, valueStatus: 'unavailable' });
+    } });
+    assert.equal(result.raw.error, null);
+    const alert = result.alerts.find((item) => item.regressionClass === 'signal-normalization-availability-degraded');
+    assert.ok(alert, 'finite matched raw values must not silently disappear');
+    assert.equal(alert.metadata.availabilityLossCount, 3);
+    assert.equal(alert.metadata.availableCount, 0);
+    assert.ok(!result.alerts.some((item) => item.regressionClass === 'signal-normalization-unusable' || item.regressionClass === 'feed-fetch-failed'));
+    const revised = await auditTypedSnapshots(t, id, retainedTypedFixtures[id], { corrupt: (items) => {
+      items.forEach((item, index) => Object.assign(item, { rawValue: index ? '99' : '0', value: index ? 99 : 0 }));
+    } });
+    assert.ok(!revised.alerts.some((item) => item.regressionClass.startsWith('signal-normalization')));
+  }
+  const unavailable = structuredClone(retainedTypedFixtures['energy-eia']);
+  unavailable.response.data.forEach((row) => { row.value = null; });
+  const result = await auditTypedSnapshots(t, 'energy-eia', unavailable, { rawBody: unavailable });
+  assert.ok(!result.alerts.some((item) => item.regressionClass.startsWith('signal-normalization')));
+  assert.ok(result.alerts.some((item) => item.regressionClass === 'observation-freshness-unknown'));
+});
+
+function typedReleaseReport() {
+  return {
+    mcp: 'https://candidate.fixture.invalid/mcp',
+    alerts: [],
+    feedResults: ['energy-eia', 'energy-eia-brent', 'energy-eia-ng', 'bls-cpi'].map((id) => {
+      const context = typedMonitorContext(id);
+      return { feedId: id, raw: { ...context.rawSummary, fallbackUsed: false }, signals: { ...context.signalSummary, fallbackUsed: false }, alerts: [] };
+    })
+  };
+}
+
+test('typed series release report accepts offline independent acquisitions and preserves observation age warnings', (t) => {
+  t.mock.method(globalThis, 'fetch', () => { throw new Error('offline gate must not fetch'); });
+  const report = typedReleaseReport();
+  assert.equal(report.feedResults[3].raw.parsedBody.Results.series[0].catalog, undefined);
+  assert.equal(report.feedResults[3].signals.items[0].description, typedMonitorFeeds.find((feed) => feed.id === 'bls-cpi').name);
+  const warning = { feedId: 'bls-cpi', regressionClass: 'freshness-window-exceeded', severity: 'warning', message: 'Observation age, not release lateness' };
+  const unrelated = { feedId: 'other-source', regressionClass: 'signal-normalization-failed', severity: 'critical' };
+  report.alerts = [warning, unrelated];
+  report.feedResults[3].alerts = [warning];
+  const unmatched = structuredClone(retainedTypedFixtures['energy-eia']);
+  unmatched.response.data[0].period = '2026-03-09';
+  report.feedResults[0].signals = { ...typedMonitorContext('energy-eia', unmatched).signalSummary, fallbackUsed: false };
+  report.feedResults[1].signals.items[0].rawValue = 0;
+  report.feedResults[1].signals.items[0].value = 0;
+  const before = JSON.stringify(report);
+  const result = verifyTypedSeriesReport(report, report.mcp);
+  assert.equal(result.ok, true);
+  assert.equal(result.providerCalls, 0);
+  assert.equal(result.sources[0].comparison.status, 'partial');
+  assert.equal(result.sources[3].observationAgeWarnings[0].message, warning.message);
+  assert.equal(JSON.stringify(report), before, 'pure verifier must not mutate reports or suppress warnings');
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test('typed series release report rejects absent duplicate wrong-endpoint and failed raw/list results', () => {
+  for (const mutate of [
+    (report) => { report.feedResults.pop(); },
+    (report) => { report.feedResults.push(report.feedResults[0]); },
+    (report) => { report.mcp = 'https://other.fixture.invalid/mcp'; },
+    (report) => { report.feedResults[0].raw.error = 'timeout'; },
+    (report) => { report.feedResults[0].signals.error = 'requires_config'; },
+    (report) => { report.feedResults[0].raw.parsedBody = {}; },
+    (report) => { report.feedResults[0].signals.items = []; report.feedResults[0].signals.count = 0; },
+    (report) => { report.feedResults[0].signals.items = 'malformed'; },
+    (report) => { report.feedResults[0].signals.count += 1; }
+  ]) {
+    const report = typedReleaseReport();
+    mutate(report);
+    assert.throws(() => verifyTypedSeriesReport(report, 'https://candidate.fixture.invalid/mcp'));
+  }
+});
+
+test('typed series release report holds undersized lists and zero overlap but accepts bounded partial overlap', () => {
+  const body = structuredClone(retainedTypedFixtures['energy-eia']);
+  body.response.data = Array.from({ length: 30 }, (_, index) => ({ ...body.response.data[0], period: new Date(Date.UTC(2026, 8, index + 1)).toISOString().slice(0, 10) }));
+  const context = typedMonitorContext('energy-eia', body);
+  const report = typedReleaseReport();
+  report.feedResults[0] = { feedId: 'energy-eia', raw: { ...context.rawSummary, fallbackUsed: false }, signals: { ...context.signalSummary, items: context.signalSummary.items.slice(0, 1), count: 1, fallbackUsed: false }, alerts: [] };
+  assert.throws(() => verifyTypedSeriesReport(report, report.mcp), { code: 'typed_list_coverage_hold' });
+  report.feedResults[0].signals.items = context.signalSummary.items.slice(0, 25);
+  report.feedResults[0].signals.count = 25;
+  assert.equal(verifyTypedSeriesReport(report, report.mcp).ok, true);
+  const unmatched = structuredClone(body);
+  unmatched.response.data = unmatched.response.data.map((row) => ({ ...row, period: row.period.replace('2026', '2025') }));
+  const unmatchedItems = typedMonitorContext('energy-eia', unmatched).signalSummary.items;
+  report.feedResults[0].signals.items = unmatchedItems.slice(0, 25);
+  assert.throws(() => verifyTypedSeriesReport(report, report.mcp), { code: 'typed_comparison_coverage_hold' });
+  report.feedResults[0].signals.items[0] = context.signalSummary.items[0];
+  const verified = verifyTypedSeriesReport(report, report.mcp);
+  assert.equal(verified.ok, true);
+  assert.equal(verified.sources[0].comparison.status, 'partial');
+  assert.equal(verified.sources[0].comparison.matchedCount, 1);
+  assert.equal(verified.sources[0].comparison.unmatchedCount, 24);
+});
+
+test('typed series release report holds legitimate fallback separately from mapper corruption', () => {
+  for (const mutate of [
+    (report) => { report.feedResults[0].raw.fallbackUsed = true; },
+    (report) => { report.feedResults[0].signals.fallbackUsed = true; },
+    (report) => { report.feedResults[0].raw.stale = true; },
+    (report) => { report.feedResults[0].signals.proxyUsed = 'live-cache'; },
+    (report) => { report.feedResults[0].raw.fetchedUrl = 'https://static.fixture.invalid/data/feeds/energy-eia.json'; }
+  ]) {
+    const report = typedReleaseReport();
+    mutate(report);
+    assert.throws(() => verifyTypedSeriesReport(report, report.mcp), { code: 'typed_fallback_hold' });
+  }
+});
+
+test('typed series release report holds coherent numeric loss but permits zero revisions and unavailable raw rows', () => {
+  for (const index of [0, 3]) {
+    const report = typedReleaseReport();
+    report.feedResults[index].signals.items.forEach((item) => Object.assign(item, { rawValue: null, value: null, valueStatus: 'unavailable' }));
+    assert.throws(() => verifyTypedSeriesReport(report, report.mcp), { code: 'typed_availability_comparison_hold' });
+    report.feedResults[index].signals.items.forEach((item, i) => Object.assign(item, { rawValue: i ? '99' : '0', value: i ? 99 : 0, valueStatus: 'available' }));
+    assert.equal(verifyTypedSeriesReport(report, report.mcp).ok, true);
+  }
+  const report = typedReleaseReport();
+  const body = structuredClone(retainedTypedFixtures['energy-eia']);
+  body.response.data[0].value = null;
+  const context = typedMonitorContext('energy-eia', body);
+  report.feedResults[0] = { feedId: 'energy-eia', raw: { ...context.rawSummary, fallbackUsed: false }, signals: { ...context.signalSummary, fallbackUsed: false }, alerts: [] };
+  assert.equal(verifyTypedSeriesReport(report, report.mcp).ok, true);
+});
+
+test('typed series release report preserves explicit annual unknown-date and unavailable-value representation', () => {
+  const report = typedReleaseReport();
+  const body = { Results: { series: [{ seriesID: 'CUUR0000SA0', data: [{ year: '2025', period: 'M13', periodName: 'Annual', value: '-' }] }] } };
+  const context = typedMonitorContext('bls-cpi', body);
+  report.feedResults[3] = { feedId: 'bls-cpi', raw: { ...context.rawSummary, fallbackUsed: false }, signals: { ...context.signalSummary, fallbackUsed: false }, alerts: [] };
+  assert.equal(verifyTypedSeriesReport(report, report.mcp).sources[3].newestObservationTimestamp, null);
+  report.feedResults[3].signals.items[0].publishedAt = Date.now();
+  assert.throws(() => verifyTypedSeriesReport(report, report.mcp), { code: 'typed_semantic_corruption' });
+});
+
+test('typed series release report rejects intrinsic identity numeric and source-date corruption and semantic alerts', () => {
+  for (const mutate of [
+    (report) => { report.feedResults[0].signals.items[0].id = 'wrong-id'; },
+    (report) => { report.feedResults[0].signals.items[0].sourceId = 'energy-eia-ng'; },
+    (report) => { const list = report.feedResults[0].signals; list.items.push({ ...list.items[0] }); list.count += 1; },
+    (report) => { delete report.feedResults[0].signals.items[0].value; },
+    (report) => { report.feedResults[0].signals.items[0].value = '96.16'; },
+    (report) => { report.feedResults[0].signals.items[0].units = null; },
+    (report) => { report.feedResults[0].signals.items[0].publishedAt = Date.now(); },
+    (report) => { report.feedResults[0].signals.items[0].observationDate = '2099-01-01'; },
+    (report) => { report.feedResults[3].signals.items[0].periodType = 'annual-average'; },
+    (report) => { report.feedResults[0].alerts = [{ regressionClass: 'signal-normalization-unusable' }]; },
+    (report) => { report.alerts = [{ feedId: 'energy-eia', regressionClass: 'observation-freshness-fabricated' }]; }
+  ]) {
+    const report = typedReleaseReport();
+    mutate(report);
+    assert.throws(() => verifyTypedSeriesReport(report, report.mcp));
+  }
+});
+
+test('typed series release report classifies null observations without aborting the full audit', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-30T12:00:00Z') });
+  const proof = [];
+  for (const id of ['energy-eia', 'bls-cpi']) {
+    const result = await auditTypedSnapshots(t, id, retainedTypedFixtures[id], { corrupt: (items) => { items[0] = null; } });
+    assert.equal(result.raw.error, null);
+    assert.equal(result.signals.items[0], null);
+    assert.equal(result.signals.count, 3, 'malformed observations remain visible to the inspector');
+    const alert = result.alerts.find((item) => item.regressionClass === 'signal-normalization-unusable');
+    assert.equal(alert?.feedId, id);
+    assert.equal(alert.metadata.invalidCount, 1);
+    const report = typedReleaseReport();
+    report.feedResults.find((item) => item.feedId === id).signals = result.signals;
+    assert.throws(() => verifyTypedSeriesReport(report, report.mcp), { code: 'typed_semantic_corruption' });
+    const context = typedMonitorContext(id);
+    const items = [null, undefined, context.signalSummary.items[0]];
+    const summary = summarizeSignals({ data: { items } }, context.entry);
+    assert.equal(summary.items, items, 'summary must not remove null or undefined items');
+    assert.equal(summary.count, 3);
+    assert.equal(summary.newestTimestamp, context.signalSummary.items[0].publishedAt);
+    assert.equal(evaluateInvariant('signal-normalization', { ...context, signalSummary: summary }).metadata.invalidCount, 2);
+    proof.push({ feedId: id, rawError: result.raw.error, returnedCount: result.signals.count,
+      nullPreserved: result.signals.items[0] === null, alert, gateHold: 'typed_semantic_corruption',
+      directUndefinedPreserved: summary.items[1] === undefined, directInvalidCount: 2 });
+  }
+  t.diagnostic(`null-guard-proof ${JSON.stringify({ providerCalls: 0, cases: proof })}`);
+});
+
+test('typed series release report CLI reads one local report without provider calls', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'typed-series-report-cli-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const report = typedReleaseReport();
+  const reportPath = path.join(root, 'report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const scriptUrl = new URL('../../scripts/verify_typed_series_report.mjs', import.meta.url).href;
+  const script = `globalThis.fetch = () => { throw new Error('CLI may not fetch'); }; process.argv = [process.execPath, ${JSON.stringify(new URL(scriptUrl).pathname)}, ${JSON.stringify(reportPath)}, ${JSON.stringify(report.mcp)}]; await import(${JSON.stringify(scriptUrl)});`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(JSON.parse(child.stdout).providerCalls, 0);
+  const failure = spawnSync(process.execPath, ['scripts/verify_typed_series_report.mjs', reportPath, 'https://wrong.fixture.invalid/mcp'], { encoding: 'utf8' });
+  assert.notEqual(failure.status, 0);
+});
+
+test('typed series release report workflow gate runs after collection and before promotion in the non-CISA branch', () => {
+  const workflow = fs.readFileSync(new URL('../../.github/workflows/deploy-mcp-proxy.yml', import.meta.url), 'utf8');
+  const smoke = workflow.slice(workflow.indexOf('      - name: Smoke test isolated MCP candidate'), workflow.indexOf('      - name: Promote verified MCP revision'));
+  const monitor = smoke.indexOf('node analysis/monitor/run_core_sentinel.mjs');
+  const verifier = smoke.indexOf('node scripts/verify_typed_series_report.mjs analysis/monitor/latest.json "${CANDIDATE_URL}/mcp"');
+  assert.ok(smoke.indexOf('else') < monitor && monitor > 0 && verifier > monitor);
+  assert.ok(verifier < smoke.lastIndexOf('fi'));
+  assert.match(smoke, /set -euo pipefail/);
+  assert.match(smoke, /tee \/tmp\/mcp-diagnostics\/typed-series-candidate\.json/);
+  assert.match(workflow, /node --test --test-name-pattern="typed series release report" scripts\/test\/monitor\.spec\.mjs/);
+});
 
 async function readJsonRequest(request) {
   const chunks = [];
@@ -3274,6 +3873,32 @@ test('Cloud Run secret schema canonicalizer detects complete contract drift', ()
   assert.notEqual(canonicalize(changedAliasContract), canonicalize(revision));
 });
 
+test('acled proxy deploy workflow preserves deployed secret bindings unless manually opted in', () => {
+  const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-acled-proxy.yml'), 'utf8');
+  assert.match(workflow, /workflow_dispatch:\n\s*inputs:\n\s*sync_secret_versions:\n\s*description:[^\n]+\n\s*required: false\n\s*default: false\n\s*type: boolean/);
+  assert.match(workflow, /name: Ensure ACLED secrets\n\s*if: github\.event_name == 'workflow_dispatch' && inputs\.sync_secret_versions\n\s*env:/);
+  assert.match(workflow, /SYNC_SECRET_VERSIONS: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.sync_secret_versions \}\}/);
+  assert.doesNotMatch(workflow, /--set-secrets|--clear-secrets|--remove-secrets/);
+  const deployStep = workflow.split('      - name: Deploy ACLED proxy service\n')[1];
+  assert.ok(deployStep);
+  assert.doesNotMatch(deployStep, /secrets\.ACLED_|gcloud secrets/);
+  const setup = deployStep.match(/          SECRET_ARGS=\(\)\n[\s\S]*?          fi\n/)?.[0];
+  const command = deployStep.match(/          gcloud run deploy "\$SERVICE_NAME" \\\n[\s\S]*?--env-vars-file \/tmp\/sr-acled-env\.yaml/)?.[0];
+  assert.ok(setup && command);
+  const runFixture = (sync) => {
+    const result = spawnSync('bash', ['-c', `${setup}\ngcloud() { printf '%s\\n' "$@"; }\n${command}`], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, SERVICE_NAME: 'fixture-acled', REGION: 'fixture-region', SYNC_SECRET_VERSIONS: sync }
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim().split('\n');
+  };
+  const ordinary = ['run', 'deploy', 'fixture-acled', '--region', 'fixture-region', '--source', 'gcp/acled-proxy', '--allow-unauthenticated', '--env-vars-file', '/tmp/sr-acled-env.yaml'];
+  assert.deepEqual(runFixture(''), ordinary);
+  assert.deepEqual(runFixture('false'), ordinary);
+  assert.deepEqual(runFixture('true'), [...ordinary.slice(0, 8), '--update-secrets', 'ACLED_NAME=acled-name:latest,ACLED_PASS=acled-pass:latest', ...ordinary.slice(8)]);
+});
+
 test('proxy deploy workflows preserve an unchanged Secret Manager version', () => {
   const workflows = [
     'deploy-acled-proxy.yml',
@@ -3880,7 +4505,8 @@ test('EIA proxy timeout retains healthy raw proof without a secondary schema cri
   };
   await withSlowProxyFixture({
     rawBody,
-    signalItems: [{ id: 'brent', title: 'Brent crude', publishedAt: '2099-08-21T00:00:00Z' }]
+    signalItems: normalizeJsonSignals(JSON.stringify(rawBody), { id: 'energy-eia-brent', name: 'Brent crude', category: 'energy' })
+      .map((item) => ({ ...item, id: createItemId(item), sourceId: 'energy-eia-brent' }))
   }, async ({ baseUrl }) => {
     const result = await auditEntry({
       id: 'energy-eia-brent',

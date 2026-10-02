@@ -1,0 +1,41 @@
+{
+  "short_continuation": {
+    "count": 1,
+    "data": [{"event_date":"2026-09-01","country":"Fixture Country","admin1":"Fixture Admin","disorder_type":"Political violence","event_type":"Battles","sub_event_type":"Armed clash","fatalities":"2","latitude":"10","longitude":"20","source":"Fixture source","notes":"Unchanged fixture note"}],
+    "next_cursor": 48213
+  },
+  "empty_continuation": {"count":0,"data":[],"next_cursor":96543},
+  "full_terminal": {
+    "count": 2,
+    "data": [
+      {"event_date":"2026-09-01","country":"Fixture Country","admin1":"Fixture Admin","disorder_type":"Political violence","event_type":"Battles","sub_event_type":"Armed clash","fatalities":"2","latitude":"10","longitude":"20"},
+      {"event_date":"2026-09-02","country":"Fixture Country","admin1":"Fixture Admin","disorder_type":"Political violence","event_type":"Battles","sub_event_type":"Armed clash","fatalities":"3","latitude":"12","longitude":"22"}
+    ],
+    "next_cursor": null
+  },
+  "empty_terminal": {"count":0,"data":[],"next_cursor":null},
+  "two_group_terminal": {
+    "count": 2,
+    "data": [
+      {"event_date":"2026-09-01","country":"Fixture Country","admin1":"Group A","disorder_type":"Political violence","event_type":"Battles","sub_event_type":"Armed clash","fatalities":"2","latitude":"10","longitude":"20"},
+      {"event_date":"2026-09-02","country":"Fixture Country","admin1":"Group B","disorder_type":"Political violence","event_type":"Battles","sub_event_type":"Armed clash","fatalities":"3","latitude":"12","longitude":"22"}
+    ],
+    "next_cursor": null
+  },
+  "later_group_terminal": {
+    "count": 1,
+    "data": [{"event_date":"2026-09-03","country":"Fixture Country","admin1":"Group C","disorder_type":"Political violence","event_type":"Battles","sub_event_type":"Armed clash","fatalities":"4","latitude":"14","longitude":"24"}],
+    "next_cursor": null
+  },
+  "recency_terminal": {"count":0,"data":[],"next_cursor":null,"data_query_restrictions":{"date_recency":{"date":"2026-08-15"}}},
+  "invalid_next_cursors": ["48213","",false,-1,1.5,{},[],9007199254740992],
+  "budget_cursors": [48213,96543,150001,210003,12345,330011],
+  "probe": {
+    "empty_continuation": {"count":0,"data":[],"next_cursor":48213},
+    "empty_second_continuation": {"count":0,"data":[],"next_cursor":96543},
+    "matching_terminal": {"count":1,"data":[{"event_date":"2026-09-01"}],"next_cursor":null},
+    "nearby_matching_terminal": {"count":1,"data":[{"event_date":"2026-08-30"}],"next_cursor":null},
+    "empty_terminal": {"count":0,"data":[],"next_cursor":null},
+    "budget_cursors": [48213,96543,150001,210003,12345,330011,390013,450017,510019,570023,630029,690031,750037,810041,870043,930047,990053,1050059,1110061,1170067,1230071,1290073,1350079,1410083]
+  }
+}

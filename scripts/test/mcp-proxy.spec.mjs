@@ -41,6 +41,204 @@ const {
 } = await import('../../gcp/mcp-proxy/server.js');
 const { sanitizeEiaPayload } = await import('../../gcp/mcp-proxy/public-payload-safety.js');
 
+const typedSeriesFixtures = JSON.parse(fs.readFileSync(new URL('./fixtures/monitor/eia-bls-retained.json', import.meta.url)));
+const typedSeriesFeeds = JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', import.meta.url))).feeds
+  .filter((feed) => Object.hasOwn(typedSeriesFixtures, feed.id));
+const normalizeTypedFixture = (id, body = typedSeriesFixtures[id]) => normalizeJsonSignals(
+  JSON.stringify(body), typedSeriesFeeds.find((feed) => feed.id === id)
+);
+
+test('EIA retained WTI, Brent and gas observations retain values, units, periods and facets', () => {
+  for (const feed of typedSeriesFeeds.filter((entry) => entry.id !== 'bls-cpi')) {
+    const rows = typedSeriesFixtures[feed.id].response.data;
+    const items = normalizeTypedFixture(feed.id);
+    assert.equal(items.length, rows.length);
+    assert.equal(new Set(items.map(createItemId)).size, rows.length);
+    items.forEach((item, index) => {
+      const row = rows[index];
+      assert.equal(item.value, row.value);
+      assert.equal(item.units, row.units);
+      assert.equal(item.seriesId, row.series);
+      assert.equal(item.period, row.period);
+      assert.equal(item.description, row['series-description']);
+      assert.equal(item.title, row['series-description']);
+      assert.equal(item.publishedAt, Date.parse(`${row.period}T00:00:00Z`));
+      assert.equal(item.observationDate, row.period);
+      assert.equal(item.facets.product, row.product);
+      assert.equal(item.facets['process-name'], row['process-name']);
+      assert.match(item.summary, new RegExp(String(row.value).replace('.', '\\.')));
+      assert.equal(item.url, 'https://www.eia.gov/opendata/');
+    });
+  }
+});
+
+test('EIA identities are stable across clocks, row order and revisions, distinct across sources and series', (t) => {
+  const body = structuredClone(typedSeriesFixtures['energy-eia']);
+  body.response.data.push({ ...body.response.data[0], series: 'OTHER-SERIES' });
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2030-01-01') });
+  const before = normalizeTypedFixture('energy-eia', body);
+  t.mock.timers.tick(86400000);
+  body.response.data.reverse().forEach((row) => { row.value = 0; row.units = 'Revised metadata'; });
+  const after = normalizeTypedFixture('energy-eia', body);
+  assert.deepEqual(after.map(createItemId).reverse(), before.map(createItemId));
+  assert.equal(new Set(before.map(createItemId)).size, 4);
+  const otherSource = normalizeTypedFixture('energy-eia-brent', body);
+  assert.notEqual(createItemId(after[0]), createItemId(otherSource[0]));
+  assert.equal(dedupeSignals([...after, ...otherSource]).length, 8, 'shared public evidence URL must not collapse observations');
+});
+
+test('EIA zero, unavailable and invalid date observations never become retrieval-clock data', () => {
+  const rows = typedSeriesFixtures['energy-eia'].response.data;
+  const cases = [
+    ['2024-02-29', '0', 0, Date.parse('2024-02-29T00:00:00Z')],
+    ['2026-09', '-1.5', -1.5, Date.parse('2026-09-01T00:00:00Z')],
+    ['2026-02-30', null, null, null],
+    ['2026-13', '', null, null],
+    ['unknown', '   ', null, null],
+    ['', '-', null, null],
+    ['2026', 'NaN', null, null],
+    ['2026-01-01T12:00:00Z', 'Infinity', null, null],
+    ['2026-01-01', false, null, Date.parse('2026-01-01T00:00:00Z')]
+  ];
+  const items = normalizeTypedFixture('energy-eia', { response: { data: cases.map(([period, value]) => ({ ...rows[0], period, value })) } });
+  items.forEach((item, index) => {
+    assert.equal(item.value, cases[index][2]);
+    assert.equal(item.publishedAt, cases[index][3]);
+    assert.equal(item.valueStatus, item.value === null ? 'unavailable' : 'available');
+    if (item.publishedAt === null) assert.equal(item.observationDate, null);
+  });
+  assert.match(items[0].summary, /0 \$\/BBL/);
+  assert.match(items[2].summary, /Value unavailable/);
+});
+
+test('legacy EIA series tuples retain original period identity and deliberate monthly dates', () => {
+  const [month, day, unknown] = normalizeTypedFixture('energy-eia', { series: [{
+    series_id: 'PET.RWTC.M', name: 'Legacy WTI', units: 'Dollars per Barrel', f: 'M',
+    data: [['202608', 0], ['20260831', '95.1'], ['2026Q3', null]]
+  }] });
+  assert.equal(month.period, '202608');
+  assert.equal(month.observationDate, '2026-08');
+  assert.equal(month.value, 0);
+  assert.equal(day.publishedAt, Date.parse('2026-08-31T00:00:00Z'));
+  assert.equal(unknown.publishedAt, null);
+  assert.equal(new Set([month, day, unknown].map(createItemId)).size, 3);
+});
+
+test('BLS retained Results.series data maps monthly observations without invented units', () => {
+  const items = normalizeTypedFixture('bls-cpi');
+  assert.equal(items.length, 3);
+  assert.deepEqual(items.map((item) => item.value), [334.980, 333.918, 333.952]);
+  assert.equal(items[0].seriesId, 'CUUR0000SA0');
+  assert.equal(items[0].period, '2026-M08');
+  assert.equal(items[0].periodCode, 'M08');
+  assert.equal(items[0].periodName, 'August');
+  assert.equal(items[0].year, '2026');
+  assert.equal(items[0].publishedAt, Date.parse('2026-08-01T00:00:00Z'));
+  assert.equal(items[0].units, null, 'unit metadata was absent in the retained public response');
+  assert.equal(items[0].rawValue, '334.980');
+});
+
+test('BLS supports Results arrays, multiple series, zero, M13 annual averages and unknown periods', (t) => {
+  const body = { Results: [{ series: [
+    { seriesID: 'CPI-A', catalog: { series_title: 'Public CPI series A', measure: 'Consumer Price Index', units: 'Index', area: 'US' }, data: [
+      { year: '2026', period: 'M01', periodName: 'January', value: '0' },
+      { year: '2025', period: 'M13', periodName: 'Annual', value: '300.2' },
+      { year: '2026', period: 'M14', value: '-' },
+      { year: 'bad-year', period: 'M12', value: ' ' }
+    ] },
+    { seriesID: 'CPI-B', data: [{ year: '2026', period: 'M01', value: '1.2' }] }
+  ] }] };
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2031-01-01') });
+  const before = normalizeTypedFixture('bls-cpi', body);
+  assert.equal(before.length, 5);
+  assert.equal(before[0].value, 0);
+  assert.equal(before[0].units, 'Index');
+  assert.equal(before[0].description, 'Public CPI series A');
+  assert.equal(before[0].facets.area, 'US');
+  assert.equal(before[0].facets.measure, 'Consumer Price Index');
+  assert.equal(before[1].periodType, 'annual-average');
+  assert.equal(before[1].period, '2025-M13');
+  assert.equal(before[1].value, 300.2);
+  for (const index of [1, 2, 3]) assert.equal(before[index].publishedAt, null);
+  assert.equal(before[2].value, null);
+  assert.equal(before[3].value, null);
+  t.mock.timers.tick(86400000);
+  body.Results[0].series.reverse().forEach((series) => series.data.reverse().forEach((row) => { row.value = '99.9'; }));
+  const after = normalizeTypedFixture('bls-cpi', body);
+  assert.deepEqual(after.map(createItemId).sort(), before.map(createItemId).sort());
+  assert.equal(new Set(before.map(createItemId)).size, 5);
+});
+
+test('BLS descriptive measure metadata does not invent measurement units', () => {
+  const body = structuredClone(typedSeriesFixtures['bls-cpi']);
+  body.Results.series[0].catalog = { measure: 'Consumer Price Index' };
+  const [item] = normalizeTypedFixture('bls-cpi', body);
+  assert.equal(item.facets.measure, 'Consumer Price Index');
+  assert.equal(item.units, null);
+});
+
+test('typed normalization leaves unrelated generic JSON behavior unchanged', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 2000000000000 });
+  const feed = { id: 'unrelated-fixture', name: 'Other feed', category: 'other' };
+  assert.deepEqual(normalizeJsonSignals(JSON.stringify({ response: { data: [{ period: '2026-09-29', series: 'RWTC', value: 0 }] } }), feed), [{
+    title: 'Untitled', url: '', summary: '', publishedAt: 2000000000000,
+    source: feed.name, category: feed.category, geo: null
+  }]);
+});
+
+test('EIA and BLS MCP list, get and search preserve typed fields, IDs, limits and public-payload safety', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  t.mock.property(process, 'env', { ...process.env, EIA: 'inert-eia-contract-key' });
+  let payloads = structuredClone(typedSeriesFixtures);
+  // A late observation must remain addressable after normalizing the whole response.
+  payloads['energy-eia'].response.data = Array.from({ length: 60 }, (_, index) => ({
+    ...payloads['energy-eia'].response.data[0], period: new Date(Date.UTC(2026, 6, index + 1)).toISOString().slice(0, 10)
+  }));
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    const request = new URL(url);
+    const feed = typedSeriesFeeds.find((entry) => request.origin + request.pathname === new URL(entry.url).origin + new URL(entry.url).pathname);
+    assert.ok(feed, 'only the selected fixed sources may be mocked');
+    return new Response(JSON.stringify(payloads[feed.id]), { headers: { 'content-type': 'application/json' } });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'typed-series-fixture', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const toolDefinitions = (await client.listTools()).tools;
+  for (const name of ['signals.list', 'signals.get', 'search.smart']) {
+    assert.equal(toolDefinitions.find((tool) => tool.name === name).outputSchema, undefined, 'existing best-effort tool schemas remain unchanged');
+  }
+  for (const feed of typedSeriesFeeds) {
+    const listed = await call('signals.list', { sourceId: feed.id });
+    const expected = normalizeTypedFixture(feed.id, payloads[feed.id]);
+    assert.equal(listed.items.length, expected.length);
+    assert.deepEqual(listed.items.map((item) => item.id), expected.map(createItemId));
+    const limited = await call('signals.list', { sourceId: feed.id, limit: 2 });
+    assert.deepEqual(limited.items, listed.items.slice(0, 2));
+    const searched = await call('search.smart', { sources: [feed.id], perSourceLimit: 100 });
+    assert.deepEqual(searched.signals.map((item) => item.id), listed.items.map((item) => item.id));
+    for (const item of searched.signals) {
+      const original = listed.items.find((entry) => entry.id === item.id);
+      for (const key of ['seriesId', 'period', 'observationDate', 'publishedAt', 'description', 'units', 'value', 'rawValue', 'valueStatus', 'facets', 'observationKey']) assert.deepEqual(item[key], original[key]);
+    }
+    const last = listed.items.at(-1);
+    const beforeRevision = structuredClone(payloads[feed.id]);
+    if (feed.id === 'bls-cpi') payloads[feed.id].Results.series[0].data.reverse().forEach((row) => { row.value = '0'; });
+    else payloads[feed.id].response.data.reverse().forEach((row) => { row.value = 0; });
+    const found = await call('signals.get', { sourceId: feed.id, id: last.id });
+    assert.equal(found.item.id, last.id);
+    assert.equal(found.item.value, 0);
+    assert.equal(found.item.period, last.period);
+    assert.ok(!JSON.stringify({ listed, searched, found }).includes('inert-eia-contract-key'));
+    payloads[feed.id] = beforeRevision;
+  }
+});
+
 test('OpenAQ keeps its key on one direct HTTPS request and never substitutes a snapshot', async (t) => {
   const feed = {
     ...JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', import.meta.url))).feeds.find(f => f.id === 'openaq-api'),
