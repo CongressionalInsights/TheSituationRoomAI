@@ -319,11 +319,11 @@ test('ACLED events and recency fallback reject invalid continuation truthfully',
   }
 });
 
-test('ACLED each range probe starts at zero and does not misclassify empty continuation', async () => {
-  const proxy = loadFixtureProxy([fixtures.empty_terminal, fixtures.empty_continuation]);
+test('ACLED each range probe starts at zero and follows empty continuation before classifying', async () => {
+  const proxy = loadFixtureProxy([fixtures.probe.empty_terminal, fixtures.probe.empty_continuation, fixtures.probe.nearby_matching_terminal]);
   assert.equal(await proxy.probeEventRange({ start: '2026-09-01', end: '2026-09-07' }), false);
   assert.equal(await proxy.probeEventRange({ start: '2026-08-26', end: '2026-09-01' }), true);
-  assert.deepEqual(cursors(proxy), ['0', '0']);
+  assert.deepEqual(cursors(proxy), ['0', '0', '48213']);
   for (const url of proxy.calls) {
     assert.equal(url.searchParams.get('limit'), '1');
     assert.equal(url.searchParams.get('fields'), 'event_date');
@@ -457,7 +457,7 @@ test('ACLED initial aggregate annual fallback starts a changed query window at z
 });
 
 test('ACLED bounded empty partial harvest stays in its window and cache retains partial metadata', async () => {
-  const responses = [{ data: [], next_cursor: 48213 }, ...fixtures.budget_cursors.map((next_cursor) => ({ data: [], next_cursor }))];
+  const responses = [fixtures.probe.matching_terminal, ...fixtures.budget_cursors.map((next_cursor) => ({ data: [], next_cursor }))];
   const proxy = loadFixtureProxy(responses);
   const query = '?start=2026-09-01&end=2026-09-07';
   const res = await route(proxy, 'handleAggregated', query);
@@ -485,4 +485,105 @@ test('ACLED aggregate continuation failure exposes incomplete metadata and is no
   assert.equal(proxy.cache.size, 0);
   assert.equal((await route(proxy, 'handleAggregated')).status, 200);
   assert.deepEqual(cursors(proxy), ['0', '48213', '0']);
+});
+
+test('ACLED discovery follows an empty probe cursor to actual matching events', async () => {
+  const proxy = loadFixtureProxy([fixtures.probe.empty_continuation, fixtures.probe.matching_terminal]);
+  assert.equal(await proxy.probeEventRange({ start: '2026-09-01', end: '2026-09-07', country: 'Fixture' }), true);
+  assert.deepEqual(cursors(proxy), ['0', '48213']);
+  assert.equal(proxy.tokenCalls(), 1);
+  for (const url of proxy.calls) {
+    assert.equal(url.searchParams.get('event_date'), '2026-09-01|2026-09-07');
+    assert.equal(url.searchParams.get('event_date_where'), 'BETWEEN');
+    assert.equal(url.searchParams.get('country'), 'Fixture');
+    assert.equal(url.searchParams.get('fields'), 'event_date');
+    assert.equal(url.searchParams.get('limit'), '1');
+  }
+});
+
+test('ACLED discovery only classifies a truly terminal empty probe as empty', async () => {
+  for (const responses of [[fixtures.probe.empty_terminal], [fixtures.probe.empty_continuation, fixtures.probe.empty_terminal]]) {
+    const proxy = loadFixtureProxy(responses);
+    assert.equal(await proxy.probeEventRange({ start: '2026-09-01', end: '2026-09-07' }), false);
+    assert.equal(proxy.calls.length, responses.length);
+  }
+});
+
+test('ACLED discovery empty cursor budget exhaustion fails incomplete instead of selecting a year', async () => {
+  const responses = fixtures.probe.budget_cursors.map((next_cursor) => ({ count: 0, data: [], next_cursor }));
+  const proxy = loadFixtureProxy(responses);
+  const res = await route(proxy, 'handleAggregated', '?start=2026-09-01&end=2026-09-07&country=Fixture');
+  assert.equal(res.status, 502);
+  assert.equal(res.body.pagination.complete, false);
+  assert.equal(res.body.pagination.resumable, false);
+  assert.equal(res.body.pagination.stage, 'probe');
+  assert.equal(res.body.pagination.reason, 'probe_request_limit');
+  assert.equal(res.body.pagination.requests, 24);
+  assert.equal(res.body.pagination.request_limit, 24);
+  assert.equal(res.body.pagination.next_cursor, 1410083);
+  assert.equal(res.body.pagination.next_cursor_role, 'provenance_only');
+  assert.equal(proxy.calls.length, 24);
+  assert.equal(proxy.cache.size, 0);
+  assert.deepEqual(cursors(proxy), ['0', ...fixtures.probe.budget_cursors.slice(0, -1).map(String)]);
+  for (const url of proxy.calls) {
+    assert.equal(url.searchParams.get('event_date'), '2026-09-01|2026-09-07');
+    assert.equal(url.searchParams.get('limit'), '1');
+  }
+});
+
+test('ACLED discovery preserves a nearby window after an empty continuing chain terminates', async () => {
+  const nearbyRows = { count: 1, data: [{ ...fixtures.short_continuation.data[0], event_date: '2026-08-30' }], next_cursor: null };
+  const proxy = loadFixtureProxy([fixtures.probe.empty_continuation, fixtures.probe.empty_terminal, fixtures.probe.nearby_matching_terminal, nearbyRows]);
+  const res = await route(proxy, 'handleAggregated', '?start=2026-09-01&end=2026-09-07&country=Fixture');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.range_start, '2026-08-26');
+  assert.equal(res.body.range_end, '2026-09-01');
+  assert.equal(res.body.pagination.complete, true);
+  assert.equal(res.body.delivery.complete, true);
+  assert.equal(res.body.data[0].week, '2026-08-29');
+  assert.deepEqual(cursors(proxy), ['0', '48213', '0', '0']);
+  assert.deepEqual(proxy.calls.map((url) => url.searchParams.get('event_date')), [
+    '2026-09-01|2026-09-07', '2026-09-01|2026-09-07', '2026-08-26|2026-09-01', '2026-08-26|2026-09-01'
+  ]);
+  assert.deepEqual(proxy.calls.map((url) => url.searchParams.get('limit')), ['1', '1', '1', '5000']);
+});
+
+test('ACLED discovery rejects missing, malformed, repeated and cyclic probe cursors', async () => {
+  const cases = [
+    [{ count: 0, data: [] }],
+    ...fixtures.invalid_next_cursors.map((next_cursor) => [{ count: 0, data: [], next_cursor }]),
+    [{ count: 0, data: [], next_cursor: 0 }],
+    [fixtures.probe.empty_continuation, { count: 0, data: [], next_cursor: 48213 }],
+    [fixtures.probe.empty_continuation, fixtures.probe.empty_second_continuation, { count: 0, data: [], next_cursor: 48213 }]
+  ];
+  for (const responses of cases) {
+    const proxy = loadFixtureProxy(responses);
+    await assert.rejects(proxy.probeEventRange({ start: '2026-09-01', end: '2026-09-07' }), /acled_pagination_(missing_next_cursor|invalid_next_cursor|repeated_next_cursor)/);
+    assert.equal(proxy.calls.length, responses.length);
+  }
+});
+
+test('ACLED discovery shares its existing 24-call ceiling across nearby windows and cursor pages', async () => {
+  const proxy = loadFixtureProxy([fixtures.probe.empty_continuation, ...Array.from({ length: 23 }, () => fixtures.probe.empty_terminal)]);
+  const res = await route(proxy, 'handleAggregated', '?start=2026-09-01&end=2026-09-07');
+  assert.equal(res.status, 502);
+  assert.equal(res.body.pagination.reason, 'probe_request_limit');
+  assert.equal(res.body.pagination.requests, 24);
+  assert.equal(proxy.calls.length, 24);
+  assert.equal(proxy.cache.size, 0);
+  assert.equal(proxy.calls[1].searchParams.get('cursor'), '48213');
+  assert.equal(proxy.calls[2].searchParams.get('cursor'), '0');
+  for (const url of proxy.calls) assert.equal(url.searchParams.get('limit'), '1');
+});
+
+test('ACLED discovery retains yearly fallback after 24 confirmed terminal-empty windows', async () => {
+  const yearlyRows = { count: 1, data: [{ ...fixtures.short_continuation.data[0], event_date: '2025-09-01' }], next_cursor: null };
+  const proxy = loadFixtureProxy([...Array.from({ length: 24 }, () => fixtures.probe.empty_terminal), yearlyRows]);
+  const res = await route(proxy, 'handleAggregated', '?start=2026-09-01&end=2026-09-07');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.range_start, '2025-09-01');
+  assert.equal(res.body.range_end, '2025-09-07');
+  assert.equal(proxy.calls.length, 25);
+  assert.deepEqual(cursors(proxy), Array(25).fill('0'));
+  assert.equal(proxy.calls[24].searchParams.get('limit'), '5000');
 });
