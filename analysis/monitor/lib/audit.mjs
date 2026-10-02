@@ -7,6 +7,7 @@ import {
 } from './client.mjs';
 import { redactCredentialFields } from './public_payload_safety.mjs';
 import { createAlert, applyKnownUpstreamQuirks, dedupeAlerts } from './reporting.mjs';
+import { summarizeCpiPublication } from './cpi_cadence.mjs';
 import { createHash } from 'node:crypto';
 import { isTypedSeriesFeed, normalizeTypedSeriesSignals, parseObservationPeriod } from '../../../gcp/mcp-proxy/signal-normalization.js';
 
@@ -646,6 +647,23 @@ export function evaluateInvariant(name, context) {
             metadata: { identity: 'observation-freshness' }
           });
         }
+        const publication = context.publication || summarizeCpiPublication(entry, signalSummary, typed, rawSummary, proxySummary);
+        if (publication) {
+          const findings = {
+            'missing': ['cpi-publication-period-missing', 'The scheduled CPI reference period is not observed in usable returned signals; check collection and the current BLS calendar. This does not establish a BLS publication failure.'],
+            'unavailable': ['cpi-publication-observation-unavailable', 'No usable monthly observation for the configured CPI series was returned; publication cadence cannot be established.'],
+            'unknown-schedule': ['cpi-publication-schedule-unknown', 'The saved BLS calendar does not bracket this check; refresh official schedule evidence before claiming CPI publication freshness.'],
+            'unexpected-period': ['cpi-publication-period-unexpected', 'Returned CPI observations are ahead of the saved release calendar; reconcile the schedule or observation evidence. Actual publication time is unknown.']
+          };
+          const finding = findings[publication.status];
+          return finding ? createAlert({
+            feedId: entry.id,
+            regressionClass: finding[0],
+            severity: 'warning',
+            message: finding[1],
+            metadata: { identity: 'cpi-publication', ...publication }
+          }) : null;
+        }
         newest = typed.newestTimestamp ?? (typed.empty ? typed.rawNewestTimestamp : null);
         if ((!typed.empty || typed.comparison.status !== 'unavailable') && newest === null) {
           return createAlert({
@@ -939,10 +957,12 @@ export async function auditEntry(entry, options) {
     limit: 25
   }, timeoutMs);
   const signalSummary = summarizeSignals(signalResult, entry);
+  let publication = null;
   if (isTypedSeriesFeed(entry)) {
     const inspection = inspectTypedSeriesSignals(entry, signalSummary, rawSummary, proxySummary);
     signalSummary.comparison = inspection.comparison;
     signalSummary.newestTimestamp = inspection.newestTimestamp;
+    publication = summarizeCpiPublication(entry, signalSummary, inspection, rawSummary, proxySummary);
   }
 
   let staticSummary = { skipped: true };
@@ -970,7 +990,8 @@ export async function auditEntry(entry, options) {
       entry,
       proxySummary,
       rawSummary,
-      signalSummary
+      signalSummary,
+      publication
     });
     if (alert) alerts.push(alert);
   }
@@ -1010,6 +1031,7 @@ export async function auditEntry(entry, options) {
     proxy: proxySummary,
     raw: rawSummary,
     signals: signalSummary,
+    ...(publication ? { publication } : {}),
     static: staticSummary
   };
 }

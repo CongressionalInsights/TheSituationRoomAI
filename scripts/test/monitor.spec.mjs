@@ -80,6 +80,157 @@ function typedMonitorContext(id, body = retainedTypedFixtures[id]) {
   return { entry, proxySummary: raw, rawSummary: raw, signalSummary: summarizeSignals({ data: { items } }, entry) };
 }
 
+function cpiPeriodFixture(period, value = '0', seriesID = 'CUUR0000SA0') {
+  const body = structuredClone(retainedTypedFixtures['bls-cpi']);
+  body.Results.series = [{ seriesID, data: [{ year: period.slice(0, 4), period: period.slice(5), value }] }];
+  return body;
+}
+
+async function auditCpiCadence(t, body, { rawBody = body, signalError, proxyError, fallbackUsed = false, corrupt, entryOverride = {} } = {}) {
+  const context = typedMonitorContext('bls-cpi', rawBody);
+  const entry = resolveMonitoringEntry(typedMonitorFeeds.find((feed) => feed.id === 'bls-cpi'), typedMonitorOverrides['bls-cpi']);
+  Object.assign(entry, entryOverride);
+  const items = typedMonitorContext('bls-cpi', body).signalSummary.items;
+  if (corrupt) corrupt(items);
+  const calls = [];
+  const mock = t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(new URL(url).hostname, 'fixture.invalid', 'no provider transport');
+    if (new URL(url).pathname === '/api/feed') {
+      calls.push('proxy');
+      return new Response(JSON.stringify(proxyError ? { error: proxyError } : { body: rawBody, httpStatus: 200 }));
+    }
+    const request = JSON.parse(options.body);
+    calls.push(request.params.name);
+    const output = request.params.name === 'raw.fetch' ? { data: rawBody, httpStatus: 200 }
+      : signalError ? { error: signalError } : { items, fallbackUsed };
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { structuredContent: output } }));
+  });
+  try {
+    const result = await auditEntry(entry, { base: 'https://fixture.invalid', mcp: 'https://fixture.invalid/mcp', timeoutMs: 1000, includeStatic: false });
+    assert.deepEqual(calls, ['proxy', 'raw.fetch', 'signals.list']);
+    return result;
+  } finally {
+    mock.mock.restore();
+  }
+}
+
+test('CPI publication cadence keeps normal monthly observation age distinct from publication freshness', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  const result = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi']);
+  assert.deepEqual(result.alerts, []);
+  assert.equal(result.publication.status, 'current');
+  assert.equal(result.publication.expectedPeriod, '2026-M08');
+  assert.equal(result.publication.observationDate, '2026-08');
+  assert.equal(result.publication.observationAgeMinutes, 88560);
+  assert.equal(result.publication.actualPublicationAt, null);
+  assert.equal(result.publication.scheduledPublicationAt, '2026-09-11T08:30:00-04:00');
+  assert.equal(result.publication.nextScheduledPublicationAt, '2026-10-14T08:30:00-04:00');
+  assert.equal(result.signals.items[0].publishedAt, Date.parse('2026-08-01T00:00:00Z'));
+  t.diagnostic(JSON.stringify({ retainedFixtureProof: { publication: result.publication, observations: result.signals.items.map(({ seriesId, period, publishedAt, value, units, id }) => ({ seriesId, period, publishedAt, value, units, id })) } }));
+  const markdown = buildMarkdownReport({ mode: 'core', feedResults: [result] });
+  assert.match(markdown, /CPI Publication Cadence/);
+  assert.match(markdown, /actual publication time unknown/);
+});
+
+test('CPI publication cadence changes expected month at the exact Eastern scheduled boundary, not after an age window', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-14T12:29:59Z') });
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M08'))).publication.status, 'current');
+  t.mock.timers.setTime(Date.parse('2026-10-14T12:30:00Z'));
+  const missing = await auditCpiCadence(t, cpiPeriodFixture('2026-M08'));
+  assert.equal(missing.publication.expectedPeriod, '2026-M09');
+  assert.equal(missing.publication.status, 'missing');
+  const alert = missing.alerts.find((item) => item.regressionClass === 'cpi-publication-period-missing');
+  assert.equal(alert.severity, 'warning');
+  assert.match(alert.message, /not observed/);
+  assert.ok(!missing.alerts.some((item) => item.regressionClass === 'feed-fetch-failed'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M09'))).publication.status, 'current');
+});
+
+test('CPI publication cadence uses returned usable canonical series, not fresh raw, another series, or unavailable values', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-15T12:00:00Z') });
+  const freshRaw = cpiPeriodFixture('2026-M09');
+  const stale = await auditCpiCadence(t, cpiPeriodFixture('2026-M08'), { rawBody: freshRaw });
+  assert.equal(stale.publication.status, 'missing');
+  assert.equal(stale.publication.observedPeriod, '2026-M08');
+  for (const body of [cpiPeriodFixture('2026-M09', '-'), cpiPeriodFixture('2026-M09', '1', 'OTHER'), cpiPeriodFixture('2026-M13'), cpiPeriodFixture('2026-M99')]) {
+    const result = await auditCpiCadence(t, body);
+    assert.equal(result.publication.status, 'unavailable');
+    assert.ok(result.alerts.some((item) => item.regressionClass === 'cpi-publication-observation-unavailable'));
+    assert.equal(result.publication.actualPublicationAt, null);
+  }
+  assert.equal((await auditCpiCadence(t, freshRaw)).publication.status, 'current', 'zero is usable');
+});
+
+test('CPI publication cadence retains transport, fallback and typed integrity failures separately', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  const failed = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi'], { signalError: 'timeout', proxyError: 'timeout' });
+  assert.equal(failed.publication.status, 'unavailable');
+  assert.equal(failed.publication.collectionAvailability.signals, 'unavailable');
+  assert.ok(failed.alerts.some((item) => item.regressionClass === 'signal-normalization-failed' && item.severity === 'critical'));
+  assert.ok(failed.alerts.some((item) => item.regressionClass === 'feed-fetch-failed'));
+  const fallback = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi'], { fallbackUsed: true });
+  assert.equal(fallback.publication.status, 'current');
+  assert.equal(fallback.publication.collectionAvailability.signals, 'fallback');
+  assert.equal(fallback.status, 'warning');
+  assert.ok(fallback.alerts.some((item) => item.regressionClass === 'fallback-engaged'));
+  for (const corrupt of [(items) => { items[0].publishedAt = Date.now(); }, (items) => { items[0] = null; }, (items) => { items.push({ ...items[0] }); }]) {
+    const result = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi'], { corrupt });
+    assert.equal(result.publication.status, 'unusable');
+    assert.ok(result.alerts.some((item) => item.regressionClass === 'observation-freshness-fabricated' || item.regressionClass === 'signal-normalization-unusable'));
+  }
+});
+
+test('CPI publication cadence is explicitly unknown outside a complete bounded official calendar or with malformed policy', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-12-11T12:00:00Z') });
+  const exhausted = await auditCpiCadence(t, cpiPeriodFixture('2026-M11'));
+  assert.equal(exhausted.publication.status, 'unknown-schedule');
+  assert.ok(exhausted.alerts.some((item) => item.regressionClass === 'cpi-publication-schedule-unknown'));
+  t.mock.timers.setTime(Date.parse('2025-12-01T12:00:00Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2025-M10'))).publication.status, 'unknown-schedule');
+  t.mock.timers.setTime(Date.parse('2026-10-01T12:00:00Z'));
+  for (const releases of [[], [{ period: 'bad', scheduledAt: 'not-a-date' }], [{ period: '2026-M08', scheduledAt: '2026-09-11T08:30:00-04:00' }, { period: '2026-M10', scheduledAt: '2026-11-10T08:30:00-05:00' }], [{ period: '2026-M01', scheduledAt: '2026-02-30T08:30:00-05:00' }, { period: '2026-M02', scheduledAt: '2026-03-11T08:30:00-04:00' }]]) {
+    const result = await auditCpiCadence(t, retainedTypedFixtures['bls-cpi'], { entryOverride: { publicationSchedule: { seriesId: 'CUUR0000SA0', releases } } });
+    assert.equal(result.publication.status, 'unknown-schedule');
+  }
+});
+
+test('CPI publication cadence handles year rollover and Eastern daylight changes from explicit source dates', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-01-13T13:29:59Z') });
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2025-M11'))).publication.expectedPeriod, '2025-M11');
+  t.mock.timers.setTime(Date.parse('2026-01-13T13:30:00Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2025-M12'))).publication.expectedPeriod, '2025-M12');
+  t.mock.timers.setTime(Date.parse('2026-03-11T12:30:00Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M02'))).publication.status, 'current');
+  t.mock.timers.setTime(Date.parse('2026-11-10T13:29:59Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M09'))).publication.status, 'current');
+  t.mock.timers.setTime(Date.parse('2026-11-10T13:30:00Z'));
+  assert.equal((await auditCpiCadence(t, cpiPeriodFixture('2026-M10'))).publication.status, 'current');
+});
+
+test('CPI publication cadence flags a period ahead of the saved schedule without inventing a publication timestamp', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  const result = await auditCpiCadence(t, cpiPeriodFixture('2026-M09'));
+  assert.equal(result.publication.status, 'unexpected-period');
+  assert.ok(result.alerts.some((item) => item.regressionClass === 'cpi-publication-period-unexpected'));
+  assert.equal(result.publication.actualPublicationAt, null);
+});
+
+test('CPI publication cadence resolves only the configured canonical CPI feed and retains unrelated freshness policy', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
+  const feed = typedMonitorFeeds.find((entry) => entry.id === 'bls-cpi');
+  const resolved = resolveMonitoringEntry(feed, typedMonitorOverrides['bls-cpi']);
+  assert.deepEqual(resolved.publicationSchedule, typedMonitorOverrides['bls-cpi'].publicationSchedule);
+  assert.equal(resolved.freshnessWindowMinutes, 4320, 'not an arbitrary window widening');
+  assert.deepEqual(resolved.knownUpstreamQuirks, [], 'not warning suppression');
+  assert.equal(resolveMonitoringEntry({ ...feed, id: 'not-cpi' }, typedMonitorOverrides['bls-cpi']).publicationSchedule, undefined);
+  const context = typedMonitorContext('bls-cpi');
+  delete context.entry.publicationSchedule;
+  assert.equal(evaluateInvariant('freshness', context).regressionClass, 'freshness-window-exceeded', 'legacy non-cadence behavior is unchanged');
+  const expected = parseFixture('bls-cpi-calendar.json');
+  assert.equal(resolved.publicationSchedule.sourceUrl, expected.sourceUrl);
+  assert.deepEqual(resolved.publicationSchedule.releases.map(({ period, scheduledAt }) => [period, new Date(scheduledAt).toISOString()]), expected.releases);
+});
+
 test('typed monitor detects empty or generic normalized output without calling healthy raw transport failed', (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T12:00:00Z') });
   for (const id of ['energy-eia', 'energy-eia-brent', 'energy-eia-ng', 'bls-cpi']) {
@@ -141,7 +292,7 @@ test('typed monitor keeps unknown dates and BLS M13 annual averages unknown even
     assert.equal(context.rawSummary.newestTimestamp, null);
     assert.equal(context.signalSummary.newestTimestamp, null);
     assert.equal(evaluateInvariant('signal-normalization', context), null, 'unavailable value status and zero are explicit, not empty-output defects');
-    assert.equal(evaluateInvariant('freshness', context).regressionClass, 'observation-freshness-unknown');
+    assert.equal(evaluateInvariant('freshness', context).regressionClass, id === 'bls-cpi' ? 'cpi-publication-observation-unavailable' : 'observation-freshness-unknown');
     context.signalSummary.items[0].publishedAt = Date.now();
     assert.equal(evaluateInvariant('freshness', context).regressionClass, 'observation-freshness-fabricated');
   }
@@ -188,7 +339,7 @@ test('typed freshness still audits source periods when raw and proxy transport a
     const context = typedMonitorContext(id);
     context.rawSummary = { error: 'timeout' };
     context.proxySummary = { error: 'timeout' };
-    assert.equal(evaluateInvariant('freshness', context).regressionClass, 'freshness-window-exceeded');
+    assert.equal(evaluateInvariant('freshness', context).regressionClass, id === 'bls-cpi' ? 'cpi-publication-period-missing' : 'freshness-window-exceeded');
     context.signalSummary.items[0].publishedAt = Date.now();
     assert.equal(evaluateInvariant('freshness', context).regressionClass, 'observation-freshness-fabricated');
   }
