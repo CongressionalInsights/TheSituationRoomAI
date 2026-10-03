@@ -1,0 +1,122 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 9 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 42,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 50,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 0,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "Tennessee prison chief to resign after Christa Pike's failed execution",
+      "summary": "Pike's lawyers said the failure \"goes far beyond any one person\". Pike is in critical condition after surviving two lethal injections.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c8zxl62yzxzxo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1791049722000
+    },
+    {
+      "title": "Flydubai co-pilot attacked captain with axe, UAE official says",
+      "summary": "The man accused of trying to take over the Israel-bound jet is named as Hamam al-Hammami by several media outlets.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c61wv7lgex13o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1791037653000
+    },
+    {
+      "title": "Russia hits second major bridge in Ukraine's capital Kyiv",
+      "summary": "The strike on the Pivnichnyi (Northern) Bridge comes after repeat attacks on another major bridge in Ukraine's capital.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c83vqxzdg1yko?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1791044209000
+    },
+    {
+      "title": "Presidential Determination on the Revocation of Presidential Determinations Related to Lebanon",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/05/2026-20439/presidential-determination-on-the-revocation-of-presidential-determinations-related-to-lebanon",
+      "category": "gov",
+      "publishedAt": 1791158400000
+    },
+    {
+      "title": "Airworthiness Directives; Airbus Helicopters",
+      "summary": "The FAA proposes to supersede Airworthiness Directive (AD) 2026-12-09, which applies to all Airbus Helicopters Model AS350B, AS350BA, AS350B1, and AS350D helicopters. AD 2026-12-09 requires revising the airworthiness limitations section (ALS) of the existing maintenance manual (MM) or instructions for continued airworthiness (ICA) and the existing approved maintenance or inspection program, as applicable. Since the FAA issued AD 2026-12-09, a determination was made that new and more restricti...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/05/2026-20411/airworthiness-directives-airbus-helicopters",
+      "category": "gov",
+      "publishedAt": 1791158400000
+    },
+    {
+      "title": "Sunshine Act Meetings",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/05/2026-20396/sunshine-act-meetings",
+      "category": "gov",
+      "publishedAt": 1791158400000
+    },
+    {
+      "title": "Typhoon Choi-wan",
+      "summary": "Severe Storms • Magnitude 90 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24962",
+      "category": "disaster",
+      "publishedAt": 1791028800000
+    },
+    {
+      "title": "Wildfire SAN FRANCISCO 2, Starr, Texas",
+      "summary": "2 Miles S from LA CASITA, TX",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24964",
+      "category": "disaster",
+      "publishedAt": 1790758560000
+    },
+    {
+      "title": "Wildfire Hatch Grade, Walla Walla, Washington",
+      "summary": "Wildfires • Magnitude 5000 acres",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_24963",
+      "category": "disaster",
+      "publishedAt": 1790711400000
+    }
+  ],
+  "generatedAt": "2026-10-03T19:54:46.809Z"
+}
