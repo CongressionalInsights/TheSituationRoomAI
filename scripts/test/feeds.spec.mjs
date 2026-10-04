@@ -363,6 +363,150 @@ test('OpenAQ requests JSON and retains the original HTTPS failure without forwar
   assert.equal(otherAccept, 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*');
 });
 
+function rssFeedFixture(id, withTransport = false) {
+  const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
+  const declarations = [
+    'function applyKey(', 'function canUseLiveFeedFallback(',
+    'function shouldPromotePublishedSnapshot(', 'function markSnapshotFallback(',
+    'function markStaleFeedPayload(', 'function isUsableStaleFeedPayload(',
+    'async function fetchFeed(',
+    ...(withTransport ? [
+      'function applyProxy(', 'function buildFetchCandidates(',
+      'async function fetchWithTimeout(', 'async function fetchRssWithFallbacks('
+    ] : [])
+  ];
+  const code = declarations.map((declaration) => {
+    const start = source.indexOf(declaration);
+    assert.ok(start >= 0, declaration);
+    return source.slice(start, source.indexOf('\n}', start) + 2);
+  }).join('\n');
+  const feed = JSON.parse(fs.readFileSync(feedsPath, 'utf8')).feeds.find(f => f.id === id);
+  const context = {
+    cache: new Map(), appConfig: { userAgent: 'fixture', defaultRefreshMinutes: 60 },
+    FETCH_TIMEOUT_MS: 100, Date, URL, AbortController, setTimeout, clearTimeout,
+    mergeFeedParams, sanitizeParamsObject, serializeParams: () => '',
+    isDefaultOpenAqRequest: () => false, isStateConnectorFeed: () => false,
+    isEiaFeed: () => false, resolveServerKey: () => null,
+    getUrlTemplateParamNames: () => [], getRuntimeOnlyParamNames: () => [],
+    buildUrl: url => url, applyUrlParams: url => url,
+    applyCongressCommitteeDateWindow: url => url,
+    isStateLegislationScopedRequest: () => false, isStateLegislationAllStatesRequest: () => false,
+    isLikelyRssPayload: (_type, body) => body.startsWith('<rss>'),
+    fetchRssWithFallbacks: async () => { throw new Error('fixture upstream unavailable'); },
+    fetchLiveFallback: async () => ({ id, fetchedAt: 1, body: '<rss>Old snapshot</rss>', contentType: 'application/xml', httpStatus: 200 })
+  };
+  vm.runInNewContext(code + '\nthis.fetchFeed = fetchFeed;', context);
+  return { feed, context };
+}
+
+for (const phase of ['headers', 'body']) {
+  test(`Google News US stale retry returns within the browser deadline when RSS ${phase} stall`, async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+    const { feed, context } = rssFeedFixture('google-news-us', true);
+    const stale = { id: feed.id, fetchedAt: Date.now(), httpStatus: 200, stale: true, fallback: 'live-cache', contentType: 'application/xml', body: '<rss>Available snapshot</rss>' };
+    context.cache.set(`${feed.id}::`, stale);
+    const requests = [];
+    context.fetchLiveFallback = async () => { throw new Error('retain the available cached snapshot'); };
+    context.fetch = async (url, { signal }) => {
+      requests.push({ url, startedAt: Date.now() });
+      const aborted = () => new DOMException('fixture stalled', 'AbortError');
+      if (phase === 'headers') return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(aborted()), { once: true });
+      });
+      return new Response(new ReadableStream({ start(controller) {
+        signal.addEventListener('abort', () => controller.error(aborted()), { once: true });
+      } }), { headers: { 'content-type': 'application/xml' } });
+    };
+    const startedAt = Date.now();
+    const callerTimeoutMs = Math.max(15000, Math.min(30000, feed.timeoutMs + 5000));
+    let outcome;
+    const callerTimer = setTimeout(() => { outcome ||= { error: 'browser_timeout' }; }, callerTimeoutMs);
+    const pending = context.fetchFeed(feed).then(payload => { outcome ||= { payload, elapsedMs: Date.now() - startedAt }; });
+    for (let elapsed = 0; !outcome && elapsed <= callerTimeoutMs; elapsed += 1000) {
+      for (let flush = 0; flush < 10; flush += 1) await new Promise(resolve => setImmediate(resolve));
+      if (!outcome) t.mock.timers.tick(1000);
+    }
+    clearTimeout(callerTimer);
+    console.log(JSON.stringify({ regression: 'google-stale-deadline', phase, callerTimeoutMs, ...outcome, requests }));
+    assert.equal(outcome?.error, undefined, 'retained stale data must reach the browser before its deadline');
+    assert.ok(outcome.elapsedMs <= 15000, 'stale retry has a bounded opportunity, not the whole browser budget');
+    assert.equal(outcome.payload.body, stale.body);
+    assert.equal(outcome.payload.stale, true);
+    assert.equal(outcome.payload.fallback, 'live-cache');
+    assert.equal(requests.length, 2, 'both direct and configured proxy get a recovery opportunity');
+    await pending;
+  });
+}
+
+test('Google News US bounded retry can recover through the proxy and retain the fresh-cache TTL', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const { feed, context } = rssFeedFixture('google-news-us', true);
+  context.cache.set(`${feed.id}::`, { id: feed.id, fetchedAt: Date.now(), httpStatus: 200, stale: true, fallback: 'live-cache', contentType: 'application/xml', body: '<rss>Old snapshot</rss>' });
+  const calls = [];
+  context.fetch = async (url) => {
+    calls.push(url);
+    return url === feed.url ? new Response('unavailable', { status: 503 })
+      : new Response('<rss>Current proxy RSS</rss>', { headers: { 'content-type': 'application/xml' } });
+  };
+  const recovered = await context.fetchFeed(feed);
+  assert.equal(recovered.body, '<rss>Current proxy RSS</rss>');
+  assert.notEqual(recovered.stale, true);
+  assert.notEqual(recovered.fallback, 'live-cache');
+  assert.equal(calls.length, 2);
+  t.mock.timers.tick(feed.ttlMinutes * 60000 - 1);
+  assert.equal(await context.fetchFeed(feed), recovered);
+  assert.equal(calls.length, 2, 'fresh data must still honor its full original TTL');
+});
+
+test('Google News US refreshes stale cached snapshots without waiting for the success TTL', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T13:51:11Z') });
+  const { feed, context } = rssFeedFixture('google-news-us');
+  const stale = await context.fetchFeed(feed);
+  assert.equal(stale.stale, true);
+  assert.equal(stale.fallback, 'live-cache');
+  assert.equal(stale.body, '<rss>Old snapshot</rss>');
+  let attempts = 0;
+  context.fetchRssWithFallbacks = async (url) => {
+    attempts += 1;
+    assert.equal(url, feed.url);
+    return { response: new Response(), body: '<rss>Current official</rss>', contentType: 'application/xml', valid: true };
+  };
+  const fresh = await context.fetchFeed(feed);
+  assert.equal(attempts, 1, 'stale snapshots must not satisfy the fresh-success TTL');
+  assert.equal(fresh.body, '<rss>Current official</rss>');
+  assert.notEqual(fresh.stale, true);
+  assert.notEqual(fresh.fallback, 'live-cache');
+  assert.equal((await context.fetchFeed(feed)).body, fresh.body);
+  assert.equal(attempts, 1, 'successful refreshes still honor the registry TTL');
+  t.mock.timers.tick(feed.ttlMinutes * 60000);
+  await context.fetchFeed(feed);
+  assert.equal(attempts, 2, 'the original success TTL remains unchanged');
+});
+
+test('Google News US failed stale refreshes retain cached body and fallback markers', async () => {
+  const { feed, context } = rssFeedFixture('google-news-us');
+  const stale = await context.fetchFeed(feed);
+  context.fetchLiveFallback = async () => { throw new Error('cached stale data should remain available'); };
+  let attempts = 0;
+  for (const mode of ['exception', 'http', 'invalid-rss']) {
+    context.fetchRssWithFallbacks = async () => {
+      attempts += 1;
+      if (mode === 'exception') throw new Error('fixture timeout');
+      return { response: new Response('unavailable', { status: mode === 'http' ? 503 : 200 }), body: '<html>unavailable</html>', contentType: 'text/html', valid: false };
+    };
+    const result = await context.fetchFeed(feed);
+    assert.equal(result.body, stale.body);
+    assert.equal(result.stale, true);
+    assert.equal(result.fallback, 'live-cache');
+    assert.equal(context.cache.values().next().value.body, stale.body);
+  }
+  assert.equal(attempts, 3);
+  const other = rssFeedFixture('gdacs-alerts');
+  const otherStale = await other.context.fetchFeed(other.feed);
+  other.context.fetchRssWithFallbacks = async () => { throw new Error('unrelated TTL must stay intact'); };
+  assert.equal(await other.context.fetchFeed(other.feed), otherStale);
+});
+
 test('NASA FIRMS uses the documented CSV route while preserving the public JSON contract', () => {
   const paths = ['data/feeds.json', 'public/data/feeds.json', 'gcp/feed-proxy/feeds.json', 'gcp/mcp-proxy/feeds.json'];
   for (const file of paths) {

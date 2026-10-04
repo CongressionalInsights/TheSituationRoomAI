@@ -490,6 +490,209 @@ test('MCP EIA sanitization covers success, error, and legacy response bodies', (
 
 const openStatesCacheEntryCapacity = Math.max(1, Math.ceil(Number(process.env.OPENSTATES_CACHE_MAX_ENTRIES || 256)));
 
+const gdacsFeed = JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', import.meta.url))).feeds
+  .find((entry) => entry.id === 'gdacs-alerts');
+const gdacsRss = (title) => `<?xml version="1.0"?><rss><channel><item><title>${title}</title><link>https://www.gdacs.org/report/fixture</link><pubDate>Sun, 04 Oct 2026 13:45:03 GMT</pubDate></item></channel></rss>`;
+
+async function gdacsWithinMockDeadline(t, run) {
+  const startedAt = Date.now();
+  let outcome;
+  const callerTimer = setTimeout(() => { outcome ||= { error: 'monitor_timeout' }; }, gdacsFeed.timeoutMs);
+  const pending = run().then(result => { outcome ||= { result, elapsedMs: Date.now() - startedAt }; });
+  while (!outcome && Date.now() - startedAt <= gdacsFeed.timeoutMs) {
+    for (let flush = 0; flush < 10; flush += 1) await new Promise(resolve => setImmediate(resolve));
+    if (!outcome) t.mock.timers.tick(1000);
+  }
+  clearTimeout(callerTimer);
+  if (!outcome.error) await pending;
+  return outcome;
+}
+
+for (const spentMs of [0, 8000]) {
+  for (const phase of ['headers', 'body']) {
+    test(`GDACS MCP reserves snapshot deadline after ${spentMs}ms spent and stalled Feed Proxy ${phase}`, async (t) => {
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+      const calls = [];
+      t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+        const target = String(url);
+        if (target.includes('/data/feeds/gdacs-alerts.json')) {
+          calls.push({ path: 'snapshot', at: Date.now() });
+          return new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({ body: gdacsRss('Retained alert'), contentType: 'application/xml', httpStatus: 200 }))), 1000));
+        }
+        if (target.endsWith('/api/feed')) {
+          calls.push({ path: 'feed-proxy', at: Date.now() });
+          const aborted = () => new DOMException('fixture stalled', 'AbortError');
+          if (phase === 'headers') return new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(aborted()), { once: true });
+          });
+          return new Response(new ReadableStream({ start(controller) {
+            signal.addEventListener('abort', () => controller.error(aborted()), { once: true });
+          } }), { headers: { 'content-type': 'application/json' } });
+        }
+        if (!calls.length) t.mock.timers.tick(spentMs);
+        calls.push({ path: 'upstream', at: Date.now() });
+        return new Response('unavailable', { status: 503 });
+      });
+      const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
+      console.log(JSON.stringify({ regression: 'gdacs-recovery-deadline', spentMs, phase, ...outcome, calls }));
+      assert.equal(outcome.error, undefined, 'the monitor must receive the available snapshot before timing out');
+      assert.ok(outcome.elapsedMs < gdacsFeed.timeoutMs);
+      assert.equal(outcome.result.proxyUsed, 'live-cache');
+      assert.equal(outcome.result.fallbackUsed, true);
+      assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result: outcome.result, responseFormat: 'text' }).warning, /published cache snapshot/);
+      assert.deepEqual(calls.map(call => call.path), ['upstream', 'upstream', 'upstream', 'feed-proxy', 'snapshot']);
+      assert.equal(calls.find(call => call.path === 'snapshot').at - 1000, 14000, 'prior attempts consume the same recovery budget');
+    });
+  }
+}
+
+test('GDACS MCP snapshot deadline remains reachable when initial RSS attempts stall', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+    if (String(url).includes('/data/feeds/gdacs-alerts.json')) {
+      calls.push('snapshot');
+      return new Response(JSON.stringify({ body: gdacsRss('Retained alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    calls.push('upstream');
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('fixture stalled', 'AbortError')), { once: true }));
+  });
+  const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
+  console.log(JSON.stringify({ regression: 'gdacs-initial-attempt-deadline', ...outcome, calls }));
+  assert.equal(outcome.error, undefined);
+  assert.equal(outcome.result.proxyUsed, 'live-cache');
+  assert.ok(outcome.elapsedMs < gdacsFeed.timeoutMs);
+  assert.deepEqual(calls, ['upstream', 'snapshot'], 'no exhausted-budget service attempt may starve the snapshot');
+});
+
+test('GDACS MCP snapshot body uses only its reserved deadline', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+    if (String(url).endsWith('/api/feed')) return new Response('unavailable', { status: 503 });
+    if (String(url).includes('/data/feeds/gdacs-alerts.json')) return new Response(new ReadableStream({ start(controller) {
+      signal.addEventListener('abort', () => controller.error(new DOMException('fixture stalled', 'AbortError')), { once: true });
+    } }), { headers: { 'content-type': 'application/json' } });
+    return new Response('unavailable', { status: 503 });
+  });
+  const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
+  console.log(JSON.stringify({ regression: 'gdacs-snapshot-body-deadline', ...outcome }));
+  assert.equal(outcome.error, undefined, 'unavailable snapshots must also finish inside the caller deadline');
+  assert.equal(outcome.result.error, 'fetch_failed');
+  assert.ok(outcome.elapsedMs <= 5000);
+});
+
+test('GDACS MCP service recovery still succeeds within the deadline after time already spent', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).endsWith('/api/feed')) {
+      calls.push('feed-proxy');
+      return new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({ body: gdacsRss('Current service alert'), contentType: 'application/xml', httpStatus: 200 }))), 2000));
+    }
+    assert.ok(!String(url).includes('/data/feeds/'), 'successful recovery must not read the older snapshot');
+    if (!calls.length) t.mock.timers.tick(8000);
+    calls.push('upstream');
+    return new Response('unavailable', { status: 503 });
+  });
+  const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
+  console.log(JSON.stringify({ regression: 'gdacs-bounded-service-success', ...outcome, calls }));
+  assert.equal(outcome.error, undefined);
+  assert.equal(outcome.elapsedMs, 10000);
+  assert.equal(outcome.result.proxyUsed, 'feed-proxy');
+  assert.equal(outcome.result.fallbackUsed, true);
+  assert.match(outcome.result.body, /Current service alert/);
+  assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result: outcome.result, responseFormat: 'text' }).warning, /fallback \(feed-proxy\)/);
+  assert.deepEqual(calls, ['upstream', 'upstream', 'upstream', 'feed-proxy']);
+});
+
+test('GDACS MCP raw and signals try the forced Feed Proxy before a published snapshot and retain warnings', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const target = String(url);
+    if (target.endsWith('/api/feed')) {
+      calls.push('feed-proxy');
+      assert.equal(options.method, 'POST');
+      assert.deepEqual(JSON.parse(options.body), { id: gdacsFeed.id, force: true });
+      return new Response(JSON.stringify({ id: gdacsFeed.id, body: gdacsRss('Current alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    if (target.includes('/data/feeds/gdacs-alerts.json')) {
+      calls.push('snapshot');
+      return new Response(JSON.stringify({ body: gdacsRss('Old alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    calls.push('upstream');
+    return new Response('unavailable', { status: 503 });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'gdacs-fallback-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  for (const name of ['raw.fetch', 'signals.list']) {
+    calls.length = 0;
+    const result = (await client.callTool({ name, arguments: { sourceId: gdacsFeed.id, ...(name === 'raw.fetch' ? { format: 'text' } : {}) } })).structuredContent;
+    assert.equal(result.error, undefined);
+    assert.equal(result.proxyUsed, 'feed-proxy');
+    assert.equal(result.fallbackUsed, true);
+    assert.match(result.warning, /fallback \(feed-proxy\)/);
+    assert.match(result.fetchedUrl, /\/api\/feed$/);
+    if (name === 'raw.fetch') assert.match(result.body, /Current alert/);
+    else {
+      assert.equal(result.items[0].title, 'Current alert');
+      assert.equal(result.items[0].publishedAt, Date.parse('2026-10-04T13:45:03Z'));
+      assert.equal(result.items[0].sourceId, gdacsFeed.id);
+    }
+    assert.deepEqual(calls, ['upstream', 'upstream', 'upstream', 'feed-proxy']);
+  }
+});
+
+test('GDACS MCP keeps snapshot fallback warnings when the Feed Proxy is unusable and leaves direct success alone', async (t) => {
+  const calls = [];
+  let proxyPayload;
+  let direct = false;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    const target = String(url);
+    if (target.endsWith('/api/feed')) {
+      calls.push('feed-proxy');
+      if (proxyPayload === 'throw') throw new Error('fixture failure');
+      return new Response(JSON.stringify(proxyPayload));
+    }
+    if (target.includes('/data/feeds/gdacs-alerts.json')) {
+      calls.push('snapshot');
+      return new Response(JSON.stringify({ body: gdacsRss('Old alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    calls.push('upstream');
+    return direct
+      ? new Response(gdacsRss('Direct alert'), { headers: { 'content-type': 'application/xml' } })
+      : new Response('unavailable', { status: 503 });
+  });
+  for (proxyPayload of [
+    { error: 'http_503', body: gdacsRss('Error alert'), contentType: 'application/xml', httpStatus: 503 },
+    { body: '<html>not RSS</html>', contentType: 'text/html', httpStatus: 200 },
+    { body: gdacsRss('Old proxy alert'), contentType: 'application/xml', httpStatus: 200, stale: true },
+    { body: gdacsRss('Old proxy alert'), contentType: 'application/xml', httpStatus: 200, fallback: 'live-cache' },
+    { body: gdacsRss('Error alert'), contentType: 'application/xml', httpStatus: 503 },
+    'throw'
+  ]) {
+    calls.length = 0;
+    const result = await fetchRaw(gdacsFeed, {});
+    assert.equal(result.proxyUsed, 'live-cache');
+    assert.equal(result.fallbackUsed, true);
+    assert.match(result.body, /Old alert/);
+    assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).warning, /published cache snapshot/);
+    assert.deepEqual(calls, ['upstream', 'upstream', 'upstream', 'feed-proxy', 'snapshot']);
+  }
+  direct = true;
+  calls.length = 0;
+  const result = await fetchRaw(gdacsFeed, {});
+  assert.equal(result.proxyUsed, null);
+  assert.equal(result.fallbackUsed, false);
+  assert.deepEqual(calls, ['upstream']);
+});
+
 test('Google News MCP fallback preserves the requested query through the Feed Proxy', async () => {
   const calls = [];
   const result = await fetchFeedProxyFallback({ id: 'google-news-search', format: 'rss' }, {
