@@ -1572,18 +1572,20 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT
   return { response, data, text };
 }
 
-async function fetchLiveFallback(feedId) {
+async function fetchLiveFallback(feedId, timeoutMs = FETCH_TIMEOUT_MS) {
   if (!feedId) return null;
   const url = `${LIVE_BASE}/data/feeds/${feedId}.json?ts=${Date.now()}`;
   try {
-    const response = await fetchWithTimeout(url, {
+    const consumeResponse = feedId === 'gdacs-alerts'
+      ? async (response) => response.ok ? response.json() : null
+      : null;
+    const result = await fetchWithTimeout(url, {
       headers: {
         'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0',
         'Accept': 'application/json, text/plain, */*'
       }
-    }, FETCH_TIMEOUT_MS);
-    if (!response.ok) return null;
-    const payload = await response.json();
+    }, timeoutMs, consumeResponse);
+    const payload = consumeResponse ? result : result.ok ? await result.json() : null;
     if (!payload || payload.error || !payload.body) return null;
     return payload;
   } catch {
@@ -1619,6 +1621,8 @@ export async function fetchFeedProxyFallback(feed, options = {}, {
     if (!response.ok) return null;
     const payload = await response.json();
     if (!payload?.body || payload.error) return null;
+    if (feed.id === 'gdacs-alerts' && (payload.stale || payload.fallback
+      || Number(payload.httpStatus) < 200 || Number(payload.httpStatus) >= 300)) return null;
     const contentType = payload.contentType || '';
     if (feed.format === 'rss' && !isLikelyRssPayload(contentType, payload.body)) return null;
     if (feed.format === 'json' && isJsonHtmlError(contentType, payload.body)) return null;
@@ -2378,6 +2382,11 @@ export async function fetchRaw(feed, options) {
   let succeeded = false;
   const isEonetFeed = feed?.id === 'eonet-events';
   const stooqDeadline = feed?.id === 'stooq-quote' ? startedAt + totalTimeoutMs : null;
+  const gdacsDeadline = feed.id === 'gdacs-alerts' ? startedAt + totalTimeoutMs : null;
+  // Keep a quarter of GDACS's caller budget for the snapshot, plus response margin.
+  const gdacsSnapshotReserveMs = gdacsDeadline === null ? 0 : Math.floor(totalTimeoutMs * 0.25);
+  const gdacsReturnReserveMs = gdacsDeadline === null ? 0 : Math.min(1000, totalTimeoutMs * 0.05);
+  const gdacsRecoveryDeadline = gdacsDeadline === null ? null : gdacsDeadline - gdacsSnapshotReserveMs - gdacsReturnReserveMs;
   const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
   const rssDirectTimeoutMs = Math.max(15000, Math.floor(rssEffectiveTimeout * 0.75));
   const rssFallbackTimeoutMs = attempts.length > 1
@@ -2390,6 +2399,11 @@ export async function fetchRaw(feed, options) {
     : eonetDirectTimeoutMs;
 
   for (let index = 0; index < attempts.length; index += 1) {
+    const remainingGdacsMs = gdacsRecoveryDeadline === null ? Infinity : gdacsRecoveryDeadline - Date.now();
+    if (remainingGdacsMs <= 0) {
+      lastError = { error: 'fetch_failed', message: 'GDACS upstream recovery budget exhausted.', code: 'timeout' };
+      break;
+    }
     const remainingStooqMs = stooqDeadline === null ? null : stooqDeadline - Date.now();
     if (remainingStooqMs !== null && remainingStooqMs <= 0) {
       lastError = { error: 'fetch_failed', message: 'Stooq request deadline exceeded.', code: 'timeout' };
@@ -2398,13 +2412,13 @@ export async function fetchRaw(feed, options) {
     const proxy = attempts[index];
     const proxiedUrl = proxy ? applyProxy(keyedUrl, proxy) : keyedUrl;
     fetchedUrl = proxiedUrl;
-    const perAttemptTimeoutMs = isRssFeed
+    const perAttemptTimeoutMs = Math.min(remainingGdacsMs, isRssFeed
       ? (index === 0 ? rssDirectTimeoutMs : rssFallbackTimeoutMs)
       : isEonetFeed
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
-      : remainingStooqMs ?? totalTimeoutMs;
+      : remainingStooqMs ?? totalTimeoutMs);
     try {
-      if (stooqDeadline !== null || feed.id === 'openaq-api') {
+      if (stooqDeadline !== null || gdacsDeadline !== null || feed.id === 'openaq-api') {
         [response, body] = await fetchWithTimeout(proxiedUrl, {
           headers: requestHeaders,
           ...(feed.id === 'openaq-api' ? { redirect: 'error' } : {})
@@ -2508,13 +2522,18 @@ export async function fetchRaw(feed, options) {
         };
       }
     }
-    const feedProxyFallback = feed.id === 'google-news-search'
-      ? await fetchFeedProxyFallback(feed, options, { timeoutMs: totalTimeoutMs })
+    const feedProxyTimeoutMs = gdacsRecoveryDeadline === null ? totalTimeoutMs : Math.max(0, gdacsRecoveryDeadline - Date.now());
+    const feedProxyFallback = (feed.id === 'google-news-search' || feed.id === 'gdacs-alerts') && feedProxyTimeoutMs > 0
+      ? await fetchFeedProxyFallback(feed, options, { timeoutMs: feedProxyTimeoutMs })
       : null;
     if (feedProxyFallback) {
       return feedProxyFallback;
     }
-    const fallback = shouldUseLiveFallback(feed, options) ? await fetchLiveFallback(feed.id) : null;
+    const snapshotTimeoutMs = gdacsDeadline === null ? FETCH_TIMEOUT_MS
+      : Math.max(0, Math.min(gdacsSnapshotReserveMs, gdacsDeadline - Date.now() - gdacsReturnReserveMs));
+    const fallback = shouldUseLiveFallback(feed, options) && snapshotTimeoutMs > 0
+      ? await fetchLiveFallback(feed.id, snapshotTimeoutMs)
+      : null;
     if (fallback) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'
