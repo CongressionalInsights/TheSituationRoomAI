@@ -2973,6 +2973,7 @@ server.registerTool(
   {
     title: 'Catalog Sources',
     description: 'List available sources, formats, and capabilities.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       category: z.string().optional(),
       state: z.string().optional()
@@ -3018,6 +3019,7 @@ server.registerTool(
   {
     title: 'Fetch Raw Feed',
     description: 'Fetch raw data from a source. Use params/start/end to request historical ranges where supported.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       sourceId: z.string(),
       query: z.string().optional(),
@@ -3069,6 +3071,7 @@ server.registerTool(
   {
     title: 'Fetch Raw History',
     description: 'Fetch raw history for a source with start/end range when available.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       sourceId: z.string(),
       start: z.string(),
@@ -3120,6 +3123,7 @@ server.registerTool(
   {
     title: 'Money Flows',
     description: 'Aggregate LDA, USAspending, OpenFEC, and SAM.gov signals with scoring.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       query: z.string(),
       start: z.string().optional(),
@@ -3150,6 +3154,7 @@ server.registerTool(
   {
     title: 'List Normalized Signals',
     description: 'Return normalized signal items for a source (best-effort parsing).',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       sourceId: z.string(),
       query: z.string().optional(),
@@ -3210,6 +3215,7 @@ server.registerTool(
   {
     title: 'Get Normalized Signal',
     description: 'Return a single normalized signal item by id.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       sourceId: z.string(),
       id: z.string(),
@@ -3263,6 +3269,7 @@ server.registerTool(
   {
     title: 'Smart Search Signals',
     description: 'Search across relevant sources using the Situation Room smart search logic. Returns normalized signals only.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       query: z.string().optional(),
       categories: z.array(z.string()).optional(),

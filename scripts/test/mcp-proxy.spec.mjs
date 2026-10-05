@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const {
   getStateBillSortTimestamp,
@@ -47,6 +48,40 @@ const typedSeriesFeeds = JSON.parse(fs.readFileSync(new URL('../../data/feeds.js
 const normalizeTypedFixture = (id, body = typedSeriesFixtures[id]) => normalizeJsonSignals(
   JSON.stringify(body), typedSeriesFeeds.find((feed) => feed.id === id)
 );
+
+test('MCP tools/list emits retrieval annotations without changing existing declarations', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('tools/list must not fetch providers'); });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'annotations-contract-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const send = serverTransport.send.bind(serverTransport);
+  let emitted;
+  t.mock.method(serverTransport, 'send', async (message, ...rest) => {
+    if (message.result?.tools) emitted = structuredClone(message.result.tools);
+    return send(message, ...rest);
+  });
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const { tools } = await client.listTools();
+  assert.deepEqual(tools, emitted);
+  assert.deepEqual(tools.map(tool => tool.name), [
+    'catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart'
+  ]);
+  // Pin the base SDK declarations, excluding only the new descriptive hints.
+  const declarations = emitted.map(({ annotations, ...tool }) => tool);
+  assert.equal(createHash('sha256').update(JSON.stringify(declarations)).digest('hex'),
+    'f7629638ad47a4e9f21b8dedf3b40d3a6cb3ffa5aec7cb33b58e67fb3b685629');
+  for (const tool of tools) {
+    await t.test(tool.name, () => assert.deepEqual(tool.annotations, {
+      readOnlyHint: true, destructiveHint: false, openWorldHint: true
+    }));
+  }
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
 
 test('EIA retained WTI, Brent and gas observations retain values, units, periods and facets', () => {
   for (const feed of typedSeriesFeeds.filter((entry) => entry.id !== 'bls-cpi')) {
