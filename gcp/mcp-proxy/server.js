@@ -10,6 +10,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
 import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
 import { sanitizeEiaPayload } from './public-payload-safety.js';
+import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,7 +59,7 @@ const STATE_CONNECTOR_API_KEY = String(process.env.STATE_CONNECTOR_API_KEY || ''
 const STATE_CONNECTOR_KEY_HEADER = String(process.env.STATE_CONNECTOR_KEY_HEADER || 'X-API-Key').trim() || 'X-API-Key';
 const STATE_CONNECTOR_DEFAULT_LIMIT = 20;
 const STATE_CONNECTOR_MAX_LIMIT = 100;
-const STATE_CONNECTOR_COVERED_STATES = ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'];
+const STATE_CONNECTOR_COVERED_STATES = ['CA', 'FL', 'MN', 'NC', 'NY', 'TX', 'VA'];
 const OPENSTATES_CACHE_TTL_MS = Number(process.env.OPENSTATES_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const OPENSTATES_ERROR_CACHE_TTL_MS = Number(process.env.OPENSTATES_ERROR_CACHE_TTL_MS || 5 * 60 * 1000);
 const OPENSTATES_AGGREGATE_CACHE_TTL_MS = Number(process.env.OPENSTATES_AGGREGATE_CACHE_TTL_MS || 10 * 60 * 1000);
@@ -247,12 +248,12 @@ function stripSecretsFromUrl(rawUrl) {
         parsed.searchParams.set(param, 'REDACTED');
       }
     });
-    parsed.pathname = parsed.pathname.replace(/\/api\/area\/json\/[^/]+/i, '/api/area/json/REDACTED');
+    parsed.pathname = parsed.pathname.replace(/(\/api\/area\/(?:json|csv)\/)[^/]+/i, '$1REDACTED');
     return parsed.toString();
   } catch {
     return rawUrl
       .replace(/(api_key=)[^&]+/gi, '$1REDACTED')
-      .replace(/(\/api\/area\/json\/)[^/]+/i, '$1REDACTED');
+      .replace(/(\/api\/area\/(?:json|csv)\/)[^/]+/i, '$1REDACTED');
   }
 }
 
@@ -362,46 +363,7 @@ async function getOpenSkyToken() {
 }
 
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
-  const rows = Array.isArray(data)
-    ? data
-    : (Array.isArray(data?.items) ? data.items : []);
-  return rows.slice(0, 200).map((entry) => {
-    const geoLat = Number(entry?.geo?.lat);
-    const geoLon = Number(entry?.geo?.lon);
-    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
-    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
-    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
-    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
-    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
-    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
-    const frp = entry.frp ?? entry.fire_radiative_power;
-    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
-    const parts = [];
-    if (brightness) parts.push(`Brightness ${brightness}`);
-    if (frp) parts.push(`FRP ${frp}`);
-    if (confidence) parts.push(`Confidence ${confidence}`);
-    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
-    let publishedAt = Date.now();
-    if (date) {
-      const time = String(entry.acq_time || '').padStart(4, '0');
-      if (time.length === 4 && /^\d+$/.test(time)) {
-        const parsed = Date.parse(`${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      } else {
-        const parsed = Date.parse(date);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      }
-    }
-    return {
-      title: entry.title || 'Fire detection',
-      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
-      latitude: resolvedLat,
-      longitude: resolvedLon,
-      publishedAt,
-      source,
-      alertType: 'Fire'
-    };
-  }).filter(Boolean);
+  return normalizeNasaFirmsItems(data, source);
 }
 
 async function buildArcgisFireFallback() {
@@ -414,23 +376,24 @@ async function buildArcgisFireFallback() {
     if (!response.ok) return null;
     const data = await response.json();
     const features = Array.isArray(data?.features) ? data.features : [];
-    const items = features.slice(0, 200).map((feature) => {
-      const props = feature.properties || {};
-      const coords = feature.geometry?.coordinates || [];
-      const lon = Number(coords[0]);
-      const lat = Number(coords[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      const publishedAt = props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now();
-      return {
-        title: props.name || props.NAME || props.fire_name || 'Fire detection',
-        summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
-        latitude: lat,
-        longitude: lon,
-        publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
-        source: 'NOAA HMS',
-        alertType: 'Fire'
-      };
-    }).filter(Boolean);
+    const items = selectNewestFirmsItems((function* () {
+      for (const feature of features) {
+        const props = feature?.properties || {};
+        const coords = feature?.geometry?.coordinates || [];
+        const geo = nasaFirmsCoordinates({ latitude: coords[1], longitude: coords[0] });
+        if (!geo) continue;
+        const publishedAt = parseFirmsTimestamp(props.acq_date || props.date);
+        yield {
+          title: props.name || props.NAME || props.fire_name || 'Fire detection',
+          summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
+          latitude: geo.lat,
+          longitude: geo.lon,
+          publishedAt,
+          source: 'NOAA HMS',
+          alertType: 'Fire'
+        };
+      }
+    })());
     if (!items.length) return null;
     return {
       id: 'nasa-firms',
@@ -1198,6 +1161,45 @@ function isStateConnectorFeed(feed) {
   return feed?.id === 'state-rulemaking' || feed?.id === 'state-executive-orders';
 }
 
+export function getStateConnectorCoverage(state = '') {
+  const requested = String(state || '').trim();
+  if (!requested) return { coverageStatus: 'PARTIAL', requestedState: null };
+  const code = normalizeJurisdictionCode(requested);
+  if (!code) return { coverageStatus: 'INVALID_STATE', requestedState: requested };
+  return {
+    coverageStatus: STATE_CONNECTOR_COVERED_STATES.includes(code) ? 'SUPPORTED' : 'UNSUPPORTED',
+    requestedState: code
+  };
+}
+
+function coverageFields(result) {
+  if (!result?.coverageStatus) return {};
+  return {
+    coverageStatus: result.coverageStatus,
+    requestedState: result.requestedState || null,
+    coveredStates: result.coveredStates || STATE_CONNECTOR_COVERED_STATES,
+    verifiedZeroResults: Boolean(result.verifiedZeroResults)
+  };
+}
+
+function verifiedStateConnectorZero(parsed, results, stateCode, signalType) {
+  const meta = parsed?.meta;
+  return Boolean(
+    stateCode
+    && results.length === 0
+    && meta?.verifiedZeroResults === true
+    && meta?.state === stateCode
+    && meta?.signalType === signalType
+    && meta?.coverageStatus === 'SUPPORTED'
+    && meta?.count === 0
+    && meta?.partial === false
+    && meta?.adapterCount === 1
+    && Array.isArray(meta?.errors) && meta.errors.length === 0
+    && Array.isArray(meta?.coveredStates) && meta.coveredStates.includes(stateCode)
+    && Number.isFinite(Date.parse(meta?.generatedAt))
+  );
+}
+
 function normalizeStateConnectorSignalType(value, fallback = '') {
   const raw = String(value || fallback || '').trim().toLowerCase();
   if (!raw) return '';
@@ -1427,20 +1429,28 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     mergedParams.signalType,
     Array.isArray(feed?.capabilities) && feed.capabilities.length ? feed.capabilities[0] : ''
   );
-  const stateCode = normalizeJurisdictionCode(
-    mergedParams.state
+  const { coverageStatus, requestedState: stateCode } = getStateConnectorCoverage(
+    options.params?.state
+    || options.params?.jurisdictionCode
+    || options.params?.jurisdiction
+    || mergedParams.state
     || mergedParams.jurisdictionCode
     || mergedParams.jurisdiction
   );
-  if (stateCode && !STATE_CONNECTOR_COVERED_STATES.includes(stateCode)) {
+  if (coverageStatus === 'INVALID_STATE' || coverageStatus === 'UNSUPPORTED') {
     return {
-      error: 'unsupported_state',
+      error: coverageStatus === 'INVALID_STATE' ? 'invalid_state' : 'unsupported_state',
       httpStatus: 400,
-      message: `${feed.id} does not cover ${stateCode}. Covered states: ${STATE_CONNECTOR_COVERED_STATES.join(', ')}. Check the state's official primary sources directly.`
+      message: coverageStatus === 'INVALID_STATE'
+        ? `Invalid state: ${stateCode}.`
+        : `${feed.id} does not cover ${stateCode}. Covered states: ${STATE_CONNECTOR_COVERED_STATES.join(', ')}. Check the state's official primary sources directly.`,
+      coverageStatus,
+      requestedState: stateCode,
+      coveredStates: STATE_CONNECTOR_COVERED_STATES
     };
   }
   if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
-    return { error: 'config_required', message: 'State connector provider is not configured.' };
+    return { error: 'config_required', message: 'State connector provider is not configured.', coverageStatus, requestedState: stateCode || null };
   }
   const requestedLimit = toPositiveInt(
     mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
@@ -1465,10 +1475,15 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     const response = await fetchWithTimeout(requestUrl.toString(), { headers: requestHeaders }, timeoutMs);
     const text = await response.text();
     if (!response.ok) {
+      let providerError = null;
+      try { providerError = JSON.parse(text)?.error; } catch { /* Not JSON. */ }
       return {
-        error: 'fetch_failed',
+        error: providerError === 'state_not_covered' ? 'unsupported_state' : 'fetch_failed',
         httpStatus: response.status,
-        message: `HTTP ${response.status}`,
+        message: providerError === 'state_not_covered' ? `${stateCode} is not covered by the state connector provider.` : `HTTP ${response.status}`,
+        coverageStatus: providerError === 'state_not_covered' ? 'UNSUPPORTED' : coverageStatus,
+        requestedState: stateCode,
+        coveredStates: STATE_CONNECTOR_COVERED_STATES,
         body: text,
         fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
         proxyUsed: null,
@@ -1490,7 +1505,11 @@ async function fetchStateConnectorRaw(feed, options = {}) {
       };
     }
 
-    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    if (!Array.isArray(parsed?.results)) {
+      return { error: 'invalid_response', httpStatus: 502, message: 'State connector response has no results array.', coverageStatus };
+    }
+    const results = parsed.results;
+    const verifiedZeroResults = verifiedStateConnectorZero(parsed, results, stateCode, signalType);
     const normalizedResults = results
       .map((entry) => normalizeStateConnectorResult(entry, signalType, stateCode))
       .filter(Boolean)
@@ -1503,11 +1522,16 @@ async function fetchStateConnectorRaw(feed, options = {}) {
           provider: 'state-connector',
           signalType: signalType || null,
           state: stateCode || null,
-          count: normalizedResults.length
+          count: normalizedResults.length,
+          coverageStatus,
+          verifiedZeroResults
         }
       }),
       httpStatus: 200,
       contentType: 'application/json',
+      coverageStatus,
+      requestedState: stateCode || null,
+      verifiedZeroResults,
       fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
       proxyUsed: null,
       fallbackUsed: false
@@ -1516,6 +1540,7 @@ async function fetchStateConnectorRaw(feed, options = {}) {
     return {
       error: 'fetch_failed',
       message: error?.message || 'State connector fetch failed.',
+      coverageStatus,
       fetchedUrl: stripSecretsFromUrl(requestUrl.toString()),
       proxyUsed: null,
       fallbackUsed: false
@@ -1523,11 +1548,13 @@ async function fetchStateConnectorRaw(feed, options = {}) {
   }
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS, consumeResponse = null) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    // Opt-in consumers keep cancellation active until the response body is read.
+    return consumeResponse ? await consumeResponse(response) : response;
   } finally {
     clearTimeout(id);
   }
@@ -1545,18 +1572,20 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT
   return { response, data, text };
 }
 
-async function fetchLiveFallback(feedId) {
+async function fetchLiveFallback(feedId, timeoutMs = FETCH_TIMEOUT_MS) {
   if (!feedId) return null;
   const url = `${LIVE_BASE}/data/feeds/${feedId}.json?ts=${Date.now()}`;
   try {
-    const response = await fetchWithTimeout(url, {
+    const consumeResponse = feedId === 'gdacs-alerts'
+      ? async (response) => response.ok ? response.json() : null
+      : null;
+    const result = await fetchWithTimeout(url, {
       headers: {
         'User-Agent': feedsConfig.app?.userAgent || 'SituationRoomMCP/1.0',
         'Accept': 'application/json, text/plain, */*'
       }
-    }, FETCH_TIMEOUT_MS);
-    if (!response.ok) return null;
-    const payload = await response.json();
+    }, timeoutMs, consumeResponse);
+    const payload = consumeResponse ? result : result.ok ? await result.json() : null;
     if (!payload || payload.error || !payload.body) return null;
     return payload;
   } catch {
@@ -1592,6 +1621,8 @@ export async function fetchFeedProxyFallback(feed, options = {}, {
     if (!response.ok) return null;
     const payload = await response.json();
     if (!payload?.body || payload.error) return null;
+    if (feed.id === 'gdacs-alerts' && (payload.stale || payload.fallback
+      || Number(payload.httpStatus) < 200 || Number(payload.httpStatus) >= 300)) return null;
     const contentType = payload.contentType || '';
     if (feed.format === 'rss' && !isLikelyRssPayload(contentType, payload.body)) return null;
     if (feed.format === 'json' && isJsonHtmlError(contentType, payload.body)) return null;
@@ -1851,6 +1882,7 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
   const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null;
   return {
     sourceId,
+    ...coverageFields(result),
     ...(range ? { range } : {}),
     contentType: result.contentType,
     url: stripSecretsFromUrl(feed.url),
@@ -2040,6 +2072,7 @@ export function shouldUseLiveFallback(feedOrOptions = {}, maybeOptions = null) {
   const options = legacyCall ? feedOrOptions : (maybeOptions || {});
   if (options?.history || options?.start || options?.end) return false;
   if (!feed) return true;
+  if (feed.id === 'openaq-api') return false;
 
   const requestQuery = getFallbackComparableQuery(feed, options);
   if (feed.supportsQuery) {
@@ -2236,6 +2269,15 @@ export async function fetchRaw(feed, options) {
   if (!feed?.url) {
     return { error: 'missing_url', message: 'Feed url missing.' };
   }
+  if (feed.id === 'openaq-api') {
+    let sourceUrl;
+    try { sourceUrl = new URL(feed.url); } catch {}
+    if (!sourceUrl || sourceUrl.origin !== 'https://api.openaq.org'
+      || sourceUrl.pathname !== '/v3/locations'
+      || sourceUrl.username || sourceUrl.password || sourceUrl.hash) {
+      return { error: 'invalid_source_url', message: 'OpenAQ requires its canonical HTTPS locations endpoint.' };
+    }
+  }
 
   const startedAt = Date.now();
   const key = options.key || resolveServerKey(feed);
@@ -2319,7 +2361,9 @@ export async function fetchRaw(feed, options) {
     }
     return aggregatePayload;
   }
-  const attemptList = openStatesRequest ? [null] : [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
+  // Keep OpenAQ's authenticated request on its provider origin.
+  const directOnlyRequest = openStatesRequest || feed.id === 'openaq-api';
+  const attemptList = directOnlyRequest ? [null] : [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
   const isRssFeed = feed.format === 'rss';
   const seen = new Set();
   const attempts = attemptList.filter((proxy) => {
@@ -2337,6 +2381,12 @@ export async function fetchRaw(feed, options) {
   let responseHeaders = null;
   let succeeded = false;
   const isEonetFeed = feed?.id === 'eonet-events';
+  const stooqDeadline = feed?.id === 'stooq-quote' ? startedAt + totalTimeoutMs : null;
+  const gdacsDeadline = feed.id === 'gdacs-alerts' ? startedAt + totalTimeoutMs : null;
+  // Keep a quarter of GDACS's caller budget for the snapshot, plus response margin.
+  const gdacsSnapshotReserveMs = gdacsDeadline === null ? 0 : Math.floor(totalTimeoutMs * 0.25);
+  const gdacsReturnReserveMs = gdacsDeadline === null ? 0 : Math.min(1000, totalTimeoutMs * 0.05);
+  const gdacsRecoveryDeadline = gdacsDeadline === null ? null : gdacsDeadline - gdacsSnapshotReserveMs - gdacsReturnReserveMs;
   const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
   const rssDirectTimeoutMs = Math.max(15000, Math.floor(rssEffectiveTimeout * 0.75));
   const rssFallbackTimeoutMs = attempts.length > 1
@@ -2349,19 +2399,37 @@ export async function fetchRaw(feed, options) {
     : eonetDirectTimeoutMs;
 
   for (let index = 0; index < attempts.length; index += 1) {
+    const remainingGdacsMs = gdacsRecoveryDeadline === null ? Infinity : gdacsRecoveryDeadline - Date.now();
+    if (remainingGdacsMs <= 0) {
+      lastError = { error: 'fetch_failed', message: 'GDACS upstream recovery budget exhausted.', code: 'timeout' };
+      break;
+    }
+    const remainingStooqMs = stooqDeadline === null ? null : stooqDeadline - Date.now();
+    if (remainingStooqMs !== null && remainingStooqMs <= 0) {
+      lastError = { error: 'fetch_failed', message: 'Stooq request deadline exceeded.', code: 'timeout' };
+      break;
+    }
     const proxy = attempts[index];
     const proxiedUrl = proxy ? applyProxy(keyedUrl, proxy) : keyedUrl;
     fetchedUrl = proxiedUrl;
-    const perAttemptTimeoutMs = isRssFeed
+    const perAttemptTimeoutMs = Math.min(remainingGdacsMs, isRssFeed
       ? (index === 0 ? rssDirectTimeoutMs : rssFallbackTimeoutMs)
       : isEonetFeed
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
-      : totalTimeoutMs;
+      : remainingStooqMs ?? totalTimeoutMs);
     try {
-      response = openStatesRequest && !proxy
-        ? await fetchOpenStatesWithControls(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs)
-        : await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
-      body = await response.text();
+      if (stooqDeadline !== null || gdacsDeadline !== null || feed.id === 'openaq-api') {
+        [response, body] = await fetchWithTimeout(proxiedUrl, {
+          headers: requestHeaders,
+          ...(feed.id === 'openaq-api' ? { redirect: 'error' } : {})
+        }, perAttemptTimeoutMs,
+          async (upstream) => [upstream, await upstream.text()]);
+      } else {
+        response = openStatesRequest && !proxy
+          ? await fetchOpenStatesWithControls(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs)
+          : await fetchWithTimeout(proxiedUrl, { headers: requestHeaders }, perAttemptTimeoutMs);
+        body = await response.text();
+      }
       responseHeaders = extractSafeResponseHeaders(response.headers);
       if (response.ok) {
         if (feed.format === 'json' && isJsonHtmlError(response.headers.get('content-type') || '', body)) {
@@ -2386,15 +2454,14 @@ export async function fetchRaw(feed, options) {
           lastError = { error: 'invalid_response', message: 'NWS response is missing its alert features array.', httpStatus: response.status };
           continue;
         }
-        if (feed.id === 'nasa-firms' && normalizeContentType(response.headers.get('content-type')).includes('json')) {
+        if (feed.id === 'nasa-firms') {
           try {
-            const items = buildNasaFirmsItems(JSON.parse(body));
+            const items = buildNasaFirmsItems(parseNasaFirmsRows(body, response.headers.get('content-type')));
             if (!items.length) {
               lastError = {
-                error: 'fetch_failed',
+                error: 'empty_payload',
                 httpStatus: response.status,
                 message: 'NASA FIRMS returned no usable geolocated detections.',
-                body
               };
               continue;
             }
@@ -2403,8 +2470,7 @@ export async function fetchRaw(feed, options) {
             lastError = {
               error: 'invalid_response',
               httpStatus: response.status,
-              message: 'NASA FIRMS returned invalid JSON.',
-              body
+              message: 'NASA FIRMS returned an invalid detection payload.',
             };
             continue;
           }
@@ -2429,8 +2495,8 @@ export async function fetchRaw(feed, options) {
         error: 'fetch_failed',
         httpStatus: response.status,
         upstreamStatus: response.status,
-        message: extractUpstreamErrorMessage(response.status, body),
-        body
+        message: feed.id === 'nasa-firms' ? 'HTTP ' + response.status : extractUpstreamErrorMessage(response.status, body),
+        body: feed.id === 'nasa-firms' ? undefined : body
       };
       // Client-side upstream errors are not recoverable via proxy fallback.
       if (!isRssFeed && response.status >= 400 && response.status < 500 && response.status !== 429 && feed.id !== 'gdelt-doc') {
@@ -2456,13 +2522,18 @@ export async function fetchRaw(feed, options) {
         };
       }
     }
-    const feedProxyFallback = feed.id === 'google-news-search'
-      ? await fetchFeedProxyFallback(feed, options, { timeoutMs: totalTimeoutMs })
+    const feedProxyTimeoutMs = gdacsRecoveryDeadline === null ? totalTimeoutMs : Math.max(0, gdacsRecoveryDeadline - Date.now());
+    const feedProxyFallback = (feed.id === 'google-news-search' || feed.id === 'gdacs-alerts') && feedProxyTimeoutMs > 0
+      ? await fetchFeedProxyFallback(feed, options, { timeoutMs: feedProxyTimeoutMs })
       : null;
     if (feedProxyFallback) {
       return feedProxyFallback;
     }
-    const fallback = shouldUseLiveFallback(feed, options) ? await fetchLiveFallback(feed.id) : null;
+    const snapshotTimeoutMs = gdacsDeadline === null ? FETCH_TIMEOUT_MS
+      : Math.max(0, Math.min(gdacsSnapshotReserveMs, gdacsDeadline - Date.now() - gdacsReturnReserveMs));
+    const fallback = shouldUseLiveFallback(feed, options) && snapshotTimeoutMs > 0
+      ? await fetchLiveFallback(feed.id, snapshotTimeoutMs)
+      : null;
     if (fallback) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'
@@ -2524,7 +2595,7 @@ export async function fetchRaw(feed, options) {
   const successResult = {
     body,
     httpStatus: response.status,
-    contentType: response.headers.get('content-type') || null,
+    contentType: feed.id === 'nasa-firms' ? 'application/json' : (response.headers.get('content-type') || null),
     fetchedUrl: stripSecretsFromUrl(fetchedUrl),
     proxyUsed: usedProxy,
     fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy && !configuredProxies.includes(usedProxy)),
@@ -2902,11 +2973,13 @@ server.registerTool(
   {
     title: 'Catalog Sources',
     description: 'List available sources, formats, and capabilities.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     inputSchema: z.object({
-      category: z.string().optional()
+      category: z.string().optional(),
+      state: z.string().optional()
     })
   },
-  async ({ category }) => {
+  async ({ category, state }) => {
     const filtered = category
       ? feeds.filter((feed) => feed.category === category)
       : feeds;
@@ -2925,6 +2998,7 @@ server.registerTool(
         configured: configuration.configured,
         configuration,
         coveredStates: configuration.coveredStates || null,
+        coverageStatus: isStateConnectorFeed(feed) ? getStateConnectorCoverage(state).coverageStatus : null,
         docsUrl: feed.docsUrl || null,
         urlTemplate: feed.url || null,
         tags: feed.tags || [],
@@ -2945,6 +3019,7 @@ server.registerTool(
   {
     title: 'Fetch Raw Feed',
     description: 'Fetch raw data from a source. Use params/start/end to request historical ranges where supported.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       sourceId: z.string(),
       query: z.string().optional(),
@@ -2970,6 +3045,7 @@ server.registerTool(
         content: [{ type: 'text', text: `Fetch failed: ${safeResult.message || safeResult.error}` }],
         structuredContent: {
           error: safeResult.error,
+          ...coverageFields(safeResult),
           code: safeResult.code || null,
           message: safeResult.message,
           httpStatus: safeResult.httpStatus || null,
@@ -2995,6 +3071,7 @@ server.registerTool(
   {
     title: 'Fetch Raw History',
     description: 'Fetch raw history for a source with start/end range when available.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       sourceId: z.string(),
       start: z.string(),
@@ -3018,6 +3095,7 @@ server.registerTool(
         content: [{ type: 'text', text: `History fetch failed: ${result.message || result.error}` }],
         structuredContent: {
           error: result.error,
+          ...coverageFields(result),
           sourceId,
           message: result.message,
           httpStatus: result.httpStatus || null
@@ -3045,6 +3123,7 @@ server.registerTool(
   {
     title: 'Money Flows',
     description: 'Aggregate LDA, USAspending, OpenFEC, and SAM.gov signals with scoring.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       query: z.string(),
       start: z.string().optional(),
@@ -3075,6 +3154,7 @@ server.registerTool(
   {
     title: 'List Normalized Signals',
     description: 'Return normalized signal items for a source (best-effort parsing).',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       sourceId: z.string(),
       query: z.string().optional(),
@@ -3099,7 +3179,7 @@ server.registerTool(
     if (safeResult.error) {
       return {
         content: [{ type: 'text', text: `Signals fetch failed: ${safeResult.message || safeResult.error}` }],
-        structuredContent: { error: safeResult.error, message: safeResult.message, httpStatus: safeResult.httpStatus || null }
+        structuredContent: { error: safeResult.error, ...coverageFields(safeResult), message: safeResult.message, httpStatus: safeResult.httpStatus || null }
       };
     }
 
@@ -3119,6 +3199,7 @@ server.registerTool(
       content: [{ type: 'text', text: `Signals: ${sliced.length}` }],
       structuredContent: {
         sourceId,
+        ...coverageFields(safeResult),
         items: sliced,
         fetchedUrl: safeResult.fetchedUrl || null,
         proxyUsed: safeResult.proxyUsed || null,
@@ -3134,6 +3215,7 @@ server.registerTool(
   {
     title: 'Get Normalized Signal',
     description: 'Return a single normalized signal item by id.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       sourceId: z.string(),
       id: z.string(),
@@ -3154,7 +3236,7 @@ server.registerTool(
     if (result.error) {
       return {
         content: [{ type: 'text', text: `Signal fetch failed: ${result.message || result.error}` }],
-        structuredContent: { error: result.error, message: result.message, httpStatus: result.httpStatus || null }
+        structuredContent: { error: result.error, ...coverageFields(result), message: result.message, httpStatus: result.httpStatus || null }
       };
     }
 
@@ -3171,6 +3253,7 @@ server.registerTool(
       content: [{ type: 'text', text: match ? `Signal ${id}` : `Signal ${id} not found` }],
       structuredContent: {
         sourceId,
+        ...coverageFields(result),
         item: match,
         fetchedUrl: result.fetchedUrl || null,
         proxyUsed: result.proxyUsed || null,
@@ -3186,6 +3269,7 @@ server.registerTool(
   {
     title: 'Smart Search Signals',
     description: 'Search across relevant sources using the Situation Room smart search logic. Returns normalized signals only.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       query: z.string().optional(),
       categories: z.array(z.string()).optional(),
@@ -3218,6 +3302,7 @@ server.registerTool(
           sourceName: feed.name,
           ok: false,
           error: result.error,
+          ...coverageFields(result),
           message: result.message || null,
           configured: configuration.configured,
           configuration,
@@ -3248,6 +3333,7 @@ server.registerTool(
         sourceId: feed.id,
         sourceName: feed.name,
         ok: true,
+        ...coverageFields(result),
         configured: getFeedConfiguration(feed).configured,
         count: filtered.length,
         fetchedUrl: result.fetchedUrl || null,

@@ -159,6 +159,16 @@ export function buildMarkdownReport(report) {
     lines.push('');
   }
 
+  const cpiPublication = feedResults.find((result) => result.feedId === 'bls-cpi')?.publication;
+  if (cpiPublication) {
+    lines.push('## CPI Publication Cadence');
+    lines.push(`- ${cpiPublication.status}: expected ${cpiPublication.expectedPeriod || 'unknown'}, observed ${cpiPublication.observedPeriod || 'unavailable'}.`);
+    lines.push(`- Scheduled publication: ${cpiPublication.scheduledPublicationAt || 'unknown'}; next: ${cpiPublication.nextScheduledPublicationAt || 'unknown'}; actual publication time unknown.`);
+    lines.push(`- Observation month: ${cpiPublication.observationDate || 'unknown'}; anchor age: ${cpiPublication.observationAgeMinutes ?? 'unknown'} minutes (not release lateness).`);
+    lines.push(`- Collection: proxy ${cpiPublication.collectionAvailability.proxy}, raw ${cpiPublication.collectionAvailability.raw}, signals ${cpiPublication.collectionAvailability.signals}.`);
+    lines.push('');
+  }
+
   if (!newAlerts.length && !criticalAlerts.length && !changedDocs.length && !degradedFeeds.length) {
     lines.push('No actionable changes detected.');
   }

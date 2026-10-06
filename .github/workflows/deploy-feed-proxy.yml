@@ -160,3 +160,12 @@ jobs:
             --mcp https://situation-room-mcp-382918878290.us-central1.run.app/mcp \
             --static https://congressionalinsights.github.io/TheSituationRoomAI \
             --allow-alerts
+      - name: Upload Feed core sentinel reports
+        if: always() && hashFiles('analysis/monitor/latest.json', 'analysis/monitor/latest.md') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: feed-core-sentinel-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            analysis/monitor/latest.json
+            analysis/monitor/latest.md
+          if-no-files-found: warn

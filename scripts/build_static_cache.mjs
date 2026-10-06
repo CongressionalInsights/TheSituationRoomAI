@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { redactCredentialFields, sanitizeEiaBody } from '../analysis/monitor/lib/public_payload_safety.mjs';
+import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
 
 const ROOT = process.cwd();
 const FEEDS_PATH = join(ROOT, 'data', 'feeds.json');
@@ -252,47 +253,7 @@ function parseJsonArray(value) {
 }
 
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
-  const rows = Array.isArray(data)
-    ? data
-    : (Array.isArray(data?.items) ? data.items : []);
-  return rows.slice(0, 200).map((entry) => {
-    const geoLat = Number(entry?.geo?.lat);
-    const geoLon = Number(entry?.geo?.lon);
-    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
-    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
-    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
-    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
-    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
-    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
-    const frp = entry.frp ?? entry.fire_radiative_power;
-    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
-    const parts = [];
-    if (brightness) parts.push(`Brightness ${brightness}`);
-    if (frp) parts.push(`FRP ${frp}`);
-    if (confidence) parts.push(`Confidence ${confidence}`);
-    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
-    let publishedAt = Date.now();
-    if (date) {
-      const time = String(entry.acq_time || '').padStart(4, '0');
-      if (time && time.length === 4 && /^\d+$/.test(time)) {
-        const stamp = `${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`;
-        const parsed = Date.parse(stamp);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      } else {
-        const parsed = Date.parse(date);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      }
-    }
-    return {
-      title: entry.title || 'Fire detection',
-      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
-      latitude: resolvedLat,
-      longitude: resolvedLon,
-      publishedAt,
-      source,
-      alertType: 'Fire'
-    };
-  }).filter(Boolean);
+  return normalizeNasaFirmsItems(data, source);
 }
 
 function normalizeGovinfoPackages(data = {}) {
@@ -333,28 +294,29 @@ async function buildArcgisFireFallback() {
     if (!response.ok) return null;
     const data = await response.json();
     const features = Array.isArray(data?.features) ? data.features : [];
-    const items = features.slice(0, 200).map((feature) => {
-      const props = feature.properties || {};
-      const coords = feature.geometry?.coordinates || [];
-      const lon = Number(coords[0]);
-      const lat = Number(coords[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      const label = props.name || props.NAME || props.fire_name || 'Fire detection';
-      const confidence = props.confidence || props.CONFIDENCE || props.confidence_level;
-      const frp = props.frp || props.FRP;
-      const parts = [];
-      if (confidence) parts.push(`Confidence ${confidence}`);
-      if (frp) parts.push(`FRP ${frp}`);
-      return {
-        title: label,
-        summary: parts.length ? parts.join(' | ') : 'NOAA HMS fire detection',
-        latitude: lat,
-        longitude: lon,
-        publishedAt: props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now(),
-        source: 'NOAA HMS',
-        alertType: 'Fire'
-      };
-    }).filter(Boolean);
+    const items = selectNewestFirmsItems((function* () {
+      for (const feature of features) {
+        const props = feature?.properties || {};
+        const coords = feature?.geometry?.coordinates || [];
+        const geo = nasaFirmsCoordinates({ latitude: coords[1], longitude: coords[0] });
+        if (!geo) continue;
+        const label = props.name || props.NAME || props.fire_name || 'Fire detection';
+        const confidence = props.confidence || props.CONFIDENCE || props.confidence_level;
+        const frp = props.frp || props.FRP;
+        const parts = [];
+        if (confidence) parts.push(`Confidence ${confidence}`);
+        if (frp) parts.push(`FRP ${frp}`);
+        yield {
+          title: label,
+          summary: parts.length ? parts.join(' | ') : 'NOAA HMS fire detection',
+          latitude: geo.lat,
+          longitude: geo.lon,
+          publishedAt: parseFirmsTimestamp(props.acq_date || props.date),
+          source: 'NOAA HMS',
+          alertType: 'Fire'
+        };
+      }
+    })());
     if (!items.length) return null;
     return {
       id: 'nasa-firms',
@@ -663,7 +625,15 @@ function isUsableJsonSnapshot(payload, feed = null) {
       return false;
     }
     if (feed?.id === 'nasa-firms') {
-      return buildNasaFirmsItems(parsed).length > 0;
+      if (parsed?.error) return false;
+      if (buildNasaFirmsItems(parsed).length) return true;
+      const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.items) ? parsed.items : []);
+      // NOAA substitutions can explicitly lack acquisition time; NASA primaries cannot.
+      return rows.some((entry) => entry?.source === 'NOAA HMS'
+        && entry.publishedAt === null
+        && [entry.acq_date, entry.acq_time, entry.date, entry.timestamp, entry.acquired]
+          .every((value) => value === null || value === undefined)
+        && nasaFirmsCoordinates(entry));
     }
     return true;
   } catch {
@@ -901,10 +871,9 @@ async function buildFeedPayload(feed) {
     if (fallback) return fallback;
   }
 
-  if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
+  if (!payload.error && feed.id === 'nasa-firms') {
     try {
-      const parsed = JSON.parse(body);
-      const items = buildNasaFirmsItems(parsed);
+      const items = buildNasaFirmsItems(parseNasaFirmsRows(body, contentType));
       if (items.length) {
         payload.body = JSON.stringify({ items });
         payload.contentType = 'application/json';
@@ -914,8 +883,8 @@ async function buildFeedPayload(feed) {
         payload.message = 'NASA FIRMS returned no usable geolocated detections.';
       }
     } catch {
-      payload.error = 'invalid_json';
-      payload.message = 'NASA FIRMS returned invalid JSON.';
+      payload.error = 'invalid_response';
+      payload.message = 'NASA FIRMS returned an invalid detection payload.';
     }
   }
 
@@ -948,6 +917,8 @@ async function buildFeedPayload(feed) {
   }
 
   if (payload.error && feed.id === 'nasa-firms') {
+    payload.body = JSON.stringify({ error: payload.error, message: payload.message });
+    payload.contentType = 'application/json';
     const fireFallback = await buildArcgisFireFallback();
     if (fireFallback) return fireFallback;
   }
@@ -982,7 +953,7 @@ async function buildFeedPayload(feed) {
       const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
       const fallbackBody = await fallbackResponse.text();
       if (fallbackResponse.ok && fallbackBody) {
-        const items = buildNasaFirmsItems(JSON.parse(fallbackBody));
+        const items = buildNasaFirmsItems(parseNasaFirmsRows(fallbackBody, fallbackResponse.headers.get('content-type')));
         if (items.length) {
         payload = {
           id: feed.id,

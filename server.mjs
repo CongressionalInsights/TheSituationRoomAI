@@ -4,6 +4,7 @@ import { dirname, extname, join, normalize } from 'path';
 import { fileURLToPath } from 'url';
 import { gunzipSync } from 'zlib';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './shared/state-signals.mjs';
+import { normalizeNasaFirmsItems, parseNasaFirmsRows } from './scripts/firms-csv.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1048,46 +1049,7 @@ function filterCongressCommitteeBillsBody(body, requestedCongress = '') {
 }
 
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
-  const rows = Array.isArray(data)
-    ? data
-    : (Array.isArray(data?.items) ? data.items : []);
-  return rows.slice(0, 200).map((entry) => {
-    const geoLat = Number(entry?.geo?.lat);
-    const geoLon = Number(entry?.geo?.lon);
-    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
-    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
-    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
-    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
-    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
-    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
-    const frp = entry.frp ?? entry.fire_radiative_power;
-    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
-    const parts = [];
-    if (brightness) parts.push(`Brightness ${brightness}`);
-    if (frp) parts.push(`FRP ${frp}`);
-    if (confidence) parts.push(`Confidence ${confidence}`);
-    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
-    let publishedAt = Date.now();
-    if (date) {
-      const time = String(entry.acq_time || '').padStart(4, '0');
-      if (time.length === 4 && /^\d+$/.test(time)) {
-        const parsed = Date.parse(`${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      } else {
-        const parsed = Date.parse(date);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      }
-    }
-    return {
-      title: entry.title || 'Fire detection',
-      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
-      latitude: resolvedLat,
-      longitude: resolvedLon,
-      publishedAt,
-      source,
-      alertType: 'Fire'
-    };
-  }).filter(Boolean);
+  return normalizeNasaFirmsItems(data, source);
 }
 
 function looksLikeHtmlDocument(text = '') {
@@ -1119,7 +1081,8 @@ function normalizeStateConnectorSignalType(value, fallback = '') {
   return raw.replace(/\s+/g, '_');
 }
 
-function buildStateConnectorConfigPayload(feed, message) {
+function buildStateConnectorConfigPayload(feed, message, stateCode = '') {
+  const coverageStatus = stateCode ? 'SUPPORTED' : 'PARTIAL';
   return {
     id: feed.id,
     fetchedAt: Date.now(),
@@ -1127,8 +1090,29 @@ function buildStateConnectorConfigPayload(feed, message) {
     httpStatus: 200,
     error: 'requires_config',
     message,
-    body: JSON.stringify({ error: 'requires_config', message })
+    coverageStatus,
+    requestedState: stateCode || null,
+    coveredStates: feed.coveredStates,
+    body: JSON.stringify({ error: 'requires_config', message, coverageStatus, requestedState: stateCode || null, coveredStates: feed.coveredStates })
   };
+}
+
+function verifiedStateConnectorZero(parsed, results, stateCode, signalType) {
+  const meta = parsed?.meta;
+  return Boolean(
+    stateCode
+    && results.length === 0
+    && meta?.verifiedZeroResults === true
+    && meta?.state === stateCode
+    && meta?.signalType === signalType
+    && meta?.coverageStatus === 'SUPPORTED'
+    && meta?.count === 0
+    && meta?.partial === false
+    && meta?.adapterCount === 1
+    && Array.isArray(meta?.errors) && meta.errors.length === 0
+    && Array.isArray(meta?.coveredStates) && meta.coveredStates.includes(stateCode)
+    && Number.isFinite(Date.parse(meta?.generatedAt))
+  );
 }
 
 function normalizeStateConnectorResult(entry, signalType, fallbackStateCode = '') {
@@ -1170,20 +1154,34 @@ function normalizeStateConnectorResult(entry, signalType, fallbackStateCode = ''
   };
 }
 
-async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETCH_TIMEOUT_MS) {
-  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
-    return buildStateConnectorConfigPayload(feed, 'State connector provider is not configured.');
-  }
-
+async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETCH_TIMEOUT_MS, requestParams = {}) {
   const signalType = normalizeStateConnectorSignalType(
     mergedParams.signalType,
     Array.isArray(feed?.capabilities) && feed.capabilities.length ? feed.capabilities[0] : ''
   );
-  const stateCode = normalizeJurisdictionCode(
-    mergedParams.state
-    || mergedParams.jurisdictionCode
-    || mergedParams.jurisdiction
-  );
+  const requestedState = requestParams.state || requestParams.jurisdictionCode || requestParams.jurisdiction
+    || mergedParams.state || mergedParams.jurisdictionCode || mergedParams.jurisdiction || '';
+  const stateCode = normalizeJurisdictionCode(requestedState);
+  if (requestedState && (!stateCode || !feed.coveredStates?.includes(stateCode))) {
+    const coverageStatus = stateCode ? 'UNSUPPORTED' : 'INVALID_STATE';
+    const error = stateCode ? 'unsupported_state' : 'invalid_state';
+    const message = stateCode ? `${feed.id} does not cover ${stateCode}.` : `Invalid state: ${requestedState}.`;
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      httpStatus: 400,
+      error,
+      message,
+      coverageStatus,
+      requestedState: stateCode || String(requestedState),
+      coveredStates: feed.coveredStates,
+      body: JSON.stringify({ error, message, coverageStatus, requestedState: stateCode || String(requestedState), coveredStates: feed.coveredStates })
+    };
+  }
+  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
+    return buildStateConnectorConfigPayload(feed, 'State connector provider is not configured.', stateCode);
+  }
   const requestedLimit = toPositiveInt(
     mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
     STATE_CONNECTOR_DEFAULT_LIMIT
@@ -1234,7 +1232,11 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
       };
     }
 
-    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    if (!Array.isArray(parsed?.results)) {
+      return { id: feed.id, fetchedAt: Date.now(), contentType: 'application/json', httpStatus: 502, error: 'invalid_response', message: 'State connector response has no results array.', body: JSON.stringify({ error: 'invalid_response' }) };
+    }
+    const results = parsed.results;
+    const verifiedZeroResults = verifiedStateConnectorZero(parsed, results, stateCode, signalType);
     const normalizedResults = results
       .map((entry) => normalizeStateConnectorResult(entry, signalType, stateCode))
       .filter(Boolean)
@@ -1244,6 +1246,7 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
       fetchedAt: Date.now(),
       contentType: 'application/json',
       httpStatus: 200,
+      coverageStatus: stateCode ? 'SUPPORTED' : 'PARTIAL',
       body: JSON.stringify({
         results: normalizedResults,
         meta: {
@@ -1251,7 +1254,9 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
           provider: 'state-connector',
           signalType: signalType || null,
           state: stateCode || null,
-          count: normalizedResults.length
+          count: normalizedResults.length,
+          coverageStatus: stateCode ? 'SUPPORTED' : 'PARTIAL',
+          verifiedZeroResults
         }
       })
     };
@@ -1388,7 +1393,8 @@ async function fetchEnergyMap() {
 
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
   const mergedParams = mergeFeedParams(feed, params);
-  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}`;
+  const connectorRequestKey = isStateConnectorFeed(feed) ? `:${serializeParams(sanitizeParamsObject(params))}` : '';
+  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const cached = cache.get(cacheKey);
   if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
@@ -1423,7 +1429,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
 
   if (isStateConnectorFeed(feed)) {
-    const connectorPayload = await fetchStateConnectorFeed(feed, mergedParams, feed.timeoutMs || FETCH_TIMEOUT_MS);
+    const connectorPayload = await fetchStateConnectorFeed(feed, mergedParams, feed.timeoutMs || FETCH_TIMEOUT_MS, params);
     if (!connectorPayload.error) {
       cache.set(cacheKey, connectorPayload);
     }
@@ -1505,9 +1511,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     payload.error = 'invalid_html';
     payload.message = 'Upstream returned HTML instead of JSON.';
   }
-  if (!payload.error && feed.id === 'nasa-firms' && contentType.includes('json')) {
+  if (!payload.error && feed.id === 'nasa-firms') {
     try {
-      const items = buildNasaFirmsItems(JSON.parse(body));
+      const items = buildNasaFirmsItems(parseNasaFirmsRows(body, contentType));
       if (items.length) {
         body = JSON.stringify({ items });
         contentType = 'application/json';
@@ -1518,9 +1524,13 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         payload.message = 'NASA FIRMS returned no usable geolocated detections.';
       }
     } catch {
-      payload.error = 'invalid_json';
-      payload.message = 'NASA FIRMS returned invalid JSON.';
+      payload.error = 'invalid_response';
+      payload.message = 'NASA FIRMS returned an invalid detection payload.';
     }
+  }
+  if (payload.error && feed.id === 'nasa-firms') {
+    payload.body = JSON.stringify({ error: payload.error, message: payload.message });
+    payload.contentType = 'application/json';
   }
   if (!payload.error && feed.congressCommitteeBills && contentType.includes('json')) {
     body = filterCongressCommitteeBillsBody(body, mergedParams.congress || feed.defaultParams?.congress);

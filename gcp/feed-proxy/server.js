@@ -11,6 +11,8 @@ import {
   STATE_LEGISLATION_SCOPED_TIMEOUT_MS
 } from './state-legislation-timeout.js';
 import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
+import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
+import { fetchOpenAqMcp, isDefaultOpenAqRequest } from './openaq-mcp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -709,46 +711,7 @@ function applyProxy(url, proxy) {
 }
 
 function buildNasaFirmsItems(data, source = 'NASA FIRMS') {
-  const rows = Array.isArray(data)
-    ? data
-    : (Array.isArray(data?.items) ? data.items : []);
-  return rows.slice(0, 200).map((entry) => {
-    const geoLat = Number(entry?.geo?.lat);
-    const geoLon = Number(entry?.geo?.lon);
-    const lat = Number(entry.latitude ?? entry.lat ?? entry.Latitude ?? entry.lat_deg ?? entry.latitude_deg);
-    const lon = Number(entry.longitude ?? entry.lon ?? entry.Longitude ?? entry.lon_deg ?? entry.longitude_deg);
-    const resolvedLat = Number.isFinite(geoLat) ? geoLat : lat;
-    const resolvedLon = Number.isFinite(geoLon) ? geoLon : lon;
-    if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) return null;
-    const brightness = entry.bright_ti4 ?? entry.brightness ?? entry.bright_ti5 ?? entry.bright;
-    const frp = entry.frp ?? entry.fire_radiative_power;
-    const confidence = entry.confidence ?? entry.conf ?? entry.confidence_level;
-    const parts = [];
-    if (brightness) parts.push(`Brightness ${brightness}`);
-    if (frp) parts.push(`FRP ${frp}`);
-    if (confidence) parts.push(`Confidence ${confidence}`);
-    const date = entry.acq_date || entry.date || entry.timestamp || entry.acquired;
-    let publishedAt = Date.now();
-    if (date) {
-      const time = String(entry.acq_time || '').padStart(4, '0');
-      if (time.length === 4 && /^\d+$/.test(time)) {
-        const parsed = Date.parse(`${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      } else {
-        const parsed = Date.parse(date);
-        if (!Number.isNaN(parsed)) publishedAt = parsed;
-      }
-    }
-    return {
-      title: entry.title || 'Fire detection',
-      summary: parts.length ? parts.join(' | ') : 'Active fire detection',
-      latitude: resolvedLat,
-      longitude: resolvedLon,
-      publishedAt,
-      source,
-      alertType: 'Fire'
-    };
-  }).filter(Boolean);
+  return normalizeNasaFirmsItems(data, source);
 }
 
 async function buildArcgisFireFallback() {
@@ -759,23 +722,24 @@ async function buildArcgisFireFallback() {
     if (!response.ok) return null;
     const data = await response.json();
     const features = Array.isArray(data?.features) ? data.features : [];
-    const items = features.slice(0, 200).map((feature) => {
-      const props = feature.properties || {};
-      const coords = feature.geometry?.coordinates || [];
-      const lon = Number(coords[0]);
-      const lat = Number(coords[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      const publishedAt = props.acq_date || props.date ? Date.parse(props.acq_date || props.date) : Date.now();
-      return {
-        title: props.name || props.NAME || props.fire_name || 'Fire detection',
-        summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
-        latitude: lat,
-        longitude: lon,
-        publishedAt: Number.isFinite(publishedAt) ? publishedAt : Date.now(),
-        source: 'NOAA HMS',
-        alertType: 'Fire'
-      };
-    }).filter(Boolean);
+    const items = selectNewestFirmsItems((function* () {
+      for (const feature of features) {
+        const props = feature?.properties || {};
+        const coords = feature?.geometry?.coordinates || [];
+        const geo = nasaFirmsCoordinates({ latitude: coords[1], longitude: coords[0] });
+        if (!geo) continue;
+        const publishedAt = parseFirmsTimestamp(props.acq_date || props.date);
+        yield {
+          title: props.name || props.NAME || props.fire_name || 'Fire detection',
+          summary: props.frp || props.FRP ? `FRP ${props.frp || props.FRP}` : 'NOAA HMS fire detection',
+          latitude: geo.lat,
+          longitude: geo.lon,
+          publishedAt,
+          source: 'NOAA HMS',
+          alertType: 'Fire'
+        };
+      }
+    })());
     if (!items.length) return null;
     return {
       id: 'nasa-firms',
@@ -981,18 +945,19 @@ async function fetchGpsJam(force = false) {
   return payload;
 }
 
-async function fetchWithTimeout(url, options, timeoutMs) {
+async function fetchWithTimeout(url, options, timeoutMs, consumeResponse = null) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return consumeResponse ? await consumeResponse(response) : response;
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false } = {}) {
-  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: true });
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false, includeHttpFallback = true } = {}) {
+  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback });
   const perAttemptTimeout = budgetAttempts
     ? Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)))
     : timeoutMs;
@@ -1011,12 +976,14 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_
   throw new Error('fetch_failed');
 }
 
-async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { deadlineMs = null } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: false });
-  const effectiveTimeout = Math.max(8000, timeoutMs);
-  const directTimeout = Math.max(15000, Math.floor(effectiveTimeout * 0.75));
+  const effectiveTimeout = deadlineMs === null ? Math.max(8000, timeoutMs) : Math.max(0, deadlineMs - Date.now());
+  const directTimeout = deadlineMs === null
+    ? Math.max(15000, Math.floor(effectiveTimeout * 0.75))
+    : Math.floor(effectiveTimeout * 0.75);
   const fallbackTimeout = candidates.length > 1
-    ? Math.max(4000, Math.floor((effectiveTimeout * 0.25) / (candidates.length - 1)))
+    ? Math.max(deadlineMs === null ? 4000 : 1, Math.floor((effectiveTimeout * 0.25) / (candidates.length - 1)))
     : directTimeout;
 
   let lastResponse = null;
@@ -1024,11 +991,20 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
   let lastContentType = 'text/plain';
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index];
-    const perAttemptTimeout = index === 0 ? directTimeout : fallbackTimeout;
+    const remainingMs = deadlineMs === null ? Infinity : deadlineMs - Date.now();
+    if (remainingMs <= 0) break;
+    const perAttemptTimeout = Math.min(index === 0 ? directTimeout : fallbackTimeout, remainingMs);
     try {
-      const response = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout);
+      let response;
+      let body;
+      if (deadlineMs === null) {
+        response = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout);
+        body = await response.text();
+      } else {
+        [response, body] = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout,
+          async (upstream) => [upstream, await upstream.text()]);
+      }
       const contentType = response.headers.get('content-type') || 'text/plain';
-      const body = await response.text();
       lastResponse = response;
       lastBody = body;
       lastContentType = contentType;
@@ -1152,7 +1128,8 @@ function normalizeStateConnectorSignalType(value, fallback = '') {
   return raw.replace(/\s+/g, '_');
 }
 
-function buildStateConnectorConfigPayload(feed, message) {
+function buildStateConnectorConfigPayload(feed, message, stateCode = '') {
+  const coverageStatus = stateCode ? 'SUPPORTED' : 'PARTIAL';
   return {
     id: feed.id,
     fetchedAt: Date.now(),
@@ -1160,8 +1137,29 @@ function buildStateConnectorConfigPayload(feed, message) {
     httpStatus: 200,
     error: 'requires_config',
     message,
-    body: JSON.stringify({ error: 'requires_config', message })
+    coverageStatus,
+    requestedState: stateCode || null,
+    coveredStates: feed.coveredStates,
+    body: JSON.stringify({ error: 'requires_config', message, coverageStatus, requestedState: stateCode || null, coveredStates: feed.coveredStates })
   };
+}
+
+function verifiedStateConnectorZero(parsed, results, stateCode, signalType) {
+  const meta = parsed?.meta;
+  return Boolean(
+    stateCode
+    && results.length === 0
+    && meta?.verifiedZeroResults === true
+    && meta?.state === stateCode
+    && meta?.signalType === signalType
+    && meta?.coverageStatus === 'SUPPORTED'
+    && meta?.count === 0
+    && meta?.partial === false
+    && meta?.adapterCount === 1
+    && Array.isArray(meta?.errors) && meta.errors.length === 0
+    && Array.isArray(meta?.coveredStates) && meta.coveredStates.includes(stateCode)
+    && Number.isFinite(Date.parse(meta?.generatedAt))
+  );
 }
 
 function normalizeStateConnectorResult(entry, signalType, fallbackStateCode = '') {
@@ -1203,20 +1201,34 @@ function normalizeStateConnectorResult(entry, signalType, fallbackStateCode = ''
   };
 }
 
-async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETCH_TIMEOUT_MS) {
-  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
-    return buildStateConnectorConfigPayload(feed, 'State connector provider is not configured.');
-  }
-
+async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETCH_TIMEOUT_MS, requestParams = {}) {
   const signalType = normalizeStateConnectorSignalType(
     mergedParams.signalType,
     Array.isArray(feed?.capabilities) && feed.capabilities.length ? feed.capabilities[0] : ''
   );
-  const stateCode = normalizeJurisdictionCode(
-    mergedParams.state
-    || mergedParams.jurisdictionCode
-    || mergedParams.jurisdiction
-  );
+  const requestedState = requestParams.state || requestParams.jurisdictionCode || requestParams.jurisdiction
+    || mergedParams.state || mergedParams.jurisdictionCode || mergedParams.jurisdiction || '';
+  const stateCode = normalizeJurisdictionCode(requestedState);
+  if (requestedState && (!stateCode || !feed.coveredStates?.includes(stateCode))) {
+    const coverageStatus = stateCode ? 'UNSUPPORTED' : 'INVALID_STATE';
+    const error = stateCode ? 'unsupported_state' : 'invalid_state';
+    const message = stateCode ? `${feed.id} does not cover ${stateCode}.` : `Invalid state: ${requestedState}.`;
+    return {
+      id: feed.id,
+      fetchedAt: Date.now(),
+      contentType: 'application/json',
+      httpStatus: 400,
+      error,
+      message,
+      coverageStatus,
+      requestedState: stateCode || String(requestedState),
+      coveredStates: feed.coveredStates,
+      body: JSON.stringify({ error, message, coverageStatus, requestedState: stateCode || String(requestedState), coveredStates: feed.coveredStates })
+    };
+  }
+  if (!STATE_CONNECTOR_BASE_URL || !STATE_CONNECTOR_API_KEY) {
+    return buildStateConnectorConfigPayload(feed, 'State connector provider is not configured.', stateCode);
+  }
   const requestedLimit = toPositiveInt(
     mergedParams.limit || mergedParams.per_page || STATE_CONNECTOR_DEFAULT_LIMIT,
     STATE_CONNECTOR_DEFAULT_LIMIT
@@ -1267,7 +1279,11 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
       };
     }
 
-    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    if (!Array.isArray(parsed?.results)) {
+      return { id: feed.id, fetchedAt: Date.now(), contentType: 'application/json', httpStatus: 502, error: 'invalid_response', message: 'State connector response has no results array.', body: JSON.stringify({ error: 'invalid_response' }) };
+    }
+    const results = parsed.results;
+    const verifiedZeroResults = verifiedStateConnectorZero(parsed, results, stateCode, signalType);
     const normalizedResults = results
       .map((entry) => normalizeStateConnectorResult(entry, signalType, stateCode))
       .filter(Boolean)
@@ -1277,6 +1293,7 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
       fetchedAt: Date.now(),
       contentType: 'application/json',
       httpStatus: 200,
+      coverageStatus: stateCode ? 'SUPPORTED' : 'PARTIAL',
       body: JSON.stringify({
         results: normalizedResults,
         meta: {
@@ -1284,7 +1301,9 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
           provider: 'state-connector',
           signalType: signalType || null,
           state: stateCode || null,
-          count: normalizedResults.length
+          count: normalizedResults.length,
+          coverageStatus: stateCode ? 'SUPPORTED' : 'PARTIAL',
+          verifiedZeroResults
         }
       })
     };
@@ -1303,12 +1322,22 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
 
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
   const mergedParams = mergeFeedParams(feed, params);
-  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}`;
+  // Keep caller options visible when the feed does not declare parameter support.
+  const useOpenAqMcp = isDefaultOpenAqRequest(feed, { query, key, keyParam, keyHeader, params: sanitizeParamsObject(params) });
+  const bypassOpenAqUserCache = feed.id === 'openaq-api' && Boolean(key || keyParam || keyHeader);
+  const sourceCacheKey = feed.id === 'openaq-api' ? `:${useOpenAqMcp ? 'mcp' : 'direct'}` : '';
+  const connectorRequestKey = isStateConnectorFeed(feed) ? `:${serializeParams(sanitizeParamsObject(params))}` : '';
+  const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}${sourceCacheKey}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const timeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
-  const cached = cache.get(cacheKey);
+  const cached = bypassOpenAqUserCache ? undefined : cache.get(cacheKey);
   const staleCache = cached;
-  if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
+  const retryStaleGoogleNews = feed.id === 'google-news-us' && cached?.stale;
+  // Leave half the browser's 30-second ceiling to return the retained stale body.
+  const staleGoogleNewsDeadline = retryStaleGoogleNews && isUsableStaleFeedPayload(feed, staleCache)
+    ? Date.now() + Math.min(timeoutMs, 15000)
+    : null;
+  if (!force && cached && !retryStaleGoogleNews && Date.now() - cached.fetchedAt < ttlMs) {
     return cached;
   }
 
@@ -1333,8 +1362,14 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     };
   }
 
+  if (useOpenAqMcp) {
+    const payload = await fetchOpenAqMcp(timeoutMs);
+    if (!payload.error) cache.set(cacheKey, payload);
+    return payload;
+  }
+
   if (isStateConnectorFeed(feed)) {
-    const connectorPayload = await fetchStateConnectorFeed(feed, mergedParams, timeoutMs);
+    const connectorPayload = await fetchStateConnectorFeed(feed, mergedParams, timeoutMs, params);
     if (!connectorPayload.error) {
       cache.set(cacheKey, connectorPayload);
     }
@@ -1385,7 +1420,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const applied = applyKey(url, feed, effectiveKey, keyParam, keyHeader);
   const headers = {
     'User-Agent': appConfig.userAgent,
-    'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
+    'Accept': feed.id === 'openaq-api'
+      ? 'application/json, text/plain, */*'
+      : 'application/rss+xml, application/atom+xml, application/xml, text/xml, application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.9',
     ...applied.headers
   };
@@ -1437,6 +1474,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   let responseOk = false;
   let contentType = 'text/plain';
   let body = '';
+  let firmsError = null;
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
@@ -1451,7 +1489,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       body = await response.text();
     } else {
       if (isRssFeed) {
-        const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, timeoutMs);
+        const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, timeoutMs, { deadlineMs: staleGoogleNewsDeadline });
         response = rssResult.response;
         contentType = rssResult.contentType;
         body = rssResult.body;
@@ -1474,7 +1512,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
           }
           response = scopedResult.response;
         } else {
-          response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, { budgetAttempts });
+          // OpenAQ authenticates with a header; never replay it over plaintext HTTP.
+          response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
+            budgetAttempts,
+            includeHttpFallback: feed.id !== 'openaq-api'
+          });
         }
         responseOk = response.ok;
         contentType = response.headers.get('content-type') || 'text/plain';
@@ -1487,17 +1529,19 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     if (feed.id === 'gdelt-doc' && responseOk && !hasUsableGdeltPayload(body)) {
       responseOk = false;
     }
-    if (feed.id === 'nasa-firms' && responseOk && typeof body === 'string' && contentType.includes('json')) {
+    if (feed.id === 'nasa-firms' && responseOk && typeof body === 'string') {
       try {
-        const items = buildNasaFirmsItems(JSON.parse(body));
+        const items = buildNasaFirmsItems(parseNasaFirmsRows(body, contentType));
         if (items.length) {
           body = JSON.stringify({ items });
           contentType = 'application/json';
         } else {
           responseOk = false;
+          firmsError = { error: 'empty_payload', message: 'NASA FIRMS returned no usable geolocated detections.' };
         }
       } catch {
         responseOk = false;
+        firmsError = { error: 'invalid_response', message: 'NASA FIRMS returned an invalid detection payload.' };
       }
     }
     if (feed.congressCommitteeBills && responseOk && typeof body === 'string' && contentType.includes('json')) {
@@ -1616,12 +1660,16 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     payload.error = 'invalid_rss';
     payload.message = 'Upstream response was not valid RSS/Atom XML.';
   } else if (feed.id === 'nasa-firms' && !responseOk) {
-    payload.error = 'empty_payload';
-    payload.message = 'NASA FIRMS returned no usable geolocated detections.';
+    payload.error = firmsError?.error || 'empty_payload';
+    payload.message = firmsError?.message || 'NASA FIRMS returned no usable geolocated detections.';
   }
-  const shouldCache = isEiaSeries
+  if (payload.error && feed.id === 'nasa-firms') {
+    payload.body = JSON.stringify({ error: payload.error, message: payload.message });
+    payload.contentType = 'application/json';
+  }
+  const shouldCache = !bypassOpenAqUserCache && (isEiaSeries
     ? responseOk
-    : !payload.error;
+    : !payload.error);
   if (shouldCache) {
     cache.set(cacheKey, payload);
   }

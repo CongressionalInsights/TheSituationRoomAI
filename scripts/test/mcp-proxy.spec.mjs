@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const {
   getStateBillSortTimestamp,
@@ -25,6 +27,7 @@ const {
   findBestMoneyNameMatch,
   getOpenStatesCachedRaw,
   getFeedConfiguration,
+  getStateConnectorCoverage,
   getOpenStatesSuccessCacheTtl,
   resetOpenStatesRawCacheForTest,
   fetchFeedProxyFallback,
@@ -39,6 +42,465 @@ const {
 } = await import('../../gcp/mcp-proxy/server.js');
 const { sanitizeEiaPayload } = await import('../../gcp/mcp-proxy/public-payload-safety.js');
 
+const typedSeriesFixtures = JSON.parse(fs.readFileSync(new URL('./fixtures/monitor/eia-bls-retained.json', import.meta.url)));
+const typedSeriesFeeds = JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', import.meta.url))).feeds
+  .filter((feed) => Object.hasOwn(typedSeriesFixtures, feed.id));
+const normalizeTypedFixture = (id, body = typedSeriesFixtures[id]) => normalizeJsonSignals(
+  JSON.stringify(body), typedSeriesFeeds.find((feed) => feed.id === id)
+);
+
+test('MCP tools/list emits retrieval annotations without changing existing declarations', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('tools/list must not fetch providers'); });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'annotations-contract-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const send = serverTransport.send.bind(serverTransport);
+  let emitted;
+  t.mock.method(serverTransport, 'send', async (message, ...rest) => {
+    if (message.result?.tools) emitted = structuredClone(message.result.tools);
+    return send(message, ...rest);
+  });
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const { tools } = await client.listTools();
+  assert.deepEqual(tools, emitted);
+  assert.deepEqual(tools.map(tool => tool.name), [
+    'catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart'
+  ]);
+  // Pin the base SDK declarations, excluding only the new descriptive hints.
+  const declarations = emitted.map(({ annotations, ...tool }) => tool);
+  assert.equal(createHash('sha256').update(JSON.stringify(declarations)).digest('hex'),
+    'f7629638ad47a4e9f21b8dedf3b40d3a6cb3ffa5aec7cb33b58e67fb3b685629');
+  for (const tool of tools) {
+    await t.test(tool.name, () => assert.deepEqual(tool.annotations, {
+      readOnlyHint: true, destructiveHint: false, openWorldHint: tool.name !== 'catalog.sources'
+    }));
+  }
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test('EIA retained WTI, Brent and gas observations retain values, units, periods and facets', () => {
+  for (const feed of typedSeriesFeeds.filter((entry) => entry.id !== 'bls-cpi')) {
+    const rows = typedSeriesFixtures[feed.id].response.data;
+    const items = normalizeTypedFixture(feed.id);
+    assert.equal(items.length, rows.length);
+    assert.equal(new Set(items.map(createItemId)).size, rows.length);
+    items.forEach((item, index) => {
+      const row = rows[index];
+      assert.equal(item.value, row.value);
+      assert.equal(item.units, row.units);
+      assert.equal(item.seriesId, row.series);
+      assert.equal(item.period, row.period);
+      assert.equal(item.description, row['series-description']);
+      assert.equal(item.title, row['series-description']);
+      assert.equal(item.publishedAt, Date.parse(`${row.period}T00:00:00Z`));
+      assert.equal(item.observationDate, row.period);
+      assert.equal(item.facets.product, row.product);
+      assert.equal(item.facets['process-name'], row['process-name']);
+      assert.match(item.summary, new RegExp(String(row.value).replace('.', '\\.')));
+      assert.equal(item.url, 'https://www.eia.gov/opendata/');
+    });
+  }
+});
+
+test('EIA identities are stable across clocks, row order and revisions, distinct across sources and series', (t) => {
+  const body = structuredClone(typedSeriesFixtures['energy-eia']);
+  body.response.data.push({ ...body.response.data[0], series: 'OTHER-SERIES' });
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2030-01-01') });
+  const before = normalizeTypedFixture('energy-eia', body);
+  t.mock.timers.tick(86400000);
+  body.response.data.reverse().forEach((row) => { row.value = 0; row.units = 'Revised metadata'; });
+  const after = normalizeTypedFixture('energy-eia', body);
+  assert.deepEqual(after.map(createItemId).reverse(), before.map(createItemId));
+  assert.equal(new Set(before.map(createItemId)).size, 4);
+  const otherSource = normalizeTypedFixture('energy-eia-brent', body);
+  assert.notEqual(createItemId(after[0]), createItemId(otherSource[0]));
+  assert.equal(dedupeSignals([...after, ...otherSource]).length, 8, 'shared public evidence URL must not collapse observations');
+});
+
+test('EIA zero, unavailable and invalid date observations never become retrieval-clock data', () => {
+  const rows = typedSeriesFixtures['energy-eia'].response.data;
+  const cases = [
+    ['2024-02-29', '0', 0, Date.parse('2024-02-29T00:00:00Z')],
+    ['2026-09', '-1.5', -1.5, Date.parse('2026-09-01T00:00:00Z')],
+    ['2026-02-30', null, null, null],
+    ['2026-13', '', null, null],
+    ['unknown', '   ', null, null],
+    ['', '-', null, null],
+    ['2026', 'NaN', null, null],
+    ['2026-01-01T12:00:00Z', 'Infinity', null, null],
+    ['2026-01-01', false, null, Date.parse('2026-01-01T00:00:00Z')]
+  ];
+  const items = normalizeTypedFixture('energy-eia', { response: { data: cases.map(([period, value]) => ({ ...rows[0], period, value })) } });
+  items.forEach((item, index) => {
+    assert.equal(item.value, cases[index][2]);
+    assert.equal(item.publishedAt, cases[index][3]);
+    assert.equal(item.valueStatus, item.value === null ? 'unavailable' : 'available');
+    if (item.publishedAt === null) assert.equal(item.observationDate, null);
+  });
+  assert.match(items[0].summary, /0 \$\/BBL/);
+  assert.match(items[2].summary, /Value unavailable/);
+});
+
+test('legacy EIA series tuples retain original period identity and deliberate monthly dates', () => {
+  const [month, day, unknown] = normalizeTypedFixture('energy-eia', { series: [{
+    series_id: 'PET.RWTC.M', name: 'Legacy WTI', units: 'Dollars per Barrel', f: 'M',
+    data: [['202608', 0], ['20260831', '95.1'], ['2026Q3', null]]
+  }] });
+  assert.equal(month.period, '202608');
+  assert.equal(month.observationDate, '2026-08');
+  assert.equal(month.value, 0);
+  assert.equal(day.publishedAt, Date.parse('2026-08-31T00:00:00Z'));
+  assert.equal(unknown.publishedAt, null);
+  assert.equal(new Set([month, day, unknown].map(createItemId)).size, 3);
+});
+
+test('BLS retained Results.series data maps monthly observations without invented units', () => {
+  const items = normalizeTypedFixture('bls-cpi');
+  assert.equal(items.length, 3);
+  assert.deepEqual(items.map((item) => item.value), [334.980, 333.918, 333.952]);
+  assert.equal(items[0].seriesId, 'CUUR0000SA0');
+  assert.equal(items[0].period, '2026-M08');
+  assert.equal(items[0].periodCode, 'M08');
+  assert.equal(items[0].periodName, 'August');
+  assert.equal(items[0].year, '2026');
+  assert.equal(items[0].publishedAt, Date.parse('2026-08-01T00:00:00Z'));
+  assert.equal(items[0].units, null, 'unit metadata was absent in the retained public response');
+  assert.equal(items[0].rawValue, '334.980');
+});
+
+test('BLS supports Results arrays, multiple series, zero, M13 annual averages and unknown periods', (t) => {
+  const body = { Results: [{ series: [
+    { seriesID: 'CPI-A', catalog: { series_title: 'Public CPI series A', measure: 'Consumer Price Index', units: 'Index', area: 'US' }, data: [
+      { year: '2026', period: 'M01', periodName: 'January', value: '0' },
+      { year: '2025', period: 'M13', periodName: 'Annual', value: '300.2' },
+      { year: '2026', period: 'M14', value: '-' },
+      { year: 'bad-year', period: 'M12', value: ' ' }
+    ] },
+    { seriesID: 'CPI-B', data: [{ year: '2026', period: 'M01', value: '1.2' }] }
+  ] }] };
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2031-01-01') });
+  const before = normalizeTypedFixture('bls-cpi', body);
+  assert.equal(before.length, 5);
+  assert.equal(before[0].value, 0);
+  assert.equal(before[0].units, 'Index');
+  assert.equal(before[0].description, 'Public CPI series A');
+  assert.equal(before[0].facets.area, 'US');
+  assert.equal(before[0].facets.measure, 'Consumer Price Index');
+  assert.equal(before[1].periodType, 'annual-average');
+  assert.equal(before[1].period, '2025-M13');
+  assert.equal(before[1].value, 300.2);
+  for (const index of [1, 2, 3]) assert.equal(before[index].publishedAt, null);
+  assert.equal(before[2].value, null);
+  assert.equal(before[3].value, null);
+  t.mock.timers.tick(86400000);
+  body.Results[0].series.reverse().forEach((series) => series.data.reverse().forEach((row) => { row.value = '99.9'; }));
+  const after = normalizeTypedFixture('bls-cpi', body);
+  assert.deepEqual(after.map(createItemId).sort(), before.map(createItemId).sort());
+  assert.equal(new Set(before.map(createItemId)).size, 5);
+});
+
+test('BLS descriptive measure metadata does not invent measurement units', () => {
+  const body = structuredClone(typedSeriesFixtures['bls-cpi']);
+  body.Results.series[0].catalog = { measure: 'Consumer Price Index' };
+  const [item] = normalizeTypedFixture('bls-cpi', body);
+  assert.equal(item.facets.measure, 'Consumer Price Index');
+  assert.equal(item.units, null);
+});
+
+test('typed normalization leaves unrelated generic JSON behavior unchanged', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 2000000000000 });
+  const feed = { id: 'unrelated-fixture', name: 'Other feed', category: 'other' };
+  assert.deepEqual(normalizeJsonSignals(JSON.stringify({ response: { data: [{ period: '2026-09-29', series: 'RWTC', value: 0 }] } }), feed), [{
+    title: 'Untitled', url: '', summary: '', publishedAt: 2000000000000,
+    source: feed.name, category: feed.category, geo: null
+  }]);
+});
+
+test('EIA and BLS MCP list, get and search preserve typed fields, IDs, limits and public-payload safety', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  t.mock.property(process, 'env', { ...process.env, EIA: 'inert-eia-contract-key' });
+  let payloads = structuredClone(typedSeriesFixtures);
+  // A late observation must remain addressable after normalizing the whole response.
+  payloads['energy-eia'].response.data = Array.from({ length: 60 }, (_, index) => ({
+    ...payloads['energy-eia'].response.data[0], period: new Date(Date.UTC(2026, 6, index + 1)).toISOString().slice(0, 10)
+  }));
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    const request = new URL(url);
+    const feed = typedSeriesFeeds.find((entry) => request.origin + request.pathname === new URL(entry.url).origin + new URL(entry.url).pathname);
+    assert.ok(feed, 'only the selected fixed sources may be mocked');
+    return new Response(JSON.stringify(payloads[feed.id]), { headers: { 'content-type': 'application/json' } });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'typed-series-fixture', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const toolDefinitions = (await client.listTools()).tools;
+  for (const name of ['signals.list', 'signals.get', 'search.smart']) {
+    assert.equal(toolDefinitions.find((tool) => tool.name === name).outputSchema, undefined, 'existing best-effort tool schemas remain unchanged');
+  }
+  for (const feed of typedSeriesFeeds) {
+    const listed = await call('signals.list', { sourceId: feed.id });
+    const expected = normalizeTypedFixture(feed.id, payloads[feed.id]);
+    assert.equal(listed.items.length, expected.length);
+    assert.deepEqual(listed.items.map((item) => item.id), expected.map(createItemId));
+    const limited = await call('signals.list', { sourceId: feed.id, limit: 2 });
+    assert.deepEqual(limited.items, listed.items.slice(0, 2));
+    const searched = await call('search.smart', { sources: [feed.id], perSourceLimit: 100 });
+    assert.deepEqual(searched.signals.map((item) => item.id), listed.items.map((item) => item.id));
+    for (const item of searched.signals) {
+      const original = listed.items.find((entry) => entry.id === item.id);
+      for (const key of ['seriesId', 'period', 'observationDate', 'publishedAt', 'description', 'units', 'value', 'rawValue', 'valueStatus', 'facets', 'observationKey']) assert.deepEqual(item[key], original[key]);
+    }
+    const last = listed.items.at(-1);
+    const beforeRevision = structuredClone(payloads[feed.id]);
+    if (feed.id === 'bls-cpi') payloads[feed.id].Results.series[0].data.reverse().forEach((row) => { row.value = '0'; });
+    else payloads[feed.id].response.data.reverse().forEach((row) => { row.value = 0; });
+    const found = await call('signals.get', { sourceId: feed.id, id: last.id });
+    assert.equal(found.item.id, last.id);
+    assert.equal(found.item.value, 0);
+    assert.equal(found.item.period, last.period);
+    assert.ok(!JSON.stringify({ listed, searched, found }).includes('inert-eia-contract-key'));
+    payloads[feed.id] = beforeRevision;
+  }
+});
+
+test('OpenAQ keeps its key on one direct HTTPS request and never substitutes a snapshot', async (t) => {
+  const feed = {
+    ...JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', import.meta.url))).feeds.find(f => f.id === 'openaq-api'),
+    proxy: ['allorigins', 'jina']
+  };
+  const key = 'fixture-only-not-a-real-key';
+  const requests = [];
+  let status = 200;
+  let networkFailure = false;
+  const successBody = JSON.stringify({ meta: { page: 1, limit: 20 }, results: [{ id: 123 }] });
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push(String(url));
+    assert.equal(String(url), 'https://api.openaq.org/v3/locations?limit=20');
+    assert.equal(options.headers['X-API-Key'], key);
+    assert.equal(options.redirect, 'error');
+    if (networkFailure) throw new Error('fixture network failure');
+    return new Response(status === 200 ? successBody : `fixture HTTPS failure ${status}`, {
+      status, headers: { 'Content-Type': 'application/json' }
+    });
+  });
+  assert.equal(shouldUseLiveFallback(feed, {}), false);
+  assert.equal(shouldUseLiveFallback(feed, { params: { limit: 20 } }), false);
+  for (status of [200, 301, 302, 307, 308, 401, 403, 429, 500, 502, 503, 504]) {
+    requests.length = 0;
+    const result = await fetchRaw(feed, { key, proxy: 'allorigins' });
+    assert.equal(requests.length, 1, 'no proxy, plaintext, Feed or published-cache attempt');
+    assert.equal(result.httpStatus, status);
+    assert.equal(result.proxyUsed, null);
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(result.fetchedUrl, feed.url);
+    if (status === 200) {
+      assert.equal(result.error, undefined);
+      assert.equal(result.body, successBody);
+    } else {
+      assert.equal(result.error, 'fetch_failed');
+      assert.equal(result.upstreamStatus, status);
+      assert.equal(result.body, `fixture HTTPS failure ${status}`);
+    }
+  }
+  requests.length = 0;
+  networkFailure = true;
+  const failure = await fetchRaw(feed, { key, proxy: 'jina' });
+  assert.equal(requests.length, 1);
+  assert.equal(failure.error, 'fetch_failed');
+  assert.equal(failure.message, 'fixture network failure');
+  assert.equal(failure.proxyUsed, null);
+  assert.equal(failure.fallbackUsed, false);
+  assert.equal(failure.fetchedUrl, feed.url);
+});
+
+test('OpenAQ rejects noncanonical source URLs before injecting or forwarding its key', async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls += 1;
+    throw new Error('invalid OpenAQ URLs must not reach transport');
+  });
+  const url = 'https://api.openaq.org/v3/locations?limit=20';
+  const feed = { id: 'openaq-api', format: 'json', requiresKey: true, keyHeader: 'X-API-Key', url };
+  for (const invalid of [
+    url.replace('https:', 'http:'),
+    url.replace('api.openaq.org', 'fixture.invalid'),
+    url.replace('api.openaq.org', 'api.openaq.org.fixture.invalid'),
+    url.replace('/v3/locations', '/v3/other'),
+    url.replace('https://', 'https://fixture:fixture@'),
+    `${url}#fixture`,
+    'not a URL'
+  ]) {
+    const result = await fetchRaw({ ...feed, url: invalid }, { key: 'fixture-only-not-a-real-key' });
+    assert.equal(result.error, 'invalid_source_url');
+    assert.equal(result.body, undefined);
+  }
+  assert.equal(calls, 0);
+});
+
+const stooqTransportFeed = {
+  id: 'stooq-quote', format: 'csv', supportsQuery: true,
+  url: 'https://fixture.invalid/stooq.csv', timeoutMs: 100
+};
+const stooqTransportCsv = 'Symbol,Date,Time,Open,High,Low,Close,Volume\nFIXTURE,2026-09-27,12:00:00,1,1,1,1,1';
+const flushStooqTimers = () => new Promise((resolve) => setImmediate(resolve));
+function waitForStooqAbort(signal) {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+for (const stalledPhase of ['headers', 'body']) {
+  test(`OpenAQ stalled ${stalledPhase} consumes one deadline without fallback`, async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+    const feed = {
+      id: 'openaq-api', format: 'json', requiresKey: true, keyHeader: 'X-API-Key',
+      url: 'https://api.openaq.org/v3/locations?limit=20', timeoutMs: 100
+    };
+    const signals = [];
+    t.mock.method(globalThis, 'fetch', async (url, { signal, redirect, headers }) => {
+      assert.equal(String(url), feed.url);
+      assert.equal(redirect, 'error');
+      assert.equal(headers['X-API-Key'], 'fixture-only-not-a-real-key');
+      signals.push(signal);
+      if (stalledPhase === 'headers') return waitForStooqAbort(signal);
+      return { ok: true, status: 200, headers: new Headers(), text: () => waitForStooqAbort(signal) };
+    });
+    const pending = fetchRaw(feed, { key: 'fixture-only-not-a-real-key' });
+    await flushStooqTimers();
+    t.mock.timers.tick(99);
+    assert.equal(signals[0].aborted, false);
+    t.mock.timers.tick(1);
+    await flushStooqTimers();
+    const result = await pending;
+    assert.equal(signals.length, 1);
+    assert.equal(signals[0].aborted, true);
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.code, 'timeout');
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(result.fetchedUrl, feed.url);
+  });
+}
+
+for (const stalledPhase of ['headers', 'body']) {
+  test(`Stooq stalled ${stalledPhase} consumes one total deadline`, async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+    const signals = [];
+    t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+      assert.match(String(url), /fixture\.invalid/);
+      signals.push(signal);
+      if (stalledPhase === 'headers') return waitForStooqAbort(signal);
+      return { ok: true, status: 200, headers: new Headers(), text: () => waitForStooqAbort(signal) };
+    });
+    const pending = fetchRaw(stooqTransportFeed, { query: 'fixture' });
+    await flushStooqTimers();
+    t.mock.timers.tick(99);
+    assert.equal(signals[0].aborted, false);
+    t.mock.timers.tick(1);
+    await flushStooqTimers();
+    const result = await pending;
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.code, 'timeout');
+    assert.equal(result.fetchedUrl, stooqTransportFeed.url);
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(signals.length, 1, 'exhausted budget must not start proxy requests');
+    assert.equal(signals[0].aborted, true);
+    assert.equal(normalizeCsvSignals(result.body || '', stooqTransportFeed).length, 0);
+  });
+}
+
+test('Stooq fallback body gets only the deadline remaining after direct failure', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const signals = [];
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+    assert.match(String(url), /fixture\.invalid/);
+    urls.push(String(url));
+    signals.push(signal);
+    if (signals.length === 1) {
+      return new Promise((resolve) => setTimeout(() => resolve(new Response('upstream down', { status: 502 })), 40));
+    }
+    return { ok: true, status: 200, headers: new Headers(), text: () => waitForStooqAbort(signal) };
+  });
+  const pending = fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+  await flushStooqTimers();
+  t.mock.timers.tick(40);
+  await flushStooqTimers();
+  assert.equal(signals.length, 2);
+  t.mock.timers.tick(59);
+  assert.equal(signals[1].aborted, false);
+  t.mock.timers.tick(1);
+  await flushStooqTimers();
+  const result = await pending;
+  assert.equal(result.error, 'fetch_failed');
+  assert.equal(result.code, 'timeout');
+  assert.equal(result.fetchedUrl, urls[1]);
+  assert.equal(signals.length, 2);
+  assert.equal(signals[0].aborted, false, 'completed attempt timer must be cleared');
+  assert.equal(signals[1].aborted, true);
+});
+
+test('Stooq CSV success and fallback provenance remain intact', async (t) => {
+  let calls = 0;
+  let directFails = false;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.match(String(url), /fixture\.invalid/);
+    calls += 1;
+    return directFails && calls === 1
+      ? new Response('upstream down', { status: 502 })
+      : new Response(stooqTransportCsv, { headers: { 'content-type': 'text/csv' } });
+  });
+  const direct = await fetchRaw(stooqTransportFeed, { query: 'fixture' });
+  assert.equal(direct.body, stooqTransportCsv);
+  assert.equal(direct.httpStatus, 200);
+  assert.equal(direct.contentType, 'text/csv');
+  assert.equal(direct.fetchedUrl, stooqTransportFeed.url);
+  assert.equal(direct.proxyUsed, null);
+  assert.equal(direct.fallbackUsed, false);
+  assert.equal(normalizeCsvSignals(direct.body, stooqTransportFeed).length, 1);
+  directFails = true;
+  calls = 0;
+  const fallback = await fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+  assert.equal(calls, 2);
+  assert.equal(fallback.body, stooqTransportCsv);
+  assert.equal(fallback.proxyUsed, 'allorigins');
+  assert.equal(fallback.fallbackUsed, false, 'explicit primary proxy is not an implicit fallback');
+  assert.match(fallback.fetchedUrl, /allorigins/);
+});
+
+test('Stooq retains independent HTTP failures and non-retryable 404/408', async (t) => {
+  for (const status of [404, 408, 502]) {
+    let calls = 0;
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.match(String(url), /fixture\.invalid/);
+      calls += 1;
+      return new Response('provider failure', { status });
+    });
+    const result = await fetchRaw(stooqTransportFeed, { query: 'fixture', proxy: 'allorigins' });
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.httpStatus, status);
+    assert.equal(result.upstreamStatus, status);
+    assert.equal(result.body, 'provider failure');
+    assert.equal(result.code, undefined, 'HTTP failure must not become a transport timeout');
+    assert.match(result.message, new RegExp(`HTTP ${status}`));
+    if (status !== 502) assert.equal(calls, 1);
+    else assert.ok(calls > 1, 'server failures retain proxy attempts within budget');
+    globalThis.fetch.mock.restore();
+  }
+});
+
 test('MCP EIA sanitization covers success, error, and legacy response bodies', () => {
   const feed = { id: 'energy-eia-brent', keyGroup: 'eia' };
   for (const body of [
@@ -46,12 +508,225 @@ test('MCP EIA sanitization covers success, error, and legacy response bodies', (
     JSON.stringify({ error: { apiKey: 'fixture-secret', message: 'quota' } }),
     'upstream failed: https://api.eia.gov/series/?api_key=fixture-secret&series_id=x'
   ]) {
-    const result = sanitizeEiaPayload(feed, { body, message: body });
+    const result = sanitizeEiaPayload(feed, {
+      body,
+      message: body,
+      fetchedUrl: 'https://api.eia.gov/v2/petroleum/pri/spt/data/?api_key=fixture-secret&frequency=daily'
+    });
     assert.doesNotMatch(JSON.stringify(result), /fixture-secret/);
   }
+
+  const proxied = sanitizeEiaPayload(feed, {
+    fetchedUrl: 'https://api.allorigins.win/raw?url=https%3A%2F%2Fapi.eia.gov%2Fv2%2Fpetroleum%2Fpri%2Fspt%2Fdata%2F%3Fapi_key%3Dfixture-secret%26frequency%3Ddaily'
+  });
+  assert.doesNotMatch(JSON.stringify(proxied), /fixture-secret/);
+  assert.match(proxied.fetchedUrl, /api_key%3DREDACTED%26frequency%3Ddaily/i);
 });
 
 const openStatesCacheEntryCapacity = Math.max(1, Math.ceil(Number(process.env.OPENSTATES_CACHE_MAX_ENTRIES || 256)));
+
+const gdacsFeed = JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', import.meta.url))).feeds
+  .find((entry) => entry.id === 'gdacs-alerts');
+const gdacsRss = (title) => `<?xml version="1.0"?><rss><channel><item><title>${title}</title><link>https://www.gdacs.org/report/fixture</link><pubDate>Sun, 04 Oct 2026 13:45:03 GMT</pubDate></item></channel></rss>`;
+
+async function gdacsWithinMockDeadline(t, run) {
+  const startedAt = Date.now();
+  let outcome;
+  const callerTimer = setTimeout(() => { outcome ||= { error: 'monitor_timeout' }; }, gdacsFeed.timeoutMs);
+  const pending = run().then(result => { outcome ||= { result, elapsedMs: Date.now() - startedAt }; });
+  while (!outcome && Date.now() - startedAt <= gdacsFeed.timeoutMs) {
+    for (let flush = 0; flush < 10; flush += 1) await new Promise(resolve => setImmediate(resolve));
+    if (!outcome) t.mock.timers.tick(1000);
+  }
+  clearTimeout(callerTimer);
+  if (!outcome.error) await pending;
+  return outcome;
+}
+
+for (const spentMs of [0, 8000]) {
+  for (const phase of ['headers', 'body']) {
+    test(`GDACS MCP reserves snapshot deadline after ${spentMs}ms spent and stalled Feed Proxy ${phase}`, async (t) => {
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+      const calls = [];
+      t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+        const target = String(url);
+        if (target.includes('/data/feeds/gdacs-alerts.json')) {
+          calls.push({ path: 'snapshot', at: Date.now() });
+          return new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({ body: gdacsRss('Retained alert'), contentType: 'application/xml', httpStatus: 200 }))), 1000));
+        }
+        if (target.endsWith('/api/feed')) {
+          calls.push({ path: 'feed-proxy', at: Date.now() });
+          const aborted = () => new DOMException('fixture stalled', 'AbortError');
+          if (phase === 'headers') return new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(aborted()), { once: true });
+          });
+          return new Response(new ReadableStream({ start(controller) {
+            signal.addEventListener('abort', () => controller.error(aborted()), { once: true });
+          } }), { headers: { 'content-type': 'application/json' } });
+        }
+        if (!calls.length) t.mock.timers.tick(spentMs);
+        calls.push({ path: 'upstream', at: Date.now() });
+        return new Response('unavailable', { status: 503 });
+      });
+      const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
+      console.log(JSON.stringify({ regression: 'gdacs-recovery-deadline', spentMs, phase, ...outcome, calls }));
+      assert.equal(outcome.error, undefined, 'the monitor must receive the available snapshot before timing out');
+      assert.ok(outcome.elapsedMs < gdacsFeed.timeoutMs);
+      assert.equal(outcome.result.proxyUsed, 'live-cache');
+      assert.equal(outcome.result.fallbackUsed, true);
+      assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result: outcome.result, responseFormat: 'text' }).warning, /published cache snapshot/);
+      assert.deepEqual(calls.map(call => call.path), ['upstream', 'upstream', 'upstream', 'feed-proxy', 'snapshot']);
+      assert.equal(calls.find(call => call.path === 'snapshot').at - 1000, 14000, 'prior attempts consume the same recovery budget');
+    });
+  }
+}
+
+test('GDACS MCP snapshot deadline remains reachable when initial RSS attempts stall', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+    if (String(url).includes('/data/feeds/gdacs-alerts.json')) {
+      calls.push('snapshot');
+      return new Response(JSON.stringify({ body: gdacsRss('Retained alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    calls.push('upstream');
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('fixture stalled', 'AbortError')), { once: true }));
+  });
+  const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
+  console.log(JSON.stringify({ regression: 'gdacs-initial-attempt-deadline', ...outcome, calls }));
+  assert.equal(outcome.error, undefined);
+  assert.equal(outcome.result.proxyUsed, 'live-cache');
+  assert.ok(outcome.elapsedMs < gdacsFeed.timeoutMs);
+  assert.deepEqual(calls, ['upstream', 'snapshot'], 'no exhausted-budget service attempt may starve the snapshot');
+});
+
+test('GDACS MCP snapshot body uses only its reserved deadline', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
+    if (String(url).endsWith('/api/feed')) return new Response('unavailable', { status: 503 });
+    if (String(url).includes('/data/feeds/gdacs-alerts.json')) return new Response(new ReadableStream({ start(controller) {
+      signal.addEventListener('abort', () => controller.error(new DOMException('fixture stalled', 'AbortError')), { once: true });
+    } }), { headers: { 'content-type': 'application/json' } });
+    return new Response('unavailable', { status: 503 });
+  });
+  const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
+  console.log(JSON.stringify({ regression: 'gdacs-snapshot-body-deadline', ...outcome }));
+  assert.equal(outcome.error, undefined, 'unavailable snapshots must also finish inside the caller deadline');
+  assert.equal(outcome.result.error, 'fetch_failed');
+  assert.ok(outcome.elapsedMs <= 5000);
+});
+
+test('GDACS MCP service recovery still succeeds within the deadline after time already spent', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).endsWith('/api/feed')) {
+      calls.push('feed-proxy');
+      return new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({ body: gdacsRss('Current service alert'), contentType: 'application/xml', httpStatus: 200 }))), 2000));
+    }
+    assert.ok(!String(url).includes('/data/feeds/'), 'successful recovery must not read the older snapshot');
+    if (!calls.length) t.mock.timers.tick(8000);
+    calls.push('upstream');
+    return new Response('unavailable', { status: 503 });
+  });
+  const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
+  console.log(JSON.stringify({ regression: 'gdacs-bounded-service-success', ...outcome, calls }));
+  assert.equal(outcome.error, undefined);
+  assert.equal(outcome.elapsedMs, 10000);
+  assert.equal(outcome.result.proxyUsed, 'feed-proxy');
+  assert.equal(outcome.result.fallbackUsed, true);
+  assert.match(outcome.result.body, /Current service alert/);
+  assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result: outcome.result, responseFormat: 'text' }).warning, /fallback \(feed-proxy\)/);
+  assert.deepEqual(calls, ['upstream', 'upstream', 'upstream', 'feed-proxy']);
+});
+
+test('GDACS MCP raw and signals try the forced Feed Proxy before a published snapshot and retain warnings', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const target = String(url);
+    if (target.endsWith('/api/feed')) {
+      calls.push('feed-proxy');
+      assert.equal(options.method, 'POST');
+      assert.deepEqual(JSON.parse(options.body), { id: gdacsFeed.id, force: true });
+      return new Response(JSON.stringify({ id: gdacsFeed.id, body: gdacsRss('Current alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    if (target.includes('/data/feeds/gdacs-alerts.json')) {
+      calls.push('snapshot');
+      return new Response(JSON.stringify({ body: gdacsRss('Old alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    calls.push('upstream');
+    return new Response('unavailable', { status: 503 });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'gdacs-fallback-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  for (const name of ['raw.fetch', 'signals.list']) {
+    calls.length = 0;
+    const result = (await client.callTool({ name, arguments: { sourceId: gdacsFeed.id, ...(name === 'raw.fetch' ? { format: 'text' } : {}) } })).structuredContent;
+    assert.equal(result.error, undefined);
+    assert.equal(result.proxyUsed, 'feed-proxy');
+    assert.equal(result.fallbackUsed, true);
+    assert.match(result.warning, /fallback \(feed-proxy\)/);
+    assert.match(result.fetchedUrl, /\/api\/feed$/);
+    if (name === 'raw.fetch') assert.match(result.body, /Current alert/);
+    else {
+      assert.equal(result.items[0].title, 'Current alert');
+      assert.equal(result.items[0].publishedAt, Date.parse('2026-10-04T13:45:03Z'));
+      assert.equal(result.items[0].sourceId, gdacsFeed.id);
+    }
+    assert.deepEqual(calls, ['upstream', 'upstream', 'upstream', 'feed-proxy']);
+  }
+});
+
+test('GDACS MCP keeps snapshot fallback warnings when the Feed Proxy is unusable and leaves direct success alone', async (t) => {
+  const calls = [];
+  let proxyPayload;
+  let direct = false;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    const target = String(url);
+    if (target.endsWith('/api/feed')) {
+      calls.push('feed-proxy');
+      if (proxyPayload === 'throw') throw new Error('fixture failure');
+      return new Response(JSON.stringify(proxyPayload));
+    }
+    if (target.includes('/data/feeds/gdacs-alerts.json')) {
+      calls.push('snapshot');
+      return new Response(JSON.stringify({ body: gdacsRss('Old alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    calls.push('upstream');
+    return direct
+      ? new Response(gdacsRss('Direct alert'), { headers: { 'content-type': 'application/xml' } })
+      : new Response('unavailable', { status: 503 });
+  });
+  for (proxyPayload of [
+    { error: 'http_503', body: gdacsRss('Error alert'), contentType: 'application/xml', httpStatus: 503 },
+    { body: '<html>not RSS</html>', contentType: 'text/html', httpStatus: 200 },
+    { body: gdacsRss('Old proxy alert'), contentType: 'application/xml', httpStatus: 200, stale: true },
+    { body: gdacsRss('Old proxy alert'), contentType: 'application/xml', httpStatus: 200, fallback: 'live-cache' },
+    { body: gdacsRss('Error alert'), contentType: 'application/xml', httpStatus: 503 },
+    'throw'
+  ]) {
+    calls.length = 0;
+    const result = await fetchRaw(gdacsFeed, {});
+    assert.equal(result.proxyUsed, 'live-cache');
+    assert.equal(result.fallbackUsed, true);
+    assert.match(result.body, /Old alert/);
+    assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).warning, /published cache snapshot/);
+    assert.deepEqual(calls, ['upstream', 'upstream', 'upstream', 'feed-proxy', 'snapshot']);
+  }
+  direct = true;
+  calls.length = 0;
+  const result = await fetchRaw(gdacsFeed, {});
+  assert.equal(result.proxyUsed, null);
+  assert.equal(result.fallbackUsed, false);
+  assert.deepEqual(calls, ['upstream']);
+});
 
 test('Google News MCP fallback preserves the requested query through the Feed Proxy', async () => {
   const calls = [];
@@ -926,13 +1601,16 @@ test('state connector configuration is explicit in catalog metadata', () => {
     configured: false,
     requiredEnv: ['STATE_CONNECTOR_BASE_URL', 'STATE_CONNECTOR_API_KEY'],
     optionalEnv: ['STATE_CONNECTOR_KEY_HEADER'],
-    coveredStates: ['CA', 'FL', 'MN', 'NY', 'TX', 'VA'],
+    coveredStates: ['CA', 'FL', 'MN', 'NC', 'NY', 'TX', 'VA'],
     message: 'State connector provider is not configured.'
   });
   assert.equal(getFeedConfiguration(rulemakingFeed, {
     STATE_CONNECTOR_BASE_URL: 'https://state.example',
     STATE_CONNECTOR_API_KEY: 'secret'
   }).configured, true);
+  assert.deepEqual(getStateConnectorCoverage('North Carolina'), { coverageStatus: 'SUPPORTED', requestedState: 'NC' });
+  assert.deepEqual(getStateConnectorCoverage('MD'), { coverageStatus: 'UNSUPPORTED', requestedState: 'MD' });
+  assert.equal(getStateConnectorCoverage().coverageStatus, 'PARTIAL');
 
   assert.deepEqual(getFeedConfiguration({ id: 'acled-events', acledMode: 'aggregated', requiresConfig: true }, {}), {
     configured: false,
@@ -1244,27 +1922,246 @@ test('fire identities and deduplication preserve distinct detections with equal 
   assert.equal(dedupeSignals([...items, items[0]]).length, 3);
   assert.equal(items[0].source, 'NOAA HMS');
   const reordered = normalizeJsonSignals(JSON.stringify({ items: [...rows].reverse() }), fireFeed);
-  assert.deepEqual(reordered.map(createItemId).reverse(), items.map(createItemId));
+  assert.deepEqual(reordered.map(createItemId), items.map(createItemId));
+  for (const row of rows) {
+    const key = JSON.stringify([row.source, null, { lat: row.latitude, lon: row.longitude }, row.publishedAt, null, null, row.summary]);
+    assert.ok(items.some((item) => item.observationKey === key), 'existing observation identity is preserved');
+  }
 });
 
 test('geographic zero coordinates survive while missing coordinates stay missing', () => {
-  const [zero, missing] = normalizeJsonSignals(JSON.stringify({ items: [
+  const items = normalizeJsonSignals(JSON.stringify({ items: [
     { title: 'Zero', latitude: 0, longitude: 0 },
     { title: 'Missing', latitude: null, longitude: null }
   ] }), { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster' });
-  assert.deepEqual(zero.geo, { lat: 0, lon: 0 });
-  assert.equal(missing.geo, null);
+  assert.deepEqual(items.find((item) => item.title === 'Zero').geo, { lat: 0, lon: 0 });
+  assert.equal(items.find((item) => item.title === 'Missing').geo, null);
+  assert.ok(items.every((item) => item.publishedAt === null), 'missing acquisition time is not fetch time');
 });
 
-test('unsupported NC state connector requests report coverage before any network request', async (t) => {
+test('FIRMS signal selection ranks full JSON snapshots and ties without changing observation identity', () => {
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster' };
+  const rows = Array.from({ length: 220 }, (_, index) => ({
+    title: 'Fire detection', source: 'NASA FIRMS', latitude: index / 10, longitude: -100,
+    publishedAt: '2026-09-22T00:35:00Z', summary: `FRP ${index}`
+  }));
+  const newest = { ...rows[0], publishedAt: '2026-09-30T13:00:00Z', summary: 'Newest' };
+  const unknown = { ...rows[0], publishedAt: '2026-02-30T13:00:00Z' };
+  const parse = (items) => normalizeJsonSignals(JSON.stringify({ items }), feed);
+  const selected = parse([unknown, ...rows, newest, unknown]);
+  assert.equal(selected.length, 200);
+  assert.equal(selected[0].publishedAt, Date.parse(newest.publishedAt));
+  assert.deepEqual(parse([unknown, newest, ...rows.toReversed(), unknown]), selected);
+  assert.deepEqual(parse([...rows.filter((_, i) => i % 2), newest, ...rows.filter((_, i) => !(i % 2))]), selected);
+  assert.ok(selected.every((item) => item.publishedAt !== null));
+  const [old, undated] = parse([unknown, rows[0]]);
+  assert.equal(old.publishedAt, Date.parse('2026-09-22T00:35:00Z'));
+  assert.equal(undated.publishedAt, null);
+  const valid = parse([...rows, newest]);
+  for (const candidates of [
+    { publishedAt: 'not-a-date', date: newest.publishedAt },
+    { publishedAt: '', date: 'invalid', timestamp: newest.publishedAt },
+    { publishedAt: false, timestamp: 'invalid', acquired: newest.publishedAt }
+  ]) {
+    assert.deepEqual(parse([...rows, { ...newest, ...candidates }]), valid,
+      'direct signal normalization also resolves later timestamps before the bound');
+  }
+});
+
+test('unsupported state connector requests report coverage before any network request', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('should not fetch'); });
   for (const id of ['state-rulemaking', 'state-executive-orders']) {
-    const result = await fetchRaw({ id, supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'NC' } });
+    const result = await fetchRaw({ id, supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'MD' } });
     assert.equal(result.error, 'unsupported_state');
-    assert.match(result.message, /does not cover NC/);
-    assert.match(result.message, /CA, FL, MN, NY, TX, VA/);
+    assert.equal(result.coverageStatus, 'UNSUPPORTED');
+    assert.match(result.message, /does not cover MD/);
+    assert.match(result.message, /CA, FL, MN, NC, NY, TX, VA/);
   }
+  const invalid = await fetchRaw({ id: 'state-rulemaking', supportsParams: true, paramStrategy: 'state-code' }, { params: { state: 'not-a-state' } });
+  assert.equal(invalid.error, 'invalid_state');
+  assert.equal(invalid.coverageStatus, 'INVALID_STATE');
   assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test('supported state zero-result metadata remains bound to the requested state', () => {
+  const moduleUrl = new URL('../../gcp/mcp-proxy/server.js', import.meta.url).href;
+  const script = `
+    let providerState = 'NC';
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      results: [],
+      meta: {
+        state: providerState, signalType: 'rulemaking', coverageStatus: 'SUPPORTED', count: 0,
+        partial: false, adapterCount: 1, errors: [], coveredStates: ['NC'],
+        generatedAt: '2026-09-26T20:00:00Z', verifiedZeroResults: true
+      }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const { fetchRaw } = await import(${JSON.stringify(moduleUrl)});
+    const feed = { id: 'state-rulemaking', supportsParams: true, paramStrategy: 'state-code', capabilities: ['rulemaking'] };
+    const result = await fetchRaw(feed, { params: { state: 'NC' } });
+    providerState = 'VA';
+    const mismatched = await fetchRaw(feed, { params: { state: 'NC' } });
+    console.log(JSON.stringify({ coverageStatus: result.coverageStatus, requestedState: result.requestedState, verifiedZeroResults: result.verifiedZeroResults, fetchedUrl: result.fetchedUrl, mismatchVerified: mismatched.verifiedZeroResults }));
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8',
+    env: { ...process.env, STATE_CONNECTOR_BASE_URL: 'https://connector.example', STATE_CONNECTOR_API_KEY: 'fixture-key' }
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const result = JSON.parse(child.stdout.trim().split('\n').at(-1));
+  assert.equal(result.coverageStatus, 'SUPPORTED');
+  assert.equal(result.requestedState, 'NC');
+  assert.equal(result.verifiedZeroResults, true);
+  assert.equal(result.mismatchVerified, false);
+  assert.equal(new URL(result.fetchedUrl).searchParams.get('state'), 'NC');
+});
+
+test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and redacted URL', async (t) => {
+  const csv = 'latitude,longitude,acq_date,acq_time,frp,confidence\n0,-118.2,2026-09-22,35,12.4,n';
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
+    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(String(url), feed.url.replace('{{key}}', 'fixture-secret'));
+    return new Response(csv, { headers: { 'content-type': 'text/csv' } });
+  });
+  const result = await fetchRaw(feed, { key: 'fixture-secret' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.contentType, 'application/json');
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.proxyUsed, null);
+  assert.equal(result.fetchedUrl.includes('fixture-secret'), false);
+  assert.match(result.fetchedUrl, /\/csv\/REDACTED\//);
+  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+  assert.equal(raw.warning, null);
+  assert.equal(raw.data.items[0].latitude, 0);
+  assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-22T00:35:00Z'));
+  assert.equal(raw.data.items[0].source, 'NASA FIRMS');
+  assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+});
+
+test('NASA FIRMS MCP raw, bounded signals, search and get retain the newest tail acquisition', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  const feed = JSON.parse(fs.readFileSync(new URL('../../gcp/mcp-proxy/feeds.json', import.meta.url), 'utf8'))
+    .feeds.find((entry) => entry.id === 'nasa-firms');
+  const header = 'latitude,longitude,acq_date,acq_time,frp';
+  const rows = Array.from({ length: 220 }, (_, index) =>
+    `10,-100,2026-09-30,${String(Math.floor(index / 60)).padStart(2, '0')}${String(index % 60).padStart(2, '0')},${index}`);
+  rows.push('0,0,2026-09-30,1300,900');
+  let primary = [header, ...rows].join('\n');
+  let contentType = 'text/csv';
+  t.mock.property(process, 'env', { ...process.env, NASA_FIRMS: 'fixture-only-key' });
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('firms.modaps')) {
+      assert.equal(String(url), feed.url.replace('{{key}}', 'fixture-only-key'));
+      return new Response(primary, { headers: { 'content-type': contentType } });
+    }
+    assert.match(String(url), /arcgis/i, 'only the existing NOAA fallback may be requested');
+    return new Response(JSON.stringify({ features: [{
+      geometry: { coordinates: [-105, 46] }, properties: { frp: 10 }
+    }] }), { headers: { 'content-type': 'application/json' } });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'firms-freshness-fixture', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => { await client.close(); await server.close(); });
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const raw = await call('raw.fetch', { sourceId: feed.id, format: 'json' });
+  assert.equal(raw.data.items.length, 200);
+  assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-30T13:00:00Z'));
+  assert.equal(raw.fallbackUsed, false);
+  assert.equal(raw.warning, null);
+  assert.equal(JSON.stringify(raw).includes('fixture-only-key'), false);
+  const listed = await call('signals.list', { sourceId: feed.id, limit: 25 });
+  assert.equal(listed.items.length, 25);
+  assert.equal(listed.items[0].publishedAt, raw.data.items[0].publishedAt);
+  assert.deepEqual(listed.items[0].geo, { lat: 0, lon: 0 });
+  assert.equal(listed.fetchedUrl, raw.fetchedUrl);
+  assert.equal(listed.fallbackUsed, false);
+  const searched = await call('search.smart', { sources: [feed.id], query: 'FRP 900', perSourceLimit: 1, totalLimit: 1 });
+  assert.equal(searched.signals[0].id, listed.items[0].id);
+  primary = [header, ...rows.toReversed()].join('\n');
+  assert.deepEqual((await call('raw.fetch', { sourceId: feed.id, format: 'json' })).data, raw.data);
+  assert.deepEqual((await call('signals.list', { sourceId: feed.id, limit: 25 })).items, listed.items);
+  assert.deepEqual((await call('signals.get', { sourceId: feed.id, id: listed.items[0].id })).item, listed.items[0]);
+  contentType = 'application/json';
+  const jsonRows = Array.from({ length: 220 }, (_, index) => ({
+    latitude: 10, longitude: -100, acq_date: '2026-09-30',
+    acq_time: `${String(Math.floor(index / 60)).padStart(2, '0')}${String(index % 60).padStart(2, '0')}`, frp: index
+  }));
+  for (const candidates of [
+    { publishedAt: 'not-a-date', date: '2026-09-30T13:00:00Z' },
+    { publishedAt: '', date: 'invalid', timestamp: '2026-09-30T13:00:00Z' },
+    { publishedAt: false, date: null, timestamp: 'invalid', acquired: '2026-09-30T13:00:00Z' }
+  ]) {
+    const recovered = { latitude: 0, longitude: 0, frp: 900, ...candidates };
+    for (const items of [[...jsonRows, recovered], [recovered, ...jsonRows.toReversed()]]) {
+      primary = JSON.stringify({ items });
+      const aliasRaw = await call('raw.fetch', { sourceId: feed.id, format: 'json' });
+      assert.deepEqual(aliasRaw.data, raw.data, 'JSON aliases retain the same bounded raw acquisitions as CSV');
+      assert.equal(aliasRaw.fallbackUsed, false);
+      assert.equal(aliasRaw.warning, null);
+      assert.deepEqual((await call('signals.list', { sourceId: feed.id, limit: 25 })).items, listed.items,
+        'recovered timestamps retain observation identities');
+      assert.deepEqual((await call('signals.get', { sourceId: feed.id, id: listed.items[0].id })).item, listed.items[0]);
+    }
+  }
+  contentType = 'text/csv';
+  primary = [header, ...rows, '0,0,2026-09-30,1400,"unfinished'].join('\n');
+  const fallbackRaw = await call('raw.fetch', { sourceId: feed.id, format: 'json' });
+  assert.equal(fallbackRaw.fallbackUsed, true);
+  assert.equal(fallbackRaw.proxyUsed, 'arcgis-hms-fire');
+  assert.match(fallbackRaw.warning, /NASA FIRMS unavailable.*NOAA HMS/);
+  assert.equal(fallbackRaw.data.items[0].publishedAt, null);
+  const fallbackList = await call('signals.list', { sourceId: feed.id, limit: 25 });
+  assert.equal(fallbackList.items[0].source, 'NOAA HMS');
+  assert.equal(fallbackList.items[0].publishedAt, null);
+  assert.equal(fallbackList.fallbackUsed, true);
+  assert.equal(fallbackList.warning, fallbackRaw.warning);
+  const foundFallback = await call('signals.get', { sourceId: feed.id, id: fallbackList.items[0].id });
+  assert.deepEqual(foundFallback.item, fallbackList.items[0]);
+});
+
+test('NASA FIRMS invalid or empty CSV retains NOAA fallback attribution and warnings', async (t) => {
+  let primary = 'latitude,longitude,acq_date,acq_time';
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('fixture.invalid')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    assert.match(String(url), /arcgis/i);
+    return new Response(JSON.stringify({ features: [{
+      geometry: { type: 'Point', coordinates: [-105, 46] }, properties: { frp: 10, acq_date: '2026-09-04' }
+    }] }), { headers: { 'content-type': 'application/json' } });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://fixture.invalid/fire' };
+  for (const body of [primary, 'Invalid MAP_KEY', 'latitude,longitude,acq_date,acq_time\n91,0,2026-09-22,0']) {
+    primary = body;
+    const result = await fetchRaw(feed, {});
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.proxyUsed, 'arcgis-hms-fire');
+    assert.equal(result.contentType, 'application/json');
+    const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+    assert.equal(raw.data.items[0].source, 'NOAA HMS');
+    assert.match(raw.warning, /NASA FIRMS unavailable.*NOAA HMS/);
+  }
+});
+
+test('NASA FIRMS unusable CSV without a fallback remains an explicit redacted failure', async (t) => {
+  let primary = 'latitude,longitude,acq_date,acq_time';
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('fixture.invalid')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    return new Response('unavailable', { status: 403 });
+  });
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
+    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+  for (const [body, error] of [[primary, 'empty_payload'], ['Invalid MAP_KEY fixture-secret', 'invalid_response']]) {
+    primary = body;
+    const result = await fetchRaw(feed, { key: 'fixture-secret' });
+    assert.equal(result.error, error);
+    assert.equal(result.fallbackUsed, false);
+    assert.equal(result.body, undefined);
+    assert.equal(JSON.stringify(result).includes('fixture-secret'), false);
+  }
 });
 
 test('NASA fire fallback keeps the raw response contract and identifies NOAA substitution', async (t) => {
@@ -1286,18 +2183,28 @@ test('NASA fire fallback keeps the raw response contract and identifies NOAA sub
 });
 
 test('published NASA snapshots remain flagged as fallback and retain record attribution', async (t) => {
-  const body = JSON.stringify({ items: [{ title: 'Fire detection', latitude: 40, longitude: -100, source: 'NOAA HMS', publishedAt: 1788548983402 }] });
+  let body;
   t.mock.method(globalThis, 'fetch', async (url) => {
     if (String(url).includes('/data/feeds/nasa-firms.json')) return new Response(JSON.stringify({ body, contentType: 'application/json', httpStatus: 200 }));
     return new Response('unavailable', { status: 403 });
   });
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://upstream.test/fire' };
-  const result = await fetchRaw(feed, {});
-  assert.equal(result.fallbackUsed, true);
-  assert.equal(result.proxyUsed, 'live-cache');
-  const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
-  assert.match(raw.warning, /cache snapshot/);
-  assert.equal(raw.data.items[0].source, 'NOAA HMS');
+  for (const publishedAt of [1788548983402, null]) {
+    body = JSON.stringify({ items: [{ title: 'Fire detection', latitude: 40, longitude: -100, source: 'NOAA HMS', publishedAt }] });
+    const result = await fetchRaw(feed, {});
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.proxyUsed, 'live-cache');
+    const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+    assert.match(raw.warning, /cache snapshot/);
+    assert.equal(raw.data.items[0].source, 'NOAA HMS');
+    assert.equal(raw.data.items[0].publishedAt, publishedAt);
+    const [signal] = normalizeJsonSignals(result.body, feed);
+    assert.equal(signal.source, 'NOAA HMS');
+    assert.equal(signal.publishedAt, publishedAt, 'cached unknown acquisitions remain unknown');
+    assert.equal(signal.observationKey, JSON.stringify([
+      'NOAA HMS', null, { lat: 40, lon: -100 }, publishedAt, null, null, ''
+    ]), 'cached observations keep the existing identity tuple');
+  }
 });
 
 test('malformed NWS responses are failures while a real empty alert set is successful', async (t) => {
@@ -1335,6 +2242,15 @@ test('MCP tool calls preserve NWS geography through raw, list, search, and get r
   const empty = await call('search.smart', { sources: ['nws-alerts'], query: 'Alaska' });
   assert.equal(empty.signals.length, 0);
   assert.equal(empty.sourcesChecked[0].ok, true);
-  const unsupported = await call('signals.list', { sourceId: 'state-rulemaking', params: { state: 'NC' } });
+  const catalog = await call('catalog.sources', { category: 'gov', state: 'NC' });
+  assert.equal(catalog.sources.find((source) => source.id === 'state-rulemaking').coverageStatus, 'SUPPORTED');
+  assert.equal(catalog.sources.find((source) => source.id === 'state-executive-orders').coverageStatus, 'SUPPORTED');
+  const unsupported = await call('signals.list', { sourceId: 'state-rulemaking', params: { state: 'MD' } });
   assert.equal(unsupported.error, 'unsupported_state');
+  assert.equal(unsupported.coverageStatus, 'UNSUPPORTED');
+  assert.equal(unsupported.requestedState, 'MD');
+  const rawUnsupported = await call('raw.fetch', { sourceId: 'state-executive-orders', params: { state: 'MD' } });
+  assert.equal(rawUnsupported.coverageStatus, 'UNSUPPORTED');
+  const smartUnsupported = await call('search.smart', { sources: ['state-rulemaking'], params: { state: 'MD' } });
+  assert.equal(smartUnsupported.sourcesChecked[0].coverageStatus, 'UNSUPPORTED');
 });

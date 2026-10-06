@@ -11,27 +11,27 @@
     "monitor:all": "node analysis/monitor/run_full_audit.mjs",
     "monitor:docs": "node analysis/monitor/run_doc_watch.mjs",
     "monitor:report": "node analysis/monitor/report_latest.mjs",
-    "test": "node scripts/verify_feeds_sync.mjs && node --test scripts/test/feeds.spec.mjs scripts/test/monitor.spec.mjs scripts/test/opensky-proxy.spec.mjs scripts/test/mcp-proxy.spec.mjs scripts/test/proxy-dependencies.spec.mjs scripts/test/root-dependencies.spec.mjs scripts/test/runtime.spec.mjs scripts/test/state-connector.spec.mjs",
+    "test": "node scripts/verify_feeds_sync.mjs && node --test scripts/test/feeds.spec.mjs scripts/test/monitor.spec.mjs scripts/test/opensky-proxy.spec.mjs scripts/test/mcp-proxy.spec.mjs scripts/test/proxy-dependencies.spec.mjs scripts/test/root-dependencies.spec.mjs scripts/test/runtime.spec.mjs scripts/test/state-connector.spec.mjs scripts/test/acled-pagination.spec.mjs",
     "test:feeds-sync": "node scripts/verify_feeds_sync.mjs",
     "test:ui": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "^1.63.0",
     "esbuild": "^0.28.2",
-    "playwright": "^1.62.1"
+    "playwright": "^1.63.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "fast-xml-parser": "^5.11.0",
-    "zod": "^4.4.3"
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "fast-xml-parser": "^5.11.2",
+    "zod": "^4.6.5"
   },
   "overrides": {
-    "@hono/node-server": "1.19.15",
-    "hono": "4.12.34",
-    "express-rate-limit": "8.5.2",
-    "ip-address": "10.3.1",
-    "fast-uri": "3.1.5",
-    "qs": "6.15.2",
+    "@hono/node-server": "1.19.17",
+    "hono": "4.13.12",
+    "express-rate-limit": "8.7.0",
+    "ip-address": "10.7.2",
+    "fast-uri": "3.1.8",
+    "qs": "6.16.0",
     "path-to-regexp": "8.4.2"
   }
 }

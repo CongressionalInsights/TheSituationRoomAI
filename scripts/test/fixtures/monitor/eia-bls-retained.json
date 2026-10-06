@@ -1,0 +1,46 @@
+{
+  "provenance": {
+    "reportSha256": "f9dae81690b793a09d6c7b4cd750477ec98d8e575afdddc29fa52e0692df5f6b",
+    "selection": "First three public observations per retained series; no request or credential fields. Edge cases are added by tests."
+  },
+  "energy-eia": {
+    "response": {
+      "frequency": "daily",
+      "data": [
+        {"period":"2026-09-29","duoarea":"YCUOK","area-name":"NA","product":"EPCWTI","product-name":"WTI Crude Oil","process":"PF4","process-name":"Spot Price FOB","series":"RWTC","series-description":"Cushing, OK WTI Spot Price FOB (Dollars per Barrel)","value":96.16,"units":"$/BBL"},
+        {"period":"2026-09-28","duoarea":"YCUOK","area-name":"NA","product":"EPCWTI","product-name":"WTI Crude Oil","process":"PF4","process-name":"Spot Price FOB","series":"RWTC","series-description":"Cushing, OK WTI Spot Price FOB (Dollars per Barrel)","value":99.37,"units":"$/BBL"},
+        {"period":"2026-09-25","duoarea":"YCUOK","area-name":"NA","product":"EPCWTI","product-name":"WTI Crude Oil","process":"PF4","process-name":"Spot Price FOB","series":"RWTC","series-description":"Cushing, OK WTI Spot Price FOB (Dollars per Barrel)","value":85.23,"units":"$/BBL"}
+      ]
+    }
+  },
+  "energy-eia-brent": {
+    "response": {
+      "frequency": "weekly",
+      "data": [
+        {"period":"2026-09-25","duoarea":"ZEU","area-name":"NA","product":"EPCBRENT","product-name":"UK Brent Crude Oil","process":"PF4","process-name":"Spot Price FOB","series":"RBRTE","series-description":"Europe Brent Spot Price FOB (Dollars per Barrel)","value":117.08,"units":"$/BBL"},
+        {"period":"2026-09-18","duoarea":"ZEU","area-name":"NA","product":"EPCBRENT","product-name":"UK Brent Crude Oil","process":"PF4","process-name":"Spot Price FOB","series":"RBRTE","series-description":"Europe Brent Spot Price FOB (Dollars per Barrel)","value":124.15,"units":"$/BBL"},
+        {"period":"2026-09-11","duoarea":"ZEU","area-name":"NA","product":"EPCBRENT","product-name":"UK Brent Crude Oil","process":"PF4","process-name":"Spot Price FOB","series":"RBRTE","series-description":"Europe Brent Spot Price FOB (Dollars per Barrel)","value":111.83,"units":"$/BBL"}
+      ]
+    }
+  },
+  "energy-eia-ng": {
+    "response": {
+      "frequency": "weekly",
+      "data": [
+        {"period":"2026-09-25","duoarea":"RGC","area-name":"NA","product":"EPG0","product-name":"Natural Gas","process":"PS0","process-name":"Spot Price","series":"RNGWHHD","series-description":"Henry Hub Natural Gas Spot Price (Dollars per Million Btu)","value":3.02,"units":"$/MMBTU"},
+        {"period":"2026-09-18","duoarea":"RGC","area-name":"NA","product":"EPG0","product-name":"Natural Gas","process":"PS0","process-name":"Spot Price","series":"RNGWHHD","series-description":"Henry Hub Natural Gas Spot Price (Dollars per Million Btu)","value":2.94,"units":"$/MMBTU"},
+        {"period":"2026-09-11","duoarea":"RGC","area-name":"NA","product":"EPG0","product-name":"Natural Gas","process":"PS0","process-name":"Spot Price","series":"RNGWHHD","series-description":"Henry Hub Natural Gas Spot Price (Dollars per Million Btu)","value":2.79,"units":"$/MMBTU"}
+      ]
+    }
+  },
+  "bls-cpi": {
+    "status": "REQUEST_SUCCEEDED",
+    "Results": {
+      "series": [{"seriesID":"CUUR0000SA0","data":[
+        {"year":"2026","period":"M08","periodName":"August","value":"334.980"},
+        {"year":"2026","period":"M07","periodName":"July","value":"333.918"},
+        {"year":"2026","period":"M06","periodName":"June","value":"333.952"}
+      ]}]
+    }
+  }
+}
