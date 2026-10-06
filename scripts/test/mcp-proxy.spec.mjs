@@ -77,7 +77,7 @@ test('MCP tools/list emits retrieval annotations without changing existing decla
     'f7629638ad47a4e9f21b8dedf3b40d3a6cb3ffa5aec7cb33b58e67fb3b685629');
   for (const tool of tools) {
     await t.test(tool.name, () => assert.deepEqual(tool.annotations, {
-      readOnlyHint: true, destructiveHint: false, openWorldHint: true
+      readOnlyHint: true, destructiveHint: false, openWorldHint: tool.name !== 'catalog.sources'
     }));
   }
   assert.equal(globalThis.fetch.mock.callCount(), 0);
