@@ -2973,7 +2973,7 @@ server.registerTool(
   {
     title: 'Catalog Sources',
     description: 'List available sources, formats, and capabilities.',
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     inputSchema: z.object({
       category: z.string().optional(),
       state: z.string().optional()
