@@ -10,6 +10,7 @@ export function createFeedManager({ state, elements, helpers }) {
     shouldFetchLiveInStatic,
     fetchCustomFeedDirect,
     fetchFeed,
+    getFeedRefreshContext,
     isFeedStale,
     canonicalUrl,
     isNonEnglish,
@@ -32,6 +33,63 @@ export function createFeedManager({ state, elements, helpers }) {
     updatePanelErrors
   } = helpers;
 
+  // One entry per feed bounds retention; context includes source, query and credentials.
+  const priorResults = new Map();
+  const pendingRequests = new Map();
+  const latestRequests = new Map();
+  let activeRefreshes = 0;
+  const beginRefresh = () => { activeRefreshes += 1; setRefreshing(true); };
+  const endRefresh = () => { activeRefreshes -= 1; setRefreshing(activeRefreshes > 0); };
+  const canReuse = (feed, result) => {
+    const ttl = Number(feed.ttlMinutes) || state.settings.refreshMinutes;
+    const age = Date.now() - result.fetchedAt;
+    return !result.error && result.httpStatus >= 200 && result.httpStatus < 300
+      && !result.reuseBlocked && !result.stale && !result.fallback && !result.fallbackUsed && !result.warning
+      && Number.isFinite(result.fetchedAt) && result.fetchedAt > 0
+      && age >= 0 && age < ttl * 60 * 1000 && !isFeedStale(feed, result);
+  };
+  const isCurrent = (entry) => !entry.managed || (
+    latestRequests.get(entry.feed.id) === entry
+    && entry.query === (entry.feed.supportsQuery ? translateQuery(entry.feed, entry.feed.defaultQuery || '') : undefined)
+    && entry.context === getFeedRefreshContext(entry.feed, entry.query, entry.live)
+    && state.feeds.some((feed) => feed.id === entry.feed.id
+      && getFeedRefreshContext(feed, entry.query, entry.live) === entry.context)
+  );
+  const requestFeed = async (feed, query, force, live, task) => {
+    const managed = !feed.isCustom && feed.id !== 'gpsjam' && Boolean(getFeedRefreshContext);
+    if (!managed) return { feed, result: await task(), managed: false };
+    const context = getFeedRefreshContext(feed, query, live);
+    const protectedForce = latestRequests.get(feed.id);
+    if (!force && protectedForce?.force && !protectedForce.applied && isCurrent(protectedForce)) {
+      if (protectedForce.context === context) return protectedForce.promise;
+      // A completed live request still belongs to its not-yet-applied manual batch.
+      return { feed, managed: true };
+    }
+    const pending = pendingRequests.get(feed.id);
+    if (!force && pending?.context === context) return pending.promise;
+    const prior = priorResults.get(feed.id);
+    if (!force && prior?.context === context && canReuse(feed, prior.result)) return prior;
+
+    priorResults.delete(feed.id);
+    const entry = { feed, query, context, live, managed, force };
+    latestRequests.set(feed.id, entry);
+    entry.promise = (async () => {
+      try {
+        entry.result = await task();
+        if (isCurrent(entry) && canReuse(feed, entry.result)) priorResults.set(feed.id, entry);
+        return entry;
+      } finally {
+        if (pendingRequests.get(feed.id) === entry) pendingRequests.delete(feed.id);
+      }
+    })();
+    pendingRequests.set(feed.id, entry);
+    return entry.promise;
+  };
+  const markResultsApplied = (results) => results.forEach((result) => {
+    const entry = latestRequests.get(result.feed.id);
+    if (entry?.result === result) entry.applied = true;
+  });
+
   const runUiStep = async (label, task) => {
     try {
       await task();
@@ -40,28 +98,33 @@ export function createFeedManager({ state, elements, helpers }) {
     }
   };
 
-  const fetchFeedBatch = async (feeds, force = false) => {
+  const fetchFeedBatch = async (feeds, force = false, retry = false) => {
     const liveOverride = force && isStaticMode();
-    return Promise.all((feeds || []).map(async (feed) => {
+    const entries = await Promise.all((feeds || []).map(async (feed) => {
       const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
-      if (liveOverride || shouldFetchLiveInStatic(feed)) {
-        try {
-          const live = await fetchCustomFeedDirect(feed, query);
-          if (!live.error) return live;
-          const fallback = await fetchFeed(feed, query, force);
-          return fallback;
-        } catch {
-          // fall through to static cache
+      const live = !retry && (liveOverride || shouldFetchLiveInStatic(feed));
+      return requestFeed(feed, query, force, live, async () => {
+        if (live) {
+          try {
+            const result = await fetchCustomFeedDirect(feed, query);
+            if (!result.error) return result;
+            const fallback = await fetchFeed(feed, query, force);
+            return { ...fallback, fallbackUsed: true };
+          } catch {
+            // Fall through to static cache, but never retain a failed live attempt as healthy.
+          }
         }
-      }
-      return fetchFeed(feed, query, force).catch(() => ({
-        feed,
-        items: [],
-        error: 'fetch_failed',
-        httpStatus: 0,
-        fetchedAt: Date.now()
-      }));
+        const result = await fetchFeed(feed, query, force).catch(() => ({
+          feed,
+          items: [],
+          error: 'fetch_failed',
+          httpStatus: 0,
+          fetchedAt: Date.now()
+        }));
+        return live ? { ...result, fallbackUsed: true } : result;
+      });
     }));
+    return entries.filter(isCurrent).map((entry) => entry.result);
   };
 
   const updateFeedStatusFromResults = (results) => {
@@ -93,12 +156,13 @@ export function createFeedManager({ state, elements, helpers }) {
     if (!targetFeeds.length) return [];
     const force = Boolean(options.force);
     const rerender = options.rerender !== false;
-    setRefreshing(true);
+    beginRefresh();
     try {
       const results = await fetchFeedBatch(targetFeeds, force);
+      if (!results.length) return [];
       updateFeedStatusFromResults(results);
 
-      const targetFeedIds = new Set(targetFeeds.map((feed) => feed.id));
+      const targetFeedIds = new Set(results.map((result) => result.feed.id));
       const priorItemsByFeed = new Map();
       state.items.forEach((item) => {
         if (!item?.feedId) return;
@@ -123,6 +187,7 @@ export function createFeedManager({ state, elements, helpers }) {
         refreshedItems.push(...normalizeItemsForState(result.items || []));
       });
       state.items = [...preservedItems, ...refreshedItems];
+      markResultsApplied(results);
       state.scopedItems = applyScope(state.items);
       state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
       if (results.some((result) => !result.error)) {
@@ -147,12 +212,12 @@ export function createFeedManager({ state, elements, helpers }) {
       }
       return results;
     } finally {
-      setRefreshing(false);
+      endRefresh();
     }
   };
 
   const refreshAll = async (force = false) => {
-    setRefreshing(true);
+    beginRefresh();
     setHealth('Fetching feeds');
     updateProxyHealth();
     try {
@@ -161,14 +226,23 @@ export function createFeedManager({ state, elements, helpers }) {
         await loadStaticBuild();
       }
       const results = await fetchFeedBatch(state.feeds, force);
+      if (!results.length) return;
       updateFeedStatusFromResults(results);
 
-      state.items = normalizeItemsForState(results.flatMap((result) => result.items || []));
+      const updatedIds = new Set(results.map((result) => result.feed.id));
+      const activeIds = new Set(state.feeds.map((feed) => feed.id));
+      state.items = [
+        ...state.items.filter((item) => activeIds.has(item.feedId) && !updatedIds.has(item.feedId)),
+        ...normalizeItemsForState(results.flatMap((result) => result.items || []))
+      ];
+      markResultsApplied(results);
       state.scopedItems = applyScope(state.items);
       state.clusters = clusterNews(state.scopedItems.filter((item) => item.category === 'news'));
       state.lastFetch = Date.now();
       updateDataFreshBadge();
-      const issueCount = countCriticalIssues(results);
+      const resultsById = new Map(results.map((result) => [result.feed.id, result]));
+      const issueCount = countCriticalIssues(state.feeds.map((feed) => resultsById.get(feed.id)
+        || { feed, ...state.feedStatus[feed.id] }));
       setHealth(issueCount ? `Degraded (${issueCount})` : 'Healthy');
 
       await runUiStep('renderAllPanels', () => renderAllPanels());
@@ -202,7 +276,7 @@ export function createFeedManager({ state, elements, helpers }) {
       }
       await retryStaleFeeds(results);
     } finally {
-      setRefreshing(false);
+      endRefresh();
     }
   };
 
@@ -214,12 +288,14 @@ export function createFeedManager({ state, elements, helpers }) {
 
     const seen = new Set(state.items.map((item) => item.url || item.title));
     const newItems = [];
+    const appliedResults = [];
 
     for (const feed of failedFeeds) {
-      const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
       try {
         // eslint-disable-next-line no-await-in-loop
-        const result = await fetchFeed(feed, query, true);
+        const [result] = await fetchFeedBatch([feed], true, true);
+        if (!result) continue;
+        appliedResults.push(result);
         const stale = !result.error && isFeedStale(result.feed, result);
         state.feedStatus[result.feed.id] = {
           httpStatus: result.httpStatus,
@@ -252,6 +328,7 @@ export function createFeedManager({ state, elements, helpers }) {
       drawMap();
     }
 
+    markResultsApplied(appliedResults);
     renderFeedHealth();
     const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
       feed,
@@ -279,12 +356,14 @@ export function createFeedManager({ state, elements, helpers }) {
 
     const seen = new Set(state.items.map((item) => item.url || item.title));
     const newItems = [];
+    const appliedResults = [];
 
     for (const feed of staleFeeds) {
-      const query = feed.supportsQuery ? translateQuery(feed, feed.defaultQuery || '') : undefined;
       try {
         // eslint-disable-next-line no-await-in-loop
-        const result = await fetchFeed(feed, query, true);
+        const [result] = await fetchFeedBatch([feed], true, true);
+        if (!result) continue;
+        appliedResults.push(result);
         const stale = !result.error && isFeedStale(result.feed, result);
         state.feedStatus[result.feed.id] = {
           httpStatus: result.httpStatus,
@@ -317,6 +396,7 @@ export function createFeedManager({ state, elements, helpers }) {
       drawMap();
     }
 
+    markResultsApplied(appliedResults);
     renderFeedHealth();
     updatePanelErrors();
     const issueCount = countCriticalIssues(state.feeds.map((feed) => ({
