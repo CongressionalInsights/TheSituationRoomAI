@@ -12,6 +12,7 @@ import {
 } from './state-legislation-timeout.js';
 import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
+import { buildFirmsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
 import { fetchOpenAqMcp, isDefaultOpenAqRequest } from './openaq-mcp.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -956,18 +957,24 @@ async function fetchWithTimeout(url, options, timeoutMs, consumeResponse = null)
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false, includeHttpFallback = true } = {}) {
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false, includeHttpFallback = true, onPrimaryFailure = null } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback });
   const perAttemptTimeout = budgetAttempts
     ? Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)))
     : timeoutMs;
   let lastResponse = null;
-  for (const candidate of candidates) {
+  for (const [index, candidate] of candidates.entries()) {
     try {
       const response = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout);
       if (response.ok) return response;
       lastResponse = response;
-    } catch {
+      if (index === 0 && onPrimaryFailure) {
+        onPrimaryFailure(buildFirmsPrimaryFailureDiagnostic({ httpStatus: response.status }));
+      }
+    } catch (error) {
+      if (index === 0 && onPrimaryFailure) {
+        onPrimaryFailure(buildFirmsPrimaryFailureDiagnostic(error));
+      }
       // ignore
     }
   }
@@ -1475,6 +1482,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   let contentType = 'text/plain';
   let body = '';
   let firmsError = null;
+  let firmsPrimaryFailure = null;
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
@@ -1515,7 +1523,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
           // OpenAQ authenticates with a header; never replay it over plaintext HTTP.
           response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
             budgetAttempts,
-            includeHttpFallback: feed.id !== 'openaq-api'
+            includeHttpFallback: feed.id !== 'openaq-api',
+            onPrimaryFailure: feed.id === 'nasa-firms'
+              ? diagnostic => { firmsPrimaryFailure = diagnostic; } : null
           });
         }
         responseOk = response.ok;
@@ -1568,6 +1578,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       responseOk = false;
     }
   } catch (error) {
+    if (feed.id === 'nasa-firms') {
+      console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic(error)));
+    }
     if (!isEiaSeries) {
       if (isUsableStaleFeedPayload(feed, staleCache)) {
         return markStaleFeedPayload(feed, staleCache);
@@ -1611,6 +1624,10 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   }
 
   if (feed.id === 'nasa-firms' && !responseOk) {
+    console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic({
+      error: firmsError?.error || (response.ok ? 'invalid_response' : 'fetch_failed'),
+      httpStatus: response.status
+    })));
     const fireFallback = await buildArcgisFireFallback();
     if (fireFallback) {
       cache.set(cacheKey, fireFallback);

@@ -5,6 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fetchOpenAqMcp, isDefaultOpenAqRequest } from '../../gcp/feed-proxy/openaq-mcp.js';
 import { mergeFeedParams, sanitizeParamsObject } from '../../gcp/feed-proxy/state-signals.js';
+import { buildFirmsPrimaryFailureDiagnostic } from '../../gcp/feed-proxy/firms-diagnostics.js';
 
 const root = process.cwd();
 const feedsPath = path.join(root, 'data', 'feeds.json');
@@ -845,6 +846,95 @@ test('NASA FIRMS feed proxy normalization flags invalid and empty primary CSV be
     assert.equal(context.responseOk, !error);
     assert.equal(context.firmsError?.error, error);
     if (!error) assert.equal(context.contentType, 'application/json');
+  }
+});
+
+test('NASA FIRMS primary diagnostics allow only bounded fields and stay aligned across proxies', async () => {
+  const { buildFirmsPrimaryFailureDiagnostic: mcpDiagnostic } = await import('../../gcp/mcp-proxy/firms-diagnostics.js');
+  const paths = ['gcp/feed-proxy/firms-diagnostics.js', 'gcp/mcp-proxy/firms-diagnostics.js'];
+  assert.equal(fs.readFileSync(path.join(root, paths[0]), 'utf8'), fs.readFileSync(path.join(root, paths[1]), 'utf8'));
+  const secret = 'fixture-secret-personal-data-url-header-body-stack';
+  const cases = [
+    [{ error: 'invalid_response', httpStatus: 200 }, 'invalid_response', 200, null],
+    [{ error: 'empty_payload', httpStatus: 200 }, 'empty_payload', 200, null],
+    [{ httpStatus: 403 }, 'fetch_failed', 403, null],
+    [{ name: 'AbortError' }, 'fetch_failed', null, 'timeout'],
+    [{ name: 'TimeoutError' }, 'fetch_failed', null, 'timeout'],
+    [{ cause: { code: 'UND_ERR_CONNECT_TIMEOUT', message: secret } }, 'fetch_failed', null, 'UND_ERR_CONNECT_TIMEOUT'],
+    [{ code: secret, cause: { code: 'ENOTFOUND' } }, 'fetch_failed', null, 'ENOTFOUND'],
+    [{ error: secret, code: secret, httpStatus: '403' }, 'fetch_failed', null, null],
+    [{ httpStatus: 0 }, 'fetch_failed', null, null],
+    [{ httpStatus: 600 }, 'fetch_failed', null, null],
+    [null, 'fetch_failed', null, null]
+  ];
+  for (const [failure, errorClass, upstreamStatus, transportCode] of cases) {
+    const input = failure === null ? null : { ...failure, message: secret, stack: secret, body: secret, url: secret, headers: { key: secret } };
+    const expected = { event: 'firms_primary_failure', feedId: 'nasa-firms', errorClass, upstreamStatus, transportCode };
+    assert.deepEqual(buildFirmsPrimaryFailureDiagnostic(input), expected);
+    assert.deepEqual(mcpDiagnostic(input), expected);
+    const log = JSON.stringify(expected);
+    assert.equal(log.includes(secret), false);
+    assert.ok(log.length < 200);
+  }
+});
+
+test('NASA FIRMS Feed Proxy logs the direct failure before fallback without changing outward or cache behavior', async () => {
+  const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', format: 'json', category: 'disaster',
+    url: 'https://fixture.invalid/api/area/csv/fixture-secret/world/1' };
+  const fallback = { id: feed.id, fetchedAt: Date.now(), httpStatus: 200, contentType: 'application/json',
+    body: JSON.stringify({ items: [{ source: 'NOAA HMS', publishedAt: null }] }), fallbackUsed: true, proxyUsed: 'arcgis-hms-fire' };
+  for (const scenario of [
+    { status: 401 }, { status: 403 }, { status: 429 }, { status: 503 },
+    { status: 200, body: 'Invalid MAP_KEY fixture-secret', errorClass: 'invalid_response' },
+    { status: 200, body: firmsHeader, errorClass: 'empty_payload' },
+    { status: 200, body: '<html>fixture-secret</html>', html: true, errorClass: 'invalid_response' },
+    { status: 200, body: firmsHeader + '\n' + firmsValid, success: true },
+    { failure: Object.assign(new Error('fixture-secret'), { cause: { code: 'ENOTFOUND', message: 'fixture-secret' } }) }
+  ]) {
+    const logs = [];
+    let requests = 0;
+    let fallbackCalls = 0;
+    const { context } = openAqFeedFixture({
+      buildFirmsPrimaryFailureDiagnostic, normalizeNasaFirmsItems, parseNasaFirmsRows,
+      buildNasaFirmsItems: normalizeNasaFirmsItems,
+      console: { warn: log => logs.push(JSON.parse(log)) },
+      isUsableStaleFeedPayload: () => false,
+      isJsonHtmlError: () => Boolean(scenario.html),
+      fetchWithTimeout: async () => {
+        requests += 1;
+        if (scenario.failure) throw scenario.failure;
+        return new Response(scenario.body || 'fixture-secret', {
+          status: requests === 1 ? scenario.status : 502, headers: { 'content-type': 'text/csv' }
+        });
+      },
+      buildArcgisFireFallback: async () => {
+        fallbackCalls += 1;
+        assert.equal(logs.length, 1, 'failure is logged before NOAA fallback runs');
+        return fallback;
+      }
+    });
+    if (scenario.failure) {
+      await assert.rejects(context.fetchFeed(feed), /fetch_failed/);
+      assert.equal(fallbackCalls, 0, 'transport failures retain the existing throw instead of adding a NOAA request');
+      assert.equal(context.cache.size, 0);
+    } else {
+      const result = await context.fetchFeed(feed);
+      if (scenario.success) {
+        assert.equal(logs.length, 0);
+        assert.equal(fallbackCalls, 0);
+        assert.equal(JSON.parse(result.body).items[0].source, 'NASA FIRMS');
+        continue;
+      }
+      assert.equal(result, fallback);
+      assert.equal([...context.cache.values()][0], fallback);
+      await context.fetchFeed(feed);
+      assert.equal(logs.length, 1, 'a cached fallback adds no primary-failure event');
+    }
+    assert.deepEqual(logs, [{ event: 'firms_primary_failure', feedId: feed.id,
+      errorClass: scenario.errorClass || 'fetch_failed', upstreamStatus: scenario.status || null,
+      transportCode: scenario.failure ? 'ENOTFOUND' : null }]);
+    assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
   }
 });
 
