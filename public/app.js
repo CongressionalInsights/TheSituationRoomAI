@@ -6763,6 +6763,21 @@ function buildStateFeedRequestParams(feed) {
   return buildStateFeedRequestParamsForSelection(feed, getSelectedStateSignalFilter());
 }
 
+function getFeedRefreshContext(feed, query, live) {
+  const directUrl = !live ? null : feed.acledMode
+    ? buildAcledUrl(feed)
+    : feed.id === 'gdelt-conflict-geo' ? buildGdeltConflictUrl(feed, query)
+      : feed.id === 'ucdp-candidate-events' ? buildUcdpCandidateUrl(feed)
+        : applyQueryToUrl(feed.url, feed.supportsQuery ? (query || feed.defaultQuery || '') : '');
+  return JSON.stringify([
+    feed, query, buildStateFeedRequestParams(feed), getKeyConfig(feed),
+    isStaticMode(), shouldFetchLiveInStatic(feed), live, directUrl,
+    feed.id === 'transport-opensky'
+      ? [state.settings.scope, getSelectedCountry(), state.location, state.settings.radiusKm]
+      : null
+  ]);
+}
+
 async function fetchFeed(feed, query, force = false, requestParams = {}) {
   if (feed.isCustom) {
     return fetchCustomFeedDirect(feed, query);
@@ -6827,7 +6842,8 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
       error,
       errorMessage,
       httpStatus,
-      fetchedAt: payload.fetchedAt
+      fetchedAt: payload.fetchedAt,
+      reuseBlocked: Boolean(payload.stale || payload.fallback || payload.fallbackUsed || payload.warning)
     };
   } catch (err) {
     return {
@@ -13986,6 +14002,7 @@ async function init() {
       shouldFetchLiveInStatic,
       fetchCustomFeedDirect,
       fetchFeed,
+      getFeedRefreshContext,
       isFeedStale,
       canonicalUrl,
       isNonEnglish,

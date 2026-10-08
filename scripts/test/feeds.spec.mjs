@@ -1119,3 +1119,4 @@ test('source highlights use explicit feeds and disclose partial coverage', async
   assert.notEqual(failed.status, 0);
   assert.equal(fs.readFileSync(outputPath, 'utf8'), output, 'failed refresh must not overwrite the prior artifact');
 });
+import './feed-refresh-efficiency.spec.mjs';
