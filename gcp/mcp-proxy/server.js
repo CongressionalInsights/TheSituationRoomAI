@@ -11,6 +11,7 @@ import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_ST
 import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
 import { sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
+import { buildFirmsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2376,6 +2377,7 @@ export async function fetchRaw(feed, options) {
   let lastError = null;
   let response = null;
   let body = null;
+  let firmsPrimaryFailure = null;
   let usedProxy = null;
   let fetchedUrl = null;
   let responseHeaders = null;
@@ -2504,11 +2506,19 @@ export async function fetchRaw(feed, options) {
       }
     } catch (error) {
       lastError = { error: 'fetch_failed', message: error.message, code: normalizeFetchErrorCode(error) };
+      if (feed.id === 'nasa-firms' && index === 0) {
+        firmsPrimaryFailure = buildFirmsPrimaryFailureDiagnostic(error);
+      }
+    } finally {
+      if (feed.id === 'nasa-firms' && index === 0 && !succeeded && !firmsPrimaryFailure) {
+        firmsPrimaryFailure = buildFirmsPrimaryFailureDiagnostic(lastError);
+      }
     }
   }
 
   if (!succeeded) {
     if (feed.id === 'nasa-firms') {
+      console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic(lastError)));
       const fireFallback = await buildArcgisFireFallback();
       if (fireFallback) {
         return {

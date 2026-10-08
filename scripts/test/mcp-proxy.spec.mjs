@@ -2016,6 +2016,8 @@ test('supported state zero-result metadata remains bound to the requested state'
 });
 
 test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and redacted URL', async (t) => {
+  const logs = [];
+  t.mock.method(console, 'warn', log => logs.push(log));
   const csv = 'latitude,longitude,acq_date,acq_time,frp,confidence\n0,-118.2,2026-09-22,35,12.4,n';
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
     url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
@@ -2036,6 +2038,55 @@ test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and red
   assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-22T00:35:00Z'));
   assert.equal(raw.data.items[0].source, 'NASA FIRMS');
   assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+  assert.deepEqual(logs, []);
+});
+
+test('NASA FIRMS MCP logs bounded direct failures before NOAA fallback and preserves outward metadata', async (t) => {
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
+    url: 'https://fixture.invalid/api/area/csv/{{key}}/world/1' };
+  const logs = [];
+  t.mock.method(console, 'warn', log => logs.push(JSON.parse(log)));
+  let scenario;
+  let primaryRequests = 0;
+  t.mock.method(globalThis, 'fetch', async url => {
+    if (String(url).includes('arcgis')) {
+      assert.equal(logs.length, 1, 'the diagnostic precedes the NOAA request');
+      return new Response(JSON.stringify({ features: [{
+        geometry: { coordinates: [-105, 46] }, properties: { frp: 10 }
+      }] }), { headers: { 'content-type': 'application/json' } });
+    }
+    primaryRequests += 1;
+    if (scenario.failure) throw scenario.failure;
+    return new Response(scenario.body || 'fixture-secret', {
+      status: primaryRequests === 1 ? scenario.status : 502,
+      headers: { 'content-type': 'text/csv', 'x-private-key': 'fixture-secret' }
+    });
+  });
+  for (scenario of [
+    { status: 401 }, { status: 403 }, { status: 429 }, { status: 503 },
+    { status: 200, body: 'Invalid MAP_KEY fixture-secret', errorClass: 'invalid_response' },
+    { status: 200, body: 'latitude,longitude,acq_date,acq_time', errorClass: 'empty_payload' },
+    { failure: Object.assign(new Error('fixture-secret'), { name: 'AbortError' }), transportCode: 'timeout' },
+    { failure: Object.assign(new Error('fixture-secret'), { cause: { code: 'ECONNRESET', message: 'fixture-secret' } }), transportCode: 'ECONNRESET' },
+    { failure: Object.assign(new Error('fixture-secret'), { code: 'fixture-secret' }), transportCode: null }
+  ]) {
+    logs.length = 0;
+    primaryRequests = 0;
+    const result = await fetchRaw(feed, { key: 'fixture-secret' });
+    assert.deepEqual(logs, [{ event: 'firms_primary_failure', feedId: feed.id,
+      errorClass: scenario.errorClass || 'fetch_failed', upstreamStatus: scenario.status || null,
+      transportCode: scenario.transportCode || null }]);
+    assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
+    assert.equal(result.httpStatus, 200);
+    assert.equal(result.contentType, 'application/json');
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.proxyUsed, 'arcgis-hms-fire');
+    assert.equal(result.responseHeaders, null);
+    const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
+    assert.equal(raw.data.items[0].source, 'NOAA HMS');
+    assert.equal(raw.data.items[0].publishedAt, null);
+    assert.match(raw.warning, /NASA FIRMS unavailable.*NOAA HMS/);
+  }
 });
 
 test('NASA FIRMS MCP raw, bounded signals, search and get retain the newest tail acquisition', async (t) => {
