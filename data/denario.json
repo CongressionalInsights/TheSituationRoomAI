@@ -1,0 +1,122 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 9 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 33,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 50,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 0,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "Twelve killed and 300 injured in attack on airport in Saudi capital Riyadh",
+      "summary": "Saudi and US officials blame the attack on Yemen's Houthis, who have not commented on the latest strike.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cw33x4y8k82no?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1791691042000
+    },
+    {
+      "title": "'Time for Ukraine to get new president,' says Trump after Zelensky condemns diesel deal",
+      "summary": "Ukraine's leader had said the deal with Russia to release diesel into the US would help Moscow fund the war.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cqe8r5l7n92jo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1791682889000
+    },
+    {
+      "title": "Young men live in fear of being snatched off the streets and sold to Myanmar's army",
+      "summary": "A desperate junta is in a war of attrition against ethnic militias and and civilian resistance.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c680zlny0gk4o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1791670388000
+    },
+    {
+      "title": "Columbus Day, 2026",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/13/2026-20972/columbus-day-2026",
+      "category": "gov",
+      "publishedAt": 1791849600000
+    },
+    {
+      "title": "National Energy Dominance Month, 2026",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/13/2026-20969/national-energy-dominance-month-2026",
+      "category": "gov",
+      "publishedAt": 1791849600000
+    },
+    {
+      "title": "Safety Zone; Brandon Road Lock and Dam to Lake Michigan Including Des Plaines River, Chicago Sanitary and Ship Canal, Chicago River, and Calumet-Saganashkee Channel, Chicago, IL",
+      "summary": "The Coast Guard will enforce a safety zone on the South Branch of the Chicago River, between mile marker 325.4 and 325.5, for the assembly of the Lake Street Bridge for the Chicago Department of Transportation bridge repair. During the enforcement period, entry into, transiting, mooring, laying-up, or anchoring within the safety zone is prohibited unless authorized by the Captain of the Port Lake Michigan or a designated on-scene representative.",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/13/2026-20902/safety-zone-brandon-road-lock-and-dam-to-lake-michigan-including-des-plaines-river-chicago-sanitary",
+      "category": "gov",
+      "publishedAt": 1791849600000
+    },
+    {
+      "title": "Hurricane Simon",
+      "summary": "Severe Storms • Magnitude 130 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25094",
+      "category": "disaster",
+      "publishedAt": 1791676800000
+    },
+    {
+      "title": "Prescribed Fire CON BSE13 RX, Covington, Alabama",
+      "summary": "Wildfires • Magnitude 614 acres",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25119",
+      "category": "disaster",
+      "publishedAt": 1791369900000
+    },
+    {
+      "title": "Hurricane Isaias",
+      "summary": "Severe Storms • Magnitude 30 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25063",
+      "category": "disaster",
+      "publishedAt": 1791622800000
+    }
+  ],
+  "generatedAt": "2026-10-11T06:22:11.161Z"
+}
