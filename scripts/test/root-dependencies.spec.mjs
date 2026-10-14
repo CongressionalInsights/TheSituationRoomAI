@@ -22,3 +22,19 @@ test('root dev tooling pins manifest and lockfile versions together', () => {
   assert.equal(lockfile.packages['node_modules/playwright'].version, '1.63.0');
   assert.equal(lockfile.packages['node_modules/esbuild'].version, '0.28.2');
 });
+
+test('root runtime dependencies pin manifest and lockfile versions together', () => {
+  const manifest = readJson('package.json');
+  const lockfile = readJson('package-lock.json');
+
+  assert.deepEqual(manifest.dependencies, {
+    '@modelcontextprotocol/sdk': '^1.32.1',
+    'fast-xml-parser': '^5.11.2',
+    zod: '^4.6.7'
+  });
+
+  assert.deepEqual(lockfile.packages[''].dependencies, manifest.dependencies);
+  assert.equal(lockfile.packages['node_modules/@modelcontextprotocol/sdk'].version, '1.32.1');
+  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.11.2');
+  assert.equal(lockfile.packages['node_modules/zod'].version, '4.6.7');
+});
