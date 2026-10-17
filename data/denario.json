@@ -1,0 +1,146 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 12 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 23,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 50,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 453,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "Trump waives several Russia sanctions as row with Zelensky intensifies",
+      "summary": "The US president temporarily ends many restrictions on Moscow recently passed by Congress over \"national security\" concerns.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cxr5yvzv7rp0o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1792238166000
+    },
+    {
+      "title": "Teacher fought US school attacker before armed dad shot suspect 'multiple times'",
+      "summary": "The 16-year-old suspect previously attended the primary school and had targeted a special educational needs classroom, police say.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cv98zw1k8kp3o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1792231097000
+    },
+    {
+      "title": "Three men jailed for 158 years each for murdering Australian and US surfers in Mexico",
+      "summary": "Brothers Jake and Callum Robinson and their friend Carter Rhoad were killed on a surfing trip in an apparent botched robbery.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c3kgqjkzw29wo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1792206670000
+    },
+    {
+      "title": "Fee Schedules; Fee Recovery for Fiscal Year 2026",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/19/C1-2026-12067/fee-schedules-fee-recovery-for-fiscal-year-2026",
+      "category": "gov",
+      "publishedAt": 1792368000000
+    },
+    {
+      "title": "Continuation of the National Emergency With Respect to the Democratic Republic of the Congo",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/19/2026-21432/continuation-of-the-national-emergency-with-respect-to-the-democratic-republic-of-the-congo",
+      "category": "gov",
+      "publishedAt": 1792368000000
+    },
+    {
+      "title": "Continuation of the National Emergency With Respect to Sudan",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/10/19/2026-21431/continuation-of-the-national-emergency-with-respect-to-sudan",
+      "category": "gov",
+      "publishedAt": 1792368000000
+    },
+    {
+      "title": "Tropical Cyclone 01P",
+      "summary": "Severe Storms • Magnitude 60 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25340",
+      "category": "disaster",
+      "publishedAt": 1792216800000
+    },
+    {
+      "title": "Typhoon Champi",
+      "summary": "Severe Storms • Magnitude 115 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25339",
+      "category": "disaster",
+      "publishedAt": 1792216800000
+    },
+    {
+      "title": "Prescribed Fire Newman Piles RX, Coconino, Arizona",
+      "summary": "Wildfires • Magnitude 751 acres",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25310",
+      "category": "disaster",
+      "publishedAt": 1791974520000
+    },
+    {
+      "title": "The World Won't Wait: Evaluating and Teaching Agents Under a Live Clock",
+      "summary": "arXiv:2610.20665v1 Announce Type: new Abstract: Large language model (LLM) agents can solve complex interactive tasks, yet reasoning and tool calls take time. In continuously changing environments, an otherwise correct action may arrive too late. We introduce RealtimeBench, with 180 tasks across six game types, to evaluate agents while games continue running during inference. Paired evaluations show that GPT-6.1-sol outperforms the faster Jev when games are paused, but falls behind when they ...",
+      "source": "arXiv RSS (cs.AI)",
+      "url": "https://arxiv.org/abs/2610.20665",
+      "category": "research",
+      "publishedAt": 1792209600000
+    },
+    {
+      "title": "Evaluating Model Capabilities After Benchmark Saturation",
+      "summary": "arXiv:2610.20667v1 Announce Type: new Abstract: Rapid advances in AI capabilities are causing benchmarks to saturate. Once several models approach perfect scores, a benchmark loses its power to differentiate between them, and with it its utility for informing AI safety cases and frontier policies. Yet benchmark items produce far more information than the scores we typically extract from them: a full transcript of how each model solved the task. We investigate whether these transcripts can be ...",
+      "source": "arXiv RSS (cs.AI)",
+      "url": "https://arxiv.org/abs/2610.20667",
+      "category": "research",
+      "publishedAt": 1792209600000
+    },
+    {
+      "title": "Value-Informed Schedule Trimming for Accelerated Sequential Monte Carlo Guidance in Discrete Diffusion",
+      "summary": "arXiv:2610.20669v1 Announce Type: new Abstract: Reward-guided discrete diffusion enables test-time alignment with downstream objectives, but applying Sequential Monte Carlo (SMC) guidance at every denoising step is computationally expensive. Active guidance steps require additional reward evaluations and, for gradient-based proposals, value-gradient computations. Sparse guidance reduces this cost by guiding only a subset of timesteps, but commonly used schedules are fixed heuristics whose eff...",
+      "source": "arXiv RSS (cs.AI)",
+      "url": "https://arxiv.org/abs/2610.20669",
+      "category": "research",
+      "publishedAt": 1792209600000
+    }
+  ],
+  "generatedAt": "2026-10-17T18:14:53.681Z"
+}
