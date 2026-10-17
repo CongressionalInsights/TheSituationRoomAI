@@ -938,6 +938,41 @@ test('NASA FIRMS Feed Proxy logs the direct failure before fallback without chan
   }
 });
 
+test('NASA FIRMS Feed Proxy logs bounded transport failure before stale-cache fallback', async () => {
+  const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', format: 'json', category: 'disaster',
+    url: 'https://fixture.invalid/api/area/csv/fixture-secret/world/1' };
+  const stale = { id: feed.id, httpStatus: 200, contentType: 'application/json', body: '{"items":[]}' };
+  const returned = { ...stale, stale: true, fallback: 'live-cache' };
+  const logs = [];
+  let staleChecks = 0;
+  const { context } = openAqFeedFixture({
+    buildFirmsPrimaryFailureDiagnostic, normalizeNasaFirmsItems, parseNasaFirmsRows,
+    buildNasaFirmsItems: normalizeNasaFirmsItems,
+    cache: new Map([['nasa-firms::{}', stale]]),
+    console: { warn: log => logs.push(JSON.parse(log)) },
+    fetchWithTimeout: async () => {
+      throw Object.assign(new Error('fixture-secret'), { cause: { code: 'ENOTFOUND', message: 'fixture-secret' } });
+    },
+    isUsableStaleFeedPayload: (_feed, payload) => {
+      staleChecks += 1;
+      assert.equal(payload, stale);
+      assert.deepEqual(logs, [{ event: 'firms_primary_failure', feedId: feed.id,
+        errorClass: 'fetch_failed', upstreamStatus: null, transportCode: 'ENOTFOUND' }]);
+      return true;
+    },
+    markStaleFeedPayload: (_feed, payload) => {
+      assert.equal(payload, stale);
+      return returned;
+    },
+    buildArcgisFireFallback: async () => assert.fail('transport failures use stale cache before NOAA fallback')
+  });
+  const result = await context.fetchFeed(feed);
+  assert.equal(result, returned);
+  assert.equal(staleChecks, 1);
+  assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
+});
+
 test('NASA FIRMS MCP URL redaction covers CSV and legacy JSON path keys', () => {
   const source = fs.readFileSync(path.join(root, 'gcp/mcp-proxy/server.js'), 'utf8');
   const start = source.indexOf('function stripSecretsFromUrl(');
