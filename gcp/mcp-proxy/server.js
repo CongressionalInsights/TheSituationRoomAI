@@ -17,6 +17,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PORT = process.env.PORT || 8080;
+// Match SDK 1.32.1's byte default; leave ample room for shallow scalar/array/record inputs.
+export const MCP_REQUEST_LIMITS = Object.freeze({ maxRequestBodySize: 4 * 1024 * 1024, maxToolInputElements: 10000 });
 const FEEDS_PATH = join(__dirname, 'feeds.json');
 const MONEY_ENTITY_ALIASES_PATH = process.env.MONEY_ENTITY_ALIASES_PATH || join(__dirname, 'entity-aliases.json');
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
@@ -227,17 +229,6 @@ function getRequestOrigin(req) {
   const proto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
   if (proto) return `${proto}://${host}`;
   return `https://${host}`;
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk.toString();
-    });
-    req.on('end', () => resolve(body));
-    req.on('error', reject);
-  });
 }
 
 function stripSecretsFromUrl(rawUrl) {
@@ -2976,7 +2967,7 @@ export function buildMcpServer() {
   const server = new McpServer({
     name: 'Situation Room MCP',
     version: '0.1.0'
-  });
+  }, { maxToolInputElements: MCP_REQUEST_LIMITS.maxToolInputElements });
 
 server.registerTool(
   'catalog.sources',
@@ -3375,7 +3366,7 @@ server.registerTool(
   return server;
 }
 
-const httpServer = http.createServer(async (req, res) => {
+export const httpServer = http.createServer(async (req, res) => {
   const start = Date.now();
   res.on('finish', () => logRequest(req, res, start));
   const origin = req.headers.origin || '';
@@ -3452,32 +3443,37 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method !== 'POST') {
       return sendJson(res, 405, { error: 'method_not_allowed' }, origin);
     }
-    let body = {};
-    try {
-      const raw = await readBody(req);
-      body = raw ? JSON.parse(raw) : {};
-    } catch (error) {
-      return sendJson(res, 400, { error: 'invalid_json', message: error.message }, origin);
-    }
     setCors(res, origin);
     const accept = String(req.headers.accept || '').toLowerCase();
     if (!accept || (!accept.includes('application/json') || !accept.includes('text/event-stream'))) {
       req.headers.accept = 'application/json, text/event-stream';
+      // The SDK's Node adapter constructs Web Headers from rawHeaders, not headers.
+      for (let i = req.rawHeaders.length - 2; i >= 0; i -= 2) {
+        if (req.rawHeaders[i].toLowerCase() === 'accept') req.rawHeaders.splice(i, 2);
+      }
+      req.rawHeaders.push('Accept', req.headers.accept);
     }
+    const mcpServer = buildMcpServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      maxRequestBodySize: MCP_REQUEST_LIMITS.maxRequestBodySize
+    });
     try {
-      const mcpServer = buildMcpServer();
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await mcpServer.connect(transport);
-      await transport.handleRequest(req, res, body);
-      if (typeof transport.close === 'function') {
-        await transport.close();
-      }
-      if (typeof mcpServer.close === 'function') {
-        await mcpServer.close();
-      }
+      // The SDK owns byte-bounded reading/decoding/parsing. A parsedBody argument bypasses it.
+      await transport.handleRequest(req, res);
       return;
     } catch (error) {
-      return sendJson(res, 500, { error: 'mcp_transport_failed', message: error.message }, origin);
+      if (!res.headersSent && !res.destroyed) {
+        return sendJson(res, 500, { error: 'mcp_transport_failed', message: error.message }, origin);
+      }
+      if (!res.writableEnded) res.destroy();
+    } finally {
+      try {
+        await transport.close();
+      } finally {
+        await mcpServer.close();
+      }
     }
   }
 
