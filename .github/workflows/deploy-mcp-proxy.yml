@@ -17,6 +17,7 @@ on:
         required: true
         default: false
         type: boolean
+      # Owner-approved provider-independent maintenance exception; normal data-release gates remain required outside this mode.
       metadata_only:
         description: Verify only local MCP metadata without provider calls
         required: true
