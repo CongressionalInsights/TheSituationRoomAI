@@ -3659,7 +3659,7 @@ test('feed proxy deploy workflow injects OpenSky credentials', () => {
 test('proxy deploy workflows retain eligible core sentinel reports as artifacts', () => {
   const expected = [
     ['deploy-feed-proxy.yml', 'Feed', 'feed-core-sentinel', ''],
-    ['deploy-mcp-proxy.yml', 'MCP', 'mcp-core-sentinel', ' && !inputs.cisa_only']
+    ['deploy-mcp-proxy.yml', 'MCP', 'mcp-core-sentinel', ' && !inputs.cisa_only && !inputs.metadata_only']
   ];
   for (const [file, label, artifact, extraGuard] of expected) {
     const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', file), 'utf8');

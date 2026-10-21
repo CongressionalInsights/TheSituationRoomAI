@@ -17,6 +17,12 @@ on:
         required: true
         default: false
         type: boolean
+      # Owner-approved provider-independent maintenance exception; normal data-release gates remain required outside this mode.
+      metadata_only:
+        description: Verify only local MCP metadata without provider calls
+        required: true
+        default: false
+        type: boolean
       sync_secret_versions:
         description: Sync configured GitHub secrets into Secret Manager before deploying
         required: false
@@ -52,6 +58,10 @@ jobs:
           if [ "${{ inputs.cisa_only }}" = true ]; then
             test "${{ inputs.sync_secret_versions }}" = false
           fi
+          if [ "${{ inputs.metadata_only }}" = true ]; then
+            test "${{ inputs.cisa_only }}" = false
+            test "${{ inputs.sync_secret_versions }}" = false
+          fi
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
       - name: Verify MCP deploy source files
@@ -83,6 +93,8 @@ jobs:
           node --check gcp/mcp-proxy/public-payload-safety.js
       - name: Verify MCP response contracts
         run: node --test scripts/test/mcp-proxy.spec.mjs
+      - name: Verify metadata-only release fixtures
+        run: node --test scripts/test/verify_mcp_metadata_candidate.spec.mjs
       - name: Verify CISA release fixtures
         run: node --test scripts/test/verify_cisa_candidate.spec.mjs
       - name: Verify ACLED pagination fixtures
@@ -380,7 +392,10 @@ jobs:
           echo "Testing isolated MCP candidate ${CANDIDATE_REVISION}."
           curl -fsS "${CANDIDATE_URL}/health" >/dev/null
           curl -fsS "${CANDIDATE_URL}/.well-known/mcp.json" >/dev/null
-          if [ "${{ inputs.cisa_only }}" = true ]; then
+          if [ "${{ inputs.metadata_only }}" = true ]; then
+            node scripts/verify_mcp_metadata_candidate.mjs "${CANDIDATE_URL}/mcp" \
+              | tee /tmp/mcp-diagnostics/metadata-candidate.json
+          elif [ "${{ inputs.cisa_only }}" = true ]; then
             node scripts/verify_cisa_candidate.mjs "${CANDIDATE_URL}/mcp" \
               | tee /tmp/mcp-diagnostics/cisa-candidate.json
           else
@@ -449,7 +464,13 @@ jobs:
           test "$CURRENT_REVISION" = "$CANDIDATE_REVISION"
           curl -fsS "${SERVICE_URL}/health" >/dev/null
           curl -fsS "${SERVICE_URL}/.well-known/mcp.json" >/dev/null
-          if [ "${{ inputs.cisa_only }}" = true ]; then
+          if [ "${{ inputs.metadata_only }}" = true ]; then
+            node scripts/verify_mcp_metadata_candidate.mjs "${SERVICE_URL}/mcp" \
+              | tee /tmp/mcp-diagnostics/metadata-canonical.json
+            jq -e --slurpfile candidate /tmp/mcp-diagnostics/metadata-candidate.json \
+              '.mode == "metadata_only" and .fingerprint == $candidate[0].fingerprint' \
+              /tmp/mcp-diagnostics/metadata-canonical.json
+          elif [ "${{ inputs.cisa_only }}" = true ]; then
             node scripts/verify_cisa_candidate.mjs "${SERVICE_URL}/mcp" \
               | tee /tmp/mcp-diagnostics/cisa-canonical.json
             jq -e --slurpfile candidate /tmp/mcp-diagnostics/cisa-candidate.json \
@@ -599,7 +620,7 @@ jobs:
           echo "Deploy failed. Review the mcp-deploy-diagnostics artifact for Cloud Build IDs and logs."
           exit 1
       - name: Upload MCP core sentinel reports
-        if: always() && !inputs.cisa_only && hashFiles('analysis/monitor/latest.json', 'analysis/monitor/latest.md') != ''
+        if: always() && !inputs.cisa_only && !inputs.metadata_only && hashFiles('analysis/monitor/latest.json', 'analysis/monitor/latest.md') != ''
         uses: actions/upload-artifact@v7
         with:
           name: mcp-core-sentinel-${{ github.run_id }}-${{ github.run_attempt }}
