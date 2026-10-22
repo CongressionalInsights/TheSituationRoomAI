@@ -59,6 +59,8 @@ jobs:
             test "${{ inputs.sync_secret_versions }}" = false
           fi
           if [ "${{ inputs.metadata_only }}" = true ]; then
+            # This provider-independent exception is limited to its approved one-time release.
+            test "$EXPECTED_SHA" = "6dd6a85383a394f9d622a1aacfc3e319c1ef5250"
             test "${{ inputs.cisa_only }}" = false
             test "${{ inputs.sync_secret_versions }}" = false
           fi
