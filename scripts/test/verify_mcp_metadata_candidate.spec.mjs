@@ -120,6 +120,13 @@ test('metadata-only workflow input guard rejects mixed modes and secret synchron
   }
 });
 
+test('metadata-only workflow input guard pins the provider-independent bypass to its approved release', () => {
+  const guard = runScript(step('Bind manual release to reviewed main commit'));
+  // This is the merge commit that introduced the one-time, provider-independent maintenance exception.
+  // Any later release must retain the normal provider and typed-series candidate gates.
+  assert.match(guard, /if \[ "\$\{\{ inputs\.metadata_only \}\}" = true \]; then[\s\S]*?test "\$EXPECTED_SHA" = "6dd6a85383a394f9d622a1aacfc3e319c1ef5250"/);
+});
+
 test('metadata-only workflow routes only metadata smokes and parity while retaining normal/CISA paths', () => {
   const smoke = runScript(step('Smoke test isolated MCP candidate'));
   const canonical = runScript(step('Verify canonical MCP release'));
