@@ -56,7 +56,7 @@ function assertNodeCommandsUsePinnedRuntime(relativePath) {
   });
 }
 
-test('Node runtime stays pinned to .nvmrc across package manifests', () => {
+test('Node runtime stays on the .nvmrc major across package manifests', () => {
   const expectedVersion = readFile('.nvmrc').trim();
   assert.equal(expectedVersion, '24');
 
@@ -64,7 +64,6 @@ test('Node runtime stays pinned to .nvmrc across package manifests', () => {
     'package.json',
     'gcp/acled-proxy/package.json',
     'gcp/feed-proxy/package.json',
-    'gcp/mcp-proxy/package.json',
     'gcp/openai-proxy/package.json',
     'gcp/opensky-proxy/package.json',
     'gcp/state-connector/package.json'
@@ -78,6 +77,14 @@ test('Node runtime stays pinned to .nvmrc across package manifests', () => {
       `${relativePath} should pin engines.node to ${expectedVersion}.x`
     );
   });
+});
+
+test('MCP buildpack runtime pins the approved Node security patch and matching lockfile', () => {
+  const manifest = readJson('gcp/mcp-proxy/package.json');
+  const lockfile = readJson('gcp/mcp-proxy/package-lock.json');
+  assert.equal(manifest.engines.node, '24.22.1');
+  assert.equal(manifest.engines.node.split('.')[0], readFile('.nvmrc').trim());
+  assert.deepEqual(lockfile.packages[''].engines, manifest.engines);
 });
 
 test('Node-running workflows load the runtime from .nvmrc', () => {
