@@ -112,9 +112,10 @@ const substitute = (script, { metadata = false, cisa = false, sync = false } = {
 test('metadata-only workflow input guard rejects mixed modes and secret synchronization', () => {
   assert.match(workflow, /metadata_only:\n\s*description:.*\n\s*required: true\n\s*default: false\n\s*type: boolean/);
   const guard = runScript(step('Bind manual release to reviewed main commit'));
-  for (const [metadata, cisa, sync, succeeds] of [[true, false, false, true], [true, true, false, false], [true, false, true, false], [false, true, false, true], [false, false, true, true]]) {
-    const result = spawnSync('bash', ['-c', `git(){ printf 'fixture'; }; ${substitute(guard, { metadata, cisa, sync })}`], {
-      encoding: 'utf8', env: { ...process.env, ACTUAL_REF: 'refs/heads/main', ACTUAL_SHA: 'fixture', EXPECTED_SHA: 'fixture' }
+  for (const [metadata, cisa, sync, succeeds] of [[true, false, false, true], [true, true, false, false], [true, false, true, false], [false, true, false, true], [false, true, true, false], [false, false, true, true]]) {
+    const sha = metadata ? '6dd6a85383a394f9d622a1aacfc3e319c1ef5250' : 'fixture';
+    const result = spawnSync('bash', ['-c', `git(){ printf '%s' "$ACTUAL_SHA"; }; ${substitute(guard, { metadata, cisa, sync })}`], {
+      encoding: 'utf8', env: { ...process.env, ACTUAL_REF: 'refs/heads/main', ACTUAL_SHA: sha, EXPECTED_SHA: sha }
     });
     assert.equal(result.status === 0, succeeds, JSON.stringify({ metadata, cisa, sync }));
   }
@@ -125,6 +126,32 @@ test('metadata-only workflow input guard pins the provider-independent bypass to
   // This is the merge commit that introduced the one-time, provider-independent maintenance exception.
   // Any later release must retain the normal provider and typed-series candidate gates.
   assert.match(guard, /if \[ "\$\{\{ inputs\.metadata_only \}\}" = true \]; then[\s\S]*?test "\$EXPECTED_SHA" = "6dd6a85383a394f9d622a1aacfc3e319c1ef5250"/);
+});
+
+test('metadata-only release pin is conditional and retains reviewed-main binding in every mode', () => {
+  const guard = runScript(step('Bind manual release to reviewed main commit'));
+  const approved = '6dd6a85383a394f9d622a1aacfc3e319c1ef5250';
+  const future = 'f'.repeat(40);
+  const other = 'e'.repeat(40);
+  for (const [label, metadata, cisa, expected, actual, checkout, ref, succeeds] of [
+    ['approved metadata release', true, false, approved, approved, approved, 'refs/heads/main', true],
+    ['future metadata release', true, false, future, future, future, 'refs/heads/main', false],
+    ['wrong metadata pin', true, false, other, other, other, 'refs/heads/main', false],
+    ['metadata reviewed SHA mismatch', true, false, approved, future, future, 'refs/heads/main', false],
+    ['metadata checkout mismatch', true, false, approved, approved, future, 'refs/heads/main', false],
+    ['metadata non-main ref', true, false, approved, approved, approved, 'refs/heads/other', false],
+    ['ordinary future release', false, false, future, future, future, 'refs/heads/main', true],
+    ['CISA future release', false, true, future, future, future, 'refs/heads/main', true],
+    ['ordinary reviewed SHA mismatch', false, false, future, other, other, 'refs/heads/main', false],
+    ['CISA checkout mismatch', false, true, future, future, other, 'refs/heads/main', false],
+    ['ordinary non-main ref', false, false, future, future, future, 'refs/heads/other', false],
+    ['CISA non-main ref', false, true, future, future, future, 'refs/heads/other', false]
+  ]) {
+    const result = spawnSync('bash', ['-c', `git(){ printf '%s' "$FIXTURE_CHECKOUT_SHA"; }; ${substitute(guard, { metadata, cisa })}`], {
+      encoding: 'utf8', env: { ...process.env, ACTUAL_REF: ref, ACTUAL_SHA: actual, EXPECTED_SHA: expected, FIXTURE_CHECKOUT_SHA: checkout }
+    });
+    assert.equal(result.status === 0, succeeds, `${label}: ${result.stderr}`);
+  }
 });
 
 test('metadata-only workflow routes only metadata smokes and parity while retaining normal/CISA paths', () => {
