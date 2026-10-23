@@ -62,7 +62,6 @@ test('Node runtime stays on the .nvmrc major across package manifests', () => {
 
   const packageFiles = [
     'package.json',
-    'gcp/acled-proxy/package.json',
     'gcp/feed-proxy/package.json',
     'gcp/openai-proxy/package.json',
     'gcp/opensky-proxy/package.json',
@@ -82,6 +81,14 @@ test('Node runtime stays on the .nvmrc major across package manifests', () => {
 test('MCP buildpack runtime pins the approved Node security patch and matching lockfile', () => {
   const manifest = readJson('gcp/mcp-proxy/package.json');
   const lockfile = readJson('gcp/mcp-proxy/package-lock.json');
+  assert.equal(manifest.engines.node, '24.22.1');
+  assert.equal(manifest.engines.node.split('.')[0], readFile('.nvmrc').trim());
+  assert.deepEqual(lockfile.packages[''].engines, manifest.engines);
+});
+
+test('ACLED buildpack runtime pins the approved Node security patch and matching lockfile', () => {
+  const manifest = readJson('gcp/acled-proxy/package.json');
+  const lockfile = readJson('gcp/acled-proxy/package-lock.json');
   assert.equal(manifest.engines.node, '24.22.1');
   assert.equal(manifest.engines.node.split('.')[0], readFile('.nvmrc').trim());
   assert.deepEqual(lockfile.packages[''].engines, manifest.engines);

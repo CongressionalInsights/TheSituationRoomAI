@@ -8,6 +8,10 @@ on:
         required: false
         default: false
         type: boolean
+      expected_sha:
+        description: Exact reviewed main commit to deploy
+        required: true
+        type: string
   push:
     branches: [main]
     paths:
@@ -19,6 +23,7 @@ permissions:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       PROJECT_ID: situationroom-ai-20260112
@@ -27,6 +32,20 @@ jobs:
       ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Bind manual release to reviewed main commit
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+          ACTUAL_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_REF" = refs/heads/main
+          test "${#EXPECTED_SHA}" = 40
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]+$ ]]
+          test "$EXPECTED_SHA" = "$ACTUAL_SHA"
+          test "$(git rev-parse HEAD)" = "$ACTUAL_SHA"
       - uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
