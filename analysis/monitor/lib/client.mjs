@@ -444,7 +444,8 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000, 
       let parsed = null;
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
       if (contentType.includes('text/event-stream')) {
-        const maxEventBufferChars = (name === 'raw.fetch' && args?.sourceId === 'swpc-json')
+        const maxEventBufferChars = (name === 'raw.fetch'
+          && (args?.sourceId === 'swpc-json' || args?.sourceId === 'arcgis-military-installations'))
           || (name === 'signals.list' && args?.sourceId === 'cisa-kev' && options.allowCompleteEvent === true)
           ? MAX_MCP_RESPONSE_BYTES
           : MAX_MCP_EVENT_BUFFER_CHARS;
