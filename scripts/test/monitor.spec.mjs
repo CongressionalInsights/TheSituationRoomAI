@@ -49,7 +49,7 @@ import {
   evaluateInvariant
 } from '../../analysis/monitor/lib/audit.mjs';
 import { normalizeJsonSignals } from '../../gcp/mcp-proxy/signal-normalization.js';
-import { createItemId } from '../../gcp/mcp-proxy/server.js';
+import { buildRawStructuredContent, createItemId } from '../../gcp/mcp-proxy/server.js';
 import { redactCredentialFields } from '../../analysis/monitor/lib/public_payload_safety.mjs';
 import {
   buildMarkdownReport,
@@ -3081,7 +3081,72 @@ test('SWPC raw MCP events may exceed the default event cap but remain under the 
   assert.equal(result.data.data[0].providerValue.length, largeProviderValue.length);
 });
 
-test('large non-SWPC MCP events retain the default response limit', async (t) => {
+test('military raw MCP audit retains all 200 features and full geometry without truncation params', async (t) => {
+  const sourceId = 'arcgis-military-installations';
+  const feed = typedMonitorFeeds.find((item) => item.id === sourceId);
+  const entry = resolveMonitoringEntry(feed, typedMonitorOverrides[sourceId]);
+  const ring = Array.from({ length: 900 }, (_, index) => {
+    const angle = index * 2 * Math.PI / 900;
+    return [Number((-120 + Math.cos(angle)).toFixed(9)), Number((35 + Math.sin(angle)).toFixed(9))];
+  });
+  ring.push(ring[0]);
+  const body = {
+    type: 'FeatureCollection',
+    properties: { exceededTransferLimit: true },
+    features: Array.from({ length: 200 }, (_, index) => ({
+      type: 'Feature',
+      properties: { OBJECTID: index + 1, name: `Installation ${index + 1}` },
+      geometry: index % 2
+        ? { type: 'MultiPolygon', coordinates: [[ring]] }
+        : { type: 'Polygon', coordinates: [ring] }
+    }))
+  };
+  const bodyText = JSON.stringify(body);
+  assert.ok(Buffer.byteLength(bodyText) > 5 * 1024 * 1024);
+  const raw = buildRawStructuredContent({
+    sourceId, feed, responseFormat: 'json',
+    result: { body: bodyText, httpStatus: 200, contentType: 'application/geo+json', fallbackUsed: false }
+  });
+  const items = normalizeJsonSignals(bodyText, feed).slice(0, 25);
+  assert.equal(items.length, 25);
+  const requests = [];
+  const server = http.createServer(async (req, res) => {
+    const request = await readJsonRequest(req);
+    if (req.url === '/api/feed') {
+      requests.push({ proxy: request });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ body, httpStatus: 200 }));
+      return;
+    }
+    requests.push(request.params);
+    const isRaw = request.params.name === 'raw.fetch';
+    const event = `data: ${JSON.stringify({
+      jsonrpc: '2.0', id: request.id,
+      result: { structuredContent: isRaw ? raw : { items, fallbackUsed: false } }
+    })}\n\n`;
+    assert.ok(Buffer.byteLength(event) < 16 * 1024 * 1024);
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.end(event);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const result = await auditEntry(entry, { base, mcp: `${base}/mcp`, timeoutMs: 5000, includeStatic: false });
+
+  assert.deepEqual(requests, [
+    { proxy: { id: sourceId, force: true } },
+    { name: 'raw.fetch', arguments: { sourceId, format: 'json' } },
+    { name: 'signals.list', arguments: { sourceId, limit: 25 } }
+  ]);
+  assert.equal(result.raw.error, null);
+  assert.equal(result.raw.rawItemCount, 200);
+  assert.equal(result.raw.fallbackUsed, false);
+  assert.deepEqual(result.raw.parsedBody, body);
+  assert.equal(result.signals.count, 25);
+  assert.deepEqual(result.alerts, []);
+});
+
+test('large unrelated MCP sources and tools retain the default response limit', async (t) => {
   let requestCount = 0;
   const largeProviderValue = 'x'.repeat((2 * 1024 * 1024) + 1024);
   const server = http.createServer(async (req, res) => {
@@ -3103,19 +3168,27 @@ test('large non-SWPC MCP events retain the default response limit', async (t) =>
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
   const { port } = server.address();
-  const result = await callMcpTool(
-    `http://127.0.0.1:${port}/mcp`,
-    'raw.fetch',
-    { sourceId: 'other-json', format: 'json' },
-    5000
-  );
-
-  assert.equal(requestCount, 3);
-  assert.equal(result.ok, false);
-  assert.equal(result.error, 'response_too_large');
+  const cases = [
+    ['raw.fetch', 'other-json'],
+    ['raw.fetch', 'arcgis-military-installations-other'],
+    ['signals.list', 'arcgis-military-installations'],
+    ['raw.history', 'arcgis-military-installations']
+  ];
+  for (const [name, sourceId] of cases) {
+    await t.test(`${name} ${sourceId}`, async () => {
+      const before = requestCount;
+      const result = await callMcpTool(
+        `http://127.0.0.1:${port}/mcp`, name, { sourceId, format: 'json' }, 5000
+      );
+      assert.equal(requestCount - before, 3);
+      assert.equal(result.ok, false);
+      assert.equal(result.error, 'response_too_large');
+      assert.equal(result.message, 'MCP event exceeded the monitor response limit.');
+    });
+  }
 });
 
-test('SWPC raw MCP events retain the total response byte limit', async (t) => {
+test('bounded raw MCP events retain the total response byte limit', async (t) => {
   let requestCount = 0;
   const oversizedProviderValue = 'x'.repeat((16 * 1024 * 1024) + 1024);
   const server = http.createServer(async (req, res) => {
@@ -3137,16 +3210,36 @@ test('SWPC raw MCP events retain the total response byte limit', async (t) => {
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
   const { port } = server.address();
-  const result = await callMcpTool(
-    `http://127.0.0.1:${port}/mcp`,
-    'raw.fetch',
-    { sourceId: 'swpc-json', format: 'json' },
-    5000
-  );
+  for (const sourceId of ['swpc-json', 'arcgis-military-installations']) {
+    await t.test(sourceId, async () => {
+      const before = requestCount;
+      const result = await callMcpTool(
+        `http://127.0.0.1:${port}/mcp`, 'raw.fetch', { sourceId, format: 'json' }, 5000
+      );
+      assert.equal(requestCount - before, 3);
+      assert.equal(result.ok, false);
+      assert.equal(result.error, 'response_too_large');
+      assert.equal(result.message, 'MCP response exceeded the monitor response limit.');
+    });
+  }
+});
 
-  assert.equal(requestCount, 3);
-  assert.equal(result.ok, false);
-  assert.equal(result.error, 'response_too_large');
+test('military raw MCP tool failures remain failures under the bounded allowance', async (t) => {
+  const mock = t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    const request = JSON.parse(options.body);
+    return new Response(`data: ${JSON.stringify({
+      jsonrpc: '2.0', id: request.id,
+      result: { isError: true, structuredContent: { error: 'upstream_failure', message: 'Provider failed.' } }
+    })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+  });
+  try {
+    const result = await callMcpTool('https://fixture.invalid/mcp', 'raw.fetch', { sourceId: 'arcgis-military-installations' });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'upstream_failure');
+    assert.equal(result.message, 'Provider failed.');
+  } finally {
+    mock.mock.restore();
+  }
 });
 
 test('non-SSE MCP responses reject stale ids and notification-shaped results', async (t) => {
