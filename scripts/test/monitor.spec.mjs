@@ -3423,8 +3423,14 @@ test('documentation watch pins stable provider surfaces without accepting unknow
   ));
   const surfaces = new Map(collectDocumentSurfaces(entries).map((surface) => [surface.key, surface]));
   const reviewed = {
-    'docs:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
-    'support:https://wwwnc.cdc.gov/travel/page/rss': 'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
+    'docs:https://wwwnc.cdc.gov/travel/page/rss': [
+      'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
+      'cea87092ea9b4497a96fef6cd20b29ccc6f9864cc4688b90b539ea36bfb216d1'
+    ],
+    'support:https://wwwnc.cdc.gov/travel/page/rss': [
+      'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
+      'cea87092ea9b4497a96fef6cd20b29ccc6f9864cc4688b90b539ea36bfb216d1'
+    ],
     'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774',
     'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
@@ -3492,6 +3498,181 @@ test('documentation watch pins stable provider surfaces without accepting unknow
     surfaceType: 'docs',
     tier: 'core'
   }), null);
+});
+
+test('CDC documentation watch accepts the exact owner-reviewed saved body for both roles', async (t) => {
+  const observed = parseFixture('cdc-rss-observed.json');
+  const entry = resolveMonitoringEntry(
+    typedMonitorFeeds.find((feed) => feed.id === 'cdc-travel-notices'),
+    typedMonitorOverrides['cdc-travel-notices']
+  );
+  assert.equal(Buffer.byteLength(observed.normalizedText, 'utf8'), 5721);
+  assert.equal(hashContent(observed.normalizedText), observed.observedHash);
+  assert.equal(observed.observedHash, 'cea87092ea9b4497a96fef6cd20b29ccc6f9864cc4688b90b539ea36bfb216d1');
+  assert.equal(entry.enforceAcceptedSurfaceHashes, true);
+  for (const role of ['docs', 'support']) {
+    assert.equal(entry[`${role}Url`], observed.sourceUrl);
+    assert.deepEqual(entry.acceptedSurfaceHashes[role][observed.sourceUrl], [
+      'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
+      observed.observedHash
+    ]);
+  }
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(url, observed.sourceUrl);
+    requests.push(url);
+    return new Response(observed.normalizedText, { headers: { 'Content-Type': 'text/plain' } });
+  });
+
+  const results = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+  assert.deepEqual(requests, [observed.sourceUrl, observed.sourceUrl]);
+  assert.deepEqual(results.map((result) => result.surfaceType), ['docs', 'support']);
+  for (const result of results) {
+    assert.equal(result.hash, observed.observedHash);
+    assert.equal(result.acceptedHashRequired, true);
+    assert.equal(result.acceptedBaseline, true);
+    assert.equal(result.changed, false);
+    assert.equal(result.classification, null);
+  }
+});
+
+for (const body of ['Unreviewed page revision.', 'A required schema field was removed.']) {
+  test(`CDC documentation watch rejects unknown body even with a matching prior hash: ${body}`, async (t) => {
+    const entry = resolveMonitoringEntry(
+      typedMonitorFeeds.find((feed) => feed.id === 'cdc-travel-notices'),
+      typedMonitorOverrides['cdc-travel-notices']
+    );
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.equal(url, entry.docsUrl);
+      requests.push(url);
+      return new Response(body);
+    });
+    const initial = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+    const repeated = await watchDocumentation({
+      entries: [entry],
+      previousDocs: Object.fromEntries(initial.map((result) => [result.key, result])),
+      timeoutMs: 1000
+    });
+    assert.deepEqual(requests, Array(4).fill(entry.docsUrl));
+    for (const results of [initial, repeated]) {
+      assert.deepEqual(results.map((result) => result.surfaceType), ['docs', 'support']);
+      for (const result of results) {
+        const breakingDocs = result.surfaceType === 'docs' && body.includes('required');
+        assert.equal(result.hash, hashContent(body));
+        assert.equal(result.acceptedHashRequired, true);
+        assert.equal(result.acceptedBaseline, false);
+        assert.equal(result.changed, true);
+        assert.equal(result.classification.regressionClass, result.surfaceType === 'support'
+          ? 'support-surface-updated' : breakingDocs ? 'docs-contract-change' : 'docs-surface-updated');
+        assert.equal(result.classification.severity, breakingDocs ? 'critical' : 'warning');
+      }
+    }
+  });
+}
+
+for (const failure of ['403', 'transport', 'timeout']) {
+  test(`CDC documentation watch preserves warning-level ${failure} failures for both roles`, async (t) => {
+    const entry = resolveMonitoringEntry(
+      typedMonitorFeeds.find((feed) => feed.id === 'cdc-travel-notices'),
+      typedMonitorOverrides['cdc-travel-notices']
+    );
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.equal(url, entry.docsUrl);
+      requests.push(url);
+      if (failure === 'transport') throw new TypeError('fixture transport failure');
+      if (failure === 'timeout') throw new DOMException('fixture timeout', 'AbortError');
+      return new Response('Access Denied', { status: 403 });
+    });
+
+    const results = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+    assert.deepEqual(requests, [entry.docsUrl, entry.supportUrl]);
+    assert.deepEqual(results.map((result) => result.surfaceType), ['docs', 'support']);
+    for (const result of results) {
+      assert.equal(result.status, failure === '403' ? 403 : null);
+      assert.equal(result.ok, false);
+      assert.equal(result.hash, null);
+      assert.equal(result.acceptedBaseline, false);
+      assert.equal(result.changed, true);
+      assert.deepEqual(result.classification, {
+        regressionClass: 'docs-fetch-failed',
+        severity: 'warning',
+        message: failure === '403' ? 'HTTP 403' : failure === 'timeout' ? 'timeout' : 'fetch_failed'
+      });
+    }
+  });
+}
+
+for (const failure of ['403', 'transport', 'timeout']) {
+  test(`BLS documentation watch keeps one actionable warning for ${failure}`, async (t) => {
+    const entry = resolveMonitoringEntry(
+      typedMonitorFeeds.find((feed) => feed.id === 'bls-cpi'),
+      typedMonitorOverrides['bls-cpi']
+    );
+    const url = 'https://www.bls.gov/developers/';
+    assert.equal(entry.docsUrl, url);
+    assert.equal(entry.supportUrl, null);
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (requestedUrl) => {
+      assert.equal(requestedUrl, url, 'documentation fixtures must not acquire provider data');
+      requests.push(requestedUrl);
+      if (failure === 'transport') throw new TypeError('fixture transport failure');
+      if (failure === 'timeout') throw new DOMException('fixture timeout', 'AbortError');
+      return new Response('Access Denied', { status: 403 });
+    });
+
+    const results = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+    assert.deepEqual(requests, [url]);
+    assert.equal(results.length, 1);
+    const [result] = results;
+    assert.equal(result.key, `docs:${url}`);
+    assert.equal(result.representativeFeedId, 'bls-cpi');
+    assert.deepEqual(result.feedIds, ['bls-cpi']);
+    assert.equal(result.status, failure === '403' ? 403 : null);
+    assert.equal(result.ok, false);
+    assert.equal(result.hash, null);
+    assert.equal(result.acceptedBaseline, false);
+    assert.equal(result.changed, true);
+    assert.deepEqual(result.classification, {
+      regressionClass: 'docs-fetch-failed',
+      severity: 'warning',
+      message: failure === '403' ? 'HTTP 403' : failure === 'timeout' ? 'timeout' : 'fetch_failed'
+    });
+    const alert = createAlert({
+      feedId: entry.id,
+      ...result.classification,
+      metadata: { surfaceKey: result.key, url: result.url }
+    });
+    assert.deepEqual(applyKnownUpstreamQuirks(alert, entry.knownUpstreamQuirks), alert);
+  });
+}
+
+test('documentation watch keeps distinct resolved docs and support surfaces independent', async (t) => {
+  const entry = resolveMonitoringEntry(
+    typedMonitorFeeds.find((feed) => feed.id === 'openaq-api'),
+    typedMonitorOverrides['openaq-api']
+  );
+  assert.ok(entry.docsUrl);
+  assert.ok(entry.supportUrl);
+  assert.notEqual(entry.docsUrl, entry.supportUrl);
+  const surfaces = collectDocumentSurfaces([entry]);
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.ok(surfaces.some((surface) => surface.url === url), 'only configured documentation fixtures');
+    requests.push(url);
+    return new Response('Access Denied', { status: 403 });
+  });
+
+  const results = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+  assert.deepEqual(requests.sort(), surfaces.map((surface) => surface.url).sort());
+  for (const surfaceType of ['docs', 'support']) {
+    const matching = results.filter((result) => result.surfaceType === surfaceType);
+    assert.equal(matching.length, 1, surfaceType);
+    assert.equal(matching[0].url, entry[`${surfaceType}Url`]);
+    assert.equal(matching[0].classification.regressionClass, 'docs-fetch-failed');
+    assert.equal(matching[0].classification.severity, 'warning');
+  }
 });
 
 test('documentation contracts alert on missing markers and ignore cosmetic churn', async (t) => {
