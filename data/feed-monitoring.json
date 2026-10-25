@@ -476,7 +476,7 @@
     "docsUrl": "https://www.bls.gov/developers/",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.bls.gov/developers/",
+    "supportUrl": null,
     "timeoutMs": 60000,
     "freshnessWindowMinutes": 4320,
     "publicationSchedule": {
@@ -859,10 +859,16 @@
     "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://wwwnc.cdc.gov/travel/page/rss": "e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb"
+        "https://wwwnc.cdc.gov/travel/page/rss": [
+          "e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb",
+          "cea87092ea9b4497a96fef6cd20b29ccc6f9864cc4688b90b539ea36bfb216d1"
+        ]
       },
       "support": {
-        "https://wwwnc.cdc.gov/travel/page/rss": "e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb"
+        "https://wwwnc.cdc.gov/travel/page/rss": [
+          "e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb",
+          "cea87092ea9b4497a96fef6cd20b29ccc6f9864cc4688b90b539ea36bfb216d1"
+        ]
       }
     }
   },
