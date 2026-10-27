@@ -330,31 +330,7 @@ async function buildArcgisFireFallback() {
   }
 }
 
-function parseStooqCsv(text) {
-  if (!text) return null;
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return null;
-  const headers = lines[0].split(',').map((h) => h.trim());
-  const values = lines[1].split(',').map((v) => v.trim());
-  if (values.length < headers.length) return null;
-  const row = headers.reduce((acc, key, idx) => {
-    acc[key] = values[idx];
-    return acc;
-  }, {});
-  if (!row.Symbol || !row.Close || row.Close === 'N/D') return null;
-  const value = Number(row.Close);
-  if (!Number.isFinite(value)) return null;
-  const open = Number(row.Open);
-  const deltaPct = Number.isFinite(open) && open ? ((value - open) / open) * 100 : null;
-  return {
-    symbol: row.Symbol,
-    value,
-    deltaPct,
-    date: row.Date || '',
-    time: row.Time || '',
-    url: `https://stooq.com/q/?s=${encodeURIComponent(row.Symbol.toLowerCase())}`
-  };
-}
+
 
 function extractTitlesFromPayload(feed, payload) {
   if (!payload?.body) return [];
@@ -1054,37 +1030,14 @@ async function buildEnergyMap() {
   }
 }
 
+function buildRetiredQuotePayload(id) {
+  return { id, sourceId: 'stooq-quote', error: 'source_retired', status: 'retired',
+    available: false, httpStatus: 410, fallbackUsed: false,
+    message: 'TSR retired the Stooq integration; no replacement is active.' };
+}
+
 async function buildEnergyMarket() {
-  const symbols = [
-    { id: 'wti', symbol: 'cl.f', label: 'WTI Crude' },
-    { id: 'gas', symbol: 'ng.f', label: 'Nat Gas' },
-    { id: 'gold', symbol: 'xauusd', label: 'Gold' }
-  ];
-  const results = {};
-  for (const entry of symbols) {
-    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(entry.symbol)}&f=sd2t2ohlcv&h&e=csv`;
-    try {
-      const response = await fetchWithFallbacks(url, { 'User-Agent': appConfig.userAgent }, ['jina'], 12000);
-      if (!response.ok) continue;
-      const text = await response.text();
-      const parsed = parseStooqCsv(text);
-      if (!parsed) continue;
-      results[entry.id] = {
-        label: entry.label,
-        value: parsed.value,
-        delta: parsed.deltaPct,
-        url: parsed.url,
-        asOf: [parsed.date, parsed.time].filter(Boolean).join(' ').trim(),
-        symbol: parsed.symbol
-      };
-    } catch {
-      // ignore
-    }
-  }
-  return {
-    fetchedAt: Date.now(),
-    items: results
-  };
+  return buildRetiredQuotePayload('energy-market');
 }
 
 async function main() {
@@ -1119,6 +1072,7 @@ async function main() {
     feeds: feedsConfig.feeds
   };
   await writeJson(join(OUT_DIR, 'feeds.json'), feedsIndex);
+  await writeJson(join(FEED_DIR, 'stooq-quote.json'), buildRetiredQuotePayload('stooq-quote'));
 
   const energyMap = await buildEnergyMap();
   await writeJson(join(OUT_DIR, 'energy-map.json'), energyMap);

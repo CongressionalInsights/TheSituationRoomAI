@@ -62,7 +62,7 @@ test('metadata-only verifier exercises production raw entry and fingerprints can
   const canonical = await verifyMcpMetadataCandidate('https://canonical.fixture.invalid/mcp', fixture);
   assert.deepEqual(candidate, canonical);
   assert.equal(candidate.toolCount, 7);
-  assert.equal(candidate.catalogSourceCount, 99);
+  assert.equal(candidate.catalogSourceCount, 98);
   assert.equal(candidate.providerToolsCalled, 0);
   assert.deepEqual(fixture.calls.slice(0, 5).map(({ path, envelope }) => [path, envelope?.method || 'GET', envelope?.params?.name]), [
     ['/health', 'GET', undefined], ['/.well-known/mcp.json', 'GET', undefined], ['/mcp', 'initialize', undefined],

@@ -92,6 +92,18 @@ export function getAssetUrl(path) {
 }
 
 export async function apiFetch(path, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const requestUrl = new URL(path, 'http://local');
+  let bodyId;
+  if (typeof options.body === 'string') {
+    try { bodyId = JSON.parse(options.body)?.id; } catch {}
+  }
+  if (requestUrl.pathname === '/api/feed'
+      && (bodyId || requestUrl.searchParams.get('id')) === 'stooq-quote') {
+    return new Response(JSON.stringify({
+      id: 'stooq-quote', error: 'source_retired', status: 'retired', available: false,
+      message: 'TSR retired the Stooq integration; no replacement is active.', fallbackUsed: false
+    }), { status: 410, headers: { 'Content-Type': 'application/json' } });
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {

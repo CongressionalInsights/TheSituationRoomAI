@@ -3408,12 +3408,7 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   assert.equal(monitoring['usgs-quakes-hour'].staticSnapshotLagWindowMinutes, 180);
   assert.ok(monitoring['treasury-debt'].knownUpstreamQuirks.some((quirk) => quirk.id === 'treasury-debt-feed-stale-transient'));
   assert.ok(monitoring['treasury-debt'].knownUpstreamQuirks.some((quirk) => quirk.id === 'treasury-debt-fallback-engaged-transient'));
-  assert.equal(monitoring['stooq-quote'].docsUrl, null);
-  assert.equal(monitoring['stooq-quote'].supportUrl, null);
-  assert.equal(monitoring['stooq-quote'].sampleParams.query, 'aapl.us');
-  assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-feed-fetch-transient'));
-  assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-source-deprecated-http404'));
-  assert.ok(monitoring['stooq-quote'].knownUpstreamQuirks.some((quirk) => quirk.id === 'stooq-quote-fallback-engaged-transient'));
+  assert.equal(monitoring['stooq-quote'], undefined);
   assert.equal(monitoring['state-travel-advisories'].docsUrl, null);
   assert.equal(monitoring['state-travel-advisories'].supportUrl, null);
   assert.ok(monitoring['eonet-events'].knownUpstreamQuirks.some((quirk) => quirk.id === 'eonet-events-feed-stale-transient'));
@@ -3442,11 +3437,9 @@ test('monitoring overrides pin widened freshness windows for known slow-cadence 
   );
 });
 
-test('Stooq feed registry carries a default quote for static and fallback builds', () => {
+test('Stooq is absent from active registry and monitoring', () => {
   const feeds = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'feeds.json'), 'utf8'));
-  const feed = feeds.feeds.find((entry) => entry.id === 'stooq-quote');
-  assert.ok(feed);
-  assert.equal(feed.defaultQuery, 'aapl.us');
+  assert.equal(feeds.feeds.some((entry) => entry.id === 'stooq-quote'), false);
 });
 
 test('ArcGIS kinetic Europe feed uses the current published feature layer', () => {
@@ -4537,60 +4530,7 @@ test('monitoring config quirks downgrade recent Google News and Congress doc noi
   assert.equal(downgradedEnergyEiaBrentFallbackAlert.suppressNew, true);
   assert.equal(downgradedEnergyEiaBrentFallbackAlert.knownQuirkId, 'energy-eia-brent-fallback-engaged-transient');
 
-  const stooqFetchAlert = createAlert({
-    feedId: 'stooq-quote',
-    regressionClass: 'feed-fetch-failed',
-    severity: 'warning',
-    message: 'fetch_failed'
-  });
-  const downgradedStooqFetchAlert = applyKnownUpstreamQuirks(
-    stooqFetchAlert,
-    monitoring['stooq-quote'].knownUpstreamQuirks
-  );
-  assert.equal(downgradedStooqFetchAlert.severity, 'info');
-  assert.equal(downgradedStooqFetchAlert.suppressNew, true);
-  assert.equal(downgradedStooqFetchAlert.knownQuirkId, 'stooq-quote-feed-fetch-transient');
 
-  const stooqDeprecatedSignalAlert = createAlert({
-    feedId: 'stooq-quote',
-    regressionClass: 'signal-normalization-failed',
-    severity: 'warning',
-    message: 'HTTP 404'
-  });
-  const downgradedStooqDeprecatedSignalAlert = applyKnownUpstreamQuirks(
-    stooqDeprecatedSignalAlert,
-    monitoring['stooq-quote'].knownUpstreamQuirks
-  );
-  assert.equal(downgradedStooqDeprecatedSignalAlert.severity, 'info');
-  assert.equal(downgradedStooqDeprecatedSignalAlert.suppressNew, true);
-  assert.equal(downgradedStooqDeprecatedSignalAlert.knownQuirkId, 'stooq-quote-source-deprecated-http404');
-
-  const stooqParserSignalAlert = createAlert({
-    feedId: 'stooq-quote',
-    regressionClass: 'signal-normalization-failed',
-    severity: 'warning',
-    message: 'CSV headers missing Symbol and Close'
-  });
-  const retainedStooqParserSignalAlert = applyKnownUpstreamQuirks(
-    stooqParserSignalAlert,
-    monitoring['stooq-quote'].knownUpstreamQuirks
-  );
-  assert.equal(retainedStooqParserSignalAlert.severity, 'warning');
-  assert.equal(retainedStooqParserSignalAlert.knownQuirkId, undefined);
-
-  const stooqFallbackAlert = createAlert({
-    feedId: 'stooq-quote',
-    regressionClass: 'fallback-engaged',
-    severity: 'warning',
-    message: 'Fallback data path was used for this feed.'
-  });
-  const downgradedStooqFallbackAlert = applyKnownUpstreamQuirks(
-    stooqFallbackAlert,
-    monitoring['stooq-quote'].knownUpstreamQuirks
-  );
-  assert.equal(downgradedStooqFallbackAlert.severity, 'info');
-  assert.equal(downgradedStooqFallbackAlert.suppressNew, true);
-  assert.equal(downgradedStooqFallbackAlert.knownQuirkId, 'stooq-quote-fallback-engaged-transient');
 
   const eonetStaleAlert = createAlert({
     feedId: 'eonet-events',
