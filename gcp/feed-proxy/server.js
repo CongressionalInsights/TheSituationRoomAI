@@ -14,6 +14,9 @@ import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
 import { buildFirmsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
 import { fetchOpenAqMcp, isDefaultOpenAqRequest } from './openaq-mcp.js';
+import { inspectBlsPayload, sanitizeBlsBody, isDefaultBlsRequest } from './bls.js';
+import { fetchBlsMcp } from './bls-mcp.js';
+import { readBuildIdentity } from './build-identity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1048,6 +1051,8 @@ async function fetchLiveFallback(feedId) {
     if (!response.ok) return null;
     const payload = await response.json();
     if (!payload || payload.error || !payload.body) return null;
+    if (feedId === 'bls-cpi' && (payload.id !== feedId || payload.httpStatus !== 200
+      || inspectBlsPayload(payload.body, 'CUUR0000SA0').error)) return null;
     return payload;
   } catch {
     return null;
@@ -1091,6 +1096,7 @@ function isUsableStaleFeedPayload(feed, payload) {
   if (!payload || payload.error) return false;
   if (!payload.httpStatus || payload.httpStatus < 200 || payload.httpStatus >= 300) return false;
   if (!payload.body) return false;
+  if (feed?.id === 'bls-cpi') return !inspectBlsPayload(payload.body, 'CUUR0000SA0').error;
   if (feed?.format === 'rss') {
     return isLikelyRssPayload(payload.contentType || '', payload.body);
   }
@@ -1335,20 +1341,22 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const mergedParams = mergeFeedParams(feed, params);
   // Keep caller options visible when the feed does not declare parameter support.
   const useOpenAqMcp = isDefaultOpenAqRequest(feed, { query, key, keyParam, keyHeader, params: sanitizeParamsObject(params) });
+  const useBlsMcp = feed.id === 'bls-cpi' && isDefaultBlsRequest(feed, { query, key, keyParam, keyHeader, params: sanitizeParamsObject(params) });
   const bypassOpenAqUserCache = feed.id === 'openaq-api' && Boolean(key || keyParam || keyHeader);
-  const sourceCacheKey = feed.id === 'openaq-api' ? `:${useOpenAqMcp ? 'mcp' : 'direct'}` : '';
+  const sourceCacheKey = feed.id === 'openaq-api' || feed.id === 'bls-cpi' ? `:${useOpenAqMcp || useBlsMcp ? 'mcp' : 'direct'}` : '';
   const connectorRequestKey = isStateConnectorFeed(feed) ? `:${serializeParams(sanitizeParamsObject(params))}` : '';
   const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}${sourceCacheKey}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const timeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
-  const cached = bypassOpenAqUserCache ? undefined : cache.get(cacheKey);
+  const cached = bypassOpenAqUserCache || (feed.id === 'bls-cpi' && !useBlsMcp) ? undefined : cache.get(cacheKey);
   const staleCache = cached;
   const retryStaleGoogleNews = feed.id === 'google-news-us' && cached?.stale;
   // Leave half the browser's 30-second ceiling to return the retained stale body.
   const staleGoogleNewsDeadline = retryStaleGoogleNews && isUsableStaleFeedPayload(feed, staleCache)
     ? Date.now() + Math.min(timeoutMs, 15000)
     : null;
-  if (!force && cached && !retryStaleGoogleNews && Date.now() - cached.fetchedAt < ttlMs) {
+  if (!force && cached && !retryStaleGoogleNews && Date.now() - cached.fetchedAt < ttlMs
+    && (feed.id !== 'bls-cpi' || (!cached.stale && !cached.fallback && !cached.fallbackUsed))) {
     return cached;
   }
 
@@ -1376,6 +1384,18 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   if (useOpenAqMcp) {
     const payload = await fetchOpenAqMcp(timeoutMs);
     if (!payload.error) cache.set(cacheKey, payload);
+    return payload;
+  }
+
+  if (useBlsMcp) {
+    const payload = await fetchBlsMcp(timeoutMs);
+    if (!payload.error) {
+      if (!payload.stale && !payload.fallback && !payload.fallbackUsed) cache.set(cacheKey, payload);
+      return payload;
+    }
+    const fallback = isUsableStaleFeedPayload(feed, staleCache) ? staleCache : await fetchLiveFallback(feed.id);
+    if (fallback) return { ...markSnapshotFallback(feed, fallback), body: sanitizeBlsBody(fallback.body, 'CUUR0000SA0'), fallbackUsed: true,
+      upstreamError: payload.error, upstreamHttpStatus: payload.upstreamHttpStatus || payload.httpStatus };
     return payload;
   }
 
@@ -1508,7 +1528,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         responseOk = response.ok && rssResult.valid;
       } else {
         const budgetAttempts = feed.id === 'eonet-events';
-        if (isScopedStateLegislation) {
+        if (feed.id === 'bls-cpi') {
+          response = await fetchWithTimeout(applied.url, { headers, redirect: 'error' }, timeoutMs);
+        } else if (isScopedStateLegislation) {
           const scopedResult = await fetchStateLegislationScoped(applied.url, {
             headers,
             timeoutMs: Math.min(timeoutMs, STATE_LEGISLATION_SCOPED_TIMEOUT_MS)
@@ -1582,6 +1604,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       responseOk = false;
     }
   } catch (error) {
+    if (feed.id === 'bls-cpi') return { id: feed.id, fetchedAt: Date.now(), httpStatus: 502,
+      error: 'fetch_failed', message: 'BLS request failed.', contentType: 'application/json',
+      body: JSON.stringify({ error: 'fetch_failed', message: 'BLS request failed.' }) };
     if (feed.id === 'nasa-firms') {
       console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic(error)));
     }
@@ -1668,6 +1693,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     body,
     httpStatus: response.status
   };
+  if (feed.id === 'bls-cpi') {
+    const inspection = inspectBlsPayload(body, 'CUUR0000SA0');
+    payload.body = sanitizeBlsBody(body, 'CUUR0000SA0');
+    if (inspection.error) { payload.error = inspection.error; payload.message = inspection.message; }
+  }
   if (!response.ok) {
     payload.error = `http_${response.status}`;
     payload.message = `HTTP ${response.status}`;
@@ -1688,7 +1718,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     payload.body = JSON.stringify({ error: payload.error, message: payload.message });
     payload.contentType = 'application/json';
   }
-  const shouldCache = !bypassOpenAqUserCache && (isEiaSeries
+  const shouldCache = !bypassOpenAqUserCache && !(feed.id === 'bls-cpi' && !useBlsMcp) && (isEiaSeries
     ? responseOk
     : !payload.error);
   if (shouldCache) {
@@ -2173,6 +2203,11 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/health') {
     return sendJson(res, 200, { ok: true }, origin);
+  }
+
+  if (url.pathname === '/health/build') {
+    const identity = readBuildIdentity(__dirname);
+    return sendJson(res, identity.available ? 200 : 503, identity, origin);
   }
 
   if (url.pathname === '/api/feeds') {

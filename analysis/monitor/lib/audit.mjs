@@ -6,6 +6,7 @@ import {
   sanitizeObservedUrl
 } from './client.mjs';
 import { redactCredentialFields } from './public_payload_safety.mjs';
+import { inspectBlsPayload, sanitizeBlsBody } from '../../../gcp/feed-proxy/bls.js';
 import { createAlert, applyKnownUpstreamQuirks, dedupeAlerts } from './reporting.mjs';
 import { summarizeCpiPublication } from './cpi_cadence.mjs';
 import { createHash } from 'node:crypto';
@@ -258,7 +259,8 @@ function findPrimaryItems(body) {
 
 export function summarizeProxyPayload(feed, payload, transport = {}) {
   const parsed = parseBody(feed, payload);
-  const body = redactCredentialFields(parsed.body);
+  const bls = feed.id === 'bls-cpi' ? inspectBlsPayload(parsed.body) : null;
+  const body = redactCredentialFields(bls ? JSON.parse(sanitizeBlsBody(parsed.body)) : parsed.body);
   const { parseError } = parsed;
   const errorMessage = redactCredentialFields(payload?.message || transport.error || null);
   if (feed.format === 'rss') {
@@ -310,8 +312,11 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
 
   return {
     httpStatus: payload?.httpStatus ?? transport.status ?? null,
-    error: payload?.error || transport.error || null,
-    errorMessage,
+    error: payload?.error || transport.error || bls?.error || null,
+    errorMessage: bls ? bls.message : errorMessage,
+    ...(bls ? { apiStatus: bls.apiStatus, apiSuccess: bls.apiSuccess, schemaValid: bls.schemaValid,
+      fallbackUsed: Boolean(payload?.fallbackUsed), upstreamHttpStatus: payload?.upstreamHttpStatus || null,
+      upstreamError: payload?.upstreamError || null } : {}),
     stale: Boolean(payload?.stale),
     fetchedAt: payload?.fetchedAt || null,
     fallback: payload?.fallback || null,
