@@ -19,7 +19,9 @@ function calendarReleases(schedule) {
 }
 
 function collectionState(summary) {
-  return summary?.error || summary?.parseError || (summary?.httpStatus && summary.httpStatus !== 200) ? 'unavailable'
+  return !summary || summary.error || summary.parseError || summary.apiSuccess === false || summary.schemaValid === false
+    || summary.count === 0 || summary.rawItemCount === 0 || (Array.isArray(summary.items) && summary.items.length === 0)
+    || (summary.httpStatus && summary.httpStatus !== 200) ? 'unavailable'
     : summary?.fallback || summary?.fallbackUsed ? 'fallback'
       : summary?.stale ? 'stale' : 'available';
 }

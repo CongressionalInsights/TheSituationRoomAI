@@ -1,4 +1,5 @@
 import http from 'http';
+import { inspectBlsPayload, sanitizeBlsBody, isDefaultBlsRequest } from './bls.js';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -1579,6 +1580,8 @@ async function fetchLiveFallback(feedId, timeoutMs = FETCH_TIMEOUT_MS) {
     }, timeoutMs, consumeResponse);
     const payload = consumeResponse ? result : result.ok ? await result.json() : null;
     if (!payload || payload.error || !payload.body) return null;
+    if (feedId === 'bls-cpi' && (payload.id !== feedId || payload.httpStatus !== 200
+      || inspectBlsPayload(payload.body, 'CUUR0000SA0').error)) return null;
     return payload;
   } catch {
     return null;
@@ -1874,6 +1877,8 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
   const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null;
   return {
     sourceId,
+    ...(feed.id === 'bls-cpi' ? { acquiredAt: result.acquiredAt || null, cacheHit: Boolean(result.cacheHit),
+      upstreamHttpStatus: result.upstreamHttpStatus || null, upstreamError: result.upstreamError || null } : {}),
     ...coverageFields(result),
     ...(range ? { range } : {}),
     contentType: result.contentType,
@@ -2065,6 +2070,7 @@ export function shouldUseLiveFallback(feedOrOptions = {}, maybeOptions = null) {
   if (options?.history || options?.start || options?.end) return false;
   if (!feed) return true;
   if (feed.id === 'openaq-api') return false;
+  if (feed.id === 'bls-cpi') return isDefaultBlsRequest(feed, options);
 
   const requestQuery = getFallbackComparableQuery(feed, options);
   if (feed.supportsQuery) {
@@ -2260,7 +2266,28 @@ function retiredToolResult(sourceId) {
   } : null;
 }
 
-export async function fetchRaw(feed, options) {
+let blsRawCache = null;
+let blsRawPending = null;
+export function resetBlsRawCacheForTest() { blsRawCache = null; blsRawPending = null; }
+
+export async function fetchRaw(feed, options = {}) {
+  if (!isDefaultBlsRequest(feed, options)) return fetchRawUncached(feed, options);
+  // Collapse raw/list/Feed burst acquisitions without hiding long-lived quota failures.
+  const ttlMs = Math.min((feed.ttlMinutes || 1) * 60000, 60000);
+  if (blsRawCache && Date.now() - blsRawCache.acquiredAt < ttlMs) {
+    return { ...structuredClone(blsRawCache), cacheHit: true };
+  }
+  if (!blsRawPending) {
+    blsRawPending = fetchRawUncached(feed, options).then(result => {
+      const value = { ...result, acquiredAt: Date.now(), cacheHit: false };
+      if (!value.error && !value.fallbackUsed && !inspectBlsPayload(value.body, 'CUUR0000SA0').error) blsRawCache = value;
+      return value;
+    }).finally(() => { blsRawPending = null; });
+  }
+  return structuredClone(await blsRawPending);
+}
+
+async function fetchRawUncached(feed, options) {
   const retired = retiredSource(feed?.id);
   if (retired) return retired;
   if (options?.history && !supportsHistoryRange(feed)) {
@@ -2372,7 +2399,7 @@ export async function fetchRaw(feed, options) {
     return aggregatePayload;
   }
   // Keep OpenAQ's authenticated request on its provider origin.
-  const directOnlyRequest = openStatesRequest || feed.id === 'openaq-api';
+  const directOnlyRequest = openStatesRequest || feed.id === 'openaq-api' || feed.id === 'bls-cpi';
   const attemptList = directOnlyRequest ? [null] : [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
   const isRssFeed = feed.format === 'rss';
   const seen = new Set();
@@ -2423,10 +2450,10 @@ export async function fetchRaw(feed, options) {
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
       : totalTimeoutMs);
     try {
-      if (gdacsDeadline !== null || feed.id === 'openaq-api') {
+      if (gdacsDeadline !== null || feed.id === 'openaq-api' || feed.id === 'bls-cpi') {
         [response, body] = await fetchWithTimeout(proxiedUrl, {
           headers: requestHeaders,
-          ...(feed.id === 'openaq-api' ? { redirect: 'error' } : {})
+          ...(feed.id === 'openaq-api' || feed.id === 'bls-cpi' ? { redirect: 'error' } : {})
         }, perAttemptTimeoutMs,
           async (upstream) => [upstream, await upstream.text()]);
       } else {
@@ -2436,6 +2463,14 @@ export async function fetchRaw(feed, options) {
         body = await response.text();
       }
       responseHeaders = extractSafeResponseHeaders(response.headers);
+      if (feed.id === 'bls-cpi') {
+        const inspection = inspectBlsPayload(body, isDefaultBlsRequest(feed, options) ? 'CUUR0000SA0' : null);
+        body = sanitizeBlsBody(body);
+        if (response.ok && inspection.error) {
+          lastError = { error: inspection.error, message: inspection.message, httpStatus: response.status };
+          break;
+        }
+      }
       if (response.ok) {
         if (feed.format === 'json' && isJsonHtmlError(response.headers.get('content-type') || '', body)) {
           lastError = {
@@ -2500,7 +2535,7 @@ export async function fetchRaw(feed, options) {
         error: 'fetch_failed',
         httpStatus: response.status,
         upstreamStatus: response.status,
-        message: feed.id === 'nasa-firms' ? 'HTTP ' + response.status : extractUpstreamErrorMessage(response.status, body),
+        message: feed.id === 'nasa-firms' || feed.id === 'bls-cpi' ? 'HTTP ' + response.status : extractUpstreamErrorMessage(response.status, body),
         body: feed.id === 'nasa-firms' ? undefined : body
       };
       // Client-side upstream errors are not recoverable via proxy fallback.
@@ -2508,7 +2543,7 @@ export async function fetchRaw(feed, options) {
         break;
       }
     } catch (error) {
-      lastError = { error: 'fetch_failed', message: error.message, code: normalizeFetchErrorCode(error) };
+      lastError = { error: 'fetch_failed', message: feed.id === 'bls-cpi' ? 'BLS request failed.' : error.message, code: normalizeFetchErrorCode(error) };
       if (feed.id === 'nasa-firms' && index === 0) {
         firmsPrimaryFailure = buildFirmsPrimaryFailureDiagnostic(error);
       }
@@ -2563,7 +2598,8 @@ export async function fetchRaw(feed, options) {
         proxyUsed: shouldPromotePublishedSnapshot ? null : 'live-cache'
       }));
       return {
-        body: fallback.body,
+        body: feed.id === 'bls-cpi' ? sanitizeBlsBody(fallback.body, 'CUUR0000SA0') : fallback.body,
+        ...(feed.id === 'bls-cpi' ? { upstreamHttpStatus: lastError?.httpStatus || null, upstreamError: lastError?.error || null } : {}),
         httpStatus: fallback.httpStatus || 200,
         contentType: fallback.contentType || 'application/json',
         fetchedUrl: `${LIVE_BASE}/data/feeds/${encodeURIComponent(feed.id)}.json`,

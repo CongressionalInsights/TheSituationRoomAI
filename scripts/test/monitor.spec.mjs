@@ -1,4 +1,5 @@
 import test from 'node:test';
+import './feed-release.spec.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -299,7 +300,7 @@ test('typed monitor keeps unknown dates and BLS M13 annual averages unknown even
 });
 
 test('typed raw summarization includes every BLS series and ignores retrieval metadata for dates', () => {
-  const body = { Results: [{ series: [
+  const body = { status: 'REQUEST_SUCCEEDED', Results: [{ series: [
     { seriesID: 'A', data: [{ year: '2024', period: 'M12', value: '0' }] },
     { seriesID: 'B', data: [{ year: '2026', period: 'M08', value: '1' }, { year: '2026', period: 'M13', value: '2' }] }
   ] }], fetchedAt: '2099-01-01', publishedAt: '2099-01-01' };
@@ -580,7 +581,7 @@ test('typed series release report holds coherent numeric loss but permits zero r
 
 test('typed series release report preserves explicit annual unknown-date and unavailable-value representation', () => {
   const report = typedReleaseReport();
-  const body = { Results: { series: [{ seriesID: 'CUUR0000SA0', data: [{ year: '2025', period: 'M13', periodName: 'Annual', value: '-' }] }] } };
+  const body = { status: 'REQUEST_SUCCEEDED', Results: { series: [{ seriesID: 'CUUR0000SA0', data: [{ year: '2025', period: 'M13', periodName: 'Annual', value: '-' }] }] } };
   const context = typedMonitorContext('bls-cpi', body);
   report.feedResults[3] = { feedId: 'bls-cpi', raw: { ...context.rawSummary, fallbackUsed: false }, signals: { ...context.signalSummary, fallbackUsed: false }, alerts: [] };
   assert.equal(verifyTypedSeriesReport(report, report.mcp).sources[3].newestObservationTimestamp, null);
@@ -3919,8 +3920,9 @@ test('feed proxy deploy workflow injects OpenSky credentials', () => {
   const workflow = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-feed-proxy.yml'), 'utf8');
   assert.match(workflow, /OPENSKY_CLIENTID:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTID\s*\}\}/);
   assert.match(workflow, /OPENSKY_CLIENTSECRET:\s*\$\{\{\s*secrets\.OPENSKY_CLIENTSECRET\s*\}\}/);
-  assert.match(workflow, /OPENSKY_CLIENTID=opensky-clientid:latest/);
-  assert.match(workflow, /OPENSKY_CLIENTSECRET=opensky-clientsecret:latest/);
+  const helper = fs.readFileSync(path.join(process.cwd(), 'scripts', 'deploy_feed_candidate.sh'), 'utf8');
+  assert.match(helper, /cloud revisions describe "\$ROLLBACK"/);
+  assert.doesNotMatch(helper, /--(?:update|set)-secrets|--env-vars-file|--allow-unauthenticated/);
 });
 
 test('proxy deploy workflows retain eligible core sentinel reports as artifacts', () => {

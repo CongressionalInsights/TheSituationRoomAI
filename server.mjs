@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 import { gunzipSync } from 'zlib';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './shared/state-signals.mjs';
 import { normalizeNasaFirmsItems, parseNasaFirmsRows } from './scripts/firms-csv.js';
+import { inspectBlsPayload, sanitizeBlsBody, isDefaultBlsRequest } from './gcp/feed-proxy/bls.js';
+import { fetchBlsMcp } from './gcp/feed-proxy/bls-mcp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -95,7 +97,8 @@ async function fetchGpsJam(force = false) {
   }
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const cached = cache.get(GPSJAM_CACHE_KEY);
-  if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
+  if (!force && cached && Date.now() - cached.fetchedAt < ttlMs
+    && (feed.id !== 'bls-cpi' || (!cached.stale && !cached.fallback && !cached.fallbackUsed))) {
     return cached;
   }
 
@@ -1397,14 +1400,26 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       httpStatus: 410, fallbackUsed: false, message: 'TSR retired the Stooq integration; no replacement is active.' };
   }
   const mergedParams = mergeFeedParams(feed, params);
+  const useBlsMcp = feed.id === 'bls-cpi' && isDefaultBlsRequest(feed, { query, key, keyParam, keyHeader, params: sanitizeParamsObject(params) });
   const connectorRequestKey = isStateConnectorFeed(feed) ? `:${serializeParams(sanitizeParamsObject(params))}` : '';
   const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
-  const cached = cache.get(cacheKey);
+  const cached = feed.id === 'bls-cpi' && !useBlsMcp ? undefined : cache.get(cacheKey);
   if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
     return cached;
   }
 
+  if (useBlsMcp) {
+    const payload = await fetchBlsMcp(feed.timeoutMs || FETCH_TIMEOUT_MS);
+    if (!payload.error) {
+      if (!payload.stale && !payload.fallback && !payload.fallbackUsed) cache.set(cacheKey, payload);
+      return payload;
+    }
+    if (cached && !cached.error && !inspectBlsPayload(cached.body, 'CUUR0000SA0').error) {
+      return { ...cached, stale: true, fallbackUsed: true, fallback: 'memory-cache', upstreamError: payload.error };
+    }
+    return payload;
+  }
   const localPayload = loadLocalFeed(feed);
   if (localPayload) {
     cache.set(cacheKey, localPayload);
@@ -1497,7 +1512,16 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     }
     return aggregatePayload;
   }
-  const response = await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList);
+  let response;
+  try {
+    response = feed.id === 'bls-cpi'
+      ? await fetchWithTimeout(applied.url, { headers: { ...headers, ...applied.headers }, redirect: 'error' }, feed.timeoutMs || FETCH_TIMEOUT_MS)
+      : await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList);
+  } catch (error) {
+    if (feed.id !== 'bls-cpi') throw error;
+    return { id: feed.id, fetchedAt: Date.now(), httpStatus: 502, contentType: 'application/json',
+      error: 'fetch_failed', message: 'BLS request failed.', body: JSON.stringify({ error: 'fetch_failed', message: 'BLS request failed.' }) };
+  }
   let contentType = response.headers.get('content-type') || 'text/plain';
   let body = await response.text();
 
@@ -1508,6 +1532,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     body,
     httpStatus: response.status
   };
+  if (feed.id === 'bls-cpi') {
+    const inspection = inspectBlsPayload(body, 'CUUR0000SA0');
+    payload.body = sanitizeBlsBody(body, 'CUUR0000SA0');
+    if (inspection.error) { payload.error = inspection.error; payload.message = inspection.message; }
+  }
   if (!response.ok) {
     payload.error = `http_${response.status}`;
     payload.message = `HTTP ${response.status}`;
@@ -1542,7 +1571,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     payload.body = body;
     payload.contentType = contentType;
   }
-  if (!payload.error) {
+  if (!payload.error && !(feed.id === 'bls-cpi' && !useBlsMcp)) {
     cache.set(cacheKey, payload);
   }
   return payload;

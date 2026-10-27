@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { redactCredentialFields, sanitizeEiaBody } from '../analysis/monitor/lib/public_payload_safety.mjs';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
+import { getBlsApiError, sanitizeBlsBody } from '../gcp/feed-proxy/bls.js';
 
 const ROOT = process.cwd();
 const FEEDS_PATH = join(ROOT, 'data', 'feeds.json');
@@ -198,16 +199,6 @@ function isEiaFeed(feed) {
 
 function isJsonHtmlError(contentType = '', body = '') {
   return normalizeContentType(contentType).includes('html') || looksLikeHtmlDocument(body);
-}
-
-function getBlsApiError(parsed) {
-  if (!parsed || typeof parsed !== 'object') return null;
-  if (parsed.status === 'REQUEST_SUCCEEDED') return null;
-  if (typeof parsed.status !== 'string' || !parsed.status) return null;
-  const message = Array.isArray(parsed.message)
-    ? parsed.message.filter(Boolean).join(' ')
-    : String(parsed.message || '').trim();
-  return message || parsed.status;
 }
 
 function applyKey(url, feed, key) {
@@ -597,7 +588,7 @@ function isUsableJsonSnapshot(payload, feed = null) {
   if (isJsonHtmlError(payload.contentType || '', payload.body)) return false;
   try {
     const parsed = JSON.parse(payload.body);
-    if (feed?.id === 'bls-cpi' && getBlsApiError(parsed)) {
+    if (feed?.id === 'bls-cpi' && getBlsApiError(parsed, 'CUUR0000SA0')) {
       return false;
     }
     if (feed?.id === 'nasa-firms') {
@@ -671,14 +662,16 @@ async function loadBestFallbackPayload(feed, { allowSeededJson = false } = {}) {
     ? isUsableRssSnapshot(liveFallback)
     : isUsableJsonSnapshot(liveFallback, feed);
   if (liveUsable) {
-    return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache' };
+    return { ...liveFallback, fetchedAt: Date.now(), stale: true, fallback: 'live-cache',
+      ...(feed.id === 'bls-cpi' ? { body: sanitizeBlsBody(liveFallback.body), fallbackUsed: true } : {}) };
   }
   const proxyFallback = await fetchFeedProxyFallback(feed, { params: buildFeedProxyFallbackParams(feed) });
   const proxyUsable = isRssFeed
     ? isUsableRssSnapshot(proxyFallback)
     : isUsableJsonSnapshot(proxyFallback, feed);
   if (proxyUsable) {
-    return { ...proxyFallback, fetchedAt: Date.now(), stale: true, fallback: 'feed-proxy' };
+    return { ...proxyFallback, fetchedAt: Date.now(), stale: true, fallback: 'feed-proxy',
+      ...(feed.id === 'bls-cpi' ? { body: sanitizeBlsBody(proxyFallback.body), fallbackUsed: true } : {}) };
   }
   if (isRssFeed || allowSeededJson) {
     const seeded = seededFeedFallbacks.get(feed.id);
@@ -686,7 +679,8 @@ async function loadBestFallbackPayload(feed, { allowSeededJson = false } = {}) {
       ? isUsableRssSnapshot(seeded)
       : isUsableJsonSnapshot(seeded, feed);
     if (seededUsable) {
-      return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache' };
+      return { ...seeded, fetchedAt: Date.now(), stale: true, fallback: 'seed-cache',
+        ...(feed.id === 'bls-cpi' ? { body: sanitizeBlsBody(seeded.body), fallbackUsed: true } : {}) };
     }
   }
   return null;
@@ -831,7 +825,8 @@ async function buildFeedPayload(feed) {
   if (!payload.error && feed.id === 'bls-cpi') {
     try {
       const parsed = JSON.parse(body);
-      const blsError = getBlsApiError(parsed);
+      const blsError = getBlsApiError(parsed, 'CUUR0000SA0');
+      payload.body = sanitizeBlsBody(parsed, 'CUUR0000SA0');
       if (blsError) {
         payload.error = 'bls_api_error';
         payload.message = blsError;
@@ -843,6 +838,7 @@ async function buildFeedPayload(feed) {
   }
 
   if (payload.error && feed.id === 'bls-cpi') {
+    payload.body = JSON.stringify({ error: payload.error, message: payload.message });
     const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
     if (fallback) return fallback;
   }

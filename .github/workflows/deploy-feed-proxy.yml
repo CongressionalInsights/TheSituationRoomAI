@@ -3,8 +3,12 @@ name: Deploy Feed Proxy (GCP)
 on:
   workflow_dispatch:
     inputs:
+      expected_sha:
+        description: Exact reviewed main commit to deploy
+        required: true
+        type: string
       sync_secret_versions:
-        description: Sync configured GitHub secrets into Secret Manager before deploying
+        description: Must remain false; source-preserving releases do not synchronize credentials
         required: false
         default: false
         type: boolean
@@ -19,7 +23,11 @@ permissions:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-feed-proxy
+      cancel-in-progress: false
     env:
       PROJECT_ID: situationroom-ai-20260112
       REGION: us-central1
@@ -33,8 +41,28 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+      - name: Bind release to reviewed main commit
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+          ACTUAL_REF: ${{ github.ref }}
+          SYNC_SECRET_VERSIONS: ${{ inputs.sync_secret_versions }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_REF" = refs/heads/main
+          test "$EXPECTED_SHA" = "$ACTUAL_SHA"
+          test "$(git rev-parse HEAD)" = "$ACTUAL_SHA"
+          if [ "$SYNC_SECRET_VERSIONS" != false ]; then
+            echo "Feed source-preserving releases reject secret synchronization before authentication."
+            exit 1
+          fi
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
+      - name: Verify Feed release fixtures and build source manifest
+        run: |
+          set -euo pipefail
+          node --test scripts/test/feed-release.spec.mjs
+          node scripts/build_feed_manifest.mjs "$GITHUB_SHA"
       - uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -102,55 +130,15 @@ jobs:
           if [ -n "$OPENSKY_CLIENTSECRET" ]; then ensure_secret_version opensky-clientsecret "$OPENSKY_CLIENTSECRET"; fi
           if [ -n "$SAMGOV_API_KEY" ]; then ensure_secret_version samgov-key "$SAMGOV_API_KEY"; fi
           if [ -n "$STATE_CONNECTOR_API_KEY" ]; then ensure_secret_version state-connector-key "$STATE_CONNECTOR_API_KEY"; fi
-      - name: Deploy feed proxy service
-        env:
-          SYNC_SECRET_VERSIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions }}
-        run: |
-          if [ -z "${STATE_CONNECTOR_BASE_URL}" ]; then
-            STATE_CONNECTOR_BASE_URL="https://state-connector-382918878290.us-central1.run.app"
-          fi
-          if [ -z "${STATE_CONNECTOR_KEY_HEADER}" ]; then
-            STATE_CONNECTOR_KEY_HEADER="X-API-Key"
-          fi
-          cat > /tmp/sr-feed-env.yaml <<EOF
-          ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
-          ACLED_PROXY: "${ACLED_PROXY}"
-          STATE_CONNECTOR_BASE_URL: "${STATE_CONNECTOR_BASE_URL}"
-          STATE_CONNECTOR_KEY_HEADER: "${STATE_CONNECTOR_KEY_HEADER}"
-          EOF
-          SECRET_ARGS=()
-          if [ "$SYNC_SECRET_VERSIONS" = "true" ]; then
-            SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,OPENSKY_CLIENTID=opensky-clientid:latest,OPENSKY_CLIENTSECRET=opensky-clientsecret:latest,SAMGOV_API_KEY=samgov-key:latest"
-            OPENSTATES_VERSION=$(gcloud secrets versions list openstates-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
-            if [ -n "$OPENSTATES_VERSION" ]; then
-              SECRET_BINDINGS="${SECRET_BINDINGS},OPENSTATES=openstates-key:latest"
-            else
-              echo "OPENSTATES not configured (no enabled versions); deploying feed proxy without OPENSTATES."
-            fi
-            STATE_CONNECTOR_VERSION=$(gcloud secrets versions list state-connector-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
-            if [ -n "$STATE_CONNECTOR_VERSION" ]; then
-              SECRET_BINDINGS="${SECRET_BINDINGS},STATE_CONNECTOR_API_KEY=state-connector-key:latest"
-            else
-              echo "STATE_CONNECTOR_API_KEY not configured; deploying feed proxy without state connector key."
-            fi
-            SECRET_ARGS=(--update-secrets "$SECRET_BINDINGS")
-          fi
-          gcloud run deploy "$SERVICE_NAME" \
-            --region "$REGION" \
-            --source gcp/feed-proxy \
-            --allow-unauthenticated \
-            "${SECRET_ARGS[@]}" \
-            --env-vars-file /tmp/sr-feed-env.yaml
-      - name: Health check feed proxy
-        run: |
-          set -euo pipefail
-          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
-          echo "Feed proxy URL: ${SERVICE_URL}"
-          curl -fsS "${SERVICE_URL}/health" >/dev/null
-          FEED_RESP=$(curl -s -X POST "${SERVICE_URL}/api/feed" -H "Content-Type: application/json" -d '{"id":"federal-register"}')
-          node -e 'const data = JSON.parse(process.argv[1]); if (data.error || !data.body) { console.error(data); process.exit(1); } const parsed = JSON.parse(data.body); if (!Array.isArray(parsed.items) || parsed.items.length === 0) { console.error(parsed); process.exit(1); }' "$FEED_RESP"
-          CONGRESS_RESP=$(curl -s -X POST "${SERVICE_URL}/api/feed" -H "Content-Type: application/json" -d '{"id":"congress-api"}')
-          node -e 'const data = JSON.parse(process.argv[1]); if (data.error || !data.body) { console.error(data); process.exit(1); }' "$CONGRESS_RESP"
+      - name: Deploy and verify exact Feed candidate and canonical serving revision
+        run: bash scripts/deploy_feed_candidate.sh
+      - name: Upload Feed release diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: feed-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/feed-diagnostics
+          if-no-files-found: warn
       - name: Run core sentinel after feed deploy
         run: |
           set -euo pipefail

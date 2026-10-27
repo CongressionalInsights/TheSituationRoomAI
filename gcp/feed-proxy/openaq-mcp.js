@@ -31,7 +31,7 @@ function parseRpc(text) {
   try { return JSON.parse(text); } catch { throw new Error('invalid_mcp_response'); }
 }
 
-async function readRpcResponse(response, requestId) {
+export async function readRpcResponse(response, requestId) {
   const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   if (type !== 'application/json' && type !== 'text/event-stream') throw new Error('invalid_mcp_response');
   if (Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES) throw new Error('mcp_response_too_large');
@@ -68,7 +68,7 @@ async function readRpcResponse(response, requestId) {
   }
 }
 
-function safeResponseHeaders(headers) {
+export function safeResponseHeaders(headers) {
   const allowed = new Set([
     'cache-control', 'content-type', 'etag', 'last-modified',
     'ratelimit-limit', 'ratelimit-remaining', 'ratelimit-reset',

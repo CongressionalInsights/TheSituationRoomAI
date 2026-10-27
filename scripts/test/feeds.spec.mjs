@@ -1,4 +1,5 @@
 import test from 'node:test';
+import './bls-acquisition.spec.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1147,8 +1148,9 @@ test('feed proxy deploy preserves existing secret bindings by default', () => {
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-feed-proxy.yml'), 'utf8');
   assert.match(workflow, /sync_secret_versions:[\s\S]*default: false/);
   assert.match(workflow, /Ensure feed proxy secrets\s*\n\s*if: github\.event_name == 'workflow_dispatch' && inputs\.sync_secret_versions/);
-  assert.match(workflow, /SECRET_ARGS=\(\)/);
-  assert.match(workflow, /SECRET_ARGS=\(--update-secrets "\$SECRET_BINDINGS"\)/);
+  const helper = fs.readFileSync(path.join(root, 'scripts', 'deploy_feed_candidate.sh'), 'utf8');
+  assert.match(helper, /cloud revisions describe "\$ROLLBACK"/);
+  assert.doesNotMatch(helper, /--(?:update|set)-secrets|--env-vars-file/);
   assert.doesNotMatch(workflow, /--set-secrets/);
 });
 
@@ -1221,9 +1223,8 @@ test('static OpenSky build can seed anonymous published snapshots', () => {
 
 test('static BLS CPI build rejects API quota error snapshots', () => {
   const source = fs.readFileSync(path.join(root, 'scripts', 'build_static_cache.mjs'), 'utf8');
-  assert.match(source, /function getBlsApiError/);
-  assert.match(source, /parsed\.status === 'REQUEST_SUCCEEDED'/);
-  assert.match(source, /feed\?\.id === 'bls-cpi' && getBlsApiError\(parsed\)/);
+  assert.match(source, /import \{ getBlsApiError, sanitizeBlsBody \} from/);
+  assert.match(source, /feed\?\.id === 'bls-cpi' && getBlsApiError\(parsed, 'CUUR0000SA0'\)/);
   assert.match(source, /payload\.error = 'bls_api_error'/);
   assert.match(source, /payload\.error && feed\.id === 'bls-cpi'[\s\S]*loadBestFallbackPayload/);
 });

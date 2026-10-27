@@ -105,6 +105,8 @@ jobs:
         run: node --test --test-name-pattern="^fresh same-host PID reuse evidence reclaims the prior owner immediately$" scripts/test/monitor.spec.mjs
       - name: Verify typed series release report fixtures
         run: node --test --test-name-pattern="typed series release report" scripts/test/monitor.spec.mjs
+      - name: Verify Feed serving identity and BLS acquisition fixtures
+        run: node --test scripts/test/feed-release.spec.mjs scripts/test/bls-acquisition.spec.mjs
 
   deploy:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

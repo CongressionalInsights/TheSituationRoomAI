@@ -22,6 +22,7 @@ const {
   createItemId,
   dedupeSignals,
   fetchRaw,
+  resetBlsRawCacheForTest,
   matchesSignalQuery,
   buildUsaspendingTransactionKey,
   attachMoneyMatch,
@@ -223,6 +224,8 @@ test('typed normalization leaves unrelated generic JSON behavior unchanged', (t)
 });
 
 test('EIA and BLS MCP list, get and search preserve typed fields, IDs, limits and public-payload safety', async (t) => {
+  resetBlsRawCacheForTest();
+  t.after(resetBlsRawCacheForTest);
   const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
   const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
   const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
@@ -266,6 +269,7 @@ test('EIA and BLS MCP list, get and search preserve typed fields, IDs, limits an
     const beforeRevision = structuredClone(payloads[feed.id]);
     if (feed.id === 'bls-cpi') payloads[feed.id].Results.series[0].data.reverse().forEach((row) => { row.value = '0'; });
     else payloads[feed.id].response.data.reverse().forEach((row) => { row.value = 0; });
+    if (feed.id === 'bls-cpi') resetBlsRawCacheForTest();
     const found = await call('signals.get', { sourceId: feed.id, id: last.id });
     assert.equal(found.item.id, last.id);
     assert.equal(found.item.value, 0);
