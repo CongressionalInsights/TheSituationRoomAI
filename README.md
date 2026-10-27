@@ -165,6 +165,14 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
 - Tools: `catalog.sources`, `raw.fetch`, `raw.history`, `money.flows`, `signals.list`, `signals.get`, `search.smart`
 - Supports full historical ranges where the upstream API allows it (unsupported sources return `history_not_supported`).
 - Normalized `signals.*` and `search.smart` items use epoch milliseconds for `publishedAt`.
+- TSR's Stooq integration is retired, not a claim about the provider's global availability.
+  `stooq-quote` is absent from active catalogs, builds and monitoring. Legacy Feed
+  requests return HTTP 410 with `source_retired`; MCP source-specific calls and
+  explicit smart-search selections return a structured retired/unavailable error
+  without an upstream request or stale fallback. Equity/index watchlists remain
+  saved but unavailable; crypto and EIA feeds are unchanged. No replacement is
+  selected. Historical reports, old build metadata and inert CSV normalization
+  fixtures remain evidence, not active quote sources.
 - `catalog.sources` reports `configured` and `configuration.requiredEnv` for connector-backed or key-backed sources.
 - Education alert sources include `congress-ew-bills`, `congress-help-bills`, and `federal-register-ed`. The committee bill sources default to Congress `119` and accept `params.congress` for future Congresses.
 - `money.flows` accepts optional `matchMode` (`strict`, `normal`, `loose`), `minScore`, and `entities` arguments. Entity alias expansion is loaded from `gcp/mcp-proxy/entity-aliases.json` or `MONEY_ENTITY_ALIASES_PATH`.

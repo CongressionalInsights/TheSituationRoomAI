@@ -2244,7 +2244,25 @@ async function fetchOpenStatesWithControls(url, requestOptions, timeoutMs) {
   }
 }
 
+function retiredSource(sourceId) {
+  return sourceId === 'stooq-quote' ? {
+    sourceId, error: 'source_retired', status: 'retired', available: false, httpStatus: 410,
+    message: 'TSR retired the Stooq integration; no replacement is active.', fallbackUsed: false
+  } : null;
+}
+
+function retiredToolResult(sourceId) {
+  const result = retiredSource(sourceId);
+  return result ? {
+    isError: true,
+    content: [{ type: 'text', text: result.message }],
+    structuredContent: result
+  } : null;
+}
+
 export async function fetchRaw(feed, options) {
+  const retired = retiredSource(feed?.id);
+  if (retired) return retired;
   if (options?.history && !supportsHistoryRange(feed)) {
     return {
       error: 'history_not_supported',
@@ -2374,7 +2392,6 @@ export async function fetchRaw(feed, options) {
   let responseHeaders = null;
   let succeeded = false;
   const isEonetFeed = feed?.id === 'eonet-events';
-  const stooqDeadline = feed?.id === 'stooq-quote' ? startedAt + totalTimeoutMs : null;
   const gdacsDeadline = feed.id === 'gdacs-alerts' ? startedAt + totalTimeoutMs : null;
   // Keep a quarter of GDACS's caller budget for the snapshot, plus response margin.
   const gdacsSnapshotReserveMs = gdacsDeadline === null ? 0 : Math.floor(totalTimeoutMs * 0.25);
@@ -2397,11 +2414,6 @@ export async function fetchRaw(feed, options) {
       lastError = { error: 'fetch_failed', message: 'GDACS upstream recovery budget exhausted.', code: 'timeout' };
       break;
     }
-    const remainingStooqMs = stooqDeadline === null ? null : stooqDeadline - Date.now();
-    if (remainingStooqMs !== null && remainingStooqMs <= 0) {
-      lastError = { error: 'fetch_failed', message: 'Stooq request deadline exceeded.', code: 'timeout' };
-      break;
-    }
     const proxy = attempts[index];
     const proxiedUrl = proxy ? applyProxy(keyedUrl, proxy) : keyedUrl;
     fetchedUrl = proxiedUrl;
@@ -2409,9 +2421,9 @@ export async function fetchRaw(feed, options) {
       ? (index === 0 ? rssDirectTimeoutMs : rssFallbackTimeoutMs)
       : isEonetFeed
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
-      : remainingStooqMs ?? totalTimeoutMs);
+      : totalTimeoutMs);
     try {
-      if (stooqDeadline !== null || gdacsDeadline !== null || feed.id === 'openaq-api') {
+      if (gdacsDeadline !== null || feed.id === 'openaq-api') {
         [response, body] = await fetchWithTimeout(proxiedUrl, {
           headers: requestHeaders,
           ...(feed.id === 'openaq-api' ? { redirect: 'error' } : {})
@@ -3031,6 +3043,8 @@ server.registerTool(
     })
   },
   async ({ sourceId, query, start, end, params, format }) => {
+    const retired = retiredToolResult(sourceId);
+    if (retired) return retired;
     const feed = feeds.find((entry) => entry.id === sourceId);
     if (!feed) {
       return {
@@ -3082,6 +3096,8 @@ server.registerTool(
     })
   },
   async ({ sourceId, start, end, params, format }) => {
+    const retired = retiredToolResult(sourceId);
+    if (retired) return retired;
     const feed = feeds.find((entry) => entry.id === sourceId);
     if (!feed) {
       return {
@@ -3166,6 +3182,8 @@ server.registerTool(
     })
   },
   async ({ sourceId, query, start, end, limit, params }) => {
+    const retired = retiredToolResult(sourceId);
+    if (retired) return retired;
     const feed = feeds.find((entry) => entry.id === sourceId);
     if (!feed) {
       return {
@@ -3225,6 +3243,8 @@ server.registerTool(
     })
   },
   async ({ sourceId, id, query, params }) => {
+    const retired = retiredToolResult(sourceId);
+    if (retired) return retired;
     const feed = feeds.find((entry) => entry.id === sourceId);
     if (!feed) {
       return {
@@ -3284,6 +3304,8 @@ server.registerTool(
     })
   },
   async ({ query, categories, sources, start, end, params, maxSources, perSourceLimit, totalLimit }) => {
+    const retired = (sources || []).map(retiredToolResult).find(Boolean);
+    if (retired) return retired;
     const selectedFeeds = selectSmartFeeds({ query, categories, sources, maxSources });
     const perLimit = Math.max(1, Number(perSourceLimit) || 25);
     const normalizedQuery = String(query || '').trim().toLowerCase();

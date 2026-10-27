@@ -954,15 +954,15 @@
           <div class="ticker-builder-row">
             <label class="sr-only" for="tickerTypeMain">Ticker type</label>
             <select id="tickerTypeMain" name="tickerTypeMain" class="select ticker-type">
-              <option value="equity">Equity</option>
-              <option value="market">Market</option>
+              <option value="equity" disabled>Equity (unavailable)</option>
+              <option value="market" disabled>Market (unavailable)</option>
               <option value="crypto">Crypto</option>
             </select>
             <label class="sr-only" for="tickerQueryMain">Ticker search</label>
-            <input id="tickerQueryMain" name="tickerQueryMain" class="ticker-query" type="text" placeholder="AAPL, TSLA, SPX, BTC, Ethereum" />
+            <input id="tickerQueryMain" name="tickerQueryMain" class="ticker-query" type="text" placeholder="BTC, Ethereum" />
             <button class="btn ghost ticker-add">Add</button>
           </div>
-          <div class="ticker-builder-hint">Smart search uses Stooq (equities/indices) + CoinPaprika (crypto). Examples: AAPL, ^SPX, BTC.</div>
+          <div class="ticker-builder-hint">Equity and index quotes unavailable. Crypto: CoinPaprika.</div>
           <div class="ticker-builder-status" role="status"></div>
           <div class="ticker-watchlist" data-watchlist="ticker"></div>
         </div>
@@ -985,15 +985,15 @@
           <div class="ticker-builder-row">
             <label class="sr-only" for="tickerTypeSpotlight">Ticker type</label>
             <select id="tickerTypeSpotlight" name="tickerTypeSpotlight" class="select ticker-type">
-              <option value="equity">Equity</option>
-              <option value="market">Market</option>
+              <option value="equity" disabled>Equity (unavailable)</option>
+              <option value="market" disabled>Market (unavailable)</option>
               <option value="crypto">Crypto</option>
             </select>
             <label class="sr-only" for="tickerQuerySpotlight">Ticker search</label>
-            <input id="tickerQuerySpotlight" name="tickerQuerySpotlight" class="ticker-query" type="text" placeholder="AAPL, TSLA, SPX, BTC, Ethereum" />
+            <input id="tickerQuerySpotlight" name="tickerQuerySpotlight" class="ticker-query" type="text" placeholder="BTC, Ethereum" />
             <button class="btn ghost ticker-add">Add</button>
           </div>
-          <div class="ticker-builder-hint">Add custom tickers to spotlight cards and the ticker bar.</div>
+          <div class="ticker-builder-hint">Equity and index quotes unavailable. Crypto: CoinPaprika.</div>
           <div class="ticker-builder-status" role="status"></div>
           <div class="ticker-watchlist" data-watchlist="spotlight"></div>
         </div>

@@ -563,40 +563,6 @@
       }
     }
   },
-  "stooq-quote": {
-    "tier": "standard",
-    "docsUrl": null,
-    "changelogUrl": null,
-    "statusUrl": null,
-    "supportUrl": null,
-    "sampleParams": {
-      "query": "aapl.us"
-    },
-    "knownUpstreamQuirks": [
-      {
-        "id": "stooq-quote-feed-fetch-transient",
-        "regressionClass": "feed-fetch-failed",
-        "severity": "info",
-        "suppressNew": true,
-        "note": "Stooq quote fetches can fail from proxy and direct paths while the current quote endpoint is deprecated; keep fetch-only failures informational while the source remains quarantined."
-      },
-      {
-        "id": "stooq-quote-source-deprecated-http404",
-        "regressionClass": "signal-normalization-failed",
-        "messageIncludes": "HTTP 404",
-        "severity": "info",
-        "suppressNew": true,
-        "note": "Stooq current quote CSV now returns HTTP 404 from direct and proxy paths; keep this deprecated feed informational until a first-party or keyed market source replaces it."
-      },
-      {
-        "id": "stooq-quote-fallback-engaged-transient",
-        "regressionClass": "fallback-engaged",
-        "severity": "info",
-        "suppressNew": true,
-        "note": "Stooq quote monitor can fall back to published/raw paths during proxy reachability failures; keep fallback-only runs informational while quote data remains parseable."
-      }
-    ]
-  },
   "energy-eia": {
     "tier": "core",
     "docsUrl": "https://www.eia.gov/opendata/",

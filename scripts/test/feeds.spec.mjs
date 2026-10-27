@@ -10,6 +10,97 @@ import { buildFirmsPrimaryFailureDiagnostic } from '../../gcp/feed-proxy/firms-d
 const root = process.cwd();
 const feedsPath = path.join(root, 'data', 'feeds.json');
 
+test('Stooq retirement removes only the active catalog entry across generated copies', () => {
+  const paths = ['data/feeds.json', 'public/data/feeds.json', 'gcp/feed-proxy/feeds.json', 'gcp/mcp-proxy/feeds.json'];
+  const feeds = JSON.parse(fs.readFileSync(feedsPath, 'utf8'));
+  assert.equal(feeds.feeds.length, 98);
+  assert.equal(feeds.feeds.some(feed => feed.id === 'stooq-quote'), false);
+  for (const file of paths) assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, file), 'utf8')), feeds);
+  for (const id of ['coinpaprika-tickers', 'energy-eia', 'bls-cpi', 'state-legislation', 'congress-reports']) {
+    assert.ok(feeds.feeds.some(feed => feed.id === id), id);
+  }
+});
+
+test('Stooq retired Feed GET and POST routes return 410 before registry, cache or transport access', async () => {
+  for (const file of ['server.mjs', 'gcp/feed-proxy/server.js']) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    const start = source.indexOf("  if (url.pathname === '/api/feed') {");
+    const end = source.indexOf('\n  if (', start + 1);
+    const context = {
+      URL, origin: 'http://fixture.invalid', Date,
+      readRequestBody: async () => JSON.stringify({ id: 'stooq-quote', force: true }),
+      readBody: async () => JSON.stringify({ id: 'stooq-quote', force: true }),
+      sendJson: (_res, status, body) => ({ status, body })
+    };
+    assert.ok(start >= 0 && end > start, file);
+    vm.runInNewContext('this.route = async (req, res, url) => {' + source.slice(start, end) + '};', context);
+    for (const method of ['GET', 'POST']) {
+      const result = await context.route({ method }, {}, new URL('http://localhost/api/feed?id=stooq-quote&force=1'));
+      assert.equal(result.status, 410, file);
+      assert.equal(result.body.error, 'source_retired', file);
+      assert.equal(result.body.available, false, file);
+      assert.equal(result.body.fallbackUsed, false, file);
+      assert.equal(result.body.body, undefined, file);
+    }
+  }
+});
+
+test('Stooq browser old-ID calls and stale energy snapshots never acquire or render quotes', async () => {
+  const source = fs.readFileSync(path.join(root, 'public/services/api.js'), 'utf8');
+  for (const staticMode of [false, true]) {
+    let calls = 0;
+    const context = {
+      URL, Response, AbortController, setTimeout, clearTimeout,
+      window: { SR_CONFIG: { staticMode }, location: { hostname: 'localhost', origin: 'http://localhost', pathname: '/' } },
+      fetch: async () => { calls += 1; throw Error('no network for retired ID'); }
+    };
+    vm.runInNewContext(source.replaceAll('export ', '') + '\nthis.apiFetch = apiFetch;', context);
+    for (const options of [{}, { method: 'POST', body: JSON.stringify({ id: 'stooq-quote' }) }]) {
+      const response = await context.apiFetch('/api/feed?id=stooq-quote', options);
+      assert.equal(response.status, 410);
+      assert.equal((await response.json()).error, 'source_retired');
+    }
+    assert.equal(calls, 0);
+  }
+  const app = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
+  const context = { state: { energyMarket: { wti: { value: 999, source: 'Stooq' } } } };
+  const functions = ['async function fetchMarketQuote(', 'async function refreshEnergyMarketQuotes('].map(declaration => {
+    const start = app.indexOf(declaration);
+    return app.slice(start, app.indexOf('\n}', start) + 2);
+  }).join('\n');
+  vm.runInNewContext(functions + '\nthis.quote = fetchMarketQuote; this.refresh = refreshEnergyMarketQuotes;', context);
+  assert.equal(await context.quote('aapl.us'), null);
+  await context.refresh();
+  assert.deepEqual(Object.keys(context.state.energyMarket), []);
+  assert.doesNotMatch(app, /https:\/\/stooq\.com|fetchStooqQuote/);
+  const declarations = ['function mergeCustomFeeds(', 'async function fetchFeed('];
+  const code = declarations.map(declaration => {
+    const start = app.indexOf(declaration);
+    return app.slice(start, app.indexOf('\n}', start) + 2);
+  }).join('\n');
+  vm.runInNewContext(code + '\nthis.merge = mergeCustomFeeds; this.feed = fetchFeed;', context);
+  assert.deepEqual(Array.from(context.merge([{ id: 'stooq-quote' }, { id: 'bls-cpi' }], [{ id: 'stooq-quote' }]), feed => feed.id), ['bls-cpi']);
+  assert.equal((await context.feed({ id: 'stooq-quote', isCustom: true })).error, 'source_retired');
+});
+
+test('Stooq static-build compatibility payloads are unavailable, not stale quote success', async () => {
+  const builder = fs.readFileSync(path.join(root, 'scripts/build_static_cache.mjs'), 'utf8');
+  const start = builder.indexOf('function buildRetiredQuotePayload(');
+  const end = builder.indexOf('async function main()', start);
+  const context = {};
+  vm.runInNewContext(builder.slice(start, end) + '\nthis.buildEnergyMarket = buildEnergyMarket;', context);
+  const payload = await context.buildEnergyMarket();
+  assert.equal(payload.error, 'source_retired');
+  assert.equal(payload.items, undefined);
+  assert.doesNotMatch(builder, /https:\/\/stooq\.com|parseStooqCsv/);
+  for (const file of ['public/data/feeds/stooq-quote.json', 'public/data/energy-market.json']) {
+    const saved = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
+    assert.equal(saved.error, 'source_retired');
+    assert.equal(saved.available, false);
+    assert.equal(saved.body, undefined);
+  }
+});
+
 function isKebabCase(value) {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }

@@ -1116,15 +1116,7 @@ const DATA_ATTRIBUTIONS = [
     termsUrl: 'https://www.nass.usda.gov/Data_and_Statistics/Citation_Request/index.php',
     notes: 'Agricultural reports and price summaries.'
   },
-  {
-    id: 'stooq',
-    name: 'Stooq',
-    short: 'Market data',
-    url: 'https://stooq.com',
-    attribution: 'Stooq market data.',
-    termsUrl: 'https://stooq.com/terms.html',
-    notes: 'Equities and index snapshots.'
-  },
+
   {
     id: 'google-news',
     name: 'Google News',
@@ -1742,10 +1734,11 @@ function hashString(value) {
 }
 
 function mergeCustomFeeds(baseFeeds, customFeeds) {
-  const merged = [...baseFeeds];
+  const merged = baseFeeds.filter((feed) => feed.id !== 'stooq-quote');
   const existing = new Set(baseFeeds.map((feed) => feed.id));
   let mutated = false;
   customFeeds.forEach((feed) => {
+    if (feed.id === 'stooq-quote') return;
     let id = feed.id;
     if (!id) {
       id = `custom-${hashString(feed.url || feed.name)}`;
@@ -5372,34 +5365,7 @@ const parseIncidentNewsCsv = (text, feed) => {
   }).filter(Boolean);
 };
 
-const parseStooqCsv = (text, feed) => {
-  if (!text) return [];
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map((h) => h.trim());
-  const values = lines[1].split(',').map((v) => v.trim());
-  if (values.length < headers.length) return [];
-  const row = headers.reduce((acc, key, idx) => {
-    acc[key] = values[idx];
-    return acc;
-  }, {});
-  if (!row.Symbol || !row.Close || row.Close === 'N/D') return [];
-  const value = Number(row.Close);
-  if (!Number.isFinite(value)) return [];
-  const open = Number(row.Open);
-  const deltaPct = Number.isFinite(open) && open ? ((value - open) / open) * 100 : null;
-  return [{
-    title: `${row.Symbol} Price`,
-    url: `https://stooq.com/q/?s=${encodeURIComponent(row.Symbol.toLowerCase())}`,
-    summary: `Close ${formatNumber(value)} | ${row.Date || 'Latest'} ${row.Time || ''}`.trim(),
-    publishedAt: Date.now(),
-    source: 'Stooq',
-    category: feed.category,
-    value,
-    deltaPct,
-    symbol: row.Symbol
-  }];
-};
+
 
 const feedParsers = {
   'gdelt-doc': (data, feed) => (data.articles || []).map((article) => ({
@@ -5502,7 +5468,7 @@ const feedParsers = {
   'warspotting-losses': parseWarspottingLosses,
   'polymarket-markets': parsePolymarketMarkets,
   'noaa-incidentnews': parseIncidentNewsCsv,
-  'stooq-quote': parseStooqCsv,
+
   'transport-opensky': (data, feed) => {
     const states = Array.isArray(data?.states) ? data.states : [];
     if (!states.length) return [];
@@ -5915,12 +5881,7 @@ function formatTickerValue(ticker) {
   return ticker.isIndex ? formatCompactNumber(ticker.value) : formatCompactCurrency(ticker.value);
 }
 
-function extractStooqAsOf(summary = '') {
-  if (!summary) return '';
-  const parts = summary.split('|');
-  if (parts.length < 2) return '';
-  return parts[1].trim();
-}
+
 
 function buildCustomTickerItems() {
   const watchlist = state.settings.tickerWatchlist || [];
@@ -5935,7 +5896,7 @@ function buildCustomTickerItems() {
     const ticker = resolved.get(key);
     if (!ticker) {
       return {
-        text: `${entry.label || entry.symbol}: --`,
+        text: `${entry.label || entry.symbol}: ${entry.type === 'crypto' ? '--' : 'Unavailable'}`,
         url: entry.url || '',
         change: null,
         pending: true
@@ -6019,32 +5980,13 @@ async function resolveTickerInput(type, input) {
     label: symbol,
     lookup: lookup.toLowerCase(),
     isIndex,
-    source: 'Stooq'
+    source: null
   };
 }
 
-async function fetchStooqQuote(symbol) {
-  const feed = state.feeds.find((entry) => entry.id === 'stooq-quote');
-  if (!feed) return null;
-  if (isStaticMode()) {
-    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
-    const proxies = ['allorigins', 'jina'];
-    for (const proxy of proxies) {
-      try {
-        const proxied = applyCustomProxy(url, proxy);
-        const response = await fetch(proxied);
-        if (!response.ok) continue;
-        const text = await response.text();
-        const parsed = parseStooqCsv(text, feed);
-        if (parsed?.[0]) return parsed[0];
-      } catch {
-        // try next proxy
-      }
-    }
-    return null;
-  }
-  const result = await fetchFeed(feed, symbol, true);
-  return result.items?.[0] || null;
+async function fetchMarketQuote(symbol) {
+  // Preserve the quote interface without selecting an unapproved replacement.
+  return null;
 }
 
 async function fetchCryptoQuote(id) {
@@ -6090,57 +6032,8 @@ function renderWatchlistChips() {
 }
 
 async function refreshEnergyMarketQuotes() {
-  if (isStaticMode() && !state.settings.superMonitor) {
-    try {
-      const response = await fetch(getAssetUrl(`/data/energy-market.json?ts=${Date.now()}`), { cache: 'no-store' });
-      if (response.ok) {
-        const payload = await response.json();
-        if (payload?.items) {
-          state.energyMarket = payload.items;
-          return;
-        }
-      }
-    } catch {
-      // fall through to live fetch
-    }
-  }
-  const [wti, gas, gold] = await Promise.all([
-    fetchStooqQuote('cl.f'),
-    fetchStooqQuote('ng.f'),
-    fetchStooqQuote('xauusd')
-  ]);
-  const next = {};
-  if (wti?.value) {
-    next.wti = {
-      label: 'WTI Crude',
-      value: wti.value,
-      delta: Number.isFinite(wti.deltaPct) ? wti.deltaPct : null,
-      url: wti.url,
-      asOf: extractStooqAsOf(wti.summary || ''),
-      symbol: wti.symbol
-    };
-  }
-  if (gas?.value) {
-    next.gas = {
-      label: 'Nat Gas',
-      value: gas.value,
-      delta: Number.isFinite(gas.deltaPct) ? gas.deltaPct : null,
-      url: gas.url,
-      asOf: extractStooqAsOf(gas.summary || ''),
-      symbol: gas.symbol
-    };
-  }
-  if (gold?.value) {
-    next.gold = {
-      label: 'Gold',
-      value: gold.value,
-      delta: Number.isFinite(gold.deltaPct) ? gold.deltaPct : null,
-      url: gold.url,
-      asOf: extractStooqAsOf(gold.summary || ''),
-      symbol: gold.symbol
-    };
-  }
-  state.energyMarket = next;
+  // Do not revive historical Stooq snapshots; EIA feeds remain independent.
+  state.energyMarket = {};
 }
 
 async function refreshCustomTickers() {
@@ -6166,7 +6059,7 @@ async function refreshCustomTickers() {
         symbol: entry.symbol
       };
     }
-    const quote = await fetchStooqQuote(entry.lookup);
+    const quote = await fetchMarketQuote(entry.lookup);
     if (!quote || !Number.isFinite(quote.value)) return null;
     return {
       label: entry.label || quote.symbol || entry.symbol,
@@ -6199,6 +6092,10 @@ async function handleTickerAdd(builder) {
   const type = typeSelect.value;
   const query = queryInput.value.trim();
   if (!query) return;
+  if (type !== 'crypto') {
+    setTickerBuilderStatus(builder, 'Equity and index quotes are unavailable; source retired.', 'error');
+    return;
+  }
   setTickerBuilderStatus(builder, 'Searching...', null);
   try {
     const resolved = await resolveTickerInput(type, query);
@@ -6279,7 +6176,7 @@ function buildFinanceKPIs() {
       value: formatCompactCurrency(sourceItem.value),
       meta,
       delta: Number.isFinite(sourceItem.delta ?? sourceItem.deltaPct) ? (sourceItem.delta ?? sourceItem.deltaPct) : null,
-      source: sourceItem.source || (marketWti?.value ? 'Stooq' : wti.source),
+      source: sourceItem.source || wti?.source,
       url: sourceItem.url || wti.url,
       category: 'energy'
     });
@@ -6310,7 +6207,7 @@ function buildFinanceKPIs() {
       value: formatCompactCurrency(sourceItem.value),
       meta,
       delta: Number.isFinite(sourceItem.delta ?? sourceItem.deltaPct) ? (sourceItem.delta ?? sourceItem.deltaPct) : null,
-      source: sourceItem.source || (marketGas?.value ? 'Stooq' : gas.source),
+      source: sourceItem.source || gas?.source,
       url: sourceItem.url || gas.url,
       category: 'energy'
     });
@@ -6323,7 +6220,7 @@ function buildFinanceKPIs() {
       value: formatCompactCurrency(marketGold.value),
       meta: marketGold.asOf ? `Market ${marketGold.asOf}` : 'Market',
       delta: Number.isFinite(marketGold.delta) ? marketGold.delta : null,
-      source: marketGold.source || 'Stooq',
+      source: marketGold.source,
       url: marketGold.url,
       category: 'finance'
     });
@@ -6380,7 +6277,7 @@ function buildFinanceKPIs() {
       return {
         label: entry.label || entry.symbol,
         value: '--',
-        meta: 'Awaiting quote',
+        meta: entry.type === 'crypto' ? 'Awaiting quote' : 'Source retired; quote unavailable',
         delta: null,
         url: entry.url || '',
         category: entry.type === 'crypto' ? 'crypto' : 'finance'
@@ -6779,6 +6676,10 @@ function getFeedRefreshContext(feed, query, live) {
 }
 
 async function fetchFeed(feed, query, force = false, requestParams = {}) {
+  if (feed.id === 'stooq-quote') {
+    return { feed, items: [], error: 'source_retired', httpStatus: 410,
+      errorMessage: 'TSR retired the Stooq integration; no replacement is active.', stale: false };
+  }
   if (feed.isCustom) {
     return fetchCustomFeedDirect(feed, query);
   }

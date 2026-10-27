@@ -1392,6 +1392,10 @@ async function fetchEnergyMap() {
 }
 
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
+  if (feed.id === 'stooq-quote') {
+    return { id: feed.id, error: 'source_retired', status: 'retired', available: false,
+      httpStatus: 410, fallbackUsed: false, message: 'TSR retired the Stooq integration; no replacement is active.' };
+  }
   const mergedParams = mergeFeedParams(feed, params);
   const connectorRequestKey = isStateConnectorFeed(feed) ? `:${serializeParams(sanitizeParamsObject(params))}` : '';
   const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}`;
@@ -1763,6 +1767,10 @@ const server = http.createServer(async (req, res) => {
       }
     }
     const id = body.id || url.searchParams.get('id');
+    if (id === 'stooq-quote') {
+      return sendJson(res, 410, { id, error: 'source_retired', status: 'retired', available: false,
+        message: 'TSR retired the Stooq integration; no replacement is active.', fallbackUsed: false });
+    }
     const query = body.query || url.searchParams.get('query') || undefined;
     const force = body.force === true || url.searchParams.get('force') === '1';
     const key = body.key || url.searchParams.get('key') || undefined;
