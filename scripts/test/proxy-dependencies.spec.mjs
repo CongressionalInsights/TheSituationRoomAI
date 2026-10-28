@@ -23,7 +23,7 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
   assert.deepEqual(manifest.dependencies, {
     '@modelcontextprotocol/sdk': '^1.32.1',
     'fast-xml-parser': '^5.11.2',
-    zod: '^4.6.5'
+    zod: '^4.6.7'
   });
 
   assert.deepEqual(manifest.overrides, {
@@ -40,7 +40,7 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
   assert.deepEqual(lockedRoot.dependencies, manifest.dependencies);
   assert.equal(lockfile.packages['node_modules/@modelcontextprotocol/sdk'].version, '1.32.1');
   assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.11.2');
-  assert.equal(lockfile.packages['node_modules/zod'].version, '4.6.5');
+  assert.equal(lockfile.packages['node_modules/zod'].version, '4.6.7');
 
   for (const [name, version] of Object.entries(manifest.overrides)) {
     assert.equal(lockfile.packages[`node_modules/${name}`].version, version);
