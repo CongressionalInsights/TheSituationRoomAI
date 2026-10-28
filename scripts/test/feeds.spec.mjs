@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import { fetchOpenAqMcp, isDefaultOpenAqRequest } from '../../gcp/feed-proxy/openaq-mcp.js';
 import { mergeFeedParams, sanitizeParamsObject } from '../../gcp/feed-proxy/state-signals.js';
 import { buildFirmsPrimaryFailureDiagnostic } from '../../gcp/feed-proxy/firms-diagnostics.js';
+import { redactDiagnosticUrl } from '../../gcp/mcp-proxy/public-payload-safety.js';
 
 const root = process.cwd();
 const feedsPath = path.join(root, 'data', 'feeds.json');
@@ -1069,7 +1070,7 @@ test('NASA FIRMS MCP URL redaction covers CSV and legacy JSON path keys', () => 
   const source = fs.readFileSync(path.join(root, 'gcp/mcp-proxy/server.js'), 'utf8');
   const start = source.indexOf('function stripSecretsFromUrl(');
   const code = source.slice(start, source.indexOf('\nfunction resolveServerKey', start));
-  const context = { URL };
+  const context = { URL, redactDiagnosticUrl };
   vm.runInNewContext(code + '\nthis.redact = stripSecretsFromUrl;', context);
   for (const format of ['json', 'csv']) {
     for (const prefix of ['https://firms.modaps.eosdis.nasa.gov', 'invalid-url']) {
