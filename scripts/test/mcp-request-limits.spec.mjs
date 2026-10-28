@@ -53,7 +53,7 @@ function request(port, body, { method = 'POST', path = '/mcp', headers = {}, chu
 }
 
 test('MCP limits use the exact locked SDK and supported default byte budget', () => {
-  assert.equal(JSON.parse(readFileSync(new URL('../../../package.json', pathToFileURL(sdkModule('server/mcp.js'))))).version, '1.32.1');
+  assert.equal(JSON.parse(readFileSync(new URL('../../../package.json', pathToFileURL(sdkModule('server/mcp.js'))))).version, '1.32.2');
   assert.deepEqual(MCP_REQUEST_LIMITS, { maxRequestBodySize: 4194304, maxToolInputElements: 10000 });
 });
 
