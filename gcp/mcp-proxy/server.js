@@ -10,7 +10,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_STATE_CODES } from './state-signals.js';
 import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
-import { sanitizeEiaPayload } from './public-payload-safety.js';
+import { redactDiagnosticText, redactDiagnosticUrl, sanitizeDiagnosticPayload, sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
 import { buildFirmsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
 
@@ -233,21 +233,7 @@ function getRequestOrigin(req) {
 }
 
 function stripSecretsFromUrl(rawUrl) {
-  if (!rawUrl) return rawUrl;
-  try {
-    const parsed = new URL(rawUrl);
-    ['api_key', 'key', 'token', 'apikey'].forEach((param) => {
-      if (parsed.searchParams.has(param)) {
-        parsed.searchParams.set(param, 'REDACTED');
-      }
-    });
-    parsed.pathname = parsed.pathname.replace(/(\/api\/area\/(?:json|csv)\/)[^/]+/i, '$1REDACTED');
-    return parsed.toString();
-  } catch {
-    return rawUrl
-      .replace(/(api_key=)[^&]+/gi, '$1REDACTED')
-      .replace(/(\/api\/area\/(?:json|csv)\/)[^/]+/i, '$1REDACTED');
-  }
+  return redactDiagnosticUrl(rawUrl);
 }
 
 function resolveServerKey(feed, env = process.env) {
@@ -1883,7 +1869,7 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
     ...(range ? { range } : {}),
     contentType: result.contentType,
     url: stripSecretsFromUrl(feed.url),
-    fetchedUrl: result.fetchedUrl || null,
+    fetchedUrl: stripSecretsFromUrl(result.fetchedUrl) || null,
     proxyUsed: result.proxyUsed || null,
     fallbackUsed: Boolean(result.fallbackUsed),
     warning: fallbackWarning(result),
@@ -2271,6 +2257,10 @@ let blsRawPending = null;
 export function resetBlsRawCacheForTest() { blsRawCache = null; blsRawPending = null; }
 
 export async function fetchRaw(feed, options = {}) {
+  return sanitizeDiagnosticPayload(await fetchRawWithCache(feed, options));
+}
+
+async function fetchRawWithCache(feed, options) {
   if (!isDefaultBlsRequest(feed, options)) return fetchRawUncached(feed, options);
   // Collapse raw/list/Feed burst acquisitions without hiding long-lived quota failures.
   const ttlMs = Math.min((feed.ttlMinutes || 1) * 60000, 60000);
@@ -3523,7 +3513,7 @@ export const httpServer = http.createServer(async (req, res) => {
       return;
     } catch (error) {
       if (!res.headersSent && !res.destroyed) {
-        return sendJson(res, 500, { error: 'mcp_transport_failed', message: error.message }, origin);
+        return sendJson(res, 500, { error: 'mcp_transport_failed', message: redactDiagnosticText(error.message) }, origin);
       }
       if (!res.writableEnded) res.destroy();
     } finally {
