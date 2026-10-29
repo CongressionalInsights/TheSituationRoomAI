@@ -21,26 +21,26 @@ test('MCP proxy pins audit-patched SDK parser and transitive overrides', () => {
   const lockfile = readJson('gcp', 'mcp-proxy', 'package-lock.json');
 
   assert.deepEqual(manifest.dependencies, {
-    '@modelcontextprotocol/sdk': '^1.32.1',
+    '@modelcontextprotocol/sdk': '^1.32.2',
     'fast-xml-parser': '^5.11.2',
-    zod: '^4.6.5'
+    zod: '^4.6.7'
   });
 
   assert.deepEqual(manifest.overrides, {
     '@hono/node-server': '1.19.17',
-    hono: '4.13.12',
-    'express-rate-limit': '8.7.0',
-    'ip-address': '10.7.2',
-    'fast-uri': '3.1.8',
-    qs: '6.16.0',
+    hono: '4.13.14',
+    'express-rate-limit': '8.7.1',
+    'ip-address': '10.7.5',
+    'fast-uri': '3.1.9',
+    qs: '6.17.0',
     'path-to-regexp': '8.4.2'
   });
 
   const lockedRoot = lockfile.packages[''];
   assert.deepEqual(lockedRoot.dependencies, manifest.dependencies);
-  assert.equal(lockfile.packages['node_modules/@modelcontextprotocol/sdk'].version, '1.32.1');
+  assert.equal(lockfile.packages['node_modules/@modelcontextprotocol/sdk'].version, '1.32.2');
   assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.11.2');
-  assert.equal(lockfile.packages['node_modules/zod'].version, '4.6.5');
+  assert.equal(lockfile.packages['node_modules/zod'].version, '4.6.7');
 
   for (const [name, version] of Object.entries(manifest.overrides)) {
     assert.equal(lockfile.packages[`node_modules/${name}`].version, version);
