@@ -93,6 +93,30 @@ test('dashboard renders downstream panels without summary-type crash', async ({ 
 
 test('state filters are context-local and tab panels respect active state', async ({ page }) => {
   test.setTimeout(90_000);
+  // Start with unavailable connectors regardless of the local server's configuration.
+  await page.route('**/api/**', async (route, request) => {
+    const requestUrl = new URL(request.url());
+    if (requestUrl.pathname === '/api/feeds') {
+      await route.continue();
+      return;
+    }
+    const id = request.method() === 'POST'
+      ? request.postDataJSON()?.id
+      : requestUrl.searchParams.get('id');
+    const unavailable = ['state-rulemaking', 'state-executive-orders'].includes(id);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id,
+        fetchedAt: Date.now(),
+        contentType: 'application/json',
+        httpStatus: unavailable ? 503 : 200,
+        ...(unavailable ? { error: 'requires_config' } : {}),
+        body: JSON.stringify({ results: [] })
+      })
+    });
+  });
   await page.goto('/');
   await page.waitForFunction(() => window.__SR_READY__ === true);
 
@@ -137,7 +161,7 @@ test('state filters are context-local and tab panels respect active state', asyn
       id = payload.id;
     }
     if (!['state-legislation', 'state-rulemaking', 'state-executive-orders'].includes(id)) {
-      await route.continue();
+      await route.fallback();
       return;
     }
     const results = id === 'state-legislation'
