@@ -4272,6 +4272,106 @@ test('document surfaces dedupe shared URLs across feeds', () => {
   assert.equal(surfaces[0].representativeFeedId, 'congress-api');
 });
 
+test('freshness alert continuity retains current age through staleness, recovery and recurrence', (t) => {
+  const now = Date.parse('2026-10-31T12:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const context = {
+    entry: { id: 'fixture-feed', tier: 'core', freshnessWindowMinutes: 60 },
+    proxySummary: { error: null },
+    rawSummary: { error: null },
+    signalSummary: { newestTimestamp: now - 120 * 60000 }
+  };
+  const first = evaluateInvariant('freshness', context);
+  t.mock.timers.setTime(now + 30 * 60000);
+  const current = evaluateInvariant('freshness', context);
+  assert.equal(first.message, 'Latest data is 120 minutes old.');
+  assert.equal(current.message, 'Latest data is 150 minutes old.');
+  assert.equal(current.severity, 'warning');
+  assert.equal(current.dedupeKey, first.dedupeKey);
+  const deltas = diffAlerts([current], [first]);
+  assert.deepEqual(deltas, { newAlerts: [], resolvedAlerts: [], ongoingAlerts: [current] });
+  const markdown = buildMarkdownReport({ mode: 'full', alerts: [current], deltas, summary: { warning: 1 } });
+  assert.match(markdown, /Changes: new 0, resolved 0, ongoing 1/);
+  assert.match(markdown, /\[warning\] fixture-feed: Latest data is 150 minutes old\./);
+  assert.doesNotMatch(markdown, /120 minutes|## New Alerts|No actionable changes detected/);
+
+  context.signalSummary.newestTimestamp = Date.now();
+  assert.equal(evaluateInvariant('freshness', context), null);
+  assert.deepEqual(diffAlerts([], [current]), { newAlerts: [], resolvedAlerts: [current], ongoingAlerts: [] });
+  t.mock.timers.setTime(Date.now() + 61 * 60000);
+  const recurrent = evaluateInvariant('freshness', context);
+  assert.deepEqual(diffAlerts([recurrent], []), { newAlerts: [recurrent], resolvedAlerts: [], ongoingAlerts: [] });
+});
+
+test('freshness alert continuity compares persisted age-based keys without mutating historical evidence', () => {
+  const original = createAlert({ feedId: 'arxiv-ai', regressionClass: 'freshness-window-exceeded', severity: 'info',
+    message: 'Latest data is 1187 minutes old.', metadata: { identity: 'freshness' } });
+  const legacy = { ...original, dedupeKey: `${original.feedId}:${original.regressionClass}:${hashContent(JSON.stringify({
+    regressionClass: original.regressionClass, message: original.message, identity: 'freshness'
+  })).slice(0, 12)}` };
+  const previous = JSON.parse(JSON.stringify(buildMonitorBaseline({ mode: 'full', alerts: [legacy], docResults: [] }))).alerts;
+  const before = JSON.stringify(previous);
+  const current = createAlert({ ...original, message: 'Latest data is 2627 minutes old.' });
+  assert.notEqual(current.dedupeKey, legacy.dedupeKey);
+  assert.deepEqual(diffAlerts([current], previous), { newAlerts: [], resolvedAlerts: [], ongoingAlerts: [current] });
+  assert.equal(JSON.stringify(previous), before);
+  assert.deepEqual(diffAlerts([], previous).resolvedAlerts, previous);
+
+  const quirk = { id: 'stale-note', regressionClass: 'freshness-window-exceeded', severity: 'info',
+    suppressNew: true, note: 'Known cadence.' };
+  const decorated = applyKnownUpstreamQuirks(current, [quirk]);
+  assert.deepEqual(diffAlerts([decorated], [applyKnownUpstreamQuirks(legacy, [quirk])]), {
+    newAlerts: [], resolvedAlerts: [], ongoingAlerts: [decorated]
+  });
+  assert.deepEqual(diffAlerts([decorated], []).newAlerts, [decorated], 'suppressNew must not hide a genuinely new stale condition');
+  assert.equal(decorated.knownQuirkId, 'stale-note');
+  assert.match(decorated.message, /2627 minutes old\. Known cadence\./);
+});
+
+test('freshness alert continuity preserves distinct feed and metadata identities and mixed real transitions', () => {
+  const stale = (feedId, message, metadata = { identity: 'freshness' }) => createAlert({
+    feedId, regressionClass: 'freshness-window-exceeded', severity: 'info', message, metadata
+  });
+  const ongoing = stale('continuing', 'Latest data is 2627 minutes old.');
+  const newlyStale = stale('newly-stale', 'Latest data is 90 minutes old.');
+  const recovered = stale('recovered', 'Latest data is 100 minutes old.');
+  assert.deepEqual(diffAlerts([ongoing, newlyStale], [stale('continuing', 'Latest data is 1187 minutes old.'), recovered]), {
+    newAlerts: [newlyStale], resolvedAlerts: [recovered], ongoingAlerts: [ongoing]
+  });
+  for (const metadata of [{ identity: 'freshness' }, { url: 'https://fixture.invalid/a' }, { surfaceKey: 'surface-a' }, {}]) {
+    const first = stale('feed-a', 'Latest data is 1187 minutes old.', metadata);
+    const current = stale('feed-a', 'Latest data is 586 minutes old.', metadata);
+    assert.equal(current.dedupeKey, first.dedupeKey, 'age may decrease while still stale');
+    for (const changed of [stale('feed-b', current.message, metadata), stale('feed-a', current.message,
+      metadata.identity ? { identity: 'other' } : metadata.url ? { url: 'https://fixture.invalid/b' }
+        : metadata.surfaceKey ? { surfaceKey: 'surface-b' } : { identity: 'freshness' })]) {
+      assert.notEqual(changed.dedupeKey, first.dedupeKey);
+      assert.deepEqual(diffAlerts([changed], [first]), { newAlerts: [changed], resolvedAlerts: [first], ongoingAlerts: [] });
+    }
+  }
+});
+
+test('freshness alert continuity leaves other message identities and documentation hashes unchanged', () => {
+  for (const regressionClass of ['feed-fetch-failed', 'docs-fetch-failed', 'docs-contract-change', 'observation-freshness-unknown']) {
+    for (const docsHash of [null, 'known-doc-hash']) {
+      const first = createAlert({ feedId: 'fixture-feed', regressionClass, severity: 'warning', message: 'HTTP 403',
+        docsHash, metadata: { url: 'https://fixture.invalid/docs' } });
+      assert.equal(first.dedupeKey, `fixture-feed:${regressionClass}:${docsHash || hashContent(JSON.stringify({
+        regressionClass, message: first.message, identity: first.metadata.url
+      })).slice(0, 12)}`);
+      const current = createAlert({ ...first, message: 'timeout' });
+      const changed = createAlert({ ...current, docsHash: docsHash ? 'changed-doc-hash' : null });
+      assert.deepEqual(diffAlerts([changed], [first]), docsHash
+        ? { newAlerts: [changed], resolvedAlerts: [first], ongoingAlerts: [] }
+        : { newAlerts: [current], resolvedAlerts: [first], ongoingAlerts: [] });
+    }
+  }
+  const hashed = createAlert({ feedId: 'fixture-feed', regressionClass: 'freshness-window-exceeded', severity: 'info',
+    message: 'Latest data is 120 minutes old.', docsHash: 'explicit-hash' });
+  const changedHash = createAlert({ ...hashed, docsHash: 'changed-hash' });
+  assert.deepEqual(diffAlerts([changedHash], [hashed]), { newAlerts: [changedHash], resolvedAlerts: [hashed], ongoingAlerts: [] });
+});
+
 test('known quirks downgrade alerts and alert diffs suppress repeated known issues', () => {
   const alert = createAlert({
     feedId: 'congress-reports',
