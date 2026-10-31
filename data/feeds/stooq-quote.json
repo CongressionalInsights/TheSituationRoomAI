@@ -1,0 +1,10 @@
+{
+  "id": "stooq-quote",
+  "sourceId": "stooq-quote",
+  "error": "source_retired",
+  "status": "retired",
+  "available": false,
+  "httpStatus": 410,
+  "fallbackUsed": false,
+  "message": "TSR retired the Stooq integration; no replacement is active."
+}

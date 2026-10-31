@@ -1,0 +1,7 @@
+{
+  "id": "congress-summaries",
+  "fetchedAt": 1793480805002,
+  "contentType": "application/json",
+  "body": "{\n    \"pagination\": {\n        \"count\": 1\n    },\n    \"request\": {\n        \"contentType\": \"application/json\",\n        \"format\": \"json\"\n    },\n    \"summaries\": [\n        {\n            \"actionDate\": \"2025-04-17\",\n            \"actionDesc\": \"Introduced in House\",\n            \"bill\": {\n                \"congress\": 119,\n                \"number\": \"2935\",\n                \"originChamber\": \"House\",\n                \"originChamberCode\": \"H\",\n                \"title\": \"PREPARE Act of 2025\",\n                \"type\": \"HR\",\n                \"updateDateIncludingText\": \"2026-10-30\",\n                \"url\": \"https://api.congress.gov/v3/bill/119/hr/2935?format=json\"\n            },\n            \"currentChamber\": \"House\",\n            \"currentChamberCode\": \"H\",\n            \"lastSummaryUpdateDate\": \"2026-10-30T20:38:58Z\",\n            \"text\": \"<p><strong>Preparing Regulators Effectively for a Post-prohibition Adult-use Regulated Environment Act of 2025 or the PREPARE Act of 2025</strong></p><p>This bill directs the Department of Justice to establish the Commission on the Federal Regulation of Cannabis to study a plausible and prompt pathway to cannabis regulation.</p>\",\n            \"updateDate\": \"2026-10-30T20:39:29Z\",\n            \"versionCode\": \"00\"\n        }\n    ]\n}",
+  "httpStatus": 200
+}
