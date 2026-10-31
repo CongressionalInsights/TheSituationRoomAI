@@ -22,7 +22,7 @@ export function createAlert({
   const fingerprint = docsHash
     || hashContent(JSON.stringify({
       regressionClass,
-      message,
+      message: regressionClass === 'freshness-window-exceeded' ? undefined : message,
       identity: metadata.identity || metadata.url || metadata.surfaceKey || null
     })).slice(0, 12);
   return {
@@ -67,15 +67,19 @@ export function dedupeAlerts(alerts = []) {
 }
 
 export function diffAlerts(currentAlerts = [], previousAlerts = []) {
-  const previous = new Map(previousAlerts.map((alert) => [alert.dedupeKey, alert]));
-  const current = new Map(currentAlerts.map((alert) => [alert.dedupeKey, alert]));
+  // Re-key saved age-based freshness alerts without rewriting historical evidence.
+  const comparisonKey = (alert) => alert.regressionClass === 'freshness-window-exceeded' && !alert.docsHash
+    ? createAlert(alert).dedupeKey
+    : alert.dedupeKey;
+  const previous = new Map(previousAlerts.map((alert) => [comparisonKey(alert), alert]));
+  const current = new Map(currentAlerts.map((alert) => [comparisonKey(alert), alert]));
 
   const newAlerts = currentAlerts.filter((alert) => {
-    if (alert.suppressNew && previous.has(alert.dedupeKey)) return false;
-    return !previous.has(alert.dedupeKey);
+    if (alert.suppressNew && previous.has(comparisonKey(alert))) return false;
+    return !previous.has(comparisonKey(alert));
   });
-  const resolvedAlerts = previousAlerts.filter((alert) => !current.has(alert.dedupeKey));
-  const ongoingAlerts = currentAlerts.filter((alert) => previous.has(alert.dedupeKey));
+  const resolvedAlerts = previousAlerts.filter((alert) => !current.has(comparisonKey(alert)));
+  const ongoingAlerts = currentAlerts.filter((alert) => previous.has(comparisonKey(alert)));
 
   return {
     newAlerts,
@@ -127,6 +131,16 @@ export function buildMarkdownReport(report) {
     lines.push('');
   }
 
+  const ongoingFreshness = (deltas.ongoingAlerts || [])
+    .filter((alert) => alert.regressionClass === 'freshness-window-exceeded');
+  if (ongoingFreshness.length) {
+    lines.push('## Ongoing Freshness Alerts');
+    ongoingFreshness.forEach((alert) => {
+      lines.push(`- [${alert.severity}] ${alert.feedId}: ${alert.message}`);
+    });
+    lines.push('');
+  }
+
   const criticalAlerts = alerts.filter((alert) => alert.severity === 'critical');
   if (criticalAlerts.length) {
     lines.push('## Critical');
@@ -169,7 +183,7 @@ export function buildMarkdownReport(report) {
     lines.push('');
   }
 
-  if (!newAlerts.length && !criticalAlerts.length && !changedDocs.length && !degradedFeeds.length) {
+  if (!newAlerts.length && !ongoingFreshness.length && !criticalAlerts.length && !changedDocs.length && !degradedFeeds.length) {
     lines.push('No actionable changes detected.');
   }
 
