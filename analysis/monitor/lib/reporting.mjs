@@ -135,7 +135,7 @@ export function buildMarkdownReport(report) {
     .filter((alert) => alert.regressionClass === 'freshness-window-exceeded');
   if (ongoingFreshness.length) {
     lines.push('## Ongoing Freshness Alerts');
-    ongoingFreshness.forEach((alert) => {
+    ongoingFreshness.slice(0, 10).forEach((alert) => {
       lines.push(`- [${alert.severity}] ${alert.feedId}: ${alert.message}`);
     });
     lines.push('');

@@ -4303,6 +4303,39 @@ test('freshness alert continuity retains current age through staleness, recovery
   assert.deepEqual(diffAlerts([recurrent], []), { newAlerts: [recurrent], resolvedAlerts: [], ongoingAlerts: [] });
 });
 
+test('ongoing freshness Markdown caps display at ten without truncating alert data or counts', () => {
+  const previous = Array.from({ length: 13 }, (_, index) => createAlert({
+    feedId: `fixture-feed-${index + 1}`,
+    regressionClass: 'freshness-window-exceeded',
+    severity: 'warning',
+    message: `Latest data is ${120 + index} minutes old.`,
+    metadata: { identity: 'freshness' }
+  }));
+  const alerts = previous.map((alert, index) => createAlert({
+    ...alert, message: `Latest data is ${240 + index} minutes old.`
+  }));
+  const deltas = diffAlerts(alerts, previous);
+  const report = { mode: 'full', alerts, deltas, summary: { warning: 13 } };
+  const before = JSON.stringify(report);
+  const markdown = buildMarkdownReport(report);
+  const section = markdown.split('## Ongoing Freshness Alerts\n')[1].split('\n## ')[0];
+  const rows = section.split('\n').filter((line) => line.startsWith('- '));
+  assert.deepEqual(rows, alerts.slice(0, 10).map((alert) => `- [${alert.severity}] ${alert.feedId}: ${alert.message}`));
+  for (const alert of alerts.slice(10)) {
+    assert.ok(!section.includes(`${alert.feedId}:`));
+    assert.ok(!section.includes(alert.message));
+  }
+  assert.match(markdown, /Changes: new 0, resolved 0, ongoing 13/);
+  assert.equal(JSON.stringify(report), before, 'rendering must preserve complete JSON data');
+  assert.equal(report.alerts.length, 13);
+  assert.equal(deltas.ongoingAlerts.length, 13);
+  for (const [index, alert] of alerts.entries()) {
+    assert.strictEqual(deltas.ongoingAlerts[index], alert);
+    assert.equal(alert.dedupeKey, previous[index].dedupeKey);
+  }
+  assert.deepEqual(diffAlerts([], alerts), { newAlerts: [], resolvedAlerts: alerts, ongoingAlerts: [] });
+});
+
 test('freshness alert continuity compares persisted age-based keys without mutating historical evidence', () => {
   const original = createAlert({ feedId: 'arxiv-ai', regressionClass: 'freshness-window-exceeded', severity: 'info',
     message: 'Latest data is 1187 minutes old.', metadata: { identity: 'freshness' } });
