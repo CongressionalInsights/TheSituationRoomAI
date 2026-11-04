@@ -17,6 +17,7 @@ import { loadMonitoringCatalog } from './catalog.mjs';
 import { parseCliArgs, writeJson, writeText, ensureDir } from './client.mjs';
 import { classifyDocChange, watchDocumentation } from './doc_watch.mjs';
 import { runFeedAudit } from './audit.mjs';
+import { auditMoneyFlows } from './money_flows.mjs';
 import {
   applyKnownUpstreamQuirks,
   buildMarkdownReport,
@@ -262,6 +263,7 @@ export async function runMonitor(mode, argv = []) {
   const previousDocs = Object.fromEntries((previousReport?.docResults || []).map((result) => [result.key, result]));
 
   const feedResults = await runFeedAudit(entries, cli);
+  const moneyFlowResult = mode === 'full' ? await auditMoneyFlows(cli) : null;
   const docResults = cli.includeDocs
     ? await watchDocumentation({ entries, previousDocs, timeoutMs: cli.timeoutMs })
     : [];
@@ -276,7 +278,7 @@ export async function runMonitor(mode, argv = []) {
       entriesById
     );
     const docAlerts = buildDocAlerts(comparedDocResults, entriesById);
-    const alerts = dedupeAlerts([...feedAlerts, ...docAlerts]);
+    const alerts = dedupeAlerts([...feedAlerts, ...docAlerts, ...(moneyFlowResult?.alerts || [])]);
     const deltas = diffAlerts(alerts, comparisonReport?.alerts || []);
     const summary = summarizeAlerts(alerts);
     return {
@@ -303,6 +305,7 @@ export async function runMonitor(mode, argv = []) {
       deltas,
       alerts,
       feedResults,
+      moneyFlowResult,
       docResults: comparedDocResults
     };
   };

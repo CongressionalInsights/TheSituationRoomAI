@@ -54,6 +54,9 @@ async function run() {
     await fs.writeFile(workerTarget, output, 'utf8');
   }
 
+  for (const name of ['money-flows.js', 'money-sources.js', 'entity-aliases.json']) {
+    await fs.copyFile(path.join(root, 'gcp/mcp-proxy', name), path.join(root, 'gcp/feed-proxy', name));
+  }
   console.log(`Synced feeds.json to ${targets.length} targets.`);
 }
 

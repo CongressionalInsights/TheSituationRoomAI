@@ -39,6 +39,12 @@ targets.forEach((targetPath) => {
   }
 });
 
+for (const name of ['money-flows.js', 'money-sources.js', 'entity-aliases.json']) {
+  try {
+    if (readFileSync(path.join(root, 'gcp/mcp-proxy', name), 'utf8') !== readFileSync(path.join(root, 'gcp/feed-proxy', name), 'utf8')) errors.push(`Money-flow parity failed: ${name}`);
+  } catch (error) { errors.push(error.message); }
+}
+
 if (errors.length) {
   console.error('Feed registry parity check failed:');
   errors.forEach((err) => console.error(`- ${err}`));

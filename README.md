@@ -176,6 +176,7 @@ The MCP proxy exposes raw feed data plus normalized signals for agents (no auth 
 - `catalog.sources` reports `configured` and `configuration.requiredEnv` for connector-backed or key-backed sources.
 - Education alert sources include `congress-ew-bills`, `congress-help-bills`, and `federal-register-ed`. The committee bill sources default to Congress `119` and accept `params.congress` for future Congresses.
 - `money.flows` accepts optional `matchMode` (`strict`, `normal`, `loose`), `minScore`, and `entities` arguments. Entity alias expansion is loaded from `gcp/mcp-proxy/entity-aliases.json` or `MONEY_ENTITY_ALIASES_PATH`.
+- Money-flow results are bounded discovery samples. See [schema v2, source coverage, financial semantics and release notes](MONEY_FLOW_REPAIRS.md). SAM is registration evidence; USAspending rows are transaction obligations; null/zero/negative amounts remain distinct. Summaries cover returned rows only.
 - `state-rulemaking` and `state-executive-orders` are backed by the `gcp/state-connector` Cloud Run provider. Covered states are `CA`, `FL`, `MN`, `NC`, `NY`, `TX`, and `VA`. For NC, rulemaking records are North Carolina Register issues and executive-order records are Governor listing entries; the connector does not yet extract individual rules or order text for Raleigh/Wake matching.
 
 ### State connector provider

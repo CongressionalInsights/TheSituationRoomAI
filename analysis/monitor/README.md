@@ -161,3 +161,17 @@ comparison state.
 `npm run monitor:report` acquires the same publication lock as monitor runs and
 updates the Markdown hash in `latest-commit.json`; it refuses to rewrite a
 report whose JSON, final marker, and durable baseline no longer match.
+
+## Money-flow discovery coverage
+
+The full audit also calls `money.flows` once for a narrow current-year CVS Health
+sample (limit 10). It does not repeat this provider fan-out after an aggregate
+transport failure. `moneyFlowResult` and the Markdown money-flow section retain
+per-source acquisition coverage. Missing/invalid financial contracts and source
+failures are warnings; bounded partial sampling is informational. Empty samples
+are not proof of zero activity. Core and docs-only runs are unchanged.
+
+See [the repair/caller contract](../../MONEY_FLOW_REPAIRS.md) for nullable amounts,
+transaction/modification identities, SAM registration semantics, provider budgets,
+and release prerequisites. Fixture checks run with `node --test
+scripts/test/money-flows.spec.mjs`; they do not establish live provider health.

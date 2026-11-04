@@ -52,7 +52,7 @@ const normalizeTypedFixture = (id, body = typedSeriesFixtures[id]) => normalizeJ
   JSON.stringify(body), typedSeriesFeeds.find((feed) => feed.id === id)
 );
 
-test('MCP tools/list emits retrieval annotations without changing existing declarations', async (t) => {
+test('MCP tools/list preserves retrieval annotations and reviewed declarations', async (t) => {
   const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
   const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
   const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
@@ -74,10 +74,10 @@ test('MCP tools/list emits retrieval annotations without changing existing decla
   assert.deepEqual(tools.map(tool => tool.name), [
     'catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart'
   ]);
-  // Pin the base SDK declarations, excluding only the new descriptive hints.
+  // Pin reviewed SDK declarations. Money-flow description now states sampling and financial semantics; input schemas and retrieval annotations remain unchanged.
   const declarations = emitted.map(({ annotations, ...tool }) => tool);
   assert.equal(createHash('sha256').update(JSON.stringify(declarations)).digest('hex'),
-    'f7629638ad47a4e9f21b8dedf3b40d3a6cb3ffa5aec7cb33b58e67fb3b685629');
+    '6aa8b101e68a1553639c4203fd2dd0f3d2d1c2935f23182c191f2b57d6cb77b7');
   for (const tool of tools) {
     await t.test(tool.name, () => assert.deepEqual(tool.annotations, {
       readOnlyHint: true, destructiveHint: false, openWorldHint: tool.name !== 'catalog.sources'

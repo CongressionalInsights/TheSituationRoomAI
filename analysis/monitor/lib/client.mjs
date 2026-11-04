@@ -427,8 +427,9 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000, 
     }
   };
 
+  const retryBackoff = options.retry === false ? [] : RETRY_BACKOFF_MS;
   let lastError = null;
-  for (let attempt = 0; attempt <= RETRY_BACKOFF_MS.length; attempt += 1) {
+  for (let attempt = 0; attempt <= retryBackoff.length; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -491,8 +492,8 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000, 
     } finally {
       clearTimeout(timer);
     }
-    if (attempt < RETRY_BACKOFF_MS.length) {
-      await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS[attempt]));
+    if (attempt < retryBackoff.length) {
+      await new Promise((resolve) => setTimeout(resolve, retryBackoff[attempt]));
     }
   }
   return { ok: false, status: null, data: null, ...lastError };
