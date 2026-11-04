@@ -484,10 +484,10 @@ export async function acquireFecPages({ terms, range, binding, cursor, key, runt
       if (!data || !Array.isArray(data.results) || data.results.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('invalid_shape');
       const batch = data.results; pagesRead++; queryPages++;
       // Preserve everything fetched before any guard. Normalization removes only
-      // exact repeated observations in this mode, not changed receipt versions.
+      // exact repeated identified observations, not changed versions or unidentified occurrences.
       items.push(...batch);
       const ids = batch.map(identity).map(String), fingerprint = hash([...ids].sort());
-      const added = ids.filter(id => !seen.has(id)); ids.forEach(id => seen.add(id));
+      const added = [...new Set(ids)].filter(id => !seen.has(id)); ids.forEach(id => seen.add(id));
       annotateDiagnostic(ctx, { rowCount: batch.length, newIdentityCount: added.length, identityHash: fingerprint });
       if (batch.length && ((queryPages > 1 && !added.length) || fingerprint === state.previous)) {
         annotateDiagnostic(ctx, { branch: 'no_new_identities' }); throw new Error('pagination_stalled');

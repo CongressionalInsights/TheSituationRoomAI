@@ -563,7 +563,7 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
   );
   const fecItems = uniqueItemsBy(
     fecResults.flatMap((entry) => entry.items || []),
-    (item) => fecPageMode ? fecObservationHash(item) : item.sub_id || item.contribution_receipt_id
+    (item) => fecPageMode ? (item.sub_id == null && item.contribution_receipt_id == null ? null : fecObservationHash(item)) : item.sub_id || item.contribution_receipt_id
   );
   const samItems = uniqueItemsBy(
     samResults.flatMap((entry) => entry.items || []),
@@ -783,7 +783,7 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
     });
   });
 
-  const fecSubtotalIdentities = new Set();
+  const fecSubtotalIdentities = new Set(), unidentifiedOccurrences = new Map();
   const matchedItems = items
     .map((item) => attachMoneyMatch(queryProfile, item))
     .filter(Boolean)
@@ -791,7 +791,12 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
       if (!fecPageMode) return item;
       const duplicateIdentity = item.sourceId != null && fecSubtotalIdentities.has(String(item.sourceId));
       if (item.sourceId != null) fecSubtotalIdentities.add(String(item.sourceId));
-      return { ...item, duplicateIdentity, includeInSubtotal: item.includeInSubtotal && !duplicateIdentity };
+      // Equal content is not proof of equal receipts without a native identity.
+      // Occurrence is scoped to this response/replay, never a fabricated source ID.
+      const occurrence = item.sourceId == null ? unidentifiedOccurrences.get(item.observationHash) || 0 : null;
+      if (occurrence !== null) unidentifiedOccurrences.set(item.observationHash, occurrence + 1);
+      return { ...item, duplicateIdentity, ...(occurrence !== null ? { observationOccurrence: occurrence } : {}),
+        includeInSubtotal: item.includeInSubtotal && !duplicateIdentity };
     })
     .map((item) => ({
       ...item,
@@ -805,7 +810,7 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
     outputTruncated: !pageMode && matchedItems.length > safeLimit,
     matchedItems: matchedItems.length, returnedItems: results.items.length,
     queryVariantsTruncated: queryProfile.searchTerms.length > queryVariants.length,
-    note: fecPageMode ? 'All matching observations acquired in this bounded FEC batch; limit is ignored. Exact duplicate observations are collapsed; changed versions remain visible with observationHash. Subtotals include the first matching observed version per identity within this batch (excluding memos), never a reconciled ledger. Follow fecTraversal.next until complete; blocked guards require explicit reconciliation/restart. Persist rows with progress and deduplicate source/sourceId/version/hash across batches or overlapping restarts. Completion covers frozen filters, not a historical snapshot. Run-history recovery is best-effort, not durable acknowledgment.' : pageMode ? 'All matching normalized rows from one LDA provider page, including all relevant LD-203 children; limit is not applied. Follow ldaTraversal.next until complete. Deduplicate by source/sourceId across pages and prior samples. Completion covers requested filters, not a historical snapshot or net ledger. Subtotals cover this response only.' : 'Ranked discovery sample. Subtotals cover returned rows only, not source-wide or net totals. Source completeness applies only to executed filters. LDA covers filing years; SAM is current identity data.'
+    note: fecPageMode ? 'All matching observations acquired in this bounded FEC batch; limit is ignored. Exact duplicates with known native identity are collapsed; changed versions remain visible with observationHash. Unidentified occurrences remain separate; hash alone cannot reconcile them across batches. Subtotals include the first matching observed version per identity within this batch (excluding memos), never a reconciled ledger. Follow fecTraversal.next until complete; blocked guards require explicit reconciliation/restart. Persist rows with progress and deduplicate source/sourceId/version/hash across batches or overlapping restarts. Completion covers frozen filters, not a historical snapshot. Run-history recovery is best-effort, not durable acknowledgment.' : pageMode ? 'All matching normalized rows from one LDA provider page, including all relevant LD-203 children; limit is not applied. Follow ldaTraversal.next until complete. Deduplicate by source/sourceId across pages and prior samples. Completion covers requested filters, not a historical snapshot or net ledger. Subtotals cover this response only.' : 'Ranked discovery sample. Subtotals cover returned rows only, not source-wide or net totals. Source completeness applies only to executed filters. LDA covers filing years; SAM is current identity data.'
   };
   for (const [source, info] of Object.entries(results.sources)) {
     info.returnedCount = results.items.filter((item) => source === 'ldaContributions' ? item.type === 'Lobbying Contribution' : source === 'lda' ? item.type === 'Lobbying Filing' : item.source === ({ fec: 'OpenFEC', usaspending: 'USAspending', sam: 'SAM.gov' })[source]).length;

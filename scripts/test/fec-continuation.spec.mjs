@@ -283,3 +283,23 @@ test('FEC version subtotal exclusion applies to matching returned identities, no
   assert.equal(data.items[0].duplicateIdentity, false); assert.equal(data.items[1].duplicateIdentity, true);
   assert.equal(data.summary.buckets.contributions.totalAmount, -5);
 });
+
+test('FEC unidentified equal-content occurrences retain multiplicity without inventing source identity', async () => {
+  const raw = { contributor_name: 'Acme', contribution_receipt_amount: 10 };
+  const rt = runtime(async () => response([raw, { ...raw }], indexes(1)), { pages: 1 });
+  const data = await fetchMoneyFlows(args, rt), replay = await fetchMoneyFlows(args, rt);
+  assert.equal(data.sources.fec.count, 2); assert.equal(data.items.length, 2);
+  assert.deepEqual(data.items.map(x => x.sourceId), [null, null]);
+  assert.equal(data.items[0].observationHash, data.items[1].observationHash);
+  assert.deepEqual(data.items.map(x => x.observationOccurrence), [0, 1]);
+  assert.equal(data.summary.buckets.contributions.totalAmount, 20);
+  assert.deepEqual(data.items, replay.items);
+  assert.match(data.coverage.note, /hash alone cannot reconcile/);
+});
+
+test('FEC diagnostic newIdentityCount counts distinct identities while retaining both observed versions', async () => {
+  const data = await acquireFecPages({ ...sourceArgs, runtime: runtime(async () => response([row(1, 0), row(1, -5)], indexes(1)), { pages: 1 }) });
+  assert.equal(data.items.length, 2);
+  const parsed = data.coverage.diagnostics.attempts.find(x => x.branch === 'response_ok');
+  assert.equal(parsed.rowCount, 2); assert.equal(parsed.newIdentityCount, 1);
+});
