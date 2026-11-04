@@ -251,3 +251,53 @@ test('The normal full audit includes exactly one money-flow acquisition and pers
     assert.ok(report.alerts.some((a) => a.feedId === 'money-flows' && a.regressionClass === 'money-flow-partial-coverage'));
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('Shared LDA budgets leave unattempted LD-203 searches as incomplete coverage, not provider failures', async (t) => {
+  for (const exhausted of ['requests', 'deadline']) {
+    await t.test(exhausted, async () => {
+      let now = 0;
+      const ldaCalls = [];
+      const options = runtime(async (raw) => {
+        const url = new URL(raw);
+        if (url.hostname === 'lda.gov') {
+          ldaCalls.push(url.pathname);
+          if (exhausted === 'deadline' && ldaCalls.length === 3) now = 45000;
+        }
+        return empty(url);
+      }, exhausted === 'requests' ? { requests: 3 } : {});
+      options.now = () => now;
+      const data = await fetchMoneyFlows({ query: 'Acme', start: '2026-01-01', end: '2026-11-03' }, options);
+      assert.deepEqual(ldaCalls, Array(3).fill('/api/v1/filings/'));
+      const source = data.sources.ldaContributions;
+      assert.equal(source.error, null);
+      assert.equal(source.count, 0);
+      assert.equal(source.coverage.requests, 0);
+      assert.equal(source.coverage.searchesRun, 0);
+      assert.equal(source.coverage.searchesPlanned, 3);
+      assert.equal(source.coverage.pages, 0);
+      assert.deepEqual(source.coverage.reasons, ['search_budget']);
+      assert.equal(source.coverage.complete, false);
+      assert.equal(source.coverage.status, 'partial');
+      const alerts = inspectMoneyFlows({ ok: true, data }).alerts.filter((alert) => alert.metadata.identity === 'ldaContributions');
+      assert.equal(alerts.length, 1);
+      assert.equal(alerts[0].regressionClass, 'money-flow-partial-coverage');
+      assert.equal(alerts[0].severity, 'info');
+    });
+  }
+});
+
+test('An inherited LDA access error remains a provider warning even when LD-203 makes zero requests', async () => {
+  const data = await fetchMoneyFlows({ query: 'Acme', start: '2026-01-01', end: '2026-11-03' }, runtime(async (raw) => {
+    const url = new URL(raw);
+    return url.hostname === 'lda.gov' ? json({}, 403) : empty(url);
+  }));
+  const source = data.sources.ldaContributions;
+  assert.equal(source.coverage.requests, 0);
+  assert.equal(source.coverage.complete, false);
+  assert.equal(source.coverage.status, 'unavailable');
+  assert.equal(source.error, 'HTTP 403');
+  const alerts = inspectMoneyFlows({ ok: true, data }).alerts.filter((alert) => alert.metadata.identity === 'ldaContributions');
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].regressionClass, 'money-flow-source-unavailable');
+  assert.equal(alerts[0].severity, 'warning');
+});

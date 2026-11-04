@@ -105,11 +105,16 @@ async function searches(ctx, specs, run) {
   }
   const reasons = [...new Set(batches.map((batch) => batch.reason).filter(Boolean))];
   if (batches.length < specs.length) reasons.push(ctx.blocked || 'search_budget');
+  const error = reasons.find((reason) => !['page_budget', 'request_budget', 'search_budget', 'deadline'].includes(reason)) || null;
+  const requests = ctx.requests - initialRequests;
+  // A sibling can consume the shared budget before this endpoint is attempted.
+  // That is incomplete observation, not evidence that the provider failed.
+  const unattemptedForBudget = requests === 0 && !error;
   return { items: batches.flatMap((batch) => batch.items), retryAfterSeconds: ctx.retryAfterSeconds, retryAt: ctx.retryAt, coverage: {
-    status: reasons.length ? (batches.some((b) => b.pages) ? 'partial' : 'unavailable') : 'complete_for_queries',
+    status: reasons.length ? (batches.some((b) => b.pages) || unattemptedForBudget ? 'partial' : 'unavailable') : 'complete_for_queries',
     complete: reasons.length === 0, reasons, searchesPlanned: specs.length, searchesRun: batches.length,
-    pages: batches.reduce((sum, b) => sum + b.pages, 0), requests: ctx.requests - initialRequests, cachedSearches: batches.filter((b) => b.cached).length
-  }, error: reasons.find((reason) => !['page_budget', 'request_budget', 'search_budget', 'deadline'].includes(reason)) || null };
+    pages: batches.reduce((sum, b) => sum + b.pages, 0), requests, cachedSearches: batches.filter((b) => b.cached).length
+  }, error };
 }
 
 export async function acquireLda({ terms, range, contributions = false, ctx }) {
