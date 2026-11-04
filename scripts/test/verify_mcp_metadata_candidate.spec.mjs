@@ -5,7 +5,7 @@ import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { httpServer } from '../../gcp/mcp-proxy/server.js';
-import { verifyMcpMetadataCandidate } from '../verify_mcp_metadata_candidate.mjs';
+import { verifyMcpMetadataCandidate, metadataDigest } from '../verify_mcp_metadata_candidate.mjs';
 
 globalThis.fetch = async () => { throw new Error('Upstream fetch blocked in metadata fixtures'); };
 
@@ -56,6 +56,17 @@ async function metadataFixture(t, transform = value => value) {
 test('metadata-only verifier exercises production raw entry and fingerprints candidate/canonical without providers', async (t) => {
   const fixture = await metadataFixture(t, (data, envelope, url) => {
     if (envelope?.method === 'initialize') data.result.serverInfo = { name: url.host, version: String(Date.now()) };
+    if (data.result?.tools) {
+      const contract = structuredClone(data.result.tools).map(({ name, inputSchema, annotations }) => ({ name, inputSchema, annotations }));
+      const money = contract.find(tool => tool.name === 'money.flows').inputSchema;
+      assert.deepEqual(money.properties.mode, { type: 'string', enum: ['sample', 'lda_pages'] });
+      assert.deepEqual(money.properties.cursor, { type: 'string' });
+      delete money.properties.mode;
+      delete money.properties.cursor;
+      // The reviewed delta is exactly these two optional inputs. All seven tool
+      // names, existing inputs and retrieval annotations retain the prior pin.
+      assert.equal(metadataDigest(contract), '1be3e00aa404732b6e27f127f55b13acba837f524365a9d18310cf768a9daceb');
+    }
     return data;
   });
   const candidate = await verifyMcpMetadataCandidate('https://candidate.fixture.invalid/mcp', fixture);
@@ -72,22 +83,41 @@ test('metadata-only verifier exercises production raw entry and fingerprints can
 
 test('metadata-only verifier rejects schema/annotation, envelope, catalogue/config/NC drift and detects parity loss', async (t) => {
   const cases = [
-    ['health', data => { if (data.ok) data.ok = false; }],
-    ['discovery', data => { if (data.endpoint) data.tools.pop(); }],
-    ['schema', data => { if (data.result?.tools) data.result.tools[0].inputSchema.properties.state.type = 'number'; }],
-    ['annotations', data => { if (data.result?.tools) data.result.tools[0].annotations.readOnlyHint = false; }],
-    ['RPC error', data => { if (data.result?.tools) data.error = { code: -32603 }; }],
-    ['RPC id', data => { if (data.result?.tools) data.id = 500; }],
-    ['tool error', data => { if (data.result?.structuredContent) data.result.isError = true; }],
-    ['empty catalogue', data => { if (data.result?.structuredContent) data.result.structuredContent.sources = []; }],
-    ['config', data => { if (data.result?.structuredContent) delete data.result.structuredContent.sources[0].configuration; }],
-    ['NC coverage', data => { if (data.result?.structuredContent) data.result.structuredContent.sources.find(source => source.id === 'state-rulemaking').coverageStatus = 'UNSUPPORTED'; }],
-    ['NC unconfigured', data => { if (data.result?.structuredContent) data.result.structuredContent.sources.find(source => source.id === 'state-executive-orders').configured = false; }]
+    ['health', data => { if (data.ok) data.ok = false; }, /Unhealthy MCP endpoint/],
+    ['discovery', data => { if (data.endpoint) data.tools.pop(); }, /MCP discovery contract changed/],
+    ['schema', data => { if (data.result?.tools) data.result.tools[0].inputSchema.properties.state.type = 'number'; }, /Tool schemas or annotations changed/],
+    ['annotations', data => { if (data.result?.tools) data.result.tools[0].annotations.readOnlyHint = false; }, /Tool schemas or annotations changed/],
+    ['RPC error', data => { if (data.result?.tools) data.error = { code: -32603 }; }, /tools\/list metadata failed/],
+    ['RPC id', data => { if (data.result?.tools) data.id = 500; }, /tools\/list metadata failed/],
+    ['tool error', data => { if (data.result?.structuredContent) data.result.isError = true; }, /tools\/call metadata failed/],
+    ['empty catalogue', data => { if (data.result?.structuredContent) data.result.structuredContent.sources = []; }, /Empty MCP catalogue/],
+    ['config', data => { if (data.result?.structuredContent) delete data.result.structuredContent.sources[0].configuration; }, /Catalogue configuration contract changed/],
+    ['NC coverage', data => { if (data.result?.structuredContent) data.result.structuredContent.sources.find(source => source.id === 'state-rulemaking').coverageStatus = 'UNSUPPORTED'; }, /state-rulemaking NC metadata coverage unavailable/],
+    ['NC unconfigured', data => { if (data.result?.structuredContent) data.result.structuredContent.sources.find(source => source.id === 'state-executive-orders').configured = false; }, /Catalogue configuration contract changed/]
   ];
-  for (const [label, mutate] of cases) {
+  for (const [label, mutate, expectedError] of cases) {
     await t.test(label, async (t) => {
       const fixture = await metadataFixture(t, data => { mutate(data); return data; });
-      await assert.rejects(verifyMcpMetadataCandidate('https://candidate.fixture.invalid/mcp', fixture));
+      // Assert the intended guard fired; an earlier schema failure must not make
+      // unrelated catalogue/configuration fixtures appear to pass.
+      await assert.rejects(verifyMcpMetadataCandidate('https://candidate.fixture.invalid/mcp', fixture), expectedError);
+    });
+  }
+  for (const [label, mutate] of [
+    ['old money schema', schema => { delete schema.properties.mode; delete schema.properties.cursor; }],
+    ['missing LDA cursor', schema => { delete schema.properties.cursor; }],
+    ['changed LDA cursor type', schema => { schema.properties.cursor.type = 'number'; }],
+    ['extra LDA mode', schema => { schema.properties.mode.enum.push('unreviewed'); }],
+    ['required LDA cursor', schema => { schema.required.push('cursor'); }]
+  ]) {
+    await t.test(label, async (t) => {
+      const fixture = await metadataFixture(t, data => {
+        const money = data.result?.tools?.find(tool => tool.name === 'money.flows');
+        if (money) mutate(money.inputSchema);
+        return data;
+      });
+      await assert.rejects(verifyMcpMetadataCandidate('https://candidate.fixture.invalid/mcp', fixture), /Tool schemas or annotations changed/);
+      assert.equal(fixture.calls.some(call => call.envelope?.method === 'tools/call'), false);
     });
   }
   await t.test('catalogue parity fingerprint', async (t) => {
