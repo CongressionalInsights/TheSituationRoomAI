@@ -26,7 +26,7 @@ export function traffic(service) {
 
 const tags = service => (service.status?.traffic || []).filter(row => row.tag)
   .map(({ tag, revisionName }) => ({ tag, revisionName })).sort((a, b) => a.tag.localeCompare(b.tag));
-const servicePolicy = service => ({ annotations: Object.fromEntries(Object.entries(service.metadata?.annotations || {})
+export const servicePolicy = service => ({ annotations: Object.fromEntries(Object.entries(service.metadata?.annotations || {})
   .filter(([key]) => !generatedAnnotation.test(key) && !['run.googleapis.com/urls', 'run.googleapis.com/ingress-status'].includes(key))),
   spec: Object.fromEntries(Object.entries(service.spec || {}).filter(([key]) => !['template', 'traffic'].includes(key))) });
 

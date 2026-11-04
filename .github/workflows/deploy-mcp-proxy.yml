@@ -3,12 +3,17 @@ name: Deploy MCP Proxy (GCP)
 on:
   workflow_dispatch:
     inputs:
+      candidate_only:
+        description: Stop after isolated candidate verification; false explicitly selects full release
+        required: true
+        default: true
+        type: boolean
       expected_sha:
         description: Exact reviewed main commit to deploy
         required: true
         type: string
       expected_serving_tag:
-        description: Exact current serving tag approved for retirement on successful release; leave empty when untagged
+        description: Exact current serving tag; candidate-only preserves it, full release retires it after verification
         required: false
         default: ''
         type: string
@@ -53,8 +58,15 @@ jobs:
         run: |
           set -euo pipefail
           test "$ACTUAL_REF" = refs/heads/main
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
           test "$EXPECTED_SHA" = "$ACTUAL_SHA"
           test "$(git rev-parse HEAD)" = "$ACTUAL_SHA"
+          [[ "${{ inputs.candidate_only }}" = true || "${{ inputs.candidate_only }}" = false ]]
+          if [ "${{ inputs.candidate_only }}" = true ]; then
+            test "${{ inputs.sync_secret_versions }}" = false
+            test "${{ inputs.cisa_only }}" = false
+            test "${{ inputs.metadata_only }}" = false
+          fi
           if [ "${{ inputs.cisa_only }}" = true ]; then
             test "${{ inputs.sync_secret_versions }}" = false
           fi
@@ -128,6 +140,33 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+      - name: Bind manual release to reviewed main commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+          ACTUAL_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_REF" = refs/heads/main
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$EXPECTED_SHA" = "$ACTUAL_SHA"
+          test "$(git rev-parse HEAD)" = "$ACTUAL_SHA"
+          [[ "${{ inputs.candidate_only }}" = true || "${{ inputs.candidate_only }}" = false ]]
+          if [ "${{ inputs.candidate_only }}" = true ]; then
+            test "${{ inputs.sync_secret_versions }}" = false
+            test "${{ inputs.cisa_only }}" = false
+            test "${{ inputs.metadata_only }}" = false
+          fi
+          if [ "${{ inputs.cisa_only }}" = true ]; then
+            test "${{ inputs.sync_secret_versions }}" = false
+          fi
+          if [ "${{ inputs.metadata_only }}" = true ]; then
+            # This provider-independent exception is limited to its approved one-time release.
+            test "$EXPECTED_SHA" = "6dd6a85383a394f9d622a1aacfc3e319c1ef5250"
+            test "${{ inputs.cisa_only }}" = false
+            test "${{ inputs.sync_secret_versions }}" = false
+          fi
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
       - uses: google-github-actions/auth@v3
@@ -137,7 +176,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
       - name: Ensure MCP proxy secrets
-        if: github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions
+        if: github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions && !inputs.candidate_only
         env:
           DATA_GOV: ${{ secrets.DATA_GOV }}
           EIA: ${{ secrets.EIA }}
@@ -209,6 +248,7 @@ jobs:
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --format=json > /tmp/mcp-service-before.json
+          if [ "${{ inputs.candidate_only }}" = true ]; then cp /tmp/mcp-service-before.json "$DIAG_DIR/service-before.json"; fi
 
           ROLLBACK_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-before.json)
           SERVICE_URL="https://situation-room-mcp-382918878290.us-central1.run.app"
@@ -307,19 +347,22 @@ jobs:
             fi
             SECRET_ARGS=(--update-secrets "$SECRET_BINDINGS")
           fi
+          CONFIG_ARGS=()
+          if [ "${{ inputs.candidate_only }}" = true ]; then
+            test "$SYNC_SECRET_VERSIONS" = false
+            jq -e '(.spec.template.metadata.annotations["autoscaling.knative.dev/minScale"] // "0") == "0"' /tmp/mcp-service-before.json >/dev/null
+          else
+            CONFIG_ARGS=(--allow-unauthenticated --min 1 --min-instances 0 --timeout 900 --update-env-vars "$ENV_UPDATES")
+          fi
           set +e
           gcloud run deploy "$SERVICE_NAME" \
             --region "$REGION" \
             --source gcp/mcp-proxy \
-            --allow-unauthenticated \
-            --min 1 \
-            --min-instances 0 \
-            --timeout 900 \
+            "${CONFIG_ARGS[@]}" \
             --revision-suffix "$REVISION_SUFFIX" \
             --tag "$REVISION_SUFFIX" \
             --no-traffic \
-            "${SECRET_ARGS[@]}" \
-            --update-env-vars "$ENV_UPDATES" 2>&1 | tee "$DIAG_DIR/deploy-output.log"
+            "${SECRET_ARGS[@]}" 2>&1 | tee "$DIAG_DIR/deploy-output.log"
           DEPLOY_EXIT=${PIPESTATUS[0]}
           set -e
 
@@ -375,6 +418,11 @@ jobs:
               exit 1
             fi
           done
+          if [ "${{ inputs.candidate_only }}" = true ]; then
+            cp /tmp/mcp-service-before.json "$DIAG_DIR/service-before.json"
+            cp /tmp/mcp-service-candidate.json "$DIAG_DIR/service-candidate.json"
+            node scripts/verify_candidate_only.mjs /tmp/mcp-service-before.json /tmp/mcp-service-candidate.json "$CANDIDATE_REVISION" "${{ steps.deploy.outputs.candidate_tag }}"
+          fi
           printf '%s\n' "$CANDIDATE_REVISION" | tee "$DIAG_DIR/deployed-revision.txt"
           echo "Secret bindings preserved from rollback revision ${{ steps.current.outputs.rollback_revision }}."
       - name: Smoke test isolated MCP candidate
@@ -412,9 +460,12 @@ jobs:
             node scripts/verify_typed_series_report.mjs analysis/monitor/latest.json "${CANDIDATE_URL}/mcp" \
               | tee /tmp/mcp-diagnostics/typed-series-candidate.json
           fi
+          if [ "${{ inputs.candidate_only }}" = true ]; then
+            node scripts/verify_money_candidate.mjs mcp "$CANDIDATE_URL" > /tmp/mcp-diagnostics/money-candidate.json
+          fi
       - name: Promote verified MCP revision
         id: promote
-        if: steps.deploy.outputs.deploy_succeeded == 'true'
+        if: steps.deploy.outputs.deploy_succeeded == 'true' && !inputs.candidate_only
         continue-on-error: true
         env:
           EXPECTED_SERVING_TAG: ${{ steps.current.outputs.serving_tag }}
@@ -456,7 +507,7 @@ jobs:
           ' /tmp/mcp-service-promoted.json >/dev/null
       - name: Verify canonical MCP release
         id: canonical
-        if: steps.promote.outcome == 'success'
+        if: steps.promote.outcome == 'success' && !inputs.candidate_only
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -488,7 +539,7 @@ jobs:
             node scripts/verify_mcp_candidate.mjs "${SERVICE_URL}/mcp"
           fi
       - name: Restore captured traffic after failed promotion or parity
-        if: always() && steps.deploy.outputs.deploy_succeeded == 'true' && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
+        if: always() && !inputs.candidate_only && steps.deploy.outputs.deploy_succeeded == 'true' && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
         run: |
           set -euo pipefail
           CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
@@ -524,6 +575,17 @@ jobs:
           gcloud run services describe "$SERVICE_NAME" \
             --region "$REGION" --project "$PROJECT_ID" --format=json \
             > /tmp/mcp-service-cleanup.json
+          if [ "${{ inputs.candidate_only }}" = true ]; then
+            cp /tmp/mcp-service-cleanup.json /tmp/mcp-diagnostics/service-cleanup.json
+            node scripts/verify_candidate_only.mjs /tmp/mcp-service-before.json /tmp/mcp-service-cleanup.json "$CANDIDATE_REVISION" "$CANDIDATE_TAG" cleanup
+            if jq -e --arg tag "$CANDIDATE_TAG" 'any(.status.traffic[]?; .tag == $tag)' /tmp/mcp-service-cleanup.json >/dev/null; then
+              gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --remove-tags "$CANDIDATE_TAG"
+            fi
+            gcloud run services describe "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --format=json > /tmp/mcp-service-final.json
+            node scripts/verify_candidate_only.mjs /tmp/mcp-service-before.json /tmp/mcp-service-final.json "$CANDIDATE_REVISION" "$CANDIDATE_TAG" cleaned
+            cp /tmp/mcp-service-final.json /tmp/mcp-diagnostics/service-final.json
+            exit 0
+          fi
           SERVING_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-cleanup.json)
           if [ "$SERVING_REVISION" = "$CANDIDATE_REVISION" ]; then
             test "${{ steps.promote.outcome }}" = success
@@ -567,7 +629,7 @@ jobs:
             ' /tmp/mcp-service-final.json >/dev/null
           fi
       - name: Fail release when promotion or canonical verification failed
-        if: always() && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
+        if: always() && !inputs.candidate_only && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
         run: exit 1
       - name: Collect Cloud Build diagnostics
         if: always() && !inputs.cisa_only

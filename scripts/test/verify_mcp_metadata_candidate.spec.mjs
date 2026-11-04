@@ -135,7 +135,7 @@ const workflow = readFileSync(new URL('../../.github/workflows/deploy-mcp-proxy.
 const step = name => workflow.split(`      - name: ${name}\n`)[1].split('      - name: ')[0];
 const runScript = block => block.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
 const substitute = (script, { metadata = false, cisa = false, sync = false } = {}) => script
-  .replaceAll('${{ inputs.metadata_only }}', String(metadata)).replaceAll('${{ inputs.cisa_only }}', String(cisa))
+  .replaceAll('${{ inputs.candidate_only }}', 'false').replaceAll('${{ inputs.metadata_only }}', String(metadata)).replaceAll('${{ inputs.cisa_only }}', String(cisa))
   .replaceAll('${{ inputs.sync_secret_versions }}', String(sync)).replaceAll('${{ steps.deploy.outputs.candidate_revision }}', 'candidate')
   .replaceAll('${{ steps.deploy.outputs.candidate_tag }}', 'candidate-tag').replaceAll('${{ steps.current.outputs.service_url }}', 'https://canonical.fixture.invalid');
 
@@ -143,7 +143,7 @@ test('metadata-only workflow input guard rejects mixed modes and secret synchron
   assert.match(workflow, /metadata_only:\n\s*description:.*\n\s*required: true\n\s*default: false\n\s*type: boolean/);
   const guard = runScript(step('Bind manual release to reviewed main commit'));
   for (const [metadata, cisa, sync, succeeds] of [[true, false, false, true], [true, true, false, false], [true, false, true, false], [false, true, false, true], [false, true, true, false], [false, false, true, true]]) {
-    const sha = metadata ? '6dd6a85383a394f9d622a1aacfc3e319c1ef5250' : 'fixture';
+    const sha = metadata ? '6dd6a85383a394f9d622a1aacfc3e319c1ef5250' : 'f'.repeat(40);
     const result = spawnSync('bash', ['-c', `git(){ printf '%s' "$ACTUAL_SHA"; }; ${substitute(guard, { metadata, cisa, sync })}`], {
       encoding: 'utf8', env: { ...process.env, ACTUAL_REF: 'refs/heads/main', ACTUAL_SHA: sha, EXPECTED_SHA: sha }
     });
@@ -187,16 +187,17 @@ test('metadata-only release pin is conditional and retains reviewed-main binding
 test('metadata-only workflow routes only metadata smokes and parity while retaining normal/CISA paths', () => {
   const smoke = runScript(step('Smoke test isolated MCP candidate'));
   const canonical = runScript(step('Verify canonical MCP release'));
-  // Execute the actual shell branches with inert commands; no cloud, curl, Node or file writes.
+  // Execute actual branches inertly. Piped jq stubs drain stdin so pipefail cannot
+  // mistake a fixture-only SIGPIPE race for a release failure.
   const stubs = `SERVICE_NAME=fixture; REGION=fixture; PROJECT_ID=fixture; gcloud(){ printf 'fixture'; }; curl(){ :; }; tee(){ printf 'tee:%s\\n' "$*"; command cat; };\n`;
   for (const [metadata, cisa] of [[true, false], [false, true], [false, false]]) {
     const script = substitute(smoke, { metadata, cisa });
-    const result = spawnSync('bash', ['-c', `${stubs} jq(){ printf 'https://candidate.fixture.invalid'; }; node(){ printf 'node:%s\\n' "$*"; }; ${script}`], { encoding: 'utf8' });
+    const result = spawnSync('bash', ['-c', `${stubs} jq(){ command cat >/dev/null; printf 'https://candidate.fixture.invalid'; }; node(){ printf 'node:%s\\n' "$*"; }; ${script}`], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     if (metadata) {
       assert.match(result.stdout, /node:scripts\/verify_mcp_metadata_candidate\.mjs/);
       assert.doesNotMatch(result.stdout, /verify_cisa_candidate|verify_mcp_candidate\.mjs|run_core_sentinel|verify_typed_series_report/);
-      const parity = spawnSync('bash', ['-c', `${stubs} jq(){ if [ "$1" = -er ]; then printf candidate; else printf 'parity:%s\\n' "$*"; fi; }; node(){ printf 'node:%s\\n' "$*"; }; ${substitute(canonical, { metadata })}`], { encoding: 'utf8' });
+      const parity = spawnSync('bash', ['-c', `${stubs} jq(){ if [ "$1" = -er ]; then command cat >/dev/null; printf candidate; else printf 'parity:%s\\n' "$*"; fi; }; node(){ printf 'node:%s\\n' "$*"; }; ${substitute(canonical, { metadata })}`], { encoding: 'utf8' });
       assert.equal(parity.status, 0, parity.stderr);
       assert.match(parity.stdout, /fingerprint == \$candidate\[0\]\.fingerprint/);
       assert.doesNotMatch(parity.stdout, /verify_cisa_candidate|verify_mcp_candidate\.mjs/);
