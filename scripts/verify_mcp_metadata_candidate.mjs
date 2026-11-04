@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 const TOOL_NAMES = ['catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart'];
-// Exact reviewed names/schemas/annotations, including optional LDA mode/cursor inputs.
+// Exact reviewed names/schemas/annotations, including optional LDA/FEC mode/cursor inputs.
 // Updating this contract does not widen the separately SHA-pinned metadata-only release exception.
-const TOOL_CONTRACT_SHA256 = '7a27d686e695d855cf9e9e47b92de0bc6f968cd7fedc620f0737b666ef79d18d';
+const TOOL_CONTRACT_SHA256 = '0704bc898593694e4dd2a53a20dada14af9bbc6d0fbfb4d40dd8bc586d596aec';
 const stable = value => Array.isArray(value) ? value.map(stable)
   : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
 export const metadataDigest = value => createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');

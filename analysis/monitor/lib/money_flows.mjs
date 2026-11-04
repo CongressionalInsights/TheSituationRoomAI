@@ -20,6 +20,12 @@ export function inspectMoneyFlows(response) {
       next.start !== data.range?.start || next.end !== data.range?.end) {
     alert('money-flow-lda-continuation', 'Money-flow sample is missing a frozen LDA traversal entrypoint.');
   }
+  const fecNext = data.fecTraversal?.next;
+  if (data.fecTraversal?.startsFromBeginning !== true || fecNext?.mode !== 'fec_pages' ||
+      typeof fecNext?.cursor !== 'string' || !fecNext.cursor || fecNext.query !== data.query ||
+      fecNext.start !== data.range?.start || fecNext.end !== data.range?.end) {
+    alert('money-flow-fec-continuation', 'Money-flow sample is missing a frozen FEC traversal entrypoint.');
+  }
   const sources = {};
   for (const name of ['lda', 'ldaContributions', 'fec', 'sam', 'usaspending']) {
     const source = data.sources?.[name];

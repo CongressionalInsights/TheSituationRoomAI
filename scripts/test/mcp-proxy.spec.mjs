@@ -74,10 +74,10 @@ test('MCP tools/list preserves retrieval annotations and reviewed declarations',
   assert.deepEqual(tools.map(tool => tool.name), [
     'catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart'
   ]);
-  // Pin reviewed SDK declarations. Money-flow description and optional mode/cursor inputs expose LDA traversal; retrieval annotations remain unchanged.
+  // Pin reviewed SDK declarations. Money-flow description and optional mode/cursor inputs expose LDA/FEC traversal; retrieval annotations remain unchanged.
   const declarations = emitted.map(({ annotations, ...tool }) => tool);
   assert.equal(createHash('sha256').update(JSON.stringify(declarations)).digest('hex'),
-    '773624ffc0374078230de1a229be7649d64f577d2941f1f24bbb2e84ba44b5bd');
+    'aaf8104875a3dd67a6d6dd3bfbb3865b8c2c03e3b9443c3c24fdb906409061c4');
   for (const tool of tools) {
     await t.test(tool.name, () => assert.deepEqual(tool.annotations, {
       readOnlyHint: true, destructiveHint: false, openWorldHint: tool.name !== 'catalog.sources'
@@ -2321,4 +2321,30 @@ test('money.flows exposes stateless LDA page arguments through the MCP protocol'
   const rejected = await client.callTool({ name: 'money.flows', arguments: { ...data.ldaTraversal.next, query: 'Other' } });
   assert.equal(rejected.structuredContent.error, 'invalid_cursor');
   assert.equal(requests, 1);
+});
+
+test('money.flows MCP schema, text and discovery expose bounded FEC continuation without provider access on malformed cursors', async t => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  let requests = 0;
+  t.mock.method(globalThis, 'fetch', async raw => {
+    const url = new URL(raw); assert.equal(url.hostname, 'api.open.fec.gov'); requests++;
+    const index = Number(url.searchParams.get('last_index') || 0);
+    return new Response(JSON.stringify({ results: [{ sub_id: String(index + 1), contributor_name: 'Acme', contribution_receipt_amount: index === 0 ? null : -5 }],
+      pagination: { last_indexes: { last_index: String(index + 1), last_contribution_receipt_date: '2026-01-01' } } }));
+  });
+  const server = buildMcpServer(), client = new Client({ name: 'fec-continuation-fixture', version: '1.0.0' });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.connect(st); await client.connect(ct);
+  const listed = (await client.listTools()).tools.find(tool => tool.name === 'money.flows');
+  assert.deepEqual(listed.inputSchema.properties.mode.enum, ['sample', 'lda_pages', 'fec_pages']);
+  const first = await client.callTool({ name: 'money.flows', arguments: { query: 'Acme', start: '2025-01-01', end: '2026-11-03', mode: 'fec_pages', limit: 1 } });
+  assert.equal(first.structuredContent.items.length, 3); assert.match(first.content[0].text, /FEC batch/);
+  const next = first.structuredContent.fecTraversal.next;
+  const second = await client.callTool({ name: 'money.flows', arguments: next });
+  assert.equal(second.structuredContent.items[0].sourceId, '4');
+  const invalid = await client.callTool({ name: 'money.flows', arguments: { ...next, query: 'Other' } });
+  assert.equal(invalid.structuredContent.error, 'invalid_cursor'); assert.equal(requests, 6);
 });
