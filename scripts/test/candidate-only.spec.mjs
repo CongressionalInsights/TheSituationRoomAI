@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { verifyCandidateOnly } from '../verify_candidate_only.mjs';
 import { verifyMoneyCandidate } from '../verify_money_candidate.mjs';
+import { fetchMoneyFlows } from '../../gcp/mcp-proxy/money-flows.js';
 const workflows = Object.fromEntries(['mcp','feed'].map(kind => [kind, fs.readFileSync(`.github/workflows/deploy-${kind}-proxy.yml`, 'utf8')]));
 const block = (workflow, name) => workflow.split(`      - name: ${name}\n`)[1].split('      - name: ')[0];
 const script = block => block.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
@@ -88,9 +89,125 @@ test('Actual MCP candidate cleanup removes only its verified tag; drift fails wi
 });
 
 const fixed={query:'CVS Health',entities:['CVS Health'],start:'2026-01-01',end:'2026-11-03',limit:120};
-function payload(mode='sample') {
-  return {schemaVersion:2,query:fixed.query,range:{start:fixed.start,end:fixed.end},items:[{source:'LDA',sourceId:'opaque-id'}],summary:{basis:'returned_rows_only'},coverage:{status:mode==='sample'?'discovery_sample':'lda_page',complete:false},sources:Object.fromEntries(['lda','ldaContributions','fec','sam','usaspending'].map(name=>[name,{count:1,returnedCount:1,error:null,coverage:{status:'partial',complete:false,pages:1,requests:1,reasons:['deadline']}}])),ldaTraversal:{complete:false,next:{...fixed,mode:'lda_pages',cursor:'fixture'}}};
+const attribution='Contributor is donor; reported employer is affiliation only. Committee is recipient.';
+function moneyRows() {
+  return [
+    {source:'LDA',sourceId:'opaque-id',type:'Lobbying Filing',bucket:'lobbying',amount:0,income:0,expenses:null,amountBasis:'reported_income',client:'CVS Health',registrant:'Private registrant',entity:'CVS Health',recipient:'Private registrant',donor:null,filingType:'RR',filingPeriod:'Q1',amendment:false},
+    {source:'LDA',sourceId:'parent:2',filingId:'parent',childId:2,type:'Lobbying Contribution',bucket:'contributions',amount:-5,donor:'Private donor',entity:'Private donor',recipient:'Private payee',registrant:null},
+    {source:'OpenFEC',sourceId:'receipt',type:'Campaign Receipt',bucket:'contributions',amount:25,amountBasis:'reported_receipt',includeInSubtotal:false,attribution,donor:'Private donor',entity:'Private donor',employer:'CVS Health',recipient:'Private committee',committee:'Private committee',contributorId:null,committeeId:'C00000001',entityType:'IND',memoCode:'X',amendmentIndicator:'A',twoYearTransactionPeriod:2026,matchRole:'reported_employer'},
+    {source:'USAspending',sourceId:'a'.repeat(64),type:'Federal Transaction',bucket:'spending',amount:-20,amountBasis:'transaction_obligation',loanValue:null,subsidyCost:0,identityBasis:'award_modification_action_composite',awardId:'award',generatedAwardId:null,modificationNumber:'P00001',actionType:'C',recipientUei:'private-uei',donor:'Private agency',entity:'CVS Health',recipient:'CVS Health',publishedAt:'2026-03-01'},
+    {source:'SAM.gov',sourceId:'private-uei',type:'SAM Entity',bucket:'registry',amount:null,amountBasis:'not_applicable',dateBasis:'current_registration_snapshot',uei:'private-uei',entity:'CVS Health',registryEntity:'CVS Health',donor:null,recipient:null}
+  ];
 }
+const sourceKey=row=>row.source==='LDA'?(row.type==='Lobbying Contribution'?'ldaContributions':'lda'):({'OpenFEC':'fec','SAM.gov':'sam',USAspending:'usaspending'})[row.source];
+function payload(mode='sample') {
+  const items=[moneyRows()[0]];
+  return {schemaVersion:2,query:fixed.query,range:{start:fixed.start,end:fixed.end},items,summary:{basis:'returned_rows_only'},coverage:{status:mode==='sample'?'discovery_sample':'lda_page',complete:false},sources:Object.fromEntries(['lda','ldaContributions','fec','sam','usaspending'].map(name=>[name,{count:name==='lda'?1:0,returnedCount:name==='lda'?1:0,error:null,coverage:{status:'partial',complete:false,pages:1,requests:1,reasons:['deadline']}}])),ldaTraversal:{complete:false,next:{...fixed,mode:'lda_pages',cursor:'fixture'}}};
+}
+async function observeRows(items, change=()=>{}) {
+  const data=payload();data.items=items;data.ldaTraversal.next=null;
+  for(const [name,source] of Object.entries(data.sources)) source.count=source.returnedCount=items.filter(row=>sourceKey(row)===name).length;
+  change(data);let calls=0;
+  const report=await verifyMoneyCandidate('feed','https://gha-123-1---situation-room-feed-fixture.run.app',{fetchImpl:async()=>{calls++;return new Response(JSON.stringify(data));},sleep:async()=>assert.fail('Unexpected further acquisition')});
+  assert.equal(calls,1);return report;
+}
+
+test('Money verifier rejects the owner exact-source registration and malformed-identity probes',async()=>{
+  for(const row of [{source:'SAM.gov',sourceId:'fixture',amount:500,bucket:'spending'},{source:'LDA',amount:'not-a-number'}]) {
+    const report=await observeRows([row]);assert.equal(report.status,'invalid_contract');assert.equal(report.calls[0].valid,false);
+  }
+});
+
+test('Money verifier rejects missing financial/attribution evidence and duplicate normalized identities',async()=>{
+  const fields=[['amount','income','expenses','amountBasis','client','registrant','entity','recipient'],['amount','filingId','childId','donor','recipient'],['amount','amountBasis','attribution','includeInSubtotal','donor','employer','recipient','committee','committeeId','twoYearTransactionPeriod'],['amount','amountBasis','loanValue','subsidyCost','identityBasis','awardId','modificationNumber','recipientUei','donor','recipient'],['amount','amountBasis','registryEntity','dateBasis']];
+  for(const [index,row] of moneyRows().entries()) {
+    for(const field of ['sourceId',...fields[index]]) {
+      const broken={...row};delete broken[field];
+      assert.equal((await observeRows([broken])).status,'invalid_contract',`${row.type}: missing ${field}`);
+    }
+    for(const amount of ['0','not-a-number',{},true]) assert.equal((await observeRows([{...row,amount}])).status,'invalid_contract',`${row.type}: malformed amount`);
+  }
+  const filing=moneyRows()[0];
+  for(const items of [[filing,{...filing}],[{...filing,sourceId:42},{...filing,sourceId:'42'}],[filing,{...filing,sourceId:' opaque-id '}]]) assert.equal((await observeRows(items)).status,'invalid_contract');
+  for(const change of [row=>{row.amount=10;},row=>{row.amountBasis='award_total';},row=>{row.recipient='Different';}]) {
+    const row={...filing};change(row);assert.equal((await observeRows([row])).status,'invalid_contract');
+  }
+  const fec=moneyRows()[2];
+  assert.equal((await observeRows([{...fec,includeInSubtotal:true}])).status,'invalid_contract');
+  assert.equal((await observeRows([{...fec,attribution:'Employer is donor'}])).status,'invalid_contract');
+});
+
+test('Money receipts preserve null, zero, negatives, exclusions and sanitized source-specific lineage',async()=>{
+  for(const amount of [null,0,-123.5]) {
+    const rows=moneyRows();
+    for(const row of rows.slice(0,4)) row.amount=amount;
+    rows[0].income=amount;rows[0].amountBasis=amount===null?'reported_expenses':'reported_income';
+    for(const row of rows) Object.assign(row,{canonicalUrl:'https://secret.invalid/?api_key=private-key',detailFields:[{value:'sensitive-payload'}],summary:'arbitrary-secret-error',title:'sensitive-payload'});
+    const report=await observeRows(rows);assert.equal(report.status,'incomplete');assert.equal(report.complete,false);
+    const evidence=report.calls[0].financialEvidence;assert.equal(evidence.basis,'returned_rows_only');assert.equal(evidence.reconciledLedger,false);
+    assert.deepEqual(evidence.rows.slice(0,4).map(row=>row.amount),Array(4).fill({state:amount===null?'unknown':'known',value:amount}));
+    assert.deepEqual(evidence.rows[4].amount,{state:'unknown',value:null});
+    assert.deepEqual(evidence.rows.map(row=>row.amountBasis),['reported_income','reported_contribution','reported_receipt','transaction_obligation','not_applicable'].map((basis,i)=>i===0&&amount===null?'reported_expenses':basis));
+    assert.equal(evidence.rows[1].basisOrigin,'normalized_type');assert.equal(evidence.rows[2].includeInSubtotal,false);
+    assert.equal(evidence.rows[2].attributionMatchRole,'reported_employer');assert.equal(evidence.rows[2].lineage.memoExcluded,true);
+    assert.equal(evidence.rows[2].parties.recipient.hash,evidence.rows[2].parties.committee.hash);
+    assert.notEqual(evidence.rows[2].parties.donor.hash,evidence.rows[2].parties.employer.hash);
+    assert.equal(evidence.rows[3].lineage.identityBasis,'award_modification_action_composite');
+    assert.deepEqual(evidence.rows[3].numeric.subsidyCost,{state:'known',value:0});
+    for(const row of evidence.rows) assert.match(row.identity,/^[a-f0-9]{64}$/);
+    assert.doesNotMatch(JSON.stringify(report),/private-|Private|opaque-id|sensitive-payload|arbitrary-secret|https:|canonicalUrl|detailFields|"cursor"/);
+  }
+  const rows=moneyRows();rows[0].income=null;rows[0].expenses=-10;rows[0].amount=-10;rows[0].amountBasis='reported_expenses';
+  rows[1].childId=null;rows[1].sourceId='parent:0';rows[2].memoCode=null;rows[2].includeInSubtotal=true;rows[2].twoYearTransactionPeriod=null;rows[2].employer='';rows[2].contributorId='';
+  rows[4].uei='';rows[4].sourceId='CAGE-FALLBACK';
+  const report=await observeRows(rows);assert.equal(report.status,'incomplete');assert.equal(report.calls[0].financialEvidence.rows[2].includeInSubtotal,true);
+  assert.deepEqual(report.calls[0].financialEvidence.rows[2].parties.employer,{state:'unknown',hash:null});
+});
+
+test('Unavailable sources remain distinct from known zero receipts and cannot claim returned rows',async()=>{
+  const report=await observeRows([moneyRows()[0]],data=>{
+    for(const name of ['fec','sam','usaspending']) Object.assign(data.sources[name],{error:'arbitrary-secret',coverage:{status:'unavailable',complete:false,pages:0,requests:0,reasons:['arbitrary-secret']}});
+    data.sources.ldaContributions.coverage.status='not_requested';
+  });
+  assert.equal(report.status,'incomplete');assert.equal(report.calls[0].sources.sam.status,'unavailable');
+  assert.equal(report.calls[0].sources.sam.error,'provider_error');assert.doesNotMatch(JSON.stringify(report),/arbitrary-secret|totalAmount/);
+  assert.equal(report.calls[0].financialEvidence.rows.length,1);assert.deepEqual(report.calls[0].financialEvidence.rows[0].amount,{state:'known',value:0});
+  for(const status of ['unavailable','not_requested']) assert.equal((await observeRows([moneyRows()[0]],data=>{data.sources.lda.coverage.status=status;})).status,'invalid_contract');
+  assert.equal((await observeRows([moneyRows()[0]],data=>{data.sources.lda.returnedCount=0;})).status,'invalid_contract');
+});
+
+test('Exact production normalizer output passes financial verification using only inert provider fixtures',async()=>{
+  const previous=process.env.DATA_GOV;process.env.DATA_GOV='inert-candidate-fixture';
+  try {
+    const normalized=await fetchMoneyFlows(fixed,{sleep:async()=>{},fetch:async(raw)=>{
+      const url=new URL(raw);let data;
+      if(url.hostname==='lda.gov') data={results:url.pathname.includes('/contributions/')
+        ?[{filing_uuid:'filing-child',registrant:{name:'CVS Health'},contribution_items:[{id:2,contributor_name:'CVS Health',payee_name:'Committee',amount:0,date:'2026-03-01'}]}]
+        :[{filing_uuid:'filing-parent',client:{name:'CVS Health'},income:null,expenses:-40}],next:null};
+      else if(url.hostname==='api.open.fec.gov') data={results:url.searchParams.has('last_index')?[]:[{sub_id:'receipt',contributor_name:'Private donor',contributor_employer:'CVS Health',contribution_receipt_amount:0}],pagination:{last_indexes:url.searchParams.has('last_index')?null:{last_index:'receipt',last_contribution_receipt_date:'2026-03-01'}}};
+      else if(url.hostname==='api.usaspending.gov') data={results:[{'Award ID':'award','Recipient Name':'CVS Health','Transaction Amount':-10,Mod:'1'}],page_metadata:{hasNext:false}};
+      else if(url.hostname==='api.sam.gov') data={entityData:[{entityRegistration:{ueiSAM:'FIXTURE-UEI',legalBusinessName:'CVS Health'}}],totalRecords:1};
+      else assert.fail('Unexpected fixture transport');
+      return new Response(JSON.stringify(data));
+    }});
+    assert.deepEqual([...new Set(normalized.items.map(sourceKey))].sort(),['fec','lda','ldaContributions','sam','usaspending']);
+    const report=await observeRows(normalized.items,data=>{data.sources=normalized.sources;});
+    assert.equal(report.status,'incomplete',JSON.stringify(report.calls[0].financialEvidence));
+    assert.ok(report.calls[0].financialEvidence.rows.every(row=>row.valid));
+  } finally {if(previous===undefined)delete process.env.DATA_GOV;else process.env.DATA_GOV=previous;}
+});
+
+test('Invalid financial evidence on a later LDA page stops traversal without retry or fallback',async()=>{
+  let calls=0;const delays=[];
+  const report=await verifyMoneyCandidate('mcp','https://gha-123-1---situation-room-mcp-fixture.run.app',{now:()=>0,sleep:async ms=>delays.push(ms),fetchImpl:async(raw,init)=>{
+    const request=JSON.parse(init.body),data=payload(calls++?'lda_pages':'sample');
+    if(calls===2)data.items[0].income='bad';
+    return new Response(JSON.stringify({jsonrpc:'2.0',id:request.id,result:{structuredContent:data}}));
+  }});
+  assert.equal(calls,2);assert.deepEqual(delays,[4100]);assert.equal(report.status,'invalid_contract');
+  assert.equal(report.calls[0].valid,true);assert.equal(report.calls[1].valid,false);
+  assert.ok(report.calls[1].financialEvidence.rows[0].errors.includes('invalid_income'));
+});
 for(const kind of ['mcp','feed']) test(`Finite ${kind} feature check uses one aggregate and at most three paced LDA calls`,async()=>{
   const calls=[],delays=[]; const base=`https://gha-123-1---situation-room-${kind}-fixture.run.app`;
   const report=await verifyMoneyCandidate(kind,base,{sleep:async ms=>delays.push(ms),now:()=>0,fetchImpl:async(raw,init)=>{

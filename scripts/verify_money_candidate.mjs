@@ -8,17 +8,123 @@ const number = value => Number.isFinite(value) && value >= 0 ? value : null;
 const code = value => /^(?:HTTP [1-5]\d\d|missing_key|deadline|page_budget|request_budget|search_budget|fetch_failed|invalid_json|invalid_shape|missing_pagination|pagination_stalled|invalid_next|changed_query)$/.test(value || '') ? value : value ? 'provider_error' : null;
 const statuses = new Set(['complete_for_queries', 'partial', 'unavailable', 'not_requested', 'page']);
 const sourceNames = ['lda', 'ldaContributions', 'fec', 'sam', 'usaspending'];
+const fecAttribution = 'Contributor is donor; reported employer is affiliation only. Committee is recipient.';
+const scalar = value => typeof value === 'string' && value.trim() ? value.trim()
+  : Number.isSafeInteger(value) ? String(value) : null;
+const numeric = value => ({ state: value === null ? 'unknown' : Number.isFinite(value) ? 'known' : 'invalid', value: Number.isFinite(value) ? value : null });
+const hashed = value => ({ state: value === null ? 'unknown' : scalar(value) === null ? 'invalid' : 'known', hash: scalar(value) === null ? null : digest(scalar(value)) });
+
+// Validate the normalized contract, not provider payloads. Only fixed vocabulary,
+// numbers and hashes leave this function; arbitrary strings never enter receipts.
+function financialEvidence(input, seen) {
+  const item = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const errors = [];
+  const check = (condition, reason) => { if (!condition) errors.push(reason); };
+  const source = ['LDA', 'OpenFEC', 'USAspending', 'SAM.gov'].includes(item.source) ? item.source : null;
+  const type = ['Lobbying Filing', 'Lobbying Contribution', 'Campaign Receipt', 'Federal Transaction', 'SAM Entity'].includes(item.type) ? item.type : null;
+  const identity = source && scalar(item.sourceId) !== null ? digest(`${source}:${scalar(item.sourceId)}`) : null;
+  check(identity !== null, 'missing_identity');
+  check(!identity || !seen.has(identity), 'duplicate_identity');
+  if (identity) seen.add(identity);
+  const amount = numeric(item.amount);
+  check(amount.state !== 'invalid', 'invalid_amount');
+  const evidence = { identity, source, type, bucket: null, amount, amountBasis: null, basisOrigin: 'normalized_field', includeInSubtotal: null, numeric: {}, parties: {}, lineage: {} };
+  const money = field => { const value = numeric(item[field]); evidence.numeric[field] = value; check(value.state !== 'invalid', `invalid_${field}`); };
+  const field = (group, name, nullable = false) => {
+    const raw = item[name];
+    const value = hashed(nullable && typeof raw === 'string' && !raw.trim() ? null : raw); evidence[group][name] = value;
+    check(value.state === 'known' || (nullable && value.state === 'unknown'), `invalid_${name}`);
+  };
+  const shape = (expectedType, bucket, basis) => {
+    check(type === expectedType && item.bucket === bucket, 'invalid_financial_type');
+    evidence.bucket = bucket;
+    if (basis) { check(item.amountBasis === basis, 'invalid_amount_basis'); evidence.amountBasis = basis; }
+  };
+  const equal = (left, right) => check(scalar(item[left]) === scalar(item[right]), 'invalid_party_attribution');
+  // False is the only normalized exclusion value. Reject implicit/malformed overrides.
+  check(item.includeInSubtotal === undefined || typeof item.includeInSubtotal === 'boolean', 'invalid_subtotal_inclusion');
+  if (source === 'LDA' && type === 'Lobbying Filing') {
+    shape('Lobbying Filing', 'lobbying'); money('income'); money('expenses');
+    const basis = item.income !== null ? 'reported_income' : 'reported_expenses';
+    check(item.amountBasis === basis, 'invalid_amount_basis'); evidence.amountBasis = basis;
+    check(item.amount === (item.income ?? item.expenses), 'inconsistent_reported_amount');
+    for (const name of ['client', 'registrant', 'entity', 'recipient']) field('parties', name);
+    check(item.donor === null, 'invalid_donor'); equal('entity', 'client'); equal('recipient', 'registrant');
+    for (const name of ['filingType', 'filingPeriod']) field('lineage', name, true);
+    check(item.amendment === null || typeof item.amendment === 'boolean', 'invalid_amendment');
+    evidence.lineage.amendment = typeof item.amendment === 'boolean' ? item.amendment : null;
+  } else if (source === 'LDA' && type === 'Lobbying Contribution') {
+    shape('Lobbying Contribution', 'contributions');
+    // LD-203 children have no amountBasis field in schema 2; make the derivation explicit.
+    evidence.amountBasis = 'reported_contribution'; evidence.basisOrigin = 'normalized_type';
+    field('lineage', 'filingId'); field('lineage', 'childId', true);
+    const prefix = `${scalar(item.filingId)}:`;
+    const suffix = scalar(item.sourceId)?.startsWith(prefix) ? scalar(item.sourceId).slice(prefix.length) : null;
+    check(suffix !== null && (item.childId === null ? /^\d+$/.test(suffix) : suffix === scalar(item.childId)), 'invalid_child_lineage');
+    for (const name of ['donor', 'entity', 'recipient']) field('parties', name);
+    field('parties', 'registrant', true); equal('entity', 'donor');
+  } else if (source === 'OpenFEC') {
+    shape('Campaign Receipt', 'contributions', 'reported_receipt');
+    check(item.attribution === fecAttribution, 'invalid_fec_attribution');
+    evidence.attribution = 'donor_is_contributor_employer_is_affiliation_committee_is_recipient';
+    for (const name of ['donor', 'entity', 'recipient', 'committee']) field('parties', name);
+    field('parties', 'employer', true); equal('entity', 'donor'); equal('recipient', 'committee');
+    for (const name of ['contributorId', 'committeeId', 'entityType', 'amendmentIndicator']) field('lineage', name, true);
+    check(item.memoCode === null || typeof item.memoCode === 'string' || typeof item.memoCode === 'boolean', 'invalid_memo_code');
+    evidence.lineage.memoExcluded = ['X', 'Y', true].includes(item.memoCode);
+    check(typeof item.includeInSubtotal === 'boolean' && (!evidence.lineage.memoExcluded || item.includeInSubtotal === false), 'invalid_subtotal_inclusion');
+    check(item.twoYearTransactionPeriod === null || (Number.isInteger(item.twoYearTransactionPeriod) && item.twoYearTransactionPeriod > 0 && item.twoYearTransactionPeriod % 2 === 0), 'invalid_transaction_cycle');
+    evidence.lineage.twoYearTransactionPeriod = Number.isInteger(item.twoYearTransactionPeriod) ? item.twoYearTransactionPeriod : null;
+    check(['reported_employer', 'named_party', 'keyword'].includes(item.matchRole), 'invalid_match_role');
+    evidence.attributionMatchRole = ['reported_employer', 'named_party', 'keyword'].includes(item.matchRole) ? item.matchRole : null;
+  } else if (source === 'USAspending') {
+    shape('Federal Transaction', 'spending', 'transaction_obligation'); money('loanValue'); money('subsidyCost');
+    const bases = ['provider_transaction_id', 'award_modification_action_composite'];
+    check(bases.includes(item.identityBasis) && /^[a-f0-9]{64}$/.test(item.sourceId || ''), 'invalid_transaction_identity');
+    evidence.lineage.identityBasis = bases.includes(item.identityBasis) ? item.identityBasis : null;
+    field('lineage', 'awardId');
+    for (const name of ['generatedAwardId', 'modificationNumber', 'actionType', 'recipientUei', 'publishedAt']) field('lineage', name, true);
+    for (const name of ['donor', 'entity', 'recipient']) field('parties', name);
+    equal('entity', 'recipient');
+  } else if (source === 'SAM.gov') {
+    shape('SAM Entity', 'registry', 'not_applicable');
+    check(item.amount === null && item.donor === null && item.recipient === null, 'registration_is_not_spending');
+    check(item.dateBasis === 'current_registration_snapshot', 'invalid_registration_date_basis');
+    evidence.lineage.dateBasis = 'current_registration_snapshot';
+    // Empty UEI is a legitimate CAGE fallback; sourceId still must be present.
+    check(typeof item.uei === 'string', 'invalid_uei'); evidence.lineage.uei = hashed(item.uei === '' ? null : item.uei);
+    if (item.uei) check(scalar(item.sourceId) === scalar(item.uei), 'invalid_registration_identity');
+    for (const name of ['entity', 'registryEntity']) field('parties', name);
+    equal('entity', 'registryEntity');
+  } else check(false, 'unsupported_source_type');
+  if (source !== 'OpenFEC') check(item.includeInSubtotal === undefined || item.includeInSubtotal === true, 'invalid_subtotal_inclusion');
+  evidence.includeInSubtotal = source === 'SAM.gov' ? false : source === 'OpenFEC' ? (typeof item.includeInSubtotal === 'boolean' ? item.includeInSubtotal : null) : true;
+  return { ...evidence, valid: errors.length === 0, errors: [...new Set(errors)] };
+}
+
 function receipt(data, mode) {
+  const seen = new Set();
+  const financialRows = Array.isArray(data?.items) ? data.items.map(item => financialEvidence(item, seen)) : [];
+  const sourceKey = row => row.source === 'LDA' ? (row.type === 'Lobbying Contribution' ? 'ldaContributions' : 'lda')
+    : ({ OpenFEC: 'fec', 'SAM.gov': 'sam', USAspending: 'usaspending' })[row.source];
+  const sourceErrors = sourceNames.filter(name => {
+    const source = data?.sources?.[name], count = financialRows.filter(row => sourceKey(row) === name).length;
+    return source?.returnedCount !== count || (count > 0 && ['unavailable', 'not_requested'].includes(source?.coverage?.status));
+  });
   const valid = data?.schemaVersion === 2 && Array.isArray(data.items) && data.summary?.basis === 'returned_rows_only'
     && data.coverage?.status === (mode === 'sample' ? 'discovery_sample' : 'lda_page')
     && data.query === FIXED.query && data.range?.start === FIXED.start && data.range?.end === FIXED.end
-    && sourceNames.every(name => statuses.has(data.sources?.[name]?.coverage?.status));
+    && sourceNames.every(name => statuses.has(data.sources?.[name]?.coverage?.status))
+    && financialRows.every(row => row.valid) && sourceErrors.length === 0;
   return { valid, mode, returnedCount: Array.isArray(data?.items) ? data.items.length : null,
     complete: data?.coverage?.complete === true, outputTruncated: data?.coverage?.outputTruncated === true,
-    identities: Array.isArray(data?.items) ? data.items.map(item => digest(`${item.source}:${item.sourceId}`)) : [],
+    identities: financialRows.map(row => row.identity),
+    financialEvidence: { basis: 'returned_rows_only', reconciledLedger: false, rows: financialRows },
+    sourceEvidenceErrors: sourceErrors,
     sources: Object.fromEntries(sourceNames.map(name => {
       const source = data?.sources?.[name];
-      return [name, { count: number(source?.count), returnedCount: number(source?.returnedCount), error: code(source?.error),
+      return [name, { count: number(source?.count), countBasis: source?.countBasis === 'acquired_rows_before_deduplication_and_matching' ? source.countBasis : null,
+        returnedCount: number(source?.returnedCount), error: code(source?.error),
         status: statuses.has(source?.coverage?.status) ? source.coverage.status : 'invalid', complete: source?.coverage?.complete === true,
         pages: number(source?.coverage?.pages), requests: number(source?.coverage?.requests),
         reasons: Array.isArray(source?.coverage?.reasons) ? source.coverage.reasons.map(code) : [], retryAfterSeconds: number(source?.retryAfterSeconds),
@@ -31,7 +137,7 @@ export async function verifyMoneyCandidate(kind, base, { fetchImpl = globalThis.
   if (!['mcp', 'feed'].includes(kind) || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/'
       || !new RegExp(`^gha-\\d+-\\d+---situation-room-${kind}-.+\\.run\\.app$`).test(url.hostname)) throw new Error('Expected an isolated candidate origin');
   const report = { kind, request: FIXED, allowance: { aggregate: 1, ldaPages: 3 }, calls: [], status: 'incomplete',
-    complete: false, note: 'Finite candidate observations only. Standard release gates are separate; no historical or source-wide completeness claim.' };
+    complete: false, note: 'Finite candidate observations only. Standard release gates are separate; no provider recovery, historical or source-wide completeness, or reconciled-ledger claim.' };
   let id = 0;
   const call = async args => {
     const target = new URL(kind === 'mcp' ? '/mcp' : '/api/money-flows', url);
