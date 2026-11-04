@@ -164,6 +164,14 @@ export function buildMarkdownReport(report) {
     lines.push('');
   }
 
+  if (report.moneyFlowResult) {
+    lines.push('## Money-flow discovery audit', '', report.moneyFlowResult.note || 'Bounded discovery sample.', '');
+    for (const [name, source] of Object.entries(report.moneyFlowResult.sources || {})) {
+      lines.push(`- ${name}: ${source.coverage?.status || 'unknown'}; ${source.returnedCount ?? 'unknown'} returned rows.`);
+    }
+    lines.push('');
+  }
+
   const degradedFeeds = feedResults.filter((result) => result.status !== 'ok');
   if (degradedFeeds.length) {
     lines.push('## Degraded Feeds');

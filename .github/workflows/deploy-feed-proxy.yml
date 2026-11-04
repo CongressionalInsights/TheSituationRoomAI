@@ -3,6 +3,11 @@ name: Deploy Feed Proxy (GCP)
 on:
   workflow_dispatch:
     inputs:
+      candidate_only:
+        description: Stop after isolated candidate verification; false explicitly selects full release
+        required: true
+        default: true
+        type: boolean
       expected_sha:
         description: Exact reviewed main commit to deploy
         required: true
@@ -47,9 +52,12 @@ jobs:
           ACTUAL_SHA: ${{ github.sha }}
           ACTUAL_REF: ${{ github.ref }}
           SYNC_SECRET_VERSIONS: ${{ inputs.sync_secret_versions }}
+          CANDIDATE_ONLY: ${{ inputs.candidate_only }}
         run: |
           set -euo pipefail
+          [[ "$CANDIDATE_ONLY" = true || "$CANDIDATE_ONLY" = false ]]
           test "$ACTUAL_REF" = refs/heads/main
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
           test "$EXPECTED_SHA" = "$ACTUAL_SHA"
           test "$(git rev-parse HEAD)" = "$ACTUAL_SHA"
           if [ "$SYNC_SECRET_VERSIONS" != false ]; then
@@ -61,7 +69,7 @@ jobs:
       - name: Verify Feed release fixtures and build source manifest
         run: |
           set -euo pipefail
-          node --test scripts/test/feed-release.spec.mjs
+          node --test scripts/test/feed-release.spec.mjs scripts/test/candidate-only.spec.mjs
           node scripts/build_feed_manifest.mjs "$GITHUB_SHA"
       - uses: google-github-actions/auth@v3
         with:
@@ -70,7 +78,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
       - name: Ensure feed proxy secrets
-        if: github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions
+        if: github.event_name == 'workflow_dispatch' && inputs.sync_secret_versions && !inputs.candidate_only
         env:
           DATA_GOV: ${{ secrets.DATA_GOV }}
           EIA: ${{ secrets.EIA }}
@@ -131,6 +139,10 @@ jobs:
           if [ -n "$SAMGOV_API_KEY" ]; then ensure_secret_version samgov-key "$SAMGOV_API_KEY"; fi
           if [ -n "$STATE_CONNECTOR_API_KEY" ]; then ensure_secret_version state-connector-key "$STATE_CONNECTOR_API_KEY"; fi
       - name: Deploy and verify exact Feed candidate and canonical serving revision
+        env:
+          CANDIDATE_ONLY: ${{ inputs.candidate_only }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          SYNC_SECRET_VERSIONS: ${{ inputs.sync_secret_versions }}
         run: bash scripts/deploy_feed_candidate.sh
       - name: Upload Feed release diagnostics
         if: always()
@@ -140,6 +152,7 @@ jobs:
           path: /tmp/feed-diagnostics
           if-no-files-found: warn
       - name: Run core sentinel after feed deploy
+        if: ${{ !inputs.candidate_only }}
         run: |
           set -euo pipefail
           SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
@@ -149,7 +162,7 @@ jobs:
             --static https://congressionalinsights.github.io/TheSituationRoomAI \
             --allow-alerts
       - name: Upload Feed core sentinel reports
-        if: always() && hashFiles('analysis/monitor/latest.json', 'analysis/monitor/latest.md') != ''
+        if: always() && !inputs.candidate_only && hashFiles('analysis/monitor/latest.json', 'analysis/monitor/latest.md') != ''
         uses: actions/upload-artifact@v7
         with:
           name: feed-core-sentinel-${{ github.run_id }}-${{ github.run_attempt }}

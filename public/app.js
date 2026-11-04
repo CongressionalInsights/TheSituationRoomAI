@@ -6354,7 +6354,7 @@ function resolveMoneyFlowRange(days = MONEY_FLOW_DEFAULT_DAYS) {
 
 function formatMoney(value) {
   const amount = Number(value);
-  if (!Number.isFinite(amount)) return '--';
+  if (value === null || value === undefined || !Number.isFinite(amount)) return '--';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -6364,7 +6364,7 @@ function formatMoney(value) {
 
 function formatMoneyCompact(value) {
   const amount = Number(value);
-  if (!Number.isFinite(amount)) return '--';
+  if (value === null || value === undefined || !Number.isFinite(amount)) return '--';
   const abs = Math.abs(amount);
   if (abs >= 1e12) return `${(amount / 1e12).toFixed(2)}T`;
   if (abs >= 1e9) return `${(amount / 1e9).toFixed(2)}B`;
@@ -6402,12 +6402,12 @@ function renderMoneyFlows() {
       const count = state.moneyFlowsItems?.length || 0;
       const sources = state.moneyFlowsData?.sources
         ? Object.entries(state.moneyFlowsData.sources)
-          .map(([key, info]) => `${key}: ${info.count || 0}${info.error ? ' (err)' : ''}`)
+          .map(([key, info]) => `${key}: ${info.returnedCount ?? info.count ?? 0} (${({ complete_for_queries: 'queried pages finished', partial: 'partial sample', unavailable: 'unavailable' })[info.coverage?.status] || 'coverage unknown'})`)
           .join(' • ')
         : '';
       elements.moneyFlowsMeta.textContent = count
-        ? `Showing ${count} items${sources ? ` · ${sources}` : ''}`
-        : 'No matching flows yet.';
+        ? `Discovery sample: ${count} items · Returned-row subtotals only${sources ? ` · ${sources}` : ''}`
+        : `No matching rows in this sample${sources ? ` · ${sources}` : ''}`;
     }
   }
 
@@ -6418,29 +6418,29 @@ function renderMoneyFlows() {
     } else {
       const buckets = summary.buckets || {};
       const bucketConfig = [
-        { id: 'contributions', label: 'Contributions In', tone: 'money-tone-in' },
-        { id: 'spending', label: 'Spending Out', tone: 'money-tone-out' },
-        { id: 'lobbying', label: 'Lobbying', tone: 'money-tone-lobby' },
+        { id: 'contributions', label: 'Reported receipts', tone: 'money-tone-in' },
+        { id: 'spending', label: 'Transaction obligations', tone: 'money-tone-out' },
+        { id: 'lobbying', label: 'Lobbying filings', tone: 'money-tone-lobby' },
         { id: 'registry', label: 'SAM Registry', tone: 'money-tone-registry' }
       ];
-      const amounts = bucketConfig.map((config) => Number(buckets[config.id]?.totalAmount || 0));
-      const maxAmount = Math.max(...amounts, 1);
+      const amounts = bucketConfig.map((config) => Number(buckets[config.id]?.totalAmount ?? null));
+      const maxAmount = Math.max(...amounts.map(Math.abs), 1);
       elements.moneyFlowsSummary.innerHTML = `
         <div class="summary-card money-summary-card">
           <div class="summary-label">Total items</div>
           <div class="summary-value">${summary.totalItems || 0}</div>
-          <div class="summary-sub">Across all sources</div>
+          <div class="summary-sub">Returned rows only; not net totals</div>
         </div>
         ${bucketConfig.map((config) => {
           const bucket = buckets[config.id] || {};
-          const amount = Number(bucket.totalAmount || 0);
+          const amount = bucket.totalAmount;
           const count = bucket.count || 0;
-          const pct = Math.max(4, Math.round((amount / maxAmount) * 100));
+          const pct = Math.max(4, Math.round((Math.abs(amount || 0) / maxAmount) * 100));
           return `
             <div class="summary-card money-summary-card ${config.tone}">
               <div class="summary-label">${config.label}</div>
-              <div class="summary-value">${amount ? formatMoney(amount) : '—'}</div>
-              <div class="summary-sub">${count} items</div>
+              <div class="summary-value">${config.id === 'registry' ? `${count} registrations` : Number.isFinite(amount) ? formatMoney(amount) : '—'}</div>
+              <div class="summary-sub">${count} items${bucket.unknownAmountCount ? ` · ${bucket.unknownAmountCount} unknown amounts` : ''}</div>
               <div class="money-bar"><span style="width:${amount ? pct : 6}%"></span></div>
             </div>
           `;
@@ -6456,11 +6456,11 @@ function renderMoneyFlows() {
   const top = summary?.top || {};
   const updateSection = (metaEl, bodyEl, { totalAmount, count, rows }) => {
     if (!metaEl || !bodyEl) return;
-    const amountLabel = Number(totalAmount) ? formatMoneyCompact(totalAmount) : '—';
+    const amountLabel = Number.isFinite(totalAmount) ? formatMoneyCompact(totalAmount) : '—';
     metaEl.textContent = `${amountLabel} · ${count || 0} items`;
     bodyEl.innerHTML = rows.map((row) => {
       const value = row.value || '—';
-      const amount = Number.isFinite(row.amount) && row.amount ? formatMoneyCompact(row.amount) : '—';
+      const amount = Number.isFinite(row.amount) ? formatMoneyCompact(row.amount) : '—';
       return `
         <div class="money-rank">
           <div>
@@ -6475,7 +6475,7 @@ function renderMoneyFlows() {
 
   if (summary) {
     updateSection(elements.moneyInMeta, elements.moneyInBody, {
-      totalAmount: buckets.contributions?.totalAmount || 0,
+      totalAmount: buckets.contributions?.totalAmount ?? null,
       count: buckets.contributions?.count || 0,
       rows: [
         { label: 'Top donor', value: top.contributions?.donor, amount: top.contributions?.donorAmount },
@@ -6483,14 +6483,14 @@ function renderMoneyFlows() {
       ]
     });
     updateSection(elements.moneyOutMeta, elements.moneyOutBody, {
-      totalAmount: buckets.spending?.totalAmount || 0,
+      totalAmount: buckets.spending?.totalAmount ?? null,
       count: buckets.spending?.count || 0,
       rows: [
         { label: 'Top recipient', value: top.spending?.recipient, amount: top.spending?.recipientAmount }
       ]
     });
     updateSection(elements.moneyLobbyMeta, elements.moneyLobbyBody, {
-      totalAmount: buckets.lobbying?.totalAmount || 0,
+      totalAmount: buckets.lobbying?.totalAmount ?? null,
       count: buckets.lobbying?.count || 0,
       rows: [
         { label: 'Top client', value: top.lobbying?.client, amount: top.lobbying?.clientAmount },
@@ -6498,7 +6498,7 @@ function renderMoneyFlows() {
       ]
     });
     updateSection(elements.moneyRegistryMeta, elements.moneyRegistryBody, {
-      totalAmount: buckets.registry?.totalAmount || 0,
+      totalAmount: buckets.registry?.totalAmount ?? null,
       count: buckets.registry?.count || 0,
       rows: [
         { label: 'Top entity', value: top.registry?.entity, amount: top.registry?.entityAmount }
@@ -6553,7 +6553,7 @@ async function fetchMoneyFlows() {
   renderMoneyFlows();
 
   try {
-    const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`, {}, 30000);
+    const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`, {}, 60000);
     if (error) {
       throw new Error(data?.message || error);
     }

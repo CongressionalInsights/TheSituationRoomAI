@@ -224,7 +224,7 @@ function fakeCloud() {
   fs.writeFileSync(stateFile, JSON.stringify(state));
 }
 
-for (const scenario of ['success', 'old-healthy', 'partial', 'alien']) {
+for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate-success', 'candidate-content-failure', 'candidate-feature-failure']) {
   test(`Feed actual release helper executes inert ${scenario} promotion/recovery`, t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsr-feed-release-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -240,15 +240,22 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien']) {
     executable('gcloud', `#!${process.execPath}\n(${fakeCloud.toString()})();\n`);
     executable('git', `#!/bin/sh\nprintf '%s\\n' '${sha}'\n`);
     executable('curl', `#!${process.execPath}\nconst f=require(process.env.FIXTURE_DIR+'/fixtures.json');const identity={...f.identity};if(process.env.SCENARIO==='old-healthy'&&process.argv.at(-1).includes('382918878290'))identity.revision='${old}';console.log(JSON.stringify(identity));\n`);
-    executable('node', `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='scripts/verify_feed_candidate.mjs')console.log('{}');else{if(!args[0].startsWith('-'))args[0]=fs.realpathSync(args[0]);const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exitCode=r.status??1;}\n`);
+    executable('node', `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='scripts/verify_feed_candidate.mjs'||args[0]==='scripts/verify_money_candidate.mjs'){fs.appendFileSync(process.env.FIXTURE_DIR+'/verification.log',JSON.stringify(args)+'\\n');if((process.env.SCENARIO==='candidate-content-failure'&&args[0].includes('verify_feed_candidate'))||(process.env.SCENARIO==='candidate-feature-failure'&&args[0].includes('verify_money_candidate')))process.exitCode=9;else console.log('{}');}else{if(!args[0].startsWith('-'))args[0]=fs.realpathSync(args[0]);const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exitCode=r.status??1;}\n`);
     const result = spawnSync('bash', [path.resolve('scripts/deploy_feed_candidate.sh')], { cwd: dir, encoding: 'utf8',
       env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, FIXTURE_DIR: dir, SCENARIO: scenario,
-        PROJECT_ID: 'fixture', REGION: 'fixture', SERVICE_NAME: service, GITHUB_SHA: sha, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', DIAG_DIR: path.join(dir, 'diagnostics') } });
+        PROJECT_ID: 'fixture', REGION: 'fixture', SERVICE_NAME: service, GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main', EXPECTED_SHA: sha, CANDIDATE_ONLY: String(scenario.startsWith('candidate-')), SYNC_SECRET_VERSIONS: 'false', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', DIAG_DIR: path.join(dir, 'diagnostics') } });
     const commands = fs.readFileSync(path.join(dir, 'cloud.log'), 'utf8');
     const final = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'))).current;
-    if (scenario === 'success') assert.equal(result.status, 0, result.stdout + result.stderr);
+    if (scenario === 'success' || scenario === 'candidate-success') assert.equal(result.status, 0, result.stdout + result.stderr);
     else assert.notEqual(result.status, 0, result.stdout + result.stderr);
-    if (scenario === 'success') assert.equal(final.status.traffic[0].revisionName, candidate);
+    if (scenario.startsWith('candidate-')) {
+      assert.equal(final.status.traffic[0].revisionName, old);
+      assert.doesNotMatch(commands, /--to-revisions|delete|secrets|iam/);
+      const checks = fs.readFileSync(path.join(dir, 'verification.log'), 'utf8');
+      assert.doesNotMatch(checks, /382918878290/);
+      assert.match(checks, /verify_feed_candidate/);
+      if (scenario !== 'candidate-content-failure') assert.match(checks, /verify_money_candidate/);
+    } else if (scenario === 'success') assert.equal(final.status.traffic[0].revisionName, candidate);
     else if (scenario === 'alien') {
       assert.equal(final.status.traffic[0].revisionName, 'unrelated');
       assert.doesNotMatch(commands, new RegExp(old + '=100'));
@@ -279,7 +286,7 @@ test('Feed source-preserving release rejects secret synchronization before authe
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
   for (const flag of ['false', 'true', '']) {
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env,
-      EXPECTED_SHA: head, ACTUAL_SHA: head, ACTUAL_REF: 'refs/heads/main', SYNC_SECRET_VERSIONS: flag } });
+      EXPECTED_SHA: head, ACTUAL_SHA: head, ACTUAL_REF: 'refs/heads/main', CANDIDATE_ONLY: 'false', SYNC_SECRET_VERSIONS: flag } });
     assert.equal(result.status, flag === 'false' ? 0 : 1, result.stderr);
     if (flag !== 'false') assert.match(result.stdout, /reject secret synchronization before authentication/);
   }

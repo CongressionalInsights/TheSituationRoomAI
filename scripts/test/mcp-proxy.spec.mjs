@@ -52,7 +52,7 @@ const normalizeTypedFixture = (id, body = typedSeriesFixtures[id]) => normalizeJ
   JSON.stringify(body), typedSeriesFeeds.find((feed) => feed.id === id)
 );
 
-test('MCP tools/list emits retrieval annotations without changing existing declarations', async (t) => {
+test('MCP tools/list preserves retrieval annotations and reviewed declarations', async (t) => {
   const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
   const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
   const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
@@ -74,10 +74,10 @@ test('MCP tools/list emits retrieval annotations without changing existing decla
   assert.deepEqual(tools.map(tool => tool.name), [
     'catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart'
   ]);
-  // Pin the base SDK declarations, excluding only the new descriptive hints.
+  // Pin reviewed SDK declarations. Money-flow description and optional mode/cursor inputs expose LDA traversal; retrieval annotations remain unchanged.
   const declarations = emitted.map(({ annotations, ...tool }) => tool);
   assert.equal(createHash('sha256').update(JSON.stringify(declarations)).digest('hex'),
-    'f7629638ad47a4e9f21b8dedf3b40d3a6cb3ffa5aec7cb33b58e67fb3b685629');
+    '773624ffc0374078230de1a229be7649d64f577d2941f1f24bbb2e84ba44b5bd');
   for (const tool of tools) {
     await t.test(tool.name, () => assert.deepEqual(tool.annotations, {
       readOnlyHint: true, destructiveHint: false, openWorldHint: tool.name !== 'catalog.sources'
@@ -2294,4 +2294,31 @@ test('MCP tool calls preserve NWS geography through raw, list, search, and get r
   assert.equal(rawUnsupported.coverageStatus, 'UNSUPPORTED');
   const smartUnsupported = await call('search.smart', { sources: ['state-rulemaking'], params: { state: 'MD' } });
   assert.equal(smartUnsupported.sourcesChecked[0].coverageStatus, 'UNSUPPORTED');
+});
+
+test('money.flows exposes stateless LDA page arguments through the MCP protocol', async (t) => {
+  const requireFromProxy = createRequire(new URL('../../gcp/mcp-proxy/server.js', import.meta.url));
+  const { Client } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/client/index.js'));
+  const { InMemoryTransport } = await import(requireFromProxy.resolve('@modelcontextprotocol/sdk/inMemory.js'));
+  let requests = 0;
+  t.mock.method(globalThis, 'fetch', async (raw) => {
+    const url = new URL(raw); requests++;
+    assert.equal(url.hostname, 'lda.gov');
+    assert.equal(url.searchParams.get('page_size'), '25');
+    return new Response(JSON.stringify({ results: [1, 2].map((id) => ({ filing_uuid: String(id), client: { name: 'Acme' }, income: id })), next: null }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  const server = buildMcpServer();
+  const client = new Client({ name: 'lda-continuation-fixture', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const response = await client.callTool({ name: 'money.flows', arguments: { query: 'Acme', start: '2026-01-01', end: '2026-11-03', mode: 'lda_pages', limit: 1 } });
+  const data = response.structuredContent;
+  assert.equal(data.items.length, 2);
+  assert.equal(data.coverage.status, 'lda_page');
+  assert.equal(data.ldaTraversal.next.mode, 'lda_pages');
+  const rejected = await client.callTool({ name: 'money.flows', arguments: { ...data.ldaTraversal.next, query: 'Other' } });
+  assert.equal(rejected.structuredContent.error, 'invalid_cursor');
+  assert.equal(requests, 1);
 });

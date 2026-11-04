@@ -3927,7 +3927,7 @@ test('feed proxy deploy workflow injects OpenSky credentials', () => {
 
 test('proxy deploy workflows retain eligible core sentinel reports as artifacts', () => {
   const expected = [
-    ['deploy-feed-proxy.yml', 'Feed', 'feed-core-sentinel', ''],
+    ['deploy-feed-proxy.yml', 'Feed', 'feed-core-sentinel', ' && !inputs.candidate_only'],
     ['deploy-mcp-proxy.yml', 'MCP', 'mcp-core-sentinel', ' && !inputs.cisa_only && !inputs.metadata_only']
   ];
   for (const [file, label, artifact, extraGuard] of expected) {
@@ -3950,7 +3950,7 @@ test('mcp proxy deploy workflow preserves the deployed secret bindings by defaul
   assert.match(workflow, /if \[ "\$SYNC_SECRET_VERSIONS" = "true" \]; then[\s\S]*?SECRET_ARGS=\(--update-secrets "\$SECRET_BINDINGS"\)/);
   assert.doesNotMatch(workflow, /--set-secrets/);
   assert.match(workflow, /--revision-suffix "\$REVISION_SUFFIX"[\s\S]*?--tag "\$REVISION_SUFFIX"[\s\S]*?--no-traffic[\s\S]*?"\$\{SECRET_ARGS\[@\]\}"/);
-  assert.match(workflow, /--min 1 \\\n\s*--min-instances 0 \\\n/);
+  assert.match(workflow, /CONFIG_ARGS=\(--allow-unauthenticated --min 1 --min-instances 0 --timeout 900 --update-env-vars/);
   assert.match(workflow, /expected_serving_tag:\s*\n[\s\S]*?default: ''/);
   assert.match(workflow, /MCP traffic tags differ from the exact serving tag approved for this release/);
   const tagGuard = workflow.match(/jq -e --arg revision "\$ROLLBACK_REVISION" --arg expected "\$EXPECTED_SERVING_TAG" '([\s\S]*?)' \\\n\s*\/tmp\/mcp-service-before\.json/);

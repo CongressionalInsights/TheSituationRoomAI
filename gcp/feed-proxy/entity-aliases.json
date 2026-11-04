@@ -1,0 +1,29 @@
+{
+  "moneyFlows": [
+    {
+      "umbrella": "Capella University",
+      "aliases": [
+        "Capella Education Company",
+        "Capella Education"
+      ],
+      "expandedTo": [
+        "CAPELLA EDUCATION COMPANY",
+        "CAPELLA UNIVERSITY"
+      ]
+    },
+    {
+      "umbrella": "Strategic Education",
+      "aliases": [
+        "Strategic Education Inc",
+        "SEI"
+      ],
+      "expandedTo": [
+        "STRAYER UNIVERSITY, LLC",
+        "STRAYER UNIVERSITY",
+        "CAPELLA EDUCATION COMPANY",
+        "CAPELLA UNIVERSITY",
+        "STRATEGIC EDUCATION, INC."
+      ]
+    }
+  ]
+}

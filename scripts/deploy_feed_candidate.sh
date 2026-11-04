@@ -5,6 +5,11 @@ set -euo pipefail
 test "$SERVICE_NAME" = situation-room-feed
 test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ && "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+CANDIDATE_ONLY=${CANDIDATE_ONLY:?Select candidate-only or full release explicitly}
+[[ "$CANDIDATE_ONLY" = true || "$CANDIDATE_ONLY" = false ]]
+test "${SYNC_SECRET_VERSIONS:-}" = false
+test "${GITHUB_REF:-}" = refs/heads/main
+test "${EXPECTED_SHA:-}" = "$GITHUB_SHA"
 DIAG_DIR=${DIAG_DIR:-/tmp/feed-diagnostics}
 mkdir -p "$DIAG_DIR"
 TAG="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -31,6 +36,16 @@ finish() {
   snapshot
   local captured=$?
   if [ "$captured" != 0 ]; then exit 1; fi
+  if [ "$CANDIDATE_ONLY" = true ]; then
+    if ! node scripts/verify_candidate_only.mjs "$DIAG_DIR/service-before.json" "$DIAG_DIR/service-current.json" "$CANDIDATE" "$TAG" cleanup; then exit 1; fi
+    if jq -e --arg tag "$TAG" 'any(.status.traffic[]?; .tag == $tag)' "$DIAG_DIR/service-current.json" >/dev/null; then
+      cloud services update-traffic "$SERVICE_NAME" --remove-tags "$TAG" > "$DIAG_DIR/tag-cleanup.log" 2>&1 || result=1
+    fi
+    snapshot || result=1
+    node scripts/verify_candidate_only.mjs "$DIAG_DIR/service-before.json" "$DIAG_DIR/service-current.json" "$CANDIDATE" "$TAG" cleaned || result=1
+    cp "$DIAG_DIR/service-current.json" "$DIAG_DIR/service-final.json"
+    exit "$result"
+  fi
   if [ "$PROMOTION_ATTEMPTED" = true ] && [ "$ACCEPTED" != true ]; then
     if node scripts/verify_feed_release.mjs recover "$DIAG_DIR"; then
       cloud services update-traffic "$SERVICE_NAME" --to-revisions "${ROLLBACK}=100" > "$DIAG_DIR/rollback.log" 2>&1
@@ -82,6 +97,12 @@ node scripts/verify_feed_candidate.mjs "$CANDIDATE_URL" > "$DIAG_DIR/content-can
 snapshot
 node scripts/verify_feed_release.mjs candidate "$DIAG_DIR"
 cmp "$DIAG_DIR/service-candidate.json" "$DIAG_DIR/service-current.json"
+if [ "$CANDIDATE_ONLY" = true ]; then
+  node scripts/verify_money_candidate.mjs feed "$CANDIDATE_URL" > "$DIAG_DIR/money-candidate.json"
+  snapshot
+  node scripts/verify_feed_release.mjs candidate "$DIAG_DIR"
+  exit 0
+fi
 PROMOTION_ATTEMPTED=true
 cloud services update-traffic "$SERVICE_NAME" --to-revisions "${CANDIDATE}=100" > "$DIAG_DIR/promotion.log" 2>&1
 snapshot

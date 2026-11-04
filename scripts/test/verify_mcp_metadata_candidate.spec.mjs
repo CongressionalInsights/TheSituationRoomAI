@@ -5,7 +5,7 @@ import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { httpServer } from '../../gcp/mcp-proxy/server.js';
-import { verifyMcpMetadataCandidate } from '../verify_mcp_metadata_candidate.mjs';
+import { verifyMcpMetadataCandidate, metadataDigest } from '../verify_mcp_metadata_candidate.mjs';
 
 globalThis.fetch = async () => { throw new Error('Upstream fetch blocked in metadata fixtures'); };
 
@@ -56,6 +56,17 @@ async function metadataFixture(t, transform = value => value) {
 test('metadata-only verifier exercises production raw entry and fingerprints candidate/canonical without providers', async (t) => {
   const fixture = await metadataFixture(t, (data, envelope, url) => {
     if (envelope?.method === 'initialize') data.result.serverInfo = { name: url.host, version: String(Date.now()) };
+    if (data.result?.tools) {
+      const contract = structuredClone(data.result.tools).map(({ name, inputSchema, annotations }) => ({ name, inputSchema, annotations }));
+      const money = contract.find(tool => tool.name === 'money.flows').inputSchema;
+      assert.deepEqual(money.properties.mode, { type: 'string', enum: ['sample', 'lda_pages'] });
+      assert.deepEqual(money.properties.cursor, { type: 'string' });
+      delete money.properties.mode;
+      delete money.properties.cursor;
+      // The reviewed delta is exactly these two optional inputs. All seven tool
+      // names, existing inputs and retrieval annotations retain the prior pin.
+      assert.equal(metadataDigest(contract), '1be3e00aa404732b6e27f127f55b13acba837f524365a9d18310cf768a9daceb');
+    }
     return data;
   });
   const candidate = await verifyMcpMetadataCandidate('https://candidate.fixture.invalid/mcp', fixture);
@@ -72,22 +83,41 @@ test('metadata-only verifier exercises production raw entry and fingerprints can
 
 test('metadata-only verifier rejects schema/annotation, envelope, catalogue/config/NC drift and detects parity loss', async (t) => {
   const cases = [
-    ['health', data => { if (data.ok) data.ok = false; }],
-    ['discovery', data => { if (data.endpoint) data.tools.pop(); }],
-    ['schema', data => { if (data.result?.tools) data.result.tools[0].inputSchema.properties.state.type = 'number'; }],
-    ['annotations', data => { if (data.result?.tools) data.result.tools[0].annotations.readOnlyHint = false; }],
-    ['RPC error', data => { if (data.result?.tools) data.error = { code: -32603 }; }],
-    ['RPC id', data => { if (data.result?.tools) data.id = 500; }],
-    ['tool error', data => { if (data.result?.structuredContent) data.result.isError = true; }],
-    ['empty catalogue', data => { if (data.result?.structuredContent) data.result.structuredContent.sources = []; }],
-    ['config', data => { if (data.result?.structuredContent) delete data.result.structuredContent.sources[0].configuration; }],
-    ['NC coverage', data => { if (data.result?.structuredContent) data.result.structuredContent.sources.find(source => source.id === 'state-rulemaking').coverageStatus = 'UNSUPPORTED'; }],
-    ['NC unconfigured', data => { if (data.result?.structuredContent) data.result.structuredContent.sources.find(source => source.id === 'state-executive-orders').configured = false; }]
+    ['health', data => { if (data.ok) data.ok = false; }, /Unhealthy MCP endpoint/],
+    ['discovery', data => { if (data.endpoint) data.tools.pop(); }, /MCP discovery contract changed/],
+    ['schema', data => { if (data.result?.tools) data.result.tools[0].inputSchema.properties.state.type = 'number'; }, /Tool schemas or annotations changed/],
+    ['annotations', data => { if (data.result?.tools) data.result.tools[0].annotations.readOnlyHint = false; }, /Tool schemas or annotations changed/],
+    ['RPC error', data => { if (data.result?.tools) data.error = { code: -32603 }; }, /tools\/list metadata failed/],
+    ['RPC id', data => { if (data.result?.tools) data.id = 500; }, /tools\/list metadata failed/],
+    ['tool error', data => { if (data.result?.structuredContent) data.result.isError = true; }, /tools\/call metadata failed/],
+    ['empty catalogue', data => { if (data.result?.structuredContent) data.result.structuredContent.sources = []; }, /Empty MCP catalogue/],
+    ['config', data => { if (data.result?.structuredContent) delete data.result.structuredContent.sources[0].configuration; }, /Catalogue configuration contract changed/],
+    ['NC coverage', data => { if (data.result?.structuredContent) data.result.structuredContent.sources.find(source => source.id === 'state-rulemaking').coverageStatus = 'UNSUPPORTED'; }, /state-rulemaking NC metadata coverage unavailable/],
+    ['NC unconfigured', data => { if (data.result?.structuredContent) data.result.structuredContent.sources.find(source => source.id === 'state-executive-orders').configured = false; }, /Catalogue configuration contract changed/]
   ];
-  for (const [label, mutate] of cases) {
+  for (const [label, mutate, expectedError] of cases) {
     await t.test(label, async (t) => {
       const fixture = await metadataFixture(t, data => { mutate(data); return data; });
-      await assert.rejects(verifyMcpMetadataCandidate('https://candidate.fixture.invalid/mcp', fixture));
+      // Assert the intended guard fired; an earlier schema failure must not make
+      // unrelated catalogue/configuration fixtures appear to pass.
+      await assert.rejects(verifyMcpMetadataCandidate('https://candidate.fixture.invalid/mcp', fixture), expectedError);
+    });
+  }
+  for (const [label, mutate] of [
+    ['old money schema', schema => { delete schema.properties.mode; delete schema.properties.cursor; }],
+    ['missing LDA cursor', schema => { delete schema.properties.cursor; }],
+    ['changed LDA cursor type', schema => { schema.properties.cursor.type = 'number'; }],
+    ['extra LDA mode', schema => { schema.properties.mode.enum.push('unreviewed'); }],
+    ['required LDA cursor', schema => { schema.required.push('cursor'); }]
+  ]) {
+    await t.test(label, async (t) => {
+      const fixture = await metadataFixture(t, data => {
+        const money = data.result?.tools?.find(tool => tool.name === 'money.flows');
+        if (money) mutate(money.inputSchema);
+        return data;
+      });
+      await assert.rejects(verifyMcpMetadataCandidate('https://candidate.fixture.invalid/mcp', fixture), /Tool schemas or annotations changed/);
+      assert.equal(fixture.calls.some(call => call.envelope?.method === 'tools/call'), false);
     });
   }
   await t.test('catalogue parity fingerprint', async (t) => {
@@ -105,7 +135,7 @@ const workflow = readFileSync(new URL('../../.github/workflows/deploy-mcp-proxy.
 const step = name => workflow.split(`      - name: ${name}\n`)[1].split('      - name: ')[0];
 const runScript = block => block.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
 const substitute = (script, { metadata = false, cisa = false, sync = false } = {}) => script
-  .replaceAll('${{ inputs.metadata_only }}', String(metadata)).replaceAll('${{ inputs.cisa_only }}', String(cisa))
+  .replaceAll('${{ inputs.candidate_only }}', 'false').replaceAll('${{ inputs.metadata_only }}', String(metadata)).replaceAll('${{ inputs.cisa_only }}', String(cisa))
   .replaceAll('${{ inputs.sync_secret_versions }}', String(sync)).replaceAll('${{ steps.deploy.outputs.candidate_revision }}', 'candidate')
   .replaceAll('${{ steps.deploy.outputs.candidate_tag }}', 'candidate-tag').replaceAll('${{ steps.current.outputs.service_url }}', 'https://canonical.fixture.invalid');
 
@@ -113,7 +143,7 @@ test('metadata-only workflow input guard rejects mixed modes and secret synchron
   assert.match(workflow, /metadata_only:\n\s*description:.*\n\s*required: true\n\s*default: false\n\s*type: boolean/);
   const guard = runScript(step('Bind manual release to reviewed main commit'));
   for (const [metadata, cisa, sync, succeeds] of [[true, false, false, true], [true, true, false, false], [true, false, true, false], [false, true, false, true], [false, true, true, false], [false, false, true, true]]) {
-    const sha = metadata ? '6dd6a85383a394f9d622a1aacfc3e319c1ef5250' : 'fixture';
+    const sha = metadata ? '6dd6a85383a394f9d622a1aacfc3e319c1ef5250' : 'f'.repeat(40);
     const result = spawnSync('bash', ['-c', `git(){ printf '%s' "$ACTUAL_SHA"; }; ${substitute(guard, { metadata, cisa, sync })}`], {
       encoding: 'utf8', env: { ...process.env, ACTUAL_REF: 'refs/heads/main', ACTUAL_SHA: sha, EXPECTED_SHA: sha }
     });
@@ -157,16 +187,17 @@ test('metadata-only release pin is conditional and retains reviewed-main binding
 test('metadata-only workflow routes only metadata smokes and parity while retaining normal/CISA paths', () => {
   const smoke = runScript(step('Smoke test isolated MCP candidate'));
   const canonical = runScript(step('Verify canonical MCP release'));
-  // Execute the actual shell branches with inert commands; no cloud, curl, Node or file writes.
+  // Execute actual branches inertly. Piped jq stubs drain stdin so pipefail cannot
+  // mistake a fixture-only SIGPIPE race for a release failure.
   const stubs = `SERVICE_NAME=fixture; REGION=fixture; PROJECT_ID=fixture; gcloud(){ printf 'fixture'; }; curl(){ :; }; tee(){ printf 'tee:%s\\n' "$*"; command cat; };\n`;
   for (const [metadata, cisa] of [[true, false], [false, true], [false, false]]) {
     const script = substitute(smoke, { metadata, cisa });
-    const result = spawnSync('bash', ['-c', `${stubs} jq(){ printf 'https://candidate.fixture.invalid'; }; node(){ printf 'node:%s\\n' "$*"; }; ${script}`], { encoding: 'utf8' });
+    const result = spawnSync('bash', ['-c', `${stubs} jq(){ command cat >/dev/null; printf 'https://candidate.fixture.invalid'; }; node(){ printf 'node:%s\\n' "$*"; }; ${script}`], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     if (metadata) {
       assert.match(result.stdout, /node:scripts\/verify_mcp_metadata_candidate\.mjs/);
       assert.doesNotMatch(result.stdout, /verify_cisa_candidate|verify_mcp_candidate\.mjs|run_core_sentinel|verify_typed_series_report/);
-      const parity = spawnSync('bash', ['-c', `${stubs} jq(){ if [ "$1" = -er ]; then printf candidate; else printf 'parity:%s\\n' "$*"; fi; }; node(){ printf 'node:%s\\n' "$*"; }; ${substitute(canonical, { metadata })}`], { encoding: 'utf8' });
+      const parity = spawnSync('bash', ['-c', `${stubs} jq(){ if [ "$1" = -er ]; then command cat >/dev/null; printf candidate; else printf 'parity:%s\\n' "$*"; fi; }; node(){ printf 'node:%s\\n' "$*"; }; ${substitute(canonical, { metadata })}`], { encoding: 'utf8' });
       assert.equal(parity.status, 0, parity.stderr);
       assert.match(parity.stdout, /fingerprint == \$candidate\[0\]\.fingerprint/);
       assert.doesNotMatch(parity.stdout, /verify_cisa_candidate|verify_mcp_candidate\.mjs/);
