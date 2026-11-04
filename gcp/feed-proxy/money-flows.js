@@ -93,6 +93,33 @@ function uniqueItemsBy(items, keyFn) {
   });
 }
 
+function* uniqueLdaChildren(parents) {
+  const seen = new Set();
+  const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+  for (const item of parents) {
+    const filingId = item.filing_uuid || item.filing_id || item.id;
+    const occurrences = new Map();
+    for (const contribution of item.contribution_items || []) {
+      const childId = contribution.id ?? null;
+      let suffix = String(childId), childIdentityBasis = 'native_id';
+      if (childId === null) {
+        // No native lineage: content plus occurrence preserves multiplicity within
+        // a payload, but cannot reconcile identical ID-less records across views.
+        const fingerprint = createHash('sha256').update(JSON.stringify(stable({ ...contribution, id: undefined }))).digest('hex');
+        const occurrence = occurrences.get(fingerprint) || 0;
+        occurrences.set(fingerprint, occurrence + 1);
+        suffix = `fallback-${fingerprint}-${occurrence}`;
+        childIdentityBasis = 'content_occurrence_fallback';
+      }
+      const sourceId = `${filingId}:${suffix}`;
+      if (seen.has(sourceId)) continue;
+      seen.add(sourceId);
+      yield { item, contribution, filingId, childId, sourceId, childIdentityBasis };
+    }
+  }
+}
+
 function normalizeMoneyMatchMode(value) {
   const mode = String(value || 'normal').trim().toLowerCase();
   return Object.prototype.hasOwnProperty.call(MONEY_MATCH_THRESHOLDS, mode) ? mode : 'normal';
@@ -602,18 +629,16 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
     });
   });
 
-  uniqueItemsBy(ldaContribResults.flatMap((entry) => entry.items || []), (item) => item.filing_uuid || item.id).forEach((item) => {
-    (item.contribution_items || []).forEach((contribution, childIndex) => {
-      if (contribution.date && (contribution.date.slice(0, 10) < range.startIso || contribution.date.slice(0, 10) > range.endIso)) return;
+  for (const { item, contribution, filingId, childId, sourceId, childIdentityBasis } of uniqueLdaChildren(ldaContribResults.flatMap((entry) => entry.items || []))) {
+      if (contribution.date && (contribution.date.slice(0, 10) < range.startIso || contribution.date.slice(0, 10) > range.endIso)) continue;
       const amount = toNumber(contribution?.amount);
-      const filingId = item.filing_uuid || item.filing_id || item.id;
       const contributor = contribution?.contributor_name || 'Unknown';
       const payee = contribution?.payee_name || item.registrant?.name || 'Lobbying Contribution';
       const canonicalUrl = `https://lda.gov/filings/public/contribution/${encodeURIComponent(filingId)}/`;
       items.push({
         source: 'LDA',
-        sourceId: `${filingId}:${contribution.id ?? childIndex}`,
-        filingId, childId: contribution.id ?? null,
+        sourceId,
+        filingId, childId, childIdentityBasis,
         type: 'Lobbying Contribution',
         title: payee,
         summary: `Contributor: ${contributor} · Filed ${item.filing_year || ''}`,
@@ -642,8 +667,7 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
         ],
         detailLinkLabel: 'Open LDA filing'
       });
-    });
-  });
+  }
 
   usaItems.forEach((item) => {
     const amount = toNumber(item['Transaction Amount']);

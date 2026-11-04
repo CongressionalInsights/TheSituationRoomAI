@@ -16,6 +16,89 @@ const empty = (url) => {
 };
 const samRow = (id = 'ACME12345678') => ({ entityRegistration: { ueiSAM: id, legalBusinessName: 'Acme', registrationStatus: 'Active', lastUpdateDate: null }, coreData: { physicalAddress: { stateOrProvinceCode: 'VA' } }, totalActiveContracts: 999999 });
 
+const retainedChild = (id, amount) => ({ ...(id == null ? {} : { id }), contributor_name: 'Retention Fixture', payee_name: 'Fixture recipient', amount, date: '2026-02-01' });
+const retainedParent = (children, id = 'filing-A') => ({ filing_uuid: id, registrant: { name: 'Retention Fixture' }, contribution_items: children });
+async function retentionFixture(shape, first = [retainedChild(1, 0)], second = [retainedChild(2, -5)]) {
+  const calls = [];
+  const result = await fetchMoneyFlows({ query: 'Retention Fixture', entities: ['Retention Fixture'], start: '2026-01-01', end: '2026-11-03', limit: 120 }, runtime(async raw => {
+    const url = new URL(raw);
+    if (url.hostname !== 'lda.gov' || !url.pathname.includes('/contributions/')) return empty(url);
+    const filter = ['registrant_name', 'contribution_contributor', 'contribution_payee'].find(key => url.searchParams.has(key));
+    const page = Number(url.searchParams.get('page')); calls.push({ filter, page });
+    let rows = [], next = null;
+    if (shape === 'across filters') {
+      if (filter === 'registrant_name') rows = [retainedParent(first)];
+      if (filter === 'contribution_contributor') rows = [retainedParent(second)];
+    } else if (filter === 'contribution_contributor') {
+      if (shape === 'within page') rows = [retainedParent(first), retainedParent(second)];
+      else {
+        rows = [retainedParent(page === 1 ? first : second)];
+        const link = new URL(url); link.searchParams.set('page', String(page + 1)); next = link.toString();
+      }
+    }
+    return json({ results: rows, next });
+  }));
+  return { result, calls, children: result.items.filter(row => row.type === 'Lobbying Contribution') };
+}
+
+for (const shape of ['across filters', 'within page', 'fetched overlap page']) test(`LD203 native child retention ${shape} preserves zero and negative without more requests`, async () => {
+  const { result, calls, children } = await retentionFixture(shape);
+  assert.deepEqual(children.map(row => [row.sourceId, row.amount]).sort(), [['filing-A:1', 0], ['filing-A:2', -5]]);
+  assert.equal(result.summary.buckets.contributions.totalAmount, -5);
+  assert.equal(result.coverage.outputTruncated, false);
+  assert.equal(calls.length, shape === 'fetched overlap page' ? 4 : 3);
+  const source = result.sources.ldaContributions;
+  if (shape === 'fetched overlap page') {
+    assert.equal(source.error, 'pagination_stalled'); assert.equal(source.coverage.complete, false);
+    const pages = source.coverage.diagnostics.attempts.filter(row => row.rowCount > 0);
+    assert.deepEqual(pages.map(row => row.newIdentityCount), [1, 0]);
+    assert.equal(pages[0].identityHash, pages[1].identityHash);
+    assert.equal(pages[1].branch, 'no_new_identities');
+    assert.ok(calls.every(call => call.page <= 2));
+  } else { assert.equal(source.error, null); assert.equal(source.coverage.complete, true); }
+});
+
+test('LD203 duplicate native children keep first values, including unknown amounts; true repeats still stop', async () => {
+  const first = [retainedChild(1, 0), retainedChild(2, -5), retainedChild(3, null), retainedChild(4, undefined)];
+  const duplicate = first.map(child => ({ ...child, amount: 999 }));
+  for (const shape of ['across filters', 'within page', 'fetched overlap page']) {
+    const { children, calls } = await retentionFixture(shape, [...first, ...duplicate], duplicate);
+    assert.deepEqual(children.map(row => [row.childId, row.amount]).sort(), [[1, 0], [2, -5], [3, null], [4, null]]);
+    assert.equal(new Set(children.map(row => row.sourceId)).size, 4);
+    assert.equal(calls.length, shape === 'fetched overlap page' ? 4 : 3);
+  }
+  const { result, children, calls } = await retentionFixture('fetched overlap page', first, first);
+  assert.equal(children.length, 4); assert.equal(result.sources.ldaContributions.error, 'pagination_stalled');
+  assert.equal(calls.length, 4);
+});
+
+test('LD203 missing native IDs use explicit content/occurrence fallback without native ID collisions', async () => {
+  const unknown = retainedChild(null, null);
+  const first = [retainedChild(1, 0), unknown, { ...unknown }];
+  const second = [retainedChild(null, -5), ...first];
+  const { children, result } = await retentionFixture('within page', first, second);
+  assert.equal(children.length, 4);
+  assert.equal(new Set(children.map(row => row.sourceId)).size, 4);
+  assert.equal(children.filter(row => row.childId === null).length, 3);
+  assert.ok(children.filter(row => row.childId === null).every(row => row.childIdentityBasis === 'content_occurrence_fallback'));
+  assert.equal(children.find(row => row.childId === 1).sourceId, 'filing-A:1');
+  assert.equal(result.summary.buckets.contributions.totalAmount, -5);
+  assert.equal(result.summary.buckets.contributions.unknownAmountCount, 2);
+});
+
+test('LD203 parent lineage keeps amendments separate and page mode retains repeated-parent children', async () => {
+  let args = { query: 'Retention Fixture', entities: ['Retention Fixture'], start: '2026-01-01', end: '2026-11-03', mode: 'lda_pages', limit: 1 };
+  const pageRuntime = runtime(async raw => {
+    const url = new URL(raw);
+    if (!url.pathname.includes('/contributions/')) return empty(url);
+    return json({ results: [retainedParent([retainedChild(1, 0)]), retainedParent([retainedChild(2, -5)]), retainedParent([retainedChild(1, null)], 'filing-amendment')], next: null });
+  });
+  let result;
+  for (let i = 0; i < 4; i++) { result = await fetchMoneyFlows(args, pageRuntime); args = result.ldaTraversal.next; }
+  assert.deepEqual(result.items.map(row => [row.sourceId, row.amount]).sort(), [['filing-A:1', 0], ['filing-A:2', -5], ['filing-amendment:1', null]]);
+  assert.equal(result.coverage.outputTruncated, false);
+});
+
 test('money adapters and alias configuration are identical in independent deploy contexts', () => {
   for (const file of ['money-flows.js', 'money-sources.js', 'entity-aliases.json']) assert.equal(readFileSync(`gcp/mcp-proxy/${file}`, 'utf8'), readFileSync(`gcp/feed-proxy/${file}`, 'utf8'));
   for (const file of ['server.mjs', 'gcp/feed-proxy/server.js', 'gcp/mcp-proxy/server.js']) {
