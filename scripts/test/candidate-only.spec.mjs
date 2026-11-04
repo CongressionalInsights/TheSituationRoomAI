@@ -206,13 +206,24 @@ test('Unavailable sources remain distinct from known zero receipts and cannot cl
   assert.equal((await observeRows([moneyRows()[0]],data=>{data.sources.lda.returnedCount=0;})).status,'invalid_contract');
 });
 
+test('LD203 receipts distinguish explicit missing-ID fallback from native and malformed lineage',async()=>{
+  const child={...moneyRows()[1],childId:null,sourceId:`parent:fallback-${'a'.repeat(64)}-0`,childIdentityBasis:'content_occurrence_fallback',amount:null};
+  const accepted=await observeRows([child]);
+  assert.equal(accepted.status,'incomplete');
+  assert.equal(accepted.calls[0].financialEvidence.rows[0].lineage.childIdentityBasis,'content_occurrence_fallback');
+  assert.deepEqual(accepted.calls[0].financialEvidence.rows[0].amount,{state:'unknown',value:null});
+  for(const invalid of [{...child,childIdentityBasis:'native_id'},{...child,childIdentityBasis:undefined},{...child,sourceId:'parent:fallback-invalid-0'},{...moneyRows()[1],childIdentityBasis:'content_occurrence_fallback'}]) {
+    assert.equal((await observeRows([invalid])).status,'invalid_contract');
+  }
+});
+
 test('Exact production normalizer output passes financial verification using only inert provider fixtures',async()=>{
   const previous=process.env.DATA_GOV;process.env.DATA_GOV='inert-candidate-fixture';
   try {
     const normalized=await fetchMoneyFlows(fixed,{sleep:async()=>{},fetch:async(raw)=>{
       const url=new URL(raw);let data;
       if(url.hostname==='lda.gov') data={results:url.pathname.includes('/contributions/')
-        ?[{filing_uuid:'filing-child',registrant:{name:'CVS Health'},contribution_items:[{id:2,contributor_name:'CVS Health',payee_name:'Committee',amount:0,date:'2026-03-01'}]}]
+        ?[{filing_uuid:'filing-child',registrant:{name:'CVS Health'},contribution_items:[{id:2,contributor_name:'CVS Health',payee_name:'Committee',amount:0,date:'2026-03-01'},{contributor_name:'CVS Health',payee_name:'Committee',amount:null,date:'2026-03-01'}]}]
         :[{filing_uuid:'filing-parent',client:{name:'CVS Health'},income:null,expenses:-40}],next:null};
       else if(url.hostname==='api.open.fec.gov') data={results:url.searchParams.has('last_index')?[]:[{sub_id:'receipt',contributor_name:'Private donor',contributor_employer:'CVS Health',contribution_receipt_amount:0}],pagination:{last_indexes:url.searchParams.has('last_index')?null:{last_index:'receipt',last_contribution_receipt_date:'2026-03-01'}}};
       else if(url.hostname==='api.usaspending.gov') data={results:[{'Award ID':'award','Recipient Name':'CVS Health','Transaction Amount':-10,Mod:'1'}],page_metadata:{hasNext:false}};
@@ -224,6 +235,7 @@ test('Exact production normalizer output passes financial verification using onl
     const report=await observeRows(normalized.items,data=>{data.sources=normalized.sources;});
     assert.equal(report.status,'incomplete',JSON.stringify(report.calls[0].financialEvidence));
     assert.ok(report.calls[0].financialEvidence.rows.every(row=>row.valid));
+    assert.ok(report.calls[0].financialEvidence.rows.some(row=>row.lineage.childIdentityBasis==='content_occurrence_fallback'));
   } finally {if(previous===undefined)delete process.env.DATA_GOV;else process.env.DATA_GOV=previous;}
 });
 

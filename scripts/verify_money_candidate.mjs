@@ -82,7 +82,10 @@ function financialEvidence(input, seen) {
     field('lineage', 'filingId'); field('lineage', 'childId', true);
     const prefix = `${scalar(item.filingId)}:`;
     const suffix = scalar(item.sourceId)?.startsWith(prefix) ? scalar(item.sourceId).slice(prefix.length) : null;
-    check(suffix !== null && (item.childId === null ? /^\d+$/.test(suffix) : suffix === scalar(item.childId)), 'invalid_child_lineage');
+    const fallback = item.childId === null && item.childIdentityBasis === 'content_occurrence_fallback' && /^fallback-[a-f0-9]{64}-\d+$/.test(suffix || '');
+    check(suffix !== null && (item.childId === null ? fallback || (item.childIdentityBasis == null && /^\d+$/.test(suffix)) : suffix === scalar(item.childId)), 'invalid_child_lineage');
+    check(item.childIdentityBasis == null || item.childIdentityBasis === (item.childId === null ? 'content_occurrence_fallback' : 'native_id'), 'invalid_child_identity_basis');
+    evidence.lineage.childIdentityBasis = fallback ? 'content_occurrence_fallback' : item.childId === null ? 'legacy_position_fallback' : 'native_id';
     for (const name of ['donor', 'entity', 'recipient']) field('parties', name);
     field('parties', 'registrant', true); equal('entity', 'donor');
   } else if (source === 'OpenFEC') {
