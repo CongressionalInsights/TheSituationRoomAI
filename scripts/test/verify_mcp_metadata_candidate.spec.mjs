@@ -59,7 +59,7 @@ test('metadata-only verifier exercises production raw entry and fingerprints can
     if (data.result?.tools) {
       const contract = structuredClone(data.result.tools).map(({ name, inputSchema, annotations }) => ({ name, inputSchema, annotations }));
       const money = contract.find(tool => tool.name === 'money.flows').inputSchema;
-      assert.deepEqual(money.properties.mode, { type: 'string', enum: ['sample', 'lda_pages'] });
+      assert.deepEqual(money.properties.mode, { type: 'string', enum: ['sample', 'lda_pages', 'fec_pages'] });
       assert.deepEqual(money.properties.cursor, { type: 'string' });
       delete money.properties.mode;
       delete money.properties.cursor;

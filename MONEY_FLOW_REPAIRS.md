@@ -82,3 +82,5 @@ Keep the existing Fusion limit-20/direct-source workarounds until deployed behav
 - [USAspending transaction search contract](https://github.com/fedspendingtransparency/usaspending-api/blob/master/usaspending_api/api_contracts/contracts/v2/search/spending_by_transaction.md) and [official field mapping](https://github.com/fedspendingtransparency/usaspending-api/blob/master/usaspending_api/awards/v2/lookups/elasticsearch_lookups.py): pagination, generated award IDs, modification fields, and `Transaction Amount` mapped to `federal_action_obligation`, distinct from loan value/subsidy cost.
 
 Candidate-only source preparation after the functional review is documented separately in [CANDIDATE_ONLY_REVIEW.md](CANDIDATE_ONLY_REVIEW.md). Earlier receipts above are retained; the new support still requires a separately authorized protected merge before main-only execution.
+
+The separate local FEC continuation candidate is documented in [FEC_CONTINUATION.md](FEC_CONTINUATION.md). It preserves existing per-call limits and adds no total traversal cap, collector store, integration update, or live verification claim.
