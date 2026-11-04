@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fetchMoneyFlows, buildUsaspendingTransactionKey } from '../../gcp/mcp-proxy/money-flows.js';
-import { acquireFec, acquireSam, acquireUsa, acquireMoneySources, acquireLdaPage, fecCycles } from '../../gcp/mcp-proxy/money-sources.js';
+import { acquireFec, acquireSam, acquireUsa, acquireMoneySources, acquireLdaPage, fecCycles, MONEY_BUDGET } from '../../gcp/mcp-proxy/money-sources.js';
 import { inspectMoneyFlows, auditMoneyFlows } from '../../analysis/monitor/lib/money_flows.mjs';
 
 const range = { startIso: '2025-01-01', endIso: '2026-11-03', years: [2025, 2026] };
@@ -109,6 +109,163 @@ test('LDA repeated pages and changed-query next links are partial, never silent 
     assert.equal(acquired.lda.coverage.complete, false);
     assert.ok(acquired.lda.coverage.reasons.includes(changed ? 'changed_query' : 'pagination_stalled'));
   }
+});
+
+test('LD-203 diagnostics distinguish next-page, duplicate-identity and empty-page guards without exposing input', async () => {
+  for (const branch of ['nonadvancing_next_page', 'no_new_identities', 'empty_page_with_next', 'changed_query']) {
+    let calls = 0;
+    const data = await acquireMoneySources({ terms: ['private-entity'], range: { ...range, years: [2026] }, runtime: runtime(async raw => {
+      const url = new URL(raw);
+      if (!url.pathname.includes('/contributions/') || !url.searchParams.has('contribution_payee')) return empty(url);
+      calls++;
+      const next = new URL(url), page = Number(url.searchParams.get('page'));
+      next.searchParams.set('page', String(branch === 'nonadvancing_next_page' ? page : page + 1));
+      if (branch === 'changed_query') next.searchParams.set('contribution_payee', 'private-replacement');
+      return json({ results: branch === 'empty_page_with_next' ? [] : [{ filing_uuid: 'private-identity', secret: 'private-body' }], next: next.toString() });
+    }) });
+    const source = data.ldaContributions;
+    assert.equal(source.coverage.status, 'partial');
+    assert.equal(source.coverage.complete, false);
+    assert.equal(source.error, branch === 'changed_query' ? 'changed_query' : 'pagination_stalled');
+    assert.equal(calls, branch === 'no_new_identities' ? 2 : 1);
+    const event = source.coverage.diagnostics.attempts.find(row => row.branch === branch);
+    assert.equal(event.filter, 'contribution_payee');
+    assert.equal(event.year, 2026);
+    assert.equal(event.pageKind, 'numbered');
+    assert.equal(event.page, calls);
+    assert.equal(event.httpStatus, 200);
+    assert.equal(event.attempted, true);
+    assert.match(event.identityHash, /^[a-f0-9]{64}$/);
+    if (branch === 'no_new_identities') assert.equal(event.newIdentityCount, 0);
+    if (branch === 'empty_page_with_next') assert.equal(event.rowCount, 0);
+    assert.doesNotMatch(JSON.stringify(source.coverage.diagnostics), /private-|https?:|filing_uuid|nextLink/);
+  }
+});
+
+test('LDA page diagnostics identify repeated fingerprints without advancing the existing cursor', async () => {
+  const args = { terms: ['private-term'], range, binding: 'private-binding' };
+  let calls = 0;
+  const options = runtime(async raw => {
+    calls++;
+    const next = new URL(raw); next.searchParams.set('page', String(Number(next.searchParams.get('page')) + 1));
+    return json({ results: [{ filing_uuid: 'private-filing' }], next: next.toString() });
+  });
+  const first = await acquireLdaPage({ ...args, runtime: options });
+  const second = await acquireLdaPage({ ...args, cursor: first.traversal.cursor, runtime: options });
+  assert.equal(calls, 2);
+  assert.equal(second.error, 'pagination_stalled');
+  assert.equal(second.traversal.page, 2);
+  assert.equal(JSON.parse(Buffer.from(second.traversal.cursor, 'base64url')).page, 2);
+  const [event] = second.coverage.diagnostics.attempts;
+  assert.equal(event.branch, 'repeated_page_fingerprint');
+  assert.equal(event.filter, 'client_name');
+  assert.equal(event.page, 2);
+  assert.equal(event.rowCount, 1);
+  assert.equal(event.newIdentityCount, null);
+  assert.match(event.identityHash, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(second.coverage.diagnostics), /private-|https?:|filing_uuid/);
+});
+
+test('FEC diagnostics distinguish repeated-cursor guards from unchanged native cursors', async () => {
+  for (const branch of ['repeated_cursor', 'nonadvancing_native_cursor']) {
+    let calls = 0;
+    const result = await acquireFec({ terms: ['private-term'], range, key: 'private-key', runtime: runtime(async raw => {
+      const url = new URL(raw);
+      if (url.searchParams.has('contributor_employer')) return empty(url);
+      calls++;
+      const current = url.searchParams.get('last_index');
+      const following = branch === 'nonadvancing_native_cursor' ? 'private-A' : current === 'private-A' ? 'private-B' : 'private-A';
+      return json({ results: [{ sub_id: `private-receipt-${calls}` }], pagination: { last_indexes: { last_index: following, last_contribution_receipt_date: '2026-01-01' } } });
+    }, { pages: 8 }) });
+    assert.equal(result.error, 'pagination_stalled');
+    assert.equal(result.coverage.status, 'partial');
+    assert.equal(calls, branch === 'repeated_cursor' ? 3 : 2);
+    const event = result.coverage.diagnostics.attempts.find(row => row.branch === branch);
+    assert.equal(event.filter, 'contributor_name');
+    assert.equal(event.pageKind, 'ordinal');
+    assert.equal(event.page, branch === 'repeated_cursor' ? 4 : 2);
+    assert.equal(event.attempted, branch !== 'repeated_cursor');
+    assert.equal(event.httpStatus, branch === 'repeated_cursor' ? null : 200);
+    assert.doesNotMatch(JSON.stringify(result.coverage.diagnostics), /private-|https?:|last_index|api_key/);
+  }
+});
+
+test('FEC deadline evidence remains local partial coverage and does not acquire another page', async () => {
+  let now = 0, calls = 0;
+  const result = await acquireFec({ terms: ['private-term'], range, key: 'private-key', runtime: {
+    ...runtime(async () => { calls++; now = 45000; return json({ results: [{ sub_id: 'private-id' }], pagination: { last_indexes: { last_index: 'private-cursor', last_contribution_receipt_date: '2026-01-01' } } }); }), now: () => now
+  } });
+  assert.deepEqual(MONEY_BUDGET, { requests: 12, pages: 3, deadlineMs: 45000, timeoutMs: 15000 });
+  assert.equal(calls, 1);
+  assert.equal(result.error, null);
+  assert.equal(result.coverage.status, 'partial');
+  assert.deepEqual(result.coverage.reasons, ['deadline']);
+  const stopped = result.coverage.diagnostics.attempts.filter(row => row.branch === 'deadline');
+  assert.ok(stopped.length);
+  assert.ok(stopped.every(row => !row.attempted && row.httpStatus === null && row.elapsedMs === 45000 && row.remainingMs === 0 && row.budgetMs === 45000));
+});
+
+test('Transport diagnostics preserve safe categories and unknown HTTP status without retrying USAspending', async () => {
+  for (const [name, category] of [['TimeoutError', 'timeout'], ['AbortError', 'aborted'], ['TypeError', 'transport'], ['private-error-name', 'unknown'], ['constructor', 'unknown']]) {
+    let calls = 0;
+    const result = await acquireUsa({ terms: ['private-term'], range, runtime: runtime(async () => {
+      calls++; const error = new Error('private-message https://secret.invalid/?api_key=private-key'); error.name = name; throw error;
+    }) });
+    assert.equal(calls, 1);
+    assert.equal(result.error, 'fetch_failed');
+    assert.equal(result.coverage.status, 'unavailable');
+    const [event] = result.coverage.diagnostics.attempts;
+    assert.equal(event.branch, 'fetch_exception');
+    assert.equal(event.exceptionCategory, category);
+    assert.equal(event.httpStatus, null);
+    assert.equal(event.identityHash, null);
+    assert.equal(event.rowCount, null);
+    assert.doesNotMatch(JSON.stringify(result.coverage.diagnostics), /private-|https?:|api_key/);
+  }
+  const invalid = await acquireUsa({ terms: ['private-term'], range, runtime: runtime(async () => new Response('private-invalid-body', { status: 200 })) });
+  assert.equal(invalid.error, 'invalid_json');
+  assert.equal(invalid.coverage.diagnostics.attempts[0].branch, 'decode_exception');
+  assert.equal(invalid.coverage.diagnostics.attempts[0].exceptionCategory, 'invalid_json');
+  assert.equal(invalid.coverage.diagnostics.attempts[0].httpStatus, 200);
+});
+
+test('Diagnostic status and retry evidence preserve access failures, missing observations and known zero', async () => {
+  const denied = await acquireSam({ terms: ['private-name', 'private-other'], key: 'private-key', runtime: runtime(async () => json({ private: 'body' }, 403)) });
+  assert.equal(denied.coverage.requests, 1);
+  assert.equal(denied.error, 'HTTP 403');
+  assert.equal(denied.coverage.diagnostics.attempts[0].httpStatus, 403);
+  assert.equal(denied.coverage.diagnostics.attempts[0].branch, 'http_error');
+  assert.equal(denied.coverage.diagnostics.attempts[1].branch, 'provider_blocked');
+  const absent = await acquireSam({ terms: ['private-name'], key: '', runtime: runtime(async () => assert.fail('Missing key must not acquire')) });
+  assert.equal(absent.coverage.status, 'unavailable');
+  assert.deepEqual(absent.coverage.diagnostics, { attempts: [], omitted: 0 });
+  const zero = await acquireUsa({ terms: ['private-name'], range, runtime: runtime(async raw => empty(new URL(raw))) });
+  assert.equal(zero.coverage.complete, true);
+  assert.equal(zero.coverage.diagnostics.attempts[0].rowCount, 0);
+  assert.equal(zero.coverage.diagnostics.attempts[0].newIdentityCount, 0);
+  assert.equal(zero.coverage.diagnostics.attempts[0].httpStatus, 200);
+  let calls = 0; const urls = [];
+  const retried = await acquireFec({ terms: ['private-name'], range, key: 'private-key', runtime: runtime(async raw => { calls++; urls.push(raw); return calls === 1 ? json({}, 504) : empty(new URL(raw)); }) });
+  assert.equal(urls[0], urls[1]);
+  assert.deepEqual(retried.coverage.diagnostics.attempts.slice(0, 2).map(row => [row.request, row.attempt, row.httpStatus, row.branch]), [[1, 1, 504, 'http_error'], [2, 2, 200, 'response_ok']]);
+});
+
+test('Bounded diagnostic retention never limits LDA acquisition and source snapshots remain separate', async () => {
+  const result = await acquireMoneySources({ terms: ['private-name'], range: { ...range, years: [2026] }, runtime: {
+    ...runtime(async raw => {
+      const url = new URL(raw), page = Number(url.searchParams.get('page'));
+      if (!url.searchParams.has('client_name')) return empty(url);
+      const next = new URL(url); next.searchParams.set('page', String(page + 1));
+      return json({ results: [{ filing_uuid: `private-${page}` }], next: page < 40 ? next.toString() : null });
+    }), now: () => 0
+  } });
+  assert.equal(result.lda.coverage.complete, true);
+  assert.equal(result.lda.coverage.requests, 42);
+  assert.equal(result.lda.items.length, 40);
+  assert.equal(result.lda.coverage.diagnostics.attempts.length, 32);
+  assert.equal(result.lda.coverage.diagnostics.omitted, 10);
+  assert.equal(result.ldaContributions.coverage.diagnostics.attempts.length, 3);
+  assert.equal(result.ldaContributions.coverage.diagnostics.omitted, 0);
 });
 
 test('FEC cycles and exact native cursor, with one retry of the same frozen request', async () => {

@@ -112,6 +112,36 @@ async function observeRows(items, change=()=>{}) {
   assert.equal(calls,1);return report;
 }
 
+test('Money diagnostic receipts retain only allowlisted evidence and preserve unknown versus zero', async () => {
+  const safe = { sequence: 1, request: 1, attempt: 1, attempted: true, filter: 'contribution_payee', year: 2026, page: 2, pageKind: 'numbered', branch: 'no_new_identities', httpStatus: 200, exceptionCategory: null, rowCount: 2, newIdentityCount: 0, identityHash: 'a'.repeat(64), elapsedMs: 0, budgetMs: 45000, remainingMs: 45000 };
+  const secret = 'private-value';
+  const report = await observeRows([moneyRows()[0]], data => {
+    data.sources.lda.coverage.diagnostics = { attempts: [
+      { ...safe, url: 'https://secret.invalid/', cursor: secret, entity: secret, rawBody: secret, message: secret },
+      { ...safe, branch: secret, filter: secret, exceptionCategory: secret, httpStatus: -1, rowCount: null, newIdentityCount: null, identityHash: secret, elapsedMs: null }
+    ], omitted: 0, rawBody: secret };
+  });
+  const evidence = report.calls[0].sources.lda.diagnostics;
+  assert.deepEqual(evidence.attempts[0], safe);
+  assert.equal(evidence.attempts[1].branch, 'unknown');
+  assert.equal(evidence.attempts[1].filter, null);
+  assert.equal(evidence.attempts[1].exceptionCategory, 'unknown');
+  for (const field of ['httpStatus', 'rowCount', 'newIdentityCount', 'identityHash', 'elapsedMs']) assert.equal(evidence.attempts[1][field], null);
+  assert.equal(report.calls[0].sources.fec.diagnostics, null);
+  assert.equal(report.calls[0].valid, true);
+  assert.equal(report.complete, false);
+  assert.doesNotMatch(JSON.stringify(evidence), /private-value|https?:|"url"|"cursor"|rawBody|"message"|"entity"/);
+  const bounded = await observeRows([moneyRows()[0]], data => {
+    data.sources.lda.coverage.diagnostics = { attempts: Array.from({ length: 35 }, (_, i) => ({ ...safe, sequence: i + 1 })), omitted: 5 };
+  });
+  assert.equal(bounded.calls[0].sources.lda.diagnostics.attempts.length, 32);
+  assert.equal(bounded.calls[0].sources.lda.diagnostics.omitted, 8);
+  const overflow = await observeRows([moneyRows()[0]], data => {
+    data.sources.lda.coverage.diagnostics = { attempts: Array(33).fill(safe), omitted: Number.MAX_SAFE_INTEGER };
+  });
+  assert.equal(overflow.calls[0].sources.lda.diagnostics.omitted, null);
+});
+
 test('Money verifier rejects the owner exact-source registration and malformed-identity probes',async()=>{
   for(const row of [{source:'SAM.gov',sourceId:'fixture',amount:500,bucket:'spending'},{source:'LDA',amount:'not-a-number'}]) {
     const report=await observeRows([row]);assert.equal(report.status,'invalid_contract');assert.equal(report.calls[0].valid,false);
