@@ -39,7 +39,7 @@ function parseDateParam(value) {
   return date;
 }
 
-function resolveMoneyFlowRange(start, end, fallbackDays = MONEY_FLOW_DEFAULT_DAYS) {
+function resolveMoneyFlowRange(start, end, fallbackDays = MONEY_FLOW_DEFAULT_DAYS, includeYears = true) {
   const endDate = parseDateParam(end) || new Date();
   const startDate = parseDateParam(start) || new Date(endDate);
   if (!parseDateParam(start)) {
@@ -47,11 +47,10 @@ function resolveMoneyFlowRange(start, end, fallbackDays = MONEY_FLOW_DEFAULT_DAY
   }
   const startIso = formatIsoDate(startDate);
   const endIso = formatIsoDate(endDate);
+  const startYear = startDate.getUTCFullYear(), endYear = endDate.getUTCFullYear();
   const years = [];
-  for (let year = startDate.getFullYear(); year <= endDate.getFullYear(); year += 1) {
-    years.push(year);
-  }
-  return { startDate, endDate, startIso, endIso, years };
+  if (includeYears) for (let year = startYear; year <= endYear; year += 1) years.push(year);
+  return { startDate, endDate, startIso, endIso, startYear, endYear, years };
 }
 
 function normalizeEntityName(value) {
@@ -498,10 +497,10 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
   }
   if ((start && !parseDateParam(start)) || (end && !parseDateParam(end))) return { error: 'invalid_range', message: 'Dates must be valid.' };
   const safeLimit = Math.min(MONEY_FLOW_MAX_LIMIT, Math.max(1, Math.floor(Number(limit) || 60)));
-  const range = resolveMoneyFlowRange(start, end);
-  if (range.startIso > range.endIso || range.years.length > 10) return { error: 'invalid_range', message: 'Use an ordered range of at most ten calendar years.' };
-  const queryProfile = buildMoneyQueryProfile(query, { matchMode, minScore, entities });
   const pageMode = mode === 'lda_pages';
+  const range = resolveMoneyFlowRange(start, end, MONEY_FLOW_DEFAULT_DAYS, !pageMode);
+  if (range.startDate > range.endDate) return { error: 'invalid_range', message: 'Start must be on or before end.' };
+  const queryProfile = buildMoneyQueryProfile(query, { matchMode, minScore, entities });
   const queryVariants = pageMode ? queryProfile.searchTerms : queryProfile.searchTerms.slice(0, MONEY_QUERY_VARIANT_LIMIT);
   const binding = createHash('sha256').update(JSON.stringify([range.startIso, range.endIso, queryProfile])).digest('hex');
   const nextArgs = { query, start: range.startIso, end: range.endIso, mode: 'lda_pages' };

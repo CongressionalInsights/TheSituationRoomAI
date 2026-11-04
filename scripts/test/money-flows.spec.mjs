@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fetchMoneyFlows, buildUsaspendingTransactionKey } from '../../gcp/mcp-proxy/money-flows.js';
-import { acquireFec, acquireSam, acquireUsa, acquireMoneySources, fecCycles } from '../../gcp/mcp-proxy/money-sources.js';
+import { acquireFec, acquireSam, acquireUsa, acquireMoneySources, acquireLdaPage, fecCycles } from '../../gcp/mcp-proxy/money-sources.js';
 import { inspectMoneyFlows, auditMoneyFlows } from '../../analysis/monitor/lib/money_flows.mjs';
 
 const range = { startIso: '2025-01-01', endIso: '2026-11-03', years: [2025, 2026] };
@@ -483,4 +483,84 @@ test('Normal audit catches a lost LDA traversal entrypoint without issuing any e
   assert.ok(!inspectMoneyFlows({ ok: true, data }).alerts.some((a) => a.regressionClass === 'money-flow-lda-continuation'));
   delete data.ldaTraversal;
   assert.ok(inspectMoneyFlows({ ok: true, data }).alerts.some((a) => a.regressionClass === 'money-flow-lda-continuation'));
+});
+
+test('LDA historical traversal spans 1999–2026, resumes a failed older page, and reaches every year', async () => {
+  let args = { query: 'Acme', start: '1999-01-01', end: '2026-11-03', mode: 'lda_pages', limit: 1 };
+  const calls = [], seen = new Set(); let failed = false, failedUrl, last;
+  const options = runtime(async (raw) => {
+    const url = new URL(raw); assert.equal(url.hostname, 'lda.gov'); calls.push(raw);
+    const year = url.searchParams.get('filing_year'), page = url.searchParams.get('page');
+    const contribution = url.pathname.includes('/contributions/');
+    const id = `${contribution ? 'child' : 'filing'}:${year}:${page}`;
+    if (year === '2008' && contribution && page === '2' && !failed) {
+      failed = true; failedUrl = raw; return json({}, 504);
+    }
+    const next = new URL(url); next.searchParams.set('page', '2');
+    return json({ results: contribution
+      ? [{ filing_uuid: id, contribution_items: [{ id: 1, contributor_name: 'Acme', amount: -1, date: `${year}-02-01` }] }]
+      : [{ filing_uuid: id, client: { name: 'Acme' }, income: 0 }], next: page === '1' ? next.toString() : null });
+  });
+  while (args) {
+    assert.ok(calls.length < 338, 'Historical traversal must terminate');
+    last = await fetchMoneyFlows(JSON.parse(JSON.stringify(args)), options);
+    assert.equal(last.error, undefined);
+    assert.deepEqual(last.range, { start: '1999-01-01', end: '2026-11-03' });
+    if (last.sources.ldaContributions.error) {
+      assert.equal(last.sources.ldaContributions.error, 'HTTP 504');
+      assert.equal(last.ldaTraversal.complete, false);
+      assert.equal(last.ldaTraversal.filingYear, 2008);
+      assert.equal(last.ldaTraversal.page, 2);
+    }
+    for (const item of last.items) seen.add(item.sourceId);
+    args = last.ldaTraversal.next;
+  }
+  assert.equal(calls.length, 337); // 28 years * 6 searches * 2 pages + one retry.
+  assert.equal(new Set(calls).size, 336);
+  const failedIndex = calls.indexOf(failedUrl);
+  assert.equal(calls[failedIndex + 1], failedUrl);
+  assert.deepEqual([...new Set(calls.map(raw => Number(new URL(raw).searchParams.get('filing_year'))))], Array.from({ length: 28 }, (_, i) => 1999 + i));
+  assert.equal(seen.size, 112);
+  assert.equal(last.ldaTraversal.searchesCompleted, 168);
+  assert.equal(last.ldaTraversal.complete, true);
+});
+
+test('Long windows are accepted without historical clipping; invalid and reversed dates still make no requests', async () => {
+  let calls = 0;
+  const options = runtime(async (raw) => { calls++; return empty(new URL(raw)); });
+  for (const mode of ['sample', 'lda_pages']) {
+    for (const [start, end] of [['not-a-date', '2026-01-01'], ['2026-01-01', '1999-01-01']]) {
+      assert.equal((await fetchMoneyFlows({ query: 'Acme', start, end, mode }, options)).error, 'invalid_range');
+    }
+  }
+  assert.equal(calls, 0);
+  const long = await fetchMoneyFlows({ query: 'Acme', start: '1999-01-01', end: '2026-11-03' }, options);
+  assert.equal(long.error, undefined);
+  assert.equal(long.ldaTraversal.next.start, '1999-01-01');
+  assert.equal(long.ldaTraversal.next.end, '2026-11-03');
+  assert.equal(long.coverage.complete, false);
+  const page = await fetchMoneyFlows(long.ldaTraversal.next, options);
+  assert.equal(page.ldaTraversal.filingYear, 1999);
+  assert.equal(page.ldaTraversal.searchesPlanned, 168);
+});
+
+test('Historical LDA planning computes only the current search and retains provider errors at older years', async () => {
+  const historical = { startIso: '1900-01-01', endIso: '2026-11-03', startYear: 1900, endYear: 2026,
+    get years() { throw new Error('Page mode must not enumerate the historical year plan'); } };
+  const terms = Array.from({ length: 15 }, (_, i) => `Acme ${i}`);
+  let calls = 0;
+  const result = await acquireLdaPage({ terms, range: historical, binding: 'fixture', runtime: runtime(async (raw) => {
+    calls++; const url = new URL(raw);
+    assert.equal(url.searchParams.get('filing_year'), '1900');
+    assert.equal(url.searchParams.get('page_size'), '25');
+    return empty(url);
+  }) });
+  assert.equal(calls, 1);
+  assert.equal(result.traversal.searchesPlanned, 11430);
+  assert.equal(result.traversal.searchesCompleted, 1);
+  const failed = await fetchMoneyFlows({ query: 'Acme', start: '1900-01-01', end: '2026-11-03', mode: 'lda_pages' }, runtime(async () => json({}, 400)));
+  assert.equal(failed.sources.lda.error, 'HTTP 400');
+  assert.equal(failed.ldaTraversal.searchesCompleted, 0);
+  assert.equal(failed.ldaTraversal.complete, false);
+  assert.ok(failed.ldaTraversal.next.cursor);
 });

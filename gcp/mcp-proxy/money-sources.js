@@ -10,10 +10,10 @@ const hash = (value) => createHash('sha256').update(JSON.stringify(value)).diges
 const identity = (item) => item.filing_uuid ?? item.sub_id ?? item.entityRegistration?.ueiSAM ?? hash(item);
 
 export function fecCycles(start, end) {
-  const cycles = [];
+  const cycles = [], seen = new Set();
   for (let year = Number(start.slice(0, 4)); year <= Number(end.slice(0, 4)); year++) {
     const cycle = year + year % 2;
-    if (!cycles.includes(cycle)) cycles.push(cycle);
+    if (!seen.has(cycle)) { seen.add(cycle); cycles.push(cycle); }
   }
   return cycles;
 }
@@ -99,6 +99,12 @@ async function pages(ctx, initial, { rows, next, options, retry = false, key = i
   return result;
 }
 
+// Materialize only attempted searches; wide historical windows must not allocate
+// every year/alias/filter combination before a response deadline can take effect.
+function searchPlan(length, at) {
+  return { length, at, *[Symbol.iterator]() { for (let i = 0; i < length; i++) yield at(i); } };
+}
+
 async function searches(ctx, specs, run) {
   const batches = [];
   const initialRequests = ctx.requests;
@@ -124,7 +130,10 @@ async function searches(ctx, specs, run) {
 export async function acquireLda({ terms, range, contributions = false, ctx }) {
   const filters = contributions ? ['registrant_name', 'contribution_contributor', 'contribution_payee'] : ['client_name', 'registrant_name', 'filing_specific_lobbying_issues'];
   // Each field is its own query: OR across fields, AND only with filing year.
-  const specs = range.years.flatMap((year) => terms.flatMap((term) => filters.map((filter) => ({ year, term, filter }))));
+  const specs = searchPlan(range.years.length * terms.length * filters.length, (index) => ({
+    year: range.years[Math.floor(index / (terms.length * filters.length))],
+    term: terms[Math.floor(index / filters.length) % terms.length], filter: filters[index % filters.length]
+  }));
   const result = await searches(ctx, specs, async ({ year, term, filter }) => {
     const url = new URL(`https://lda.gov/api/v1/${contributions ? 'contributions' : 'filings'}/`);
     url.search = new URLSearchParams({ filing_year: String(year), [filter]: term, ordering: '-dt_posted', page_size: '25', page: '1' });
@@ -138,9 +147,12 @@ export async function acquireLda({ terms, range, contributions = false, ctx }) {
 
 export async function acquireFec({ terms, range, key, runtime }) {
   const ctx = context(runtime, 150);
-  const specs = fecCycles(range.startIso, range.endIso).flatMap((cycle) => terms.flatMap((term) =>
-    (/^C\d{8}$/i.test(term) ? ['contributor_id', 'committee_id'] : ['contributor_name', 'contributor_employer'])
-      .map((filter) => ({ cycle, term, filter }))));
+  const cycles = fecCycles(range.startIso, range.endIso);
+  const specs = searchPlan(cycles.length * terms.length * 2, (index) => {
+    const term = terms[Math.floor(index / 2) % terms.length];
+    const filters = /^C\d{8}$/i.test(term) ? ['contributor_id', 'committee_id'] : ['contributor_name', 'contributor_employer'];
+    return { cycle: cycles[Math.floor(index / (terms.length * 2))], term, filter: filters[index % 2] };
+  });
   const result = await searches(ctx, specs, ({ cycle, term, filter }) => {
     const base = new URL('https://api.open.fec.gov/v1/schedules/schedule_a/');
     base.search = new URLSearchParams({ api_key: key || 'DEMO_KEY', per_page: '100', sort: '-contribution_receipt_date',
@@ -247,14 +259,24 @@ function ldaNextRequestAt(ctx) {
   return Math.max(ctx.lastRequest === null ? 0 : ctx.lastRequest + ctx.intervalMs, Date.parse(ctx.retryAt) || 0);
 }
 
-function ldaPageSpecs(terms, range) {
-  // Interleave LD-1/2 and LD-203 so both start promptly, even for many aliases.
+function ldaPagePlan(terms, range) {
+  // Same stable year/alias/filter order as the original version-1 cursor. Compute
+  // only the current search instead of allocating the historical cross-product.
   const fields = ['client_name', 'registrant_name', 'filing_specific_lobbying_issues'];
   const childFields = ['registrant_name', 'contribution_contributor', 'contribution_payee'];
-  return range.years.flatMap((year) => terms.flatMap((term) => fields.flatMap((filter, i) => [
-    { year, term, filter, source: 'lda', endpoint: 'filings' },
-    { year, term, filter: childFields[i], source: 'ldaContributions', endpoint: 'contributions' }
-  ])));
+  const startYear = range.startYear ?? Number(range.startIso.slice(0, 4));
+  const endYear = range.endYear ?? Number(range.endIso.slice(0, 4));
+  const perYear = terms.length * 6;
+  return {
+    length: (endYear - startYear + 1) * perYear,
+    at(index) {
+      const contributions = index % 2 === 1;
+      const fieldIndex = Math.floor((index % 6) / 2);
+      return { year: startYear + Math.floor(index / perYear), term: terms[Math.floor((index % perYear) / 6)],
+        filter: (contributions ? childFields : fields)[fieldIndex],
+        source: contributions ? 'ldaContributions' : 'lda', endpoint: contributions ? 'contributions' : 'filings' };
+    }
+  };
 }
 
 const encodeLdaCursor = (state) => Buffer.from(JSON.stringify(state)).toString('base64url');
@@ -265,7 +287,7 @@ export function startLdaCursor(binding, notBefore = 0) {
 // A cursor is validated query state, not authority: URLs are reconstructed from
 // the current query plan. No server-side checkpoint or signing secret is needed.
 export async function acquireLdaPage({ terms, range, binding, cursor, runtime = {} }) {
-  const specs = ldaPageSpecs(terms, range);
+  const specs = ldaPagePlan(terms, range);
   let state;
   try {
     if (cursor && (typeof cursor !== 'string' || cursor.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(cursor))) throw new Error();
@@ -277,7 +299,7 @@ export async function acquireLdaPage({ terms, range, binding, cursor, runtime = 
   } catch { return { invalidCursor: true }; }
   const ctx = ldaContextFor(runtime);
   if (state.notBefore) ctx.lastRequest = state.notBefore - ctx.intervalMs;
-  const spec = specs[state.search];
+  const spec = specs.at(state.search);
   const url = new URL(`https://lda.gov/api/v1/${spec.endpoint}/`);
   url.search = new URLSearchParams({ filing_year: String(spec.year), [spec.filter]: spec.term,
     ordering: '-dt_posted', page_size: '25', page: String(state.page) });
