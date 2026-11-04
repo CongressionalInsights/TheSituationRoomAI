@@ -197,6 +197,42 @@ test('Exact production normalizer output passes financial verification using onl
   } finally {if(previous===undefined)delete process.env.DATA_GOV;else process.env.DATA_GOV=previous;}
 });
 
+test('USAspending normalized null display Award ID retains generated/transaction identity; omission and malformed values fail',async()=>{
+  for(const awardId of [null,undefined,{},[],true,123,'']) {
+    const normalized=await fetchMoneyFlows(fixed,{sleep:async()=>{},fetch:async(raw)=>{
+      const url=new URL(raw);
+      if(url.hostname==='api.usaspending.gov') return new Response(JSON.stringify({results:[
+        {'Award ID':awardId,generated_internal_id:'CONT_AWD_KNOWN',transaction_id:'transaction-known','Recipient Name':'CVS Health','Transaction Amount':-10,Mod:'1'},
+        {'Award ID':awardId,generated_internal_id:'CONT_AWD_KNOWN','Recipient Name':'CVS Health','Transaction Amount':0,Mod:'2'}
+      ],page_metadata:{hasNext:false}}));
+      if(url.hostname==='lda.gov')return new Response(JSON.stringify({results:[],next:null}));
+      if(url.hostname==='api.open.fec.gov')return new Response(JSON.stringify({results:[],pagination:{last_indexes:null}}));
+      if(url.hostname==='api.sam.gov')return new Response(JSON.stringify({entityData:[],totalRecords:0}));
+      assert.fail('Unexpected fixture transport');
+    }});
+    assert.equal(normalized.items.length,2);
+    for(const row of normalized.items) {assert.deepEqual(row.awardId,awardId);assert.equal(row.generatedAwardId,'CONT_AWD_KNOWN');}
+    const report=await observeRows(normalized.items,data=>{data.sources=normalized.sources;});
+    const evidence=report.calls[0].financialEvidence.rows;
+    if(awardId===null) {
+      assert.equal(report.status,'incomplete',JSON.stringify(evidence));
+      assert.equal(report.complete,false);
+      assert.deepEqual(evidence.map(row=>row.lineage.awardId),Array(2).fill({state:'unknown',hash:null}));
+      assert.deepEqual(evidence.map(row=>row.lineage.identityBasis).sort(),['award_modification_action_composite','provider_transaction_id']);
+      assert.equal(new Set(evidence.map(row=>row.identity)).size,2);
+      for(const row of evidence) {
+        assert.match(row.identity,/^[a-f0-9]{64}$/);
+        assert.equal(row.lineage.generatedAwardId.state,'known');assert.match(row.lineage.generatedAwardId.hash,/^[a-f0-9]{64}$/);
+        assert.equal(row.amountBasis,'transaction_obligation');
+      }
+      assert.doesNotMatch(JSON.stringify(report),/CONT_AWD_KNOWN|transaction-known/);
+    } else {
+      assert.equal(report.status,'invalid_contract',`awardId: ${JSON.stringify(awardId)}`);
+      assert.ok(evidence.every(row=>row.errors.includes('invalid_awardId')));
+    }
+  }
+});
+
 test('Invalid financial evidence on a later LDA page stops traversal without retry or fallback',async()=>{
   let calls=0;const delays=[];
   const report=await verifyMoneyCandidate('mcp','https://gha-123-1---situation-room-mcp-fixture.run.app',{now:()=>0,sleep:async ms=>delays.push(ms),fetchImpl:async(raw,init)=>{

@@ -82,7 +82,9 @@ function financialEvidence(input, seen) {
     const bases = ['provider_transaction_id', 'award_modification_action_composite'];
     check(bases.includes(item.identityBasis) && /^[a-f0-9]{64}$/.test(item.sourceId || ''), 'invalid_transaction_identity');
     evidence.lineage.identityBasis = bases.includes(item.identityBasis) ? item.identityBasis : null;
-    field('lineage', 'awardId');
+    // USAspending's display Award ID is required but nullable, separate from transaction identity.
+    check(item.awardId === null || (typeof item.awardId === 'string' && item.awardId.trim().length > 0), 'invalid_awardId');
+    field('lineage', 'awardId', true);
     for (const name of ['generatedAwardId', 'modificationNumber', 'actionType', 'recipientUei', 'publishedAt']) field('lineage', name, true);
     for (const name of ['donor', 'entity', 'recipient']) field('parties', name);
     equal('entity', 'recipient');
