@@ -1,6 +1,6 @@
 # FEC continuation: local candidate
 
-Base: `965582e66e1a39dd00198670ed43f625079946f8`. This branch is independent of frozen LD-203 PR #250 (`65322931834bc63fe95a0795bc638ef29e5bdf3a`); that repair is not included or changed here. Integrating both requires their ordinary review/merge process and parity checks.
+Original FEC base: `965582e66e1a39dd00198670ed43f625079946f8`. The existing FEC PR #252 branch is now reconciled with main `fa6d58342c3cd8c058145dad1555598538c7cd65`, which merged LD-203 PR #250 from frozen head `65322931834bc63fe95a0795bc638ef29e5bdf3a`. Both fixes are included without changing either implementation. The combined source passed a prior isolated test assembly; fresh exact-head tests and independent review accompany this reconciliation. PR #252 still requires the owner’s protected merge and separate release gates.
 
 ## API and acquisition contract
 

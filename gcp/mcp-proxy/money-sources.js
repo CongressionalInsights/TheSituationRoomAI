@@ -117,7 +117,7 @@ function safeNext(current, next, mutable = ['page'], ctx) {
   return after.toString();
 }
 
-async function pages(ctx, initial, { rows, next, options, retry = false, key = identity, diagnostic = {}, pageNumber }) {
+async function pages(ctx, initial, { rows, next, options, retry = false, key = identity, diagnostic = {}, pageNumber, retainRepeatedParents = false }) {
   const result = { items: [], pages: 0, complete: false, reason: null };
   const seen = new Set(); let cursor = initial; const cursors = new Set();
   try {
@@ -136,6 +136,9 @@ async function pages(ctx, initial, { rows, next, options, retry = false, key = i
         const id = String(key(item));
         ids.push(id);
         if (!seen.has(id)) { seen.add(id); result.items.push(item); added++; }
+        // LD-203 parent repetition does not imply identical contribution children.
+        // Retain already-fetched payloads while keeping parent-based progress guards.
+        else if (retainRepeatedParents) result.items.push(item);
       }
       annotateDiagnostic(ctx, { rowCount: batch.length, newIdentityCount: added, identityHash: hash(ids.sort()) });
       if (result.pages > 1 && batch.length && !added) { annotateDiagnostic(ctx, { branch: 'no_new_identities' }); throw new Error('pagination_stalled'); }
@@ -193,7 +196,7 @@ export async function acquireLda({ terms, range, contributions = false, ctx }) {
   const result = await searches(ctx, specs, async ({ year, term, filter }) => {
     const url = new URL(`https://lda.gov/api/v1/${contributions ? 'contributions' : 'filings'}/`);
     url.search = new URLSearchParams({ filing_year: String(year), [filter]: term, ordering: '-dt_posted', page_size: '25', page: '1' });
-    return pages(ctx, url.toString(), { rows: (d) => d.results, diagnostic: { filter, year }, pageNumber: current => Number(new URL(current).searchParams.get('page')),
+    return pages(ctx, url.toString(), { rows: (d) => d.results, retainRepeatedParents: contributions, diagnostic: { filter, year }, pageNumber: current => Number(new URL(current).searchParams.get('page')),
       next: (d, current) => { if (!Object.hasOwn(d, 'next')) throw new Error('missing_pagination'); return d.next ? safeNext(current, d.next, ['page'], ctx) : null; } });
   });
   result.coverage.dateBasis = 'filing_year (whole years); child contribution dates filtered where known';
