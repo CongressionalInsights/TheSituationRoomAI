@@ -12,7 +12,7 @@ import {
 } from './state-legislation-timeout.js';
 import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
-import { buildFirmsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
+import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
 import { fetchOpenAqMcp, isDefaultOpenAqRequest } from './openaq-mcp.js';
 import { inspectBlsPayload, sanitizeBlsBody, isDefaultBlsRequest } from './bls.js';
 import { fetchBlsMcp } from './bls-mcp.js';
@@ -986,7 +986,7 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_
   throw new Error('fetch_failed');
 }
 
-async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { deadlineMs = null } = {}) {
+async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { deadlineMs = null, onPrimaryFailure = null } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: false });
   const effectiveTimeout = deadlineMs === null ? Math.max(8000, timeoutMs) : Math.max(0, deadlineMs - Date.now());
   const directTimeout = deadlineMs === null
@@ -1018,7 +1018,10 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
       lastResponse = response;
       lastBody = body;
       lastContentType = contentType;
-      if (!response.ok) continue;
+      if (!response.ok) {
+        if (index === 0 && onPrimaryFailure) onPrimaryFailure({ httpStatus: response.status });
+        continue;
+      }
       if (isLikelyRssPayload(contentType, body)) {
         return {
           response,
@@ -1027,7 +1030,9 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
           valid: true
         };
       }
-    } catch {
+      if (index === 0 && onPrimaryFailure) onPrimaryFailure({ error: 'invalid_response', httpStatus: response.status });
+    } catch (error) {
+      if (index === 0 && onPrimaryFailure) onPrimaryFailure(error);
       // ignore
     }
   }
@@ -1507,6 +1512,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   let body = '';
   let firmsError = null;
   let firmsPrimaryFailure = null;
+  let gdacsPrimaryFailure = null;
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
@@ -1521,7 +1527,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       body = await response.text();
     } else {
       if (isRssFeed) {
-        const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, timeoutMs, { deadlineMs: staleGoogleNewsDeadline });
+        const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
+          deadlineMs: staleGoogleNewsDeadline,
+          onPrimaryFailure: feed.id === 'gdacs-alerts'
+            ? failure => { gdacsPrimaryFailure = buildGdacsPrimaryFailureDiagnostic(failure); } : null
+        });
         response = rssResult.response;
         contentType = rssResult.contentType;
         body = rssResult.body;
@@ -1566,18 +1576,20 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       responseOk = false;
     }
     if (feed.id === 'nasa-firms' && responseOk && typeof body === 'string') {
+      const payloadDiagnostic = {};
       try {
-        const items = buildNasaFirmsItems(parseNasaFirmsRows(body, contentType));
+        const items = buildNasaFirmsItems(parseNasaFirmsRows(body, contentType, payloadDiagnostic));
+        payloadDiagnostic.normalizedItemCount = items.length;
         if (items.length) {
           body = JSON.stringify({ items });
           contentType = 'application/json';
         } else {
           responseOk = false;
-          firmsError = { error: 'empty_payload', message: 'NASA FIRMS returned no usable geolocated detections.' };
+          firmsError = { error: 'empty_payload', message: 'NASA FIRMS returned no usable geolocated detections.', payloadDiagnostic };
         }
       } catch {
         responseOk = false;
-        firmsError = { error: 'invalid_response', message: 'NASA FIRMS returned an invalid detection payload.' };
+        firmsError = { error: 'invalid_response', message: 'NASA FIRMS returned an invalid detection payload.', payloadDiagnostic };
       }
     }
     if (feed.congressCommitteeBills && responseOk && typeof body === 'string' && contentType.includes('json')) {
@@ -1609,6 +1621,9 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       body: JSON.stringify({ error: 'fetch_failed', message: 'BLS request failed.' }) };
     if (feed.id === 'nasa-firms') {
       console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic(error)));
+    }
+    if (feed.id === 'gdacs-alerts') {
+      console.warn(JSON.stringify(gdacsPrimaryFailure || buildGdacsPrimaryFailureDiagnostic(error)));
     }
     if (!isEiaSeries) {
       if (isUsableStaleFeedPayload(feed, staleCache)) {
@@ -1655,7 +1670,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   if (feed.id === 'nasa-firms' && !responseOk) {
     console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic({
       error: firmsError?.error || (response.ok ? 'invalid_response' : 'fetch_failed'),
-      httpStatus: response.status
+      httpStatus: response.status, payloadDiagnostic: firmsError?.payloadDiagnostic
     })));
     const fireFallback = await buildArcgisFireFallback();
     if (fireFallback) {
@@ -1725,6 +1740,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     cache.set(cacheKey, payload);
   }
   if (payload.error && allowLiveFallback) {
+    if (feed.id === 'gdacs-alerts') {
+      console.warn(JSON.stringify(gdacsPrimaryFailure || buildGdacsPrimaryFailureDiagnostic({
+        error: response.ok ? 'invalid_response' : 'fetch_failed', httpStatus: response.status
+      })));
+    }
     if (isUsableStaleFeedPayload(feed, staleCache)) {
       return markStaleFeedPayload(feed, staleCache);
     }

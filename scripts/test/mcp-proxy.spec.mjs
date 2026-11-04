@@ -666,6 +666,53 @@ test('GDACS MCP keeps snapshot fallback warnings when the Feed Proxy is unusable
   assert.deepEqual(calls, ['upstream']);
 });
 
+test('GDACS MCP logs only the first bounded primary failure before service or snapshot fallback', async (t) => {
+  const logs = [];
+  let scenario;
+  let primaryCalls = 0;
+  let direct = false;
+  t.mock.method(console, 'warn', value => logs.push(JSON.parse(value)));
+  t.mock.method(globalThis, 'fetch', async url => {
+    const target = String(url);
+    if (target.endsWith('/api/feed')) {
+      assert.equal(logs.length, 1, 'diagnostic precedes fallback acquisition');
+      return new Response(JSON.stringify({ error: 'fixture-unavailable' }));
+    }
+    if (target.includes('/data/feeds/gdacs-alerts.json')) {
+      assert.equal(logs.length, 1);
+      return new Response(JSON.stringify({ body: gdacsRss('Old alert'), contentType: 'application/xml', httpStatus: 200 }));
+    }
+    primaryCalls += 1;
+    if (direct) return new Response(gdacsRss('Current alert'), { headers: { 'content-type': 'application/xml' } });
+    if (scenario.failure && primaryCalls === 1) throw scenario.failure;
+    return new Response('<html>fixture-secret-url-body</html>', {
+      status: primaryCalls === 1 ? scenario.status : 502, headers: { 'content-type': 'text/html' }
+    });
+  });
+  for (scenario of [
+    { status: 503, errorClass: 'fetch_failed', transportCode: null },
+    { status: 403, errorClass: 'fetch_failed', transportCode: null },
+    { status: 200, errorClass: 'invalid_response', transportCode: null },
+    { failure: Object.assign(new Error('fixture-secret-url-body'), { cause: { code: 'ECONNRESET' } }),
+      errorClass: 'fetch_failed', transportCode: 'ECONNRESET' }
+  ]) {
+    logs.length = 0;
+    primaryCalls = 0;
+    const result = await fetchRaw(gdacsFeed, {});
+    assert.equal(result.proxyUsed, 'live-cache');
+    assert.equal(result.fallbackUsed, true);
+    assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).warning, /published cache snapshot/);
+    assert.deepEqual(logs, [{ event: 'gdacs_primary_failure', feedId: gdacsFeed.id,
+      errorClass: scenario.errorClass, upstreamStatus: scenario.status || null, transportCode: scenario.transportCode }]);
+    assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
+  }
+  direct = true;
+  logs.length = 0;
+  const result = await fetchRaw(gdacsFeed, {});
+  assert.equal(result.fallbackUsed, false);
+  assert.deepEqual(logs, []);
+});
+
 test('Google News MCP fallback preserves the requested query through the Feed Proxy', async () => {
   const calls = [];
   const result = await fetchFeedProxyFallback({ id: 'google-news-search', format: 'rss' }, {
@@ -2002,8 +2049,12 @@ test('NASA FIRMS MCP logs bounded direct failures before NOAA fallback and prese
   });
   for (scenario of [
     { status: 401 }, { status: 403 }, { status: 429 }, { status: 503 },
-    { status: 200, body: 'Invalid MAP_KEY fixture-secret', errorClass: 'invalid_response' },
-    { status: 200, body: 'latitude,longitude,acq_date,acq_time', errorClass: 'empty_payload' },
+    { status: 200, body: 'Invalid MAP_KEY fixture-secret', errorClass: 'invalid_response',
+      payload: { responseFormat: 'csv', schemaRecognized: false, parseCompleted: false, parsedRowCount: 0, normalizedItemCount: null } },
+    { status: 200, body: 'latitude,longitude,acq_date,acq_time', errorClass: 'empty_payload',
+      payload: { responseFormat: 'csv', schemaRecognized: true, parseCompleted: true, parsedRowCount: 0, normalizedItemCount: 0 } },
+    { status: 200, body: 'latitude,longitude,acq_date,acq_time\n999,0,2026-09-22,0035', errorClass: 'empty_payload',
+      payload: { responseFormat: 'csv', schemaRecognized: true, parseCompleted: true, parsedRowCount: 1, normalizedItemCount: 0 } },
     { failure: Object.assign(new Error('fixture-secret'), { name: 'AbortError' }), transportCode: 'timeout' },
     { failure: Object.assign(new Error('fixture-secret'), { cause: { code: 'ECONNRESET', message: 'fixture-secret' } }), transportCode: 'ECONNRESET' },
     { failure: Object.assign(new Error('fixture-secret'), { code: 'fixture-secret' }), transportCode: null }
@@ -2013,7 +2064,7 @@ test('NASA FIRMS MCP logs bounded direct failures before NOAA fallback and prese
     const result = await fetchRaw(feed, { key: 'fixture-secret' });
     assert.deepEqual(logs, [{ event: 'firms_primary_failure', feedId: feed.id,
       errorClass: scenario.errorClass || 'fetch_failed', upstreamStatus: scenario.status || null,
-      transportCode: scenario.transportCode || null }]);
+      transportCode: scenario.transportCode || null, ...scenario.payload }]);
     assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
     assert.equal(result.httpStatus, 200);
     assert.equal(result.contentType, 'application/json');
@@ -2149,6 +2200,7 @@ test('NASA FIRMS unusable CSV without a fallback remains an explicit redacted fa
     assert.equal(result.error, error);
     assert.equal(result.fallbackUsed, false);
     assert.equal(result.body, undefined);
+    assert.equal(result.payloadDiagnostic, undefined, 'internal diagnostic counts must not change the public error contract');
     assert.equal(JSON.stringify(result).includes('fixture-secret'), false);
   }
 });

@@ -162,8 +162,20 @@ function* parseCsvRecords(text) {
   if (cells.length || state !== 'start') yield [...cells, value];
 }
 
-export function parseNasaFirmsRows(body, contentType = '') {
-  if (String(contentType).toLowerCase().includes('json')) return JSON.parse(body);
+export function parseNasaFirmsRows(body, contentType = '', diagnostics = null) {
+  const isJson = String(contentType).toLowerCase().includes('json');
+  if (diagnostics) Object.assign(diagnostics, {
+    responseFormat: isJson ? 'json' : 'csv', schemaRecognized: false,
+    parseCompleted: false, parsedRowCount: 0
+  });
+  if (isJson) {
+    const data = JSON.parse(body);
+    const rows = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : null);
+    if (diagnostics) Object.assign(diagnostics, {
+      schemaRecognized: rows !== null, parsedRowCount: rows?.length || 0, parseCompleted: true
+    });
+    return data;
+  }
 
   const records = parseCsvRecords(String(body || '').replace(/^\uFEFF/, ''));
   const header = records.next().value;
@@ -172,11 +184,13 @@ export function parseNasaFirmsRows(body, contentType = '') {
     || names.some((name) => !name) || new Set(names).size !== names.length) {
     throw new Error('invalid_firms_csv_header');
   }
+  if (diagnostics) diagnostics.schemaRecognized = true;
   const indexes = Object.fromEntries(FIRMS_FIELDS.map((name) => [name, names.indexOf(name)]));
   const selection = createNewestSelection();
   for (const cells of records) {
     if (cells.length === 1 && !cells[0].trim()) continue;
     if (cells.length !== names.length) throw new Error('invalid_firms_csv_record');
+    if (diagnostics) diagnostics.parsedRowCount += 1;
     const row = Object.fromEntries(FIRMS_FIELDS.map((name) => [
       name, indexes[name] < 0 ? '' : cells[indexes[name]].trim()
     ]));
@@ -197,5 +211,6 @@ export function parseNasaFirmsRows(body, contentType = '') {
     selection.add(validRow, item.publishedAt, selectionKey(item) + JSON.stringify(FIRMS_FIELDS.map((name) => validRow[name])));
   }
   // Consume the whole payload so malformed trailing records cannot be hidden by the cap.
+  if (diagnostics) diagnostics.parseCompleted = true;
   return selection.values();
 }
