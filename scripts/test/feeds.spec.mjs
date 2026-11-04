@@ -6,7 +6,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fetchOpenAqMcp, isDefaultOpenAqRequest } from '../../gcp/feed-proxy/openaq-mcp.js';
 import { mergeFeedParams, sanitizeParamsObject } from '../../gcp/feed-proxy/state-signals.js';
-import { buildFirmsPrimaryFailureDiagnostic } from '../../gcp/feed-proxy/firms-diagnostics.js';
+import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic } from '../../gcp/feed-proxy/firms-diagnostics.js';
 import { redactDiagnosticUrl } from '../../gcp/mcp-proxy/public-payload-safety.js';
 
 const root = process.cwd();
@@ -478,6 +478,7 @@ function rssFeedFixture(id, withTransport = false) {
   const context = {
     cache: new Map(), appConfig: { userAgent: 'fixture', defaultRefreshMinutes: 60 },
     FETCH_TIMEOUT_MS: 100, Date, URL, AbortController, setTimeout, clearTimeout,
+    buildGdacsPrimaryFailureDiagnostic, console: { warn: () => {} },
     mergeFeedParams, sanitizeParamsObject, serializeParams: () => '',
     isDefaultOpenAqRequest: () => false, isStateConnectorFeed: () => false,
     isEiaFeed: () => false, resolveServerKey: () => null,
@@ -599,6 +600,67 @@ test('Google News US failed stale refreshes retain cached body and fallback mark
   const otherStale = await other.context.fetchFeed(other.feed);
   other.context.fetchRssWithFallbacks = async () => { throw new Error('unrelated TTL must stay intact'); };
   assert.equal(await other.context.fetchFeed(other.feed), otherStale);
+});
+
+test('GDACS Feed Proxy retains the first primary failure before stale snapshot fallback', async () => {
+  for (const scenario of [
+    { status: 503, errorClass: 'fetch_failed', transportCode: null },
+    { status: 403, errorClass: 'fetch_failed', transportCode: null },
+    { status: 200, errorClass: 'invalid_response', transportCode: null },
+    { failure: Object.assign(new Error('fixture-secret-url-body'), { code: 'ECONNRESET' }),
+      errorClass: 'fetch_failed', transportCode: 'ECONNRESET' }
+  ]) {
+    const { feed, context } = rssFeedFixture('gdacs-alerts', true);
+    const logs = [];
+    const calls = [];
+    context.console.warn = value => logs.push(JSON.parse(value));
+    context.fetch = async url => {
+      calls.push(url);
+      if (calls.length === 1 && scenario.failure) throw scenario.failure;
+      return new Response('<html>fixture-secret-url-body</html>', {
+        status: calls.length === 1 ? scenario.status : 502,
+        headers: { 'content-type': 'text/html', 'x-api-key': 'fixture-secret-url-body' }
+      });
+    };
+    const snapshot = { id: feed.id, body: '<rss>Old snapshot</rss>', contentType: 'application/xml', httpStatus: 200 };
+    context.fetchLiveFallback = async () => {
+      assert.equal(logs.length, 1, 'record the acquisition failure before published-cache access');
+      return snapshot;
+    };
+    const result = await context.fetchFeed(feed);
+    assert.equal(result.body, snapshot.body);
+    assert.equal(result.stale, true);
+    assert.equal(result.fallback, 'live-cache');
+    assert.deepEqual(logs, [{ event: 'gdacs_primary_failure', feedId: feed.id,
+      errorClass: scenario.errorClass, upstreamStatus: scenario.status || null,
+      transportCode: scenario.transportCode }]);
+    assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
+    const requestCount = calls.length;
+    assert.equal(await context.fetchFeed(feed), result);
+    assert.equal(calls.length, requestCount, 'cache TTL behavior is unchanged');
+    assert.equal(logs.length, 1, 'cache hits must not invent another primary failure');
+  }
+});
+
+test('GDACS Feed Proxy leaves direct and proxy recovery quiet without changing returned data', async () => {
+  for (const recoverThroughProxy of [false, true]) {
+    const { feed, context } = rssFeedFixture('gdacs-alerts', true);
+    const logs = [];
+    let calls = 0;
+    context.console.warn = value => logs.push(value);
+    context.fetch = async () => {
+      calls += 1;
+      return recoverThroughProxy && calls === 1 ? new Response('unavailable', { status: 503 })
+        : new Response('<rss>Current alert</rss>', { headers: { 'content-type': 'application/xml' } });
+    };
+    context.fetchLiveFallback = async () => assert.fail('successful acquisition must not use a snapshot');
+    const result = await context.fetchFeed({ ...feed, proxy: ['allorigins'] });
+    assert.equal(result.body, '<rss>Current alert</rss>');
+    assert.notEqual(result.stale, true);
+    assert.equal(result.fallback, undefined);
+    assert.equal(calls, recoverThroughProxy ? 2 : 1);
+    assert.deepEqual(logs, []);
+  }
 });
 
 test('NASA FIRMS uses the documented CSV route while preserving the public JSON contract', () => {
@@ -942,6 +1004,62 @@ test('NASA FIRMS feed proxy normalization flags invalid and empty primary CSV be
   }
 });
 
+test('NASA FIRMS optional payload diagnostics distinguish empty input from rejected rows without changing parsing', async () => {
+  for (const modulePath of ['../../scripts/firms-csv.js', '../../gcp/feed-proxy/firms-csv.js', '../../gcp/mcp-proxy/firms-csv.js']) {
+    const { parseNasaFirmsRows, normalizeNasaFirmsItems } = await import(modulePath);
+    for (const [body, contentType, rows, recognized, completed] of [
+      [firmsHeader, 'text/csv', 0, true, true],
+      [firmsHeader + '\n999,0,2026-09-22,0035,1,1,h', 'text/csv', 1, true, true],
+      [firmsHeader + '\n' + firmsValid, 'text/csv', 1, true, true],
+      ['Invalid MAP_KEY fixture-secret', 'text/csv', 0, false, false],
+      ['{"items":[]}', 'application/json', 0, true, true],
+      ['{"items":[{"latitude":999}]}', 'application/json', 1, true, true],
+      ['{"error":"fixture-secret"}', 'application/json', 0, false, true],
+      ['{"items":', 'application/json', 0, false, false],
+      [firmsHeader + '\n' + firmsValid + '\nmalformed', 'text/csv', 1, true, false]
+    ]) {
+      const diagnostic = {};
+      let result;
+      let failure;
+      try { result = parseNasaFirmsRows(body, contentType, diagnostic); } catch (error) { failure = error; }
+      if (failure) assert.throws(() => parseNasaFirmsRows(body, contentType), { message: failure.message });
+      else assert.deepEqual(result, parseNasaFirmsRows(body, contentType));
+      assert.deepEqual(diagnostic, {
+        responseFormat: contentType.includes('json') ? 'json' : 'csv', schemaRecognized: recognized,
+        parseCompleted: completed, parsedRowCount: rows
+      });
+      assert.equal(JSON.stringify(diagnostic).includes('fixture-secret'), false);
+      if (!failure && rows === 1 && recognized) {
+        assert.equal(normalizeNasaFirmsItems(result).length, body.includes(firmsValid) ? 1 : 0);
+      }
+    }
+  }
+});
+
+test('NASA FIRMS and GDACS diagnostics reject arbitrary payload metadata and retain only bounded fields', async () => {
+  const mcp = await import('../../gcp/mcp-proxy/firms-diagnostics.js');
+  const secret = 'https://fixture.invalid/fixture-secret?key=fixture-secret';
+  const payloadDiagnostic = { responseFormat: secret, schemaRecognized: secret, parseCompleted: secret,
+    parsedRowCount: secret, normalizedItemCount: Infinity, body: secret, headers: { secret } };
+  for (const build of [buildFirmsPrimaryFailureDiagnostic, mcp.buildFirmsPrimaryFailureDiagnostic]) {
+    const result = build({ error: 'empty_payload', httpStatus: 200, payloadDiagnostic });
+    assert.deepEqual(result, { event: 'firms_primary_failure', feedId: 'nasa-firms', errorClass: 'empty_payload',
+      upstreamStatus: 200, transportCode: null, responseFormat: 'unknown', schemaRecognized: false,
+      parseCompleted: false, parsedRowCount: null, normalizedItemCount: null });
+    assert.equal(JSON.stringify(result).includes('fixture-secret'), false);
+  }
+  for (const build of [buildGdacsPrimaryFailureDiagnostic, mcp.buildGdacsPrimaryFailureDiagnostic]) {
+    assert.deepEqual(build({ error: 'invalid_rss', httpStatus: 200, body: secret, payloadDiagnostic }), {
+      event: 'gdacs_primary_failure', feedId: 'gdacs-alerts', errorClass: 'invalid_response',
+      upstreamStatus: 200, transportCode: null
+    });
+    assert.deepEqual(build({ cause: { code: 'ENOTFOUND', message: secret }, url: secret }), {
+      event: 'gdacs_primary_failure', feedId: 'gdacs-alerts', errorClass: 'fetch_failed',
+      upstreamStatus: null, transportCode: 'ENOTFOUND'
+    });
+  }
+});
+
 test('NASA FIRMS primary diagnostics allow only bounded fields and stay aligned across proxies', async () => {
   const { buildFirmsPrimaryFailureDiagnostic: mcpDiagnostic } = await import('../../gcp/mcp-proxy/firms-diagnostics.js');
   const paths = ['gcp/feed-proxy/firms-diagnostics.js', 'gcp/mcp-proxy/firms-diagnostics.js'];
@@ -979,8 +1097,12 @@ test('NASA FIRMS Feed Proxy logs the direct failure before fallback without chan
     body: JSON.stringify({ items: [{ source: 'NOAA HMS', publishedAt: null }] }), fallbackUsed: true, proxyUsed: 'arcgis-hms-fire' };
   for (const scenario of [
     { status: 401 }, { status: 403 }, { status: 429 }, { status: 503 },
-    { status: 200, body: 'Invalid MAP_KEY fixture-secret', errorClass: 'invalid_response' },
-    { status: 200, body: firmsHeader, errorClass: 'empty_payload' },
+    { status: 200, body: 'Invalid MAP_KEY fixture-secret', errorClass: 'invalid_response',
+      payload: { responseFormat: 'csv', schemaRecognized: false, parseCompleted: false, parsedRowCount: 0, normalizedItemCount: null } },
+    { status: 200, body: firmsHeader, errorClass: 'empty_payload',
+      payload: { responseFormat: 'csv', schemaRecognized: true, parseCompleted: true, parsedRowCount: 0, normalizedItemCount: 0 } },
+    { status: 200, body: firmsHeader + '\n999,0,2026-09-22,0035,1,1,h', errorClass: 'empty_payload',
+      payload: { responseFormat: 'csv', schemaRecognized: true, parseCompleted: true, parsedRowCount: 1, normalizedItemCount: 0 } },
     { status: 200, body: '<html>fixture-secret</html>', html: true, errorClass: 'invalid_response' },
     { status: 200, body: firmsHeader + '\n' + firmsValid, success: true },
     { failure: Object.assign(new Error('fixture-secret'), { cause: { code: 'ENOTFOUND', message: 'fixture-secret' } }) }
@@ -1026,7 +1148,7 @@ test('NASA FIRMS Feed Proxy logs the direct failure before fallback without chan
     }
     assert.deepEqual(logs, [{ event: 'firms_primary_failure', feedId: feed.id,
       errorClass: scenario.errorClass || 'fetch_failed', upstreamStatus: scenario.status || null,
-      transportCode: scenario.failure ? 'ENOTFOUND' : null }]);
+      transportCode: scenario.failure ? 'ENOTFOUND' : null, ...scenario.payload }]);
     assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
   }
 });

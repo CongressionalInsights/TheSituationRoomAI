@@ -12,7 +12,7 @@ import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_ST
 import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
 import { redactDiagnosticText, redactDiagnosticUrl, sanitizeDiagnosticPayload, sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
-import { buildFirmsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
+import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2404,6 +2404,7 @@ async function fetchRawUncached(feed, options) {
   let response = null;
   let body = null;
   let firmsPrimaryFailure = null;
+  let gdacsPrimaryFailure = null;
   let usedProxy = null;
   let fetchedUrl = null;
   let responseHeaders = null;
@@ -2439,6 +2440,7 @@ async function fetchRawUncached(feed, options) {
       : isEonetFeed
         ? (index === 0 ? eonetDirectTimeoutMs : eonetFallbackTimeoutMs)
       : totalTimeoutMs);
+    let firmsPayloadDiagnostic = null;
     try {
       if (gdacsDeadline !== null || feed.id === 'openaq-api' || feed.id === 'bls-cpi') {
         [response, body] = await fetchWithTimeout(proxiedUrl, {
@@ -2485,8 +2487,10 @@ async function fetchRawUncached(feed, options) {
           continue;
         }
         if (feed.id === 'nasa-firms') {
+          firmsPayloadDiagnostic = {};
           try {
-            const items = buildNasaFirmsItems(parseNasaFirmsRows(body, response.headers.get('content-type')));
+            const items = buildNasaFirmsItems(parseNasaFirmsRows(body, response.headers.get('content-type'), firmsPayloadDiagnostic));
+            firmsPayloadDiagnostic.normalizedItemCount = items.length;
             if (!items.length) {
               lastError = {
                 error: 'empty_payload',
@@ -2537,14 +2541,23 @@ async function fetchRawUncached(feed, options) {
       if (feed.id === 'nasa-firms' && index === 0) {
         firmsPrimaryFailure = buildFirmsPrimaryFailureDiagnostic(error);
       }
+      if (feed.id === 'gdacs-alerts' && index === 0) {
+        gdacsPrimaryFailure = buildGdacsPrimaryFailureDiagnostic(error);
+      }
     } finally {
       if (feed.id === 'nasa-firms' && index === 0 && !succeeded && !firmsPrimaryFailure) {
-        firmsPrimaryFailure = buildFirmsPrimaryFailureDiagnostic(lastError);
+        firmsPrimaryFailure = buildFirmsPrimaryFailureDiagnostic({ ...lastError, payloadDiagnostic: firmsPayloadDiagnostic });
+      }
+      if (feed.id === 'gdacs-alerts' && index === 0 && !succeeded && !gdacsPrimaryFailure) {
+        gdacsPrimaryFailure = buildGdacsPrimaryFailureDiagnostic(lastError);
       }
     }
   }
 
   if (!succeeded) {
+    if (feed.id === 'gdacs-alerts') {
+      console.warn(JSON.stringify(gdacsPrimaryFailure || buildGdacsPrimaryFailureDiagnostic(lastError)));
+    }
     if (feed.id === 'nasa-firms') {
       console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic(lastError)));
       const fireFallback = await buildArcgisFireFallback();
