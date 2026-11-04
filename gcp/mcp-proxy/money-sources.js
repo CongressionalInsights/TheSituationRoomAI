@@ -1,6 +1,9 @@
-// Bounded discovery, not an exhaustive ledger. No keys or provider next URLs are returned.
+// Discovery samples plus stateless LDA page traversal. No credentials or provider URLs in cursors.
 import { createHash } from 'node:crypto';
 export const MONEY_BUDGET = Object.freeze({ requests: 12, pages: 3, deadlineMs: 45000, timeoutMs: 15000 });
+// LDA publishes rate limits, not a total request/page limit. Keep only the HTTP
+// response deadline for aggregate sampling; page traversal has no total cap.
+const LDA_INTERVAL_MS = 4100; // Anonymous: 15 requests/minute (lda.gov/api/tos/).
 const samCache = new Map();
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -19,7 +22,7 @@ function context(runtime = {}, intervalMs = 0) {
   const now = runtime.now || Date.now;
   return { fetch: runtime.fetch || globalThis.fetch, sleep: runtime.sleep || pause, now,
     budget: { ...MONEY_BUDGET, ...runtime.budget }, started: now(), requests: 0, lastRequest: null,
-    intervalMs: runtime.sleep ? 0 : intervalMs, blocked: null, retryAfterSeconds: null, retryAt: null };
+    intervalMs: runtime.enforcePacing || !runtime.sleep ? intervalMs : 0, blocked: null, retryAfterSeconds: null, retryAt: null };
 }
 
 async function request(ctx, url, options = {}, retry = false) {
@@ -28,9 +31,9 @@ async function request(ctx, url, options = {}, retry = false) {
   const frozenOptions = { ...options, redirect: 'error', headers: { Accept: 'application/json', 'User-Agent': 'SituationRoomMoney/2.0', ...options.headers } };
   for (let attempt = 0; attempt < (retry ? 2 : 1); attempt++) {
     if (ctx.blocked) throw new Error(ctx.blocked);
-    if (ctx.requests >= ctx.budget.requests) throw new Error('request_budget');
+    if (ctx.requests >= ctx.budget.requests) { ctx.stopped = 'request_budget'; throw new Error(ctx.stopped); }
     const delay = ctx.lastRequest === null ? 0 : Math.max(0, ctx.intervalMs - (ctx.now() - ctx.lastRequest));
-    if (ctx.now() - ctx.started + delay >= ctx.budget.deadlineMs) throw new Error('deadline');
+    if (ctx.now() - ctx.started + delay >= ctx.budget.deadlineMs) { ctx.stopped = 'deadline'; throw new Error(ctx.stopped); }
     if (delay) await ctx.sleep(delay);
     ctx.requests++; ctx.lastRequest = ctx.now();
     let response;
@@ -100,11 +103,12 @@ async function searches(ctx, specs, run) {
   const batches = [];
   const initialRequests = ctx.requests;
   for (const spec of specs) {
-    if (ctx.blocked || ctx.requests >= ctx.budget.requests || ctx.now() - ctx.started >= ctx.budget.deadlineMs) break;
+    if (ctx.blocked || ctx.stopped || ctx.requests >= ctx.budget.requests || ctx.now() - ctx.started >= ctx.budget.deadlineMs) break;
     batches.push(await run(spec));
   }
-  const reasons = [...new Set(batches.map((batch) => batch.reason).filter(Boolean))];
-  if (batches.length < specs.length) reasons.push(ctx.blocked || 'search_budget');
+  let reasons = [...new Set(batches.map((batch) => batch.reason).filter(Boolean))];
+  if (batches.length < specs.length) reasons.push(ctx.blocked || ctx.stopped || (ctx.now() - ctx.started >= ctx.budget.deadlineMs ? 'deadline' : 'request_budget'));
+  reasons = [...new Set(reasons)];
   const error = reasons.find((reason) => !['page_budget', 'request_budget', 'search_budget', 'deadline'].includes(reason)) || null;
   const requests = ctx.requests - initialRequests;
   // A sibling can consume the shared budget before this endpoint is attempted.
@@ -123,7 +127,7 @@ export async function acquireLda({ terms, range, contributions = false, ctx }) {
   const specs = range.years.flatMap((year) => terms.flatMap((term) => filters.map((filter) => ({ year, term, filter }))));
   const result = await searches(ctx, specs, async ({ year, term, filter }) => {
     const url = new URL(`https://lda.gov/api/v1/${contributions ? 'contributions' : 'filings'}/`);
-    url.search = new URLSearchParams({ filing_year: String(year), [filter]: term, ordering: '-dt_posted', page: '1' });
+    url.search = new URLSearchParams({ filing_year: String(year), [filter]: term, ordering: '-dt_posted', page_size: '25', page: '1' });
     return pages(ctx, url.toString(), { rows: (d) => d.results,
       next: (d, current) => { if (!Object.hasOwn(d, 'next')) throw new Error('missing_pagination'); return d.next ? safeNext(current, d.next) : null; } });
   });
@@ -217,10 +221,11 @@ export async function acquireSam({ terms, key, runtime }) {
 }
 
 export async function acquireMoneySources({ terms, range, runtime = {} }) {
-  const ldaContext = context(runtime, 4100); // Shared anonymous LDA quota across both endpoints.
+  const ldaContext = ldaContextFor(runtime);
   const lda = (async () => {
     const filings = await acquireLda({ terms, range, ctx: ldaContext });
     const contributions = await acquireLda({ terms, range, ctx: ldaContext, contributions: true });
+    for (const source of [filings, contributions]) source.coverage.nextRequestAt = ldaNextRequestAt(ldaContext);
     return { lda: filings, ldaContributions: contributions };
   })();
   const [ldaResult, fec, usaspending, sam] = await Promise.all([
@@ -228,4 +233,85 @@ export async function acquireMoneySources({ terms, range, runtime = {} }) {
     acquireUsa({ terms, range, runtime }), acquireSam({ terms, key: process.env.SAMGOV_API_KEY || process.env.DATA_GOV, runtime })
   ]);
   return { ...ldaResult, fec, usaspending, sam };
+}
+
+
+function ldaContextFor(runtime) {
+  const ctx = context(runtime, LDA_INTERVAL_MS);
+  ctx.budget.requests = Infinity;
+  ctx.budget.pages = Infinity;
+  return ctx;
+}
+
+function ldaNextRequestAt(ctx) {
+  return Math.max(ctx.lastRequest === null ? 0 : ctx.lastRequest + ctx.intervalMs, Date.parse(ctx.retryAt) || 0);
+}
+
+function ldaPageSpecs(terms, range) {
+  // Interleave LD-1/2 and LD-203 so both start promptly, even for many aliases.
+  const fields = ['client_name', 'registrant_name', 'filing_specific_lobbying_issues'];
+  const childFields = ['registrant_name', 'contribution_contributor', 'contribution_payee'];
+  return range.years.flatMap((year) => terms.flatMap((term) => fields.flatMap((filter, i) => [
+    { year, term, filter, source: 'lda', endpoint: 'filings' },
+    { year, term, filter: childFields[i], source: 'ldaContributions', endpoint: 'contributions' }
+  ])));
+}
+
+const encodeLdaCursor = (state) => Buffer.from(JSON.stringify(state)).toString('base64url');
+export function startLdaCursor(binding, notBefore = 0) {
+  return encodeLdaCursor({ version: 1, binding, search: 0, page: 1, previous: null, notBefore });
+}
+
+// A cursor is validated query state, not authority: URLs are reconstructed from
+// the current query plan. No server-side checkpoint or signing secret is needed.
+export async function acquireLdaPage({ terms, range, binding, cursor, runtime = {} }) {
+  const specs = ldaPageSpecs(terms, range);
+  let state;
+  try {
+    if (cursor && (typeof cursor !== 'string' || cursor.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(cursor))) throw new Error();
+    state = JSON.parse(Buffer.from(cursor || startLdaCursor(binding), 'base64url').toString());
+    if (state.version !== 1 || state.binding !== binding || !Number.isSafeInteger(state.search) || state.search < 0 || state.search >= specs.length ||
+        !Number.isSafeInteger(state.page) || state.page < 1 ||
+        !(state.previous === null || /^[a-f0-9]{64}$/.test(state.previous)) ||
+        !Number.isFinite(state.notBefore) || state.notBefore < 0) throw new Error();
+  } catch { return { invalidCursor: true }; }
+  const ctx = ldaContextFor(runtime);
+  if (state.notBefore) ctx.lastRequest = state.notBefore - ctx.intervalMs;
+  const spec = specs[state.search];
+  const url = new URL(`https://lda.gov/api/v1/${spec.endpoint}/`);
+  url.search = new URLSearchParams({ filing_year: String(spec.year), [spec.filter]: spec.term,
+    ordering: '-dt_posted', page_size: '25', page: String(state.page) });
+  let items = [], error = null, nextState = { ...state }, fetched = false;
+  try {
+    const data = await request(ctx, url);
+    if (!Array.isArray(data.results)) throw new Error('invalid_shape');
+    // Return an entire page, including every contribution child. Never rank-slice
+    // away records before advancing a cursor. Dedup across pages belongs to caller.
+    items = data.results;
+    fetched = true;
+    const fingerprint = hash(items.map(identity).map(String).sort());
+    if (items.length && fingerprint === state.previous) throw new Error('pagination_stalled');
+    if (!Object.hasOwn(data, 'next')) throw new Error('missing_pagination');
+    if (data.next) {
+      if (!items.length) throw new Error('pagination_stalled');
+      const following = new URL(safeNext(url, data.next));
+      const page = Number(following.searchParams.get('page'));
+      if (!Number.isSafeInteger(page)) throw new Error('invalid_next');
+      nextState = { ...state, page, previous: fingerprint };
+    } else {
+      nextState = { ...state, search: state.search + 1, page: 1, previous: null };
+    }
+  } catch (failure) { error = failure.message; }
+  nextState.notBefore = Math.max(state.notBefore, ldaNextRequestAt(ctx));
+  const complete = !error && nextState.search === specs.length;
+  const providerError = error === 'deadline' ? null : error;
+  return { source: spec.source, items, error: providerError, retryAfterSeconds: ctx.retryAfterSeconds, retryAt: ctx.retryAt,
+    coverage: { status: error ? (fetched || !providerError ? 'partial' : 'unavailable') : 'page', complete: false,
+      reasons: error ? [error] : [], pages: fetched ? 1 : 0, requests: ctx.requests,
+      scope: 'One LDA provider page; whole filing years, contribution dates filtered where known.' },
+    traversal: { complete, searchesPlanned: specs.length, searchesCompleted: nextState.search,
+      search: state.search, page: state.page, endpoint: spec.endpoint, filter: spec.filter,
+      filingYear: spec.year, term: spec.term, nextRequestAt: nextState.notBefore,
+      cursor: complete ? null : encodeLdaCursor(nextState) }
+  };
 }

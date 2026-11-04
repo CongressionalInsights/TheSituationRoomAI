@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { acquireMoneySources } from './money-sources.js';
+import { acquireMoneySources, acquireLdaPage, startLdaCursor } from './money-sources.js';
 const MONEY_ENTITY_ALIASES_PATH = process.env.MONEY_ENTITY_ALIASES_PATH || fileURLToPath(new URL('./entity-aliases.json', import.meta.url));
 const MONEY_FLOW_DEFAULT_DAYS = 180;
 const MONEY_FLOW_MAX_LIMIT = 120;
@@ -491,7 +491,8 @@ function summarizeMoneyTop(items) {
   };
 }
 
-export async function fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, entities }, runtime = {}) {
+export async function fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, entities, mode = 'sample', cursor }, runtime = {}) {
+  if (!['sample', 'lda_pages'].includes(mode) || (cursor && mode !== 'lda_pages')) return { error: 'invalid_mode', message: 'Use mode lda_pages for LDA cursors.' };
   if (!query) {
     return { error: 'missing_query', message: 'Query parameter q is required.' };
   }
@@ -500,7 +501,13 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
   const range = resolveMoneyFlowRange(start, end);
   if (range.startIso > range.endIso || range.years.length > 10) return { error: 'invalid_range', message: 'Use an ordered range of at most ten calendar years.' };
   const queryProfile = buildMoneyQueryProfile(query, { matchMode, minScore, entities });
-  const queryVariants = queryProfile.searchTerms.slice(0, MONEY_QUERY_VARIANT_LIMIT);
+  const pageMode = mode === 'lda_pages';
+  const queryVariants = pageMode ? queryProfile.searchTerms : queryProfile.searchTerms.slice(0, MONEY_QUERY_VARIANT_LIMIT);
+  const binding = createHash('sha256').update(JSON.stringify([range.startIso, range.endIso, queryProfile])).digest('hex');
+  const nextArgs = { query, start: range.startIso, end: range.endIso, mode: 'lda_pages' };
+  nextArgs.matchMode = queryProfile.matchMode;
+  if (queryProfile.minScoreOverride) nextArgs.minScore = Number(minScore);
+  if (entities != null) nextArgs.entities = entities;
   const results = {
     query,
     range: { start: range.startIso, end: range.endIso },
@@ -514,7 +521,25 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
     summary: null
   };
 
-  const acquired = await acquireMoneySources({ terms: queryVariants, range, runtime });
+  let acquired;
+  if (pageMode) {
+    const page = await acquireLdaPage({ terms: queryVariants, range, binding, cursor, runtime });
+    if (page.invalidCursor) return { error: 'invalid_cursor', message: 'LDA cursor is invalid or its query, date window, aliases or matching options changed. Restart the traversal explicitly.' };
+    acquired = Object.fromEntries(['lda', 'ldaContributions', 'fec', 'usaspending', 'sam'].map((name) => [name, {
+      items: [], error: null, coverage: { status: 'not_requested', complete: false, reasons: [], pages: 0, requests: 0 }
+    }]));
+    acquired[page.source] = page;
+    const { cursor: nextCursor, ...progress } = page.traversal;
+    results.ldaTraversal = { ...progress, startsFromBeginning: false, next: nextCursor ? { ...nextArgs, cursor: nextCursor } : null };
+  } else {
+    acquired = await acquireMoneySources({ terms: queryVariants, range, runtime });
+    // Ranked samples can discard any acquired row. Start the full traversal at
+    // the beginning, explicitly, instead of skipping rows hidden by ranking.
+    const notBefore = acquired.lda.coverage.nextRequestAt || 0;
+    results.ldaTraversal = { complete: false, startsFromBeginning: true,
+      note: 'Separate full LDA traversal starts at the beginning. Deduplicate source/sourceId across pages and any prior sample; follow next until complete.',
+      next: { ...nextArgs, cursor: startLdaCursor(binding, notBefore) } };
+  }
   for (const [source, result] of Object.entries(acquired)) {
     results.sources[source] = { count: result.items.length, countBasis: 'acquired_rows_before_deduplication_and_matching', error: result.error, coverage: result.coverage, retryAfterSeconds: result.retryAfterSeconds ?? null, retryAt: result.retryAt ?? null };
   }
@@ -757,14 +782,14 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
       score: scoreMoneyItem(item)
     }))
     .sort((a, b) => (b.matchScore - a.matchScore) || (b.score - a.score));
-  results.items = matchedItems.slice(0, safeLimit);
+  results.items = pageMode ? matchedItems : matchedItems.slice(0, safeLimit);
   results.schemaVersion = 2;
   results.coverage = {
-    status: 'discovery_sample', complete: false,
-    outputTruncated: matchedItems.length > safeLimit,
+    status: pageMode ? 'lda_page' : 'discovery_sample', complete: pageMode && results.ldaTraversal.complete,
+    outputTruncated: !pageMode && matchedItems.length > safeLimit,
     matchedItems: matchedItems.length, returnedItems: results.items.length,
     queryVariantsTruncated: queryProfile.searchTerms.length > queryVariants.length,
-    note: 'Ranked discovery sample. Subtotals cover returned rows only, not source-wide or net totals. Source completeness applies only to executed filters. LDA covers filing years; SAM is current identity data.'
+    note: pageMode ? 'All matching normalized rows from one LDA provider page, including all relevant LD-203 children; limit is not applied. Follow ldaTraversal.next until complete. Deduplicate by source/sourceId across pages and prior samples. Completion covers requested filters, not a historical snapshot or net ledger. Subtotals cover this response only.' : 'Ranked discovery sample. Subtotals cover returned rows only, not source-wide or net totals. Source completeness applies only to executed filters. LDA covers filing years; SAM is current identity data.'
   };
   for (const [source, info] of Object.entries(results.sources)) {
     info.returnedCount = results.items.filter((item) => source === 'ldaContributions' ? item.type === 'Lobbying Contribution' : source === 'lda' ? item.type === 'Lobbying Filing' : item.source === ({ fec: 'OpenFEC', usaspending: 'USAspending', sam: 'SAM.gov' })[source]).length;

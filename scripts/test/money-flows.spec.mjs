@@ -234,7 +234,7 @@ test('The normal full audit includes exactly one money-flow acquisition and pers
   const { runMonitor } = await import('../../analysis/monitor/lib/run.mjs');
   const directory = mkdtempSync(join(tmpdir(), 'tsr-money-audit-'));
   let moneyCalls = 0;
-  const money = { schemaVersion: 2, items: [], coverage: { status: 'discovery_sample', complete: false }, summary: { basis: 'returned_rows_only' }, sources: Object.fromEntries(['sam', 'fec', 'usaspending', 'lda', 'ldaContributions'].map((name) => [name, { count: 0, coverage: { status: 'partial', complete: false, reasons: ['page_budget'] } }])) };
+  const money = { query: 'CVS Health', range: { start: '2026-01-01', end: '2026-11-04' }, ldaTraversal: { startsFromBeginning: true, next: { mode: 'lda_pages', cursor: 'fixture', query: 'CVS Health', start: '2026-01-01', end: '2026-11-04' } }, schemaVersion: 2, items: [], coverage: { status: 'discovery_sample', complete: false }, summary: { basis: 'returned_rows_only' }, sources: Object.fromEntries(['sam', 'fec', 'usaspending', 'lda', 'ldaContributions'].map((name) => [name, { count: 0, coverage: { status: 'partial', complete: false, reasons: ['page_budget'] } }])) };
   t.mock.method(globalThis, 'fetch', async (url, init) => {
     if (String(url).endsWith('/mcp')) {
       const request = JSON.parse(init.body);
@@ -252,8 +252,8 @@ test('The normal full audit includes exactly one money-flow acquisition and pers
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('Shared LDA budgets leave unattempted LD-203 searches as incomplete coverage, not provider failures', async (t) => {
-  for (const exhausted of ['requests', 'deadline']) {
+test('The LDA sample deadline leaves unattempted LD-203 searches as incomplete coverage, not provider failures', async (t) => {
+  for (const exhausted of ['deadline']) {
     await t.test(exhausted, async () => {
       let now = 0;
       const ldaCalls = [];
@@ -275,7 +275,7 @@ test('Shared LDA budgets leave unattempted LD-203 searches as incomplete coverag
       assert.equal(source.coverage.searchesRun, 0);
       assert.equal(source.coverage.searchesPlanned, 3);
       assert.equal(source.coverage.pages, 0);
-      assert.deepEqual(source.coverage.reasons, ['search_budget']);
+      assert.deepEqual(source.coverage.reasons, ['deadline']);
       assert.equal(source.coverage.complete, false);
       assert.equal(source.coverage.status, 'partial');
       const alerts = inspectMoneyFlows({ ok: true, data }).alerts.filter((alert) => alert.metadata.identity === 'ldaContributions');
@@ -300,4 +300,187 @@ test('An inherited LDA access error remains a provider warning even when LD-203 
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].regressionClass, 'money-flow-source-unavailable');
   assert.equal(alerts[0].severity, 'warning');
+});
+
+test('LDA has no artificial request/page cap; five aliases over two years reach both endpoints', async () => {
+  const calls = [];
+  const data = await fetchMoneyFlows({ query: 'Strategic Education', start: '2025-01-01', end: '2026-11-03' }, runtime(async (raw) => {
+    const url = new URL(raw); if (url.hostname !== 'lda.gov') return empty(url);
+    calls.push(url); assert.equal(url.searchParams.get('page_size'), '25');
+    const page = Number(url.searchParams.get('page'));
+    const next = new URL(url); next.searchParams.set('page', String(page + 1));
+    return json({ results: [{ filing_uuid: `${url.pathname}:${url.searchParams.get('filing_year')}:${page}` }], next: page < 5 ? next.toString() : null });
+  }, { requests: 1, pages: 1 }));
+  assert.equal(data.aliasExpansion.expandedTo.length, 5);
+  assert.equal(calls.length, 300); // 5 aliases * 2 years * 6 filters * 5 pages.
+  assert.equal(data.sources.lda.coverage.requests, 150);
+  assert.equal(data.sources.ldaContributions.coverage.requests, 150);
+  assert.equal(data.sources.lda.coverage.complete, true);
+  assert.equal(data.sources.ldaContributions.coverage.complete, true);
+});
+
+test('Resumable LDA traversal reaches every alias/year/filter/page, without other providers or output loss', async () => {
+  let args = { query: 'Strategic Education', start: '2025-01-01', end: '2026-11-03', mode: 'lda_pages', limit: 1 };
+  const calls = [], seen = new Set(); let last;
+  const options = runtime(async (raw) => {
+    const url = new URL(raw); assert.equal(url.hostname, 'lda.gov'); calls.push(raw);
+    const page = Number(url.searchParams.get('page'));
+    const term = [...url.searchParams].find(([key]) => ['client_name', 'registrant_name', 'filing_specific_lobbying_issues', 'contribution_contributor', 'contribution_payee'].includes(key))[1];
+    const year = url.searchParams.get('filing_year');
+    const id = `${year}:${term}:${page}`;
+    const next = new URL(url); next.searchParams.set('page', String(page + 1));
+    const contributions = url.pathname.includes('contributions');
+    return json({ results: contributions ? [{ filing_uuid: `child:${id}`, registrant: { name: term }, contribution_items: [
+      { id: 1, contributor_name: term, amount: 0, date: `${year}-02-01` },
+      { id: 2, contributor_name: term, amount: -5, date: `${year}-02-01` },
+      { id: 3, contributor_name: term, amount: null, date: `${year}-02-01` }
+    ] }] : [1, 2].map((n) => ({ filing_uuid: `filing:${id}:${n}`, client: { name: term }, income: n })), next: page < 5 ? next.toString() : null });
+  }, { requests: 1, pages: 1 });
+  while (args) {
+    assert.ok(calls.length < 301, 'Traversal must terminate');
+    last = await fetchMoneyFlows({ ...args, limit: 1 }, options);
+    assert.equal(last.coverage.status, 'lda_page');
+    assert.equal(last.coverage.outputTruncated, false);
+    assert.ok(last.items.length >= 2, 'limit=1 must not drop page rows/children');
+    for (const item of last.items) seen.add(item.sourceId);
+    args = last.ldaTraversal.next;
+  }
+  assert.equal(calls.length, 300);
+  assert.equal(new Set(calls).size, 300, 'No page may be skipped or repeated within a search');
+  assert.equal(seen.size, 250); // 10 term-years * 5 pages * (2 filings + 3 children), dedup OR searches.
+  assert.equal(last.ldaTraversal.searchesCompleted, 60);
+  assert.equal(last.ldaTraversal.complete, true);
+  assert.equal(last.coverage.complete, true);
+  assert.ok(calls[5].includes('/contributions/'), 'LD-203 interleaves with filings');
+});
+
+test('Aggregate offers an explicit replay traversal, while page mode removes alias/output truncation', async () => {
+  const entities = Array.from({ length: 9 }, (_, i) => `Acme ${i}`);
+  const options = runtime(async (raw) => empty(new URL(raw)));
+  const sample = await fetchMoneyFlows({ query: 'Acme', entities, start: '2026-01-01', end: '2026-11-03', limit: 1 }, options);
+  assert.equal(sample.coverage.queryVariantsTruncated, true);
+  assert.equal(sample.ldaTraversal.startsFromBeginning, true);
+  let args = JSON.parse(JSON.stringify(sample.ldaTraversal.next));
+  let pages = 0, data;
+  while (args) {
+    data = await fetchMoneyFlows(args, options);
+    assert.equal(data.coverage.queryVariantsTruncated, false);
+    args = data.ldaTraversal.next; pages++;
+  }
+  assert.equal(pages, 54);
+  assert.equal(data.ldaTraversal.complete, true);
+});
+
+test('LDA cursors freeze query/window/matching, reject malformed state before fetching, and contain no URL', async () => {
+  let calls = 0;
+  const options = runtime(async (raw) => { calls++; return empty(new URL(raw)); });
+  const first = await fetchMoneyFlows({ query: 'Acme', start: '2026-01-01', end: '2026-11-03', mode: 'lda_pages' }, options);
+  const next = first.ldaTraversal.next;
+  const decoded = Buffer.from(next.cursor, 'base64url').toString();
+  assert.doesNotMatch(decoded, /https|api_key|token/i);
+  for (const changes of [{ query: 'Other' }, { end: '2026-11-04' }, { entities: ['Different'] }, { matchMode: 'strict' }, { cursor: 'invalid' },
+    { cursor: Buffer.from(JSON.stringify({ ...JSON.parse(decoded), page: -1 })).toString('base64url') },
+    { cursor: Buffer.from(JSON.stringify({ ...JSON.parse(decoded), search: 999 })).toString('base64url') }]) {
+    const bad = await fetchMoneyFlows({ ...next, ...changes }, options);
+    assert.equal(bad.error, 'invalid_cursor');
+  }
+  assert.equal(calls, 1);
+  const valid = await fetchMoneyFlows(next, options);
+  assert.equal(valid.ldaTraversal.endpoint, 'contributions');
+  assert.equal(calls, 2);
+  const httpStyle = await fetchMoneyFlows({ query: 'Acme', start: '2026-01-01', end: '2026-11-03', mode: 'lda_pages', minScore: '60', matchMode: null }, options);
+  assert.equal(httpStyle.ldaTraversal.next.minScore, 60);
+  assert.equal(httpStyle.ldaTraversal.next.matchMode, 'normal');
+  assert.equal((await fetchMoneyFlows(httpStyle.ldaTraversal.next, options)).error, undefined);
+});
+
+test('LDA failed pages resume the same frozen request; Retry-After prevents early requests', async () => {
+  let now = 0, failed = false;
+  const calls = [];
+  const options = { ...runtime(async (raw) => {
+    calls.push(raw);
+    if (!failed) { failed = true; return new Response('{}', { status: 429, headers: { 'retry-after': '60' } }); }
+    return empty(new URL(raw));
+  }), now: () => now };
+  const first = await fetchMoneyFlows({ query: 'Acme', start: '2026-01-01', end: '2026-11-03', mode: 'lda_pages' }, options);
+  assert.equal(first.sources.lda.error, 'HTTP 429');
+  assert.equal(first.sources.lda.retryAfterSeconds, 60);
+  assert.equal(first.ldaTraversal.complete, false);
+  const early = await fetchMoneyFlows(first.ldaTraversal.next, options);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(early.sources.lda.coverage.reasons, ['deadline']);
+  assert.equal(early.sources.lda.error, null);
+  now = 60000;
+  const resumed = await fetchMoneyFlows(early.ldaTraversal.next, options);
+  assert.equal(calls[0], calls[1]);
+  assert.equal(resumed.ldaTraversal.searchesCompleted, 1);
+});
+
+test('LDA continuation detects repeated pages and query drift without falsely completing or advancing', async () => {
+  for (const changed of [false, true]) {
+    const options = runtime(async (raw) => {
+      const url = new URL(raw), next = new URL(raw);
+      next.searchParams.set('page', String(Number(url.searchParams.get('page')) + 1));
+      if (changed && url.searchParams.get('page') === '2') next.searchParams.set('client_name', 'Other');
+      return json({ results: [{ filing_uuid: changed ? url.searchParams.get('page') : 'same', client: { name: 'Acme' } }], next: next.toString() });
+    });
+    const first = await fetchMoneyFlows({ query: 'Acme', start: '2026-01-01', end: '2026-11-03', mode: 'lda_pages' }, options);
+    const second = await fetchMoneyFlows(first.ldaTraversal.next, options);
+    assert.equal(second.sources.lda.error, changed ? 'changed_query' : 'pagination_stalled');
+    assert.equal(second.ldaTraversal.complete, false);
+    assert.equal(second.ldaTraversal.searchesCompleted, 0);
+    assert.equal(JSON.parse(Buffer.from(second.ldaTraversal.next.cursor, 'base64url')).page, 2);
+  }
+});
+
+test('Anonymous pacing persists across LDA continuations and the sample deadline is a response bound', async () => {
+  let now = 0;
+  const times = [];
+  const options = { fetch: async (raw) => {
+    const url = new URL(raw);
+    if (url.hostname === 'lda.gov') times.push(now);
+    return empty(url);
+  }, now: () => now, sleep: async (ms) => { now += ms; }, enforcePacing: true };
+  const sample = await fetchMoneyFlows({ query: 'Strategic Education', start: '2025-01-01', end: '2026-11-03' }, options);
+  assert.equal(times.length, 11); // Twelfth start would be 45.1s, past caller's 45s response slice.
+  assert.equal(sample.sources.ldaContributions.coverage.requests, 0);
+  assert.equal(sample.sources.ldaContributions.error, null);
+  assert.equal(sample.sources.ldaContributions.coverage.status, 'partial');
+  assert.equal(sample.ldaTraversal.startsFromBeginning, true);
+  let next = sample.ldaTraversal.next;
+  for (let i = 0; i < 60; i++) {
+    const data = await fetchMoneyFlows(next, options);
+    assert.equal(data.ldaTraversal.searchesCompleted, i + 1);
+    next = data.ldaTraversal.next;
+  }
+  assert.equal(next, null);
+  assert.equal(times.length, 71);
+  assert.ok(times.slice(1).every((time, i) => time - times[i] >= 4100));
+});
+
+test('A full LD-203 page keeps more than 120 matching children and retries transient failures without skipping', async () => {
+  let failed = false;
+  const args = { query: 'Acme', start: '2026-01-01', end: '2026-11-03', mode: 'lda_pages', limit: 1 };
+  const options = runtime(async (raw) => {
+    const url = new URL(raw);
+    if (url.pathname.includes('/filings/')) return empty(url);
+    if (!failed) { failed = true; return json({}, 504); }
+    return json({ results: [{ filing_uuid: 'many', registrant: { name: 'Acme' }, contribution_items: Array.from({ length: 201 }, (_, id) => ({ id, contributor_name: 'Acme', amount: id === 0 ? null : -id, date: '2026-02-01' })) }], next: null });
+  });
+  const first = await fetchMoneyFlows(args, options);
+  const failedPage = await fetchMoneyFlows(first.ldaTraversal.next, options);
+  assert.equal(failedPage.sources.ldaContributions.error, 'HTTP 504');
+  assert.equal(failedPage.ldaTraversal.searchesCompleted, 1);
+  const resumed = await fetchMoneyFlows({ ...failedPage.ldaTraversal.next, limit: 1 }, options);
+  assert.equal(resumed.items.length, 201);
+  assert.equal(resumed.coverage.outputTruncated, false);
+  assert.equal(resumed.summary.buckets.contributions.unknownAmountCount, 1);
+  assert.equal(resumed.ldaTraversal.searchesCompleted, 2);
+});
+
+test('Normal audit catches a lost LDA traversal entrypoint without issuing any extra provider requests', async () => {
+  const data = await fetchMoneyFlows({ query: 'Acme', start: '2026-01-01', end: '2026-11-03' }, runtime(async (raw) => empty(new URL(raw))));
+  assert.ok(!inspectMoneyFlows({ ok: true, data }).alerts.some((a) => a.regressionClass === 'money-flow-lda-continuation'));
+  delete data.ldaTraversal;
+  assert.ok(inspectMoneyFlows({ ok: true, data }).alerts.some((a) => a.regressionClass === 'money-flow-lda-continuation'));
 });

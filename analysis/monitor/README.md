@@ -169,9 +169,11 @@ sample (limit 10). It does not repeat this provider fan-out after an aggregate
 transport failure. `moneyFlowResult` and the Markdown money-flow section retain
 per-source acquisition coverage. Missing/invalid financial contracts and source
 failures are warnings; bounded partial sampling is informational. Empty samples
-are not proof of zero activity. Core and docs-only runs are unchanged.
+are not proof of zero activity. The same response must expose the frozen LDA
+traversal entrypoint; the audit checks its contract without acquiring extra pages.
+Core and docs-only runs are unchanged.
 
 See [the repair/caller contract](../../MONEY_FLOW_REPAIRS.md) for nullable amounts,
-transaction/modification identities, SAM registration semantics, provider budgets,
+transaction/modification identities, SAM registration semantics, LDA continuation and other provider sample bounds,
 and release prerequisites. Fixture checks run with `node --test
 scripts/test/money-flows.spec.mjs`; they do not establish live provider health.

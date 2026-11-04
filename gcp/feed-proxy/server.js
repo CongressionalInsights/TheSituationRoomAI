@@ -1650,7 +1650,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { error: 'missing_query' }, origin);
     }
     try {
-      const payload = await fetchMoneyFlows({ query, start, end, limit, matchMode: url.searchParams.get('matchMode'), minScore: url.searchParams.get('minScore'), entities: url.searchParams.getAll('entities') });
+      const payload = await fetchMoneyFlows({ query, start, end, limit, matchMode: url.searchParams.get('matchMode'), minScore: url.searchParams.get('minScore'), entities: url.searchParams.getAll('entities'), mode: url.searchParams.get('mode') || 'sample', cursor: url.searchParams.get('cursor') });
       if (payload?.error) {
         return sendJson(res, 502, payload, origin);
       }

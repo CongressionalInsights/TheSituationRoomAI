@@ -1367,7 +1367,7 @@ const server = http.createServer(async (req, res) => {
     const end = url.searchParams.get('end') || '';
     const limit = url.searchParams.get('limit') || '';
     try {
-      const result = await fetchMoneyFlows({ query, start, end, limit, matchMode: url.searchParams.get('matchMode'), minScore: url.searchParams.get('minScore'), entities: url.searchParams.getAll('entities') });
+      const result = await fetchMoneyFlows({ query, start, end, limit, matchMode: url.searchParams.get('matchMode'), minScore: url.searchParams.get('minScore'), entities: url.searchParams.getAll('entities'), mode: url.searchParams.get('mode') || 'sample', cursor: url.searchParams.get('cursor') });
       if (result.error) {
         return sendJson(res, 400, result);
       }

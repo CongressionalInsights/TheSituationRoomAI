@@ -2305,7 +2305,7 @@ server.registerTool(
   'money.flows',
   {
     title: 'Money Flows',
-    description: 'Ranked discovery sample from LDA, USAspending transactions, FEC receipts and SAM registrations. Includes source coverage; subtotals apply only to returned rows. SAM is identity evidence, not awards. No resumable component cursors.',
+    description: 'Ranked discovery sample from LDA, USAspending transactions, FEC receipts and SAM registrations. Includes source coverage; subtotals apply only to returned rows. SAM is identity evidence, not awards. Use mode lda_pages for stateless LDA traversal: follow ldaTraversal.next until complete, deduplicate source/sourceId, and retain all returned rows (limit is ignored in that mode). Other sources remain samples.',
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       query: z.string(),
@@ -2314,11 +2314,13 @@ server.registerTool(
       limit: z.number().optional(),
       matchMode: z.enum(['strict', 'normal', 'loose']).optional(),
       minScore: z.number().optional(),
-      entities: z.array(z.string()).optional()
+      entities: z.array(z.string()).optional(),
+      mode: z.enum(['sample', 'lda_pages']).optional(),
+      cursor: z.string().optional()
     })
   },
-  async ({ query, start, end, limit, matchMode, minScore, entities }) => {
-    const payload = await fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, entities });
+  async ({ query, start, end, limit, matchMode, minScore, entities, mode, cursor }) => {
+    const payload = await fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, entities, mode, cursor });
     if (payload?.error) {
       return {
         content: [{ type: 'text', text: `Money flows fetch failed: ${payload.message || payload.error}` }],
@@ -2326,7 +2328,7 @@ server.registerTool(
       };
     }
     return {
-      content: [{ type: 'text', text: `Money flows: ${payload.items?.length || 0} sampled items; returned-row subtotals only. Check sources for partial or unavailable coverage.` }],
+      content: [{ type: 'text', text: `Money flows: ${payload.items?.length || 0} ${mode === 'lda_pages' ? 'LDA page' : 'sampled'} items; returned-row subtotals only. Check sources for partial or unavailable coverage.` }],
       structuredContent: payload
     };
   }
@@ -2580,7 +2582,7 @@ export const httpServer = http.createServer(async (req, res) => {
       tools: ['catalog.sources', 'raw.fetch', 'raw.history', 'money.flows', 'signals.list', 'signals.get', 'search.smart'],
       toolInputs: {
         'money.flows': {
-          optional: ['start', 'end', 'limit', 'matchMode', 'minScore', 'entities'],
+          optional: ['start', 'end', 'limit', 'matchMode', 'minScore', 'entities', 'mode', 'cursor'],
           matchModes: ['strict', 'normal', 'loose']
         },
         'catalog.sources': {

@@ -14,6 +14,12 @@ export function inspectMoneyFlows(response) {
   if (data.schemaVersion !== 2 || data.coverage?.status !== 'discovery_sample' || data.coverage?.complete !== false || data.summary?.basis !== 'returned_rows_only') {
     alert('money-flow-contract', 'Money-flow sample is missing its financial or coverage contract.');
   }
+  const next = data.ldaTraversal?.next;
+  if (data.ldaTraversal?.startsFromBeginning !== true || next?.mode !== 'lda_pages' ||
+      typeof next?.cursor !== 'string' || !next.cursor || next.query !== data.query ||
+      next.start !== data.range?.start || next.end !== data.range?.end) {
+    alert('money-flow-lda-continuation', 'Money-flow sample is missing a frozen LDA traversal entrypoint.');
+  }
   const sources = {};
   for (const name of ['lda', 'ldaContributions', 'fec', 'sam', 'usaspending']) {
     const source = data.sources?.[name];
