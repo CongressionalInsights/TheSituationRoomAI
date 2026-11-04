@@ -8,6 +8,28 @@ const number = value => Number.isFinite(value) && value >= 0 ? value : null;
 const code = value => /^(?:HTTP [1-5]\d\d|missing_key|deadline|page_budget|request_budget|search_budget|fetch_failed|invalid_json|invalid_shape|missing_pagination|pagination_stalled|invalid_next|changed_query)$/.test(value || '') ? value : value ? 'provider_error' : null;
 const statuses = new Set(['complete_for_queries', 'partial', 'unavailable', 'not_requested', 'page']);
 const sourceNames = ['lda', 'ldaContributions', 'fec', 'sam', 'usaspending'];
+const diagnosticFilters = new Set(['client_name', 'registrant_name', 'filing_specific_lobbying_issues', 'contribution_contributor', 'contribution_payee', 'contributor_id', 'committee_id', 'contributor_name', 'contributor_employer', 'keywords', 'legalBusinessName']);
+const diagnosticBranches = new Set(['request_start', 'response_ok', 'http_error', 'fetch_exception', 'decode_exception', 'provider_blocked', 'request_budget', 'deadline', 'page_budget', 'invalid_next', 'changed_query', 'nonadvancing_next_page', 'repeated_cursor', 'no_new_identities', 'empty_page_with_next', 'nonadvancing_native_cursor', 'repeated_page_fingerprint', 'invalid_shape', 'missing_pagination', 'missing_cursor', 'invalid_cursor', 'pagination_error']);
+const diagnosticExceptions = new Set(['timeout', 'aborted', 'transport', 'invalid_json', 'unknown']);
+const integer = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+
+function diagnosticEvidence(input) {
+  if (!Array.isArray(input?.attempts)) return null;
+  const attempts = input.attempts.slice(-32).map(row => ({
+    sequence: integer(row?.sequence), request: integer(row?.request), attempt: integer(row?.attempt),
+    attempted: typeof row?.attempted === 'boolean' ? row.attempted : null,
+    filter: diagnosticFilters.has(row?.filter) ? row.filter : null, year: integer(row?.year), page: integer(row?.page),
+    pageKind: ['numbered', 'ordinal'].includes(row?.pageKind) ? row.pageKind : null,
+    branch: diagnosticBranches.has(row?.branch) ? row.branch : 'unknown',
+    httpStatus: Number.isInteger(row?.httpStatus) && row.httpStatus >= 100 && row.httpStatus <= 599 ? row.httpStatus : null,
+    exceptionCategory: diagnosticExceptions.has(row?.exceptionCategory) ? row.exceptionCategory : row?.exceptionCategory == null ? null : 'unknown',
+    rowCount: integer(row?.rowCount), newIdentityCount: integer(row?.newIdentityCount),
+    identityHash: typeof row?.identityHash === 'string' && /^[a-f0-9]{64}$/.test(row.identityHash) ? row.identityHash : null,
+    elapsedMs: number(row?.elapsedMs), budgetMs: number(row?.budgetMs), remainingMs: number(row?.remainingMs)
+  }));
+  const omitted = integer(input.omitted);
+  return { attempts, omitted: omitted === null ? null : integer(omitted + input.attempts.length - attempts.length) };
+}
 const fecAttribution = 'Contributor is donor; reported employer is affiliation only. Committee is recipient.';
 const scalar = value => typeof value === 'string' && value.trim() ? value.trim()
   : Number.isSafeInteger(value) ? String(value) : null;
@@ -129,6 +151,7 @@ function receipt(data, mode) {
         returnedCount: number(source?.returnedCount), error: code(source?.error),
         status: statuses.has(source?.coverage?.status) ? source.coverage.status : 'invalid', complete: source?.coverage?.complete === true,
         pages: number(source?.coverage?.pages), requests: number(source?.coverage?.requests),
+        diagnostics: diagnosticEvidence(source?.coverage?.diagnostics),
         reasons: Array.isArray(source?.coverage?.reasons) ? source.coverage.reasons.map(code) : [], retryAfterSeconds: number(source?.retryAfterSeconds),
         retryAt: Number.isFinite(Date.parse(source?.retryAt)) ? new Date(source.retryAt).toISOString() : null }];
     })) };
