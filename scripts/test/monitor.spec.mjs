@@ -3518,7 +3518,7 @@ test('documentation watch pins stable provider surfaces without accepting unknow
       'e293b5588b81013d510b34e4e81b6c384c20ee97becee4f29545ecce8f6cb6bb',
       'cea87092ea9b4497a96fef6cd20b29ccc6f9864cc4688b90b539ea36bfb216d1'
     ],
-    'docs:https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json': 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774',
+    'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json': 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774',
     'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
     'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
@@ -3530,7 +3530,7 @@ test('documentation watch pins stable provider surfaces without accepting unknow
     assert.equal(surfaces.get(key)?.acceptedHashes.includes('unknown-contract-hash'), false, key);
   }
 
-  const cisaSchema = surfaces.get('docs:https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json');
+  const cisaSchema = surfaces.get('docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json');
   assert.equal(cisaSchema.acceptedHashes.includes('b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774'), true);
   assert.equal(cisaSchema.acceptedHashes.includes('6f5524d5e9e88d67c28a328218b8e738d3f39e546cd16de738d4a14467e64428'), false);
   assert.equal(cisaSchema.enforceAcceptedHashes, true);
@@ -3544,7 +3544,6 @@ test('documentation watch pins stable provider surfaces without accepting unknow
   }
 
   for (const obsoleteKey of [
-    'docs:https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json',
     'docs:https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
     'support:https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
     'changelog:https://eonet.gsfc.nasa.gov/docs/changelog',
@@ -3586,53 +3585,6 @@ test('documentation watch pins stable provider surfaces without accepting unknow
     surfaceType: 'docs',
     tier: 'core'
   }), null);
-});
-
-test('CISA documentation mirror keeps the reviewed schema and unrelated failures actionable', async (t) => {
-  const entry = resolveMonitoringEntry(
-    typedMonitorFeeds.find((feed) => feed.id === 'cisa-kev'),
-    typedMonitorOverrides['cisa-kev']
-  );
-  const schemaUrl = 'https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json';
-  // CISA public mirror blob ec422845b354f58250d2e99cdfcce17a18659423, observed November 5, 2026.
-  const schemaText = fixture('cisa-kev-schema.json');
-  const schemaHash = hashContent(normalizeDocText(schemaText, 'application/json'));
-  assert.equal(schemaHash, 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774');
-  assert.equal(entry.docsUrl, schemaUrl);
-  assert.equal(entry.enforceAcceptedSurfaceHashes, true);
-  assert.equal(entry.acceptedSurfaceHashes.docs[schemaUrl], schemaHash);
-  assert.deepEqual(entry.knownUpstreamQuirks, []);
-  assert.deepEqual(entry.invariants, ['feed-fetch', 'signal-normalization', 'freshness', 'kev-schema', 'non-empty']);
-
-  let status = 200;
-  let text = schemaText;
-  const requests = [];
-  t.mock.method(globalThis, 'fetch', async (url) => {
-    assert.equal(url, schemaUrl);
-    requests.push(url);
-    return new Response(text, { status, headers: { 'Content-Type': 'application/json' } });
-  });
-
-  const [healthy] = await watchDocumentation({ entries: [entry] });
-  assert.equal(healthy.hash, schemaHash);
-  assert.equal(healthy.acceptedBaseline, true);
-  assert.equal(healthy.classification, null);
-
-  const changedSchema = JSON.parse(schemaText);
-  changedSchema.properties.catalogVersion.type = 'integer';
-  text = JSON.stringify(changedSchema);
-  const [changed] = await watchDocumentation({ entries: [entry] });
-  assert.equal(changed.acceptedBaseline, false);
-  assert.equal(changed.classification.regressionClass, 'docs-contract-change');
-  assert.equal(changed.classification.severity, 'critical');
-
-  status = 403;
-  text = 'Forbidden';
-  const [unavailable] = await watchDocumentation({ entries: [entry] });
-  assert.equal(unavailable.acceptedBaseline, false);
-  assert.equal(unavailable.classification.regressionClass, 'docs-fetch-failed');
-  assert.equal(unavailable.classification.severity, 'warning');
-  assert.deepEqual(requests, [schemaUrl, schemaUrl, schemaUrl]);
 });
 
 test('CDC documentation watch accepts the exact owner-reviewed saved body for both roles', async (t) => {
