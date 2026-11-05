@@ -61,12 +61,17 @@ test('Actual MCP deploy command omits IAM/configuration mutations in candidate-o
     const code=replace(script(block(workflows.mcp,'Deploy MCP proxy service')),candidateOnly).replaceAll('/tmp/mcp-diagnostics',`${dir}/diag`).replaceAll('/tmp/mcp-service-before.json',`${dir}/before.json`);
     const output=`${dir}/args.json`;
     const stub=`gcloud(){ if [ "$2" = services ]; then cat '${dir}/before.json'; elif [ "$2" = deploy ]; then printf '%s\\n' "$@" > '${output}'; else return 91; fi; };`;
-    const result=spawnSync('bash',['-c',stub+code],{encoding:'utf8',env:{...process.env,PROJECT_ID:'fixture',REGION:'fixture',SERVICE_NAME:'situation-room-mcp',GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_OUTPUT:`${dir}/output`,SYNC_SECRET_VERSIONS:'false',ALLOWED_ORIGINS:'fixture',ACLED_PROXY:'fixture',STATE_CONNECTOR_BASE_URL:'fixture',STATE_CONNECTOR_KEY_HEADER:'fixture'}});
+    const result=spawnSync('bash',['-c',stub+code],{encoding:'utf8',env:{...process.env,PROJECT_ID:'fixture',REGION:'fixture',SERVICE_NAME:'situation-room-mcp',GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_OUTPUT:`${dir}/output`,SYNC_SECRET_VERSIONS:'false',ALLOWED_ORIGINS:'fixture with spaces',ACLED_PROXY:'fixture',STATE_CONNECTOR_BASE_URL:'fixture',STATE_CONNECTOR_KEY_HEADER:'fixture'}});
     assert.equal(result.status,0,result.stderr);
     const args=fs.readFileSync(output,'utf8');
+    const argv=args.split('\n').slice(0,-1);
+    assert.equal(argv.includes(''),false,'empty optional arrays must not add an empty argument');
     assert.match(args,/--no-traffic/); assert.match(args,/--tag/);
     if(candidateOnly) assert.doesNotMatch(args,/--allow-unauthenticated|--(?:update|set)-secrets|--update-env-vars|--min|--timeout|iam/);
-    else assert.match(args,/--allow-unauthenticated[\s\S]*--min[\s\S]*--timeout[\s\S]*--update-env-vars/);
+    else {
+      assert.match(args,/--allow-unauthenticated[\s\S]*--min[\s\S]*--timeout[\s\S]*--update-env-vars/);
+      assert.equal(argv[argv.indexOf('--update-env-vars')+1],'^|^ALLOWED_ORIGINS=fixture with spaces|ACLED_PROXY=fixture|STATE_CONNECTOR_BASE_URL=fixture|STATE_CONNECTOR_KEY_HEADER=fixture');
+    }
   }
 });
 
