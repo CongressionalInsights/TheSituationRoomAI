@@ -1,4 +1,5 @@
 import './fec-continuation.spec.mjs';
+import './ld203-finite-pages.spec.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
