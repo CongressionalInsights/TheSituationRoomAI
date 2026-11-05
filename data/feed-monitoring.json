@@ -511,14 +511,14 @@
   },
   "cisa-kev": {
     "tier": "core",
-    "docsUrl": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json",
+    "docsUrl": "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json",
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": null,
     "enforceAcceptedSurfaceHashes": true,
     "acceptedSurfaceHashes": {
       "docs": {
-        "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities_schema.json": "b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774"
+        "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json": "b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774"
       }
     },
     "freshnessWindowMinutes": 10080,
