@@ -126,7 +126,55 @@ for (const mode of ['sample', 'lda_pages']) {
       assert.equal(out.at(-1).ldaTraversal.complete, false);
     }
   });
+  test(`LD203 review regression ${mode}: interrupted count proof cannot skip page two and complete`, async () => {
+    const f = fixture((d, page, url) => {
+      if (page === 1) {
+        delete d.count;
+        d.results = [{ ...parent, filing_uuid: 'A' }];
+        d.next = link(url, 3);
+      } else {
+        d.count = 100; d.results = Array(25).fill({ ...parent, filing_uuid: 'B' });
+        d.next = page === 4 ? null : link(url, page + 1);
+      }
+    });
+    const out = await collect(mode, f);
+    assert.deepEqual(f.pages, [1, 3, 4]);
+    assert.ok(out.some(d => d.sources.ldaContributions.error === 'pagination_stalled'));
+    assert.equal(out.at(-1).ldaTraversal.complete, false);
+    assert.ok(out.at(-1).items.length > 0);
+    if (mode === 'lda_pages') {
+      const third = out.find(d => d.ldaTraversal.endpoint === 'contributions' && d.ldaTraversal.page === 3);
+      const next = JSON.parse(Buffer.from(third.ldaTraversal.next.cursor, 'base64url'));
+      assert.equal(next.contributionCount, null, 'a new parent must not bootstrap count proof mid-search');
+    }
+  });
+  for (const spelling of ['0x1', '1e0']) test(`LD203 review regression ${mode}: predecessor ${spelling} cannot complete repeated terminal page`, async () => {
+    const f = fixture((d, page, url) => {
+      d.count = 50; d.next = page === 2 ? null : link(url, 2);
+      if (page === 2) d.previous = link(url, spelling);
+    });
+    const out = await collect(mode, f);
+    assert.deepEqual(f.pages, [1, 2]);
+    assert.ok(out.some(d => d.sources.ldaContributions.error === 'pagination_stalled'));
+    assert.equal(out.at(-1).ldaTraversal.complete, false);
+    assert.ok(out.at(-1).items.length > 0);
+  });
 }
+
+test('LD203 review regression: old mid-search cursor cannot seed a later repeated-page exemption', async () => {
+  const binding = 'legacy-fixture';
+  const state = { version: 1, binding, search: 3, page: 3, previous: 'a'.repeat(64), notBefore: 0 };
+  const f = fixture((d, page, url) => {
+    d.count = 100; d.results = Array(25).fill(parent); d.next = page === 4 ? null : link(url, 4);
+  });
+  const input = { terms: [query], range: { startIso: args.start, endIso: args.end }, binding, runtime: f.runtime };
+  const first = await acquireLdaPage({ ...input, cursor: Buffer.from(JSON.stringify(state)).toString('base64url') });
+  assert.equal(first.error, null);
+  assert.equal(JSON.parse(Buffer.from(first.traversal.cursor, 'base64url')).contributionCount, null);
+  const second = await acquireLdaPage({ ...input, cursor: first.traversal.cursor });
+  assert.equal(second.error, 'pagination_stalled'); assert.equal(second.traversal.complete, false);
+  assert.deepEqual(f.pages, [3, 4]); assert.equal(second.items.length, 25);
+});
 
 test('LD203 finite cursor optional count is validated before acquisition; old cursors remain accepted', async () => {
   const binding = 'fixture';

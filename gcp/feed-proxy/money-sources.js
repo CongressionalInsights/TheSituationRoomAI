@@ -144,12 +144,16 @@ function contributionPosition(data, current, following, length, expectedCount, c
       const previous = new URL(data.previous, url);
       if (previous.username || previous.password || previous.hash || previous.searchParams.getAll('page').length > 1) throw new Error('invalid_next');
       if (!previous.searchParams.has('page')) previous.searchParams.set('page', '1');
-      if (Number(previous.searchParams.get('page')) !== page - 1) throw new Error('pagination_stalled');
+      if (!/^\d+$/.test(previous.searchParams.get('page'))
+          || Number(previous.searchParams.get('page')) !== page - 1) throw new Error('pagination_stalled');
       // Reuse origin/path/credential/query checks, with forward direction reversed.
       safeNext(previous, url, ['page'], ctx);
     }
   }
-  return { count, proven: page === 1 || expectedCount != null };
+  const proven = page === 1 || expectedCount != null;
+  // A count first seen mid-search cannot establish an unbroken chain from page 1.
+  // Do not persist it as trusted evidence for a later repeated-parent exemption.
+  return { count: proven ? count : null, proven };
 }
 
 async function pages(ctx, initial, { rows, next, options, retry = false, key = identity, diagnostic = {}, pageNumber, retainRepeatedParents = false }) {
