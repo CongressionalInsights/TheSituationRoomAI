@@ -61,12 +61,17 @@ test('Actual MCP deploy command omits IAM/configuration mutations in candidate-o
     const code=replace(script(block(workflows.mcp,'Deploy MCP proxy service')),candidateOnly).replaceAll('/tmp/mcp-diagnostics',`${dir}/diag`).replaceAll('/tmp/mcp-service-before.json',`${dir}/before.json`);
     const output=`${dir}/args.json`;
     const stub=`gcloud(){ if [ "$2" = services ]; then cat '${dir}/before.json'; elif [ "$2" = deploy ]; then printf '%s\\n' "$@" > '${output}'; else return 91; fi; };`;
-    const result=spawnSync('bash',['-c',stub+code],{encoding:'utf8',env:{...process.env,PROJECT_ID:'fixture',REGION:'fixture',SERVICE_NAME:'situation-room-mcp',GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_OUTPUT:`${dir}/output`,SYNC_SECRET_VERSIONS:'false',ALLOWED_ORIGINS:'fixture',ACLED_PROXY:'fixture',STATE_CONNECTOR_BASE_URL:'fixture',STATE_CONNECTOR_KEY_HEADER:'fixture'}});
+    const result=spawnSync('bash',['-c',stub+code],{encoding:'utf8',env:{...process.env,PROJECT_ID:'fixture',REGION:'fixture',SERVICE_NAME:'situation-room-mcp',GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_OUTPUT:`${dir}/output`,SYNC_SECRET_VERSIONS:'false',ALLOWED_ORIGINS:'fixture with spaces',ACLED_PROXY:'fixture',STATE_CONNECTOR_BASE_URL:'fixture',STATE_CONNECTOR_KEY_HEADER:'fixture'}});
     assert.equal(result.status,0,result.stderr);
     const args=fs.readFileSync(output,'utf8');
+    const argv=args.split('\n').slice(0,-1);
+    assert.equal(argv.includes(''),false,'empty optional arrays must not add an empty argument');
     assert.match(args,/--no-traffic/); assert.match(args,/--tag/);
     if(candidateOnly) assert.doesNotMatch(args,/--allow-unauthenticated|--(?:update|set)-secrets|--update-env-vars|--min|--timeout|iam/);
-    else assert.match(args,/--allow-unauthenticated[\s\S]*--min[\s\S]*--timeout[\s\S]*--update-env-vars/);
+    else {
+      assert.match(args,/--allow-unauthenticated[\s\S]*--min[\s\S]*--timeout[\s\S]*--update-env-vars/);
+      assert.equal(argv[argv.indexOf('--update-env-vars')+1],'^|^ALLOWED_ORIGINS=fixture with spaces|ACLED_PROXY=fixture|STATE_CONNECTOR_BASE_URL=fixture|STATE_CONNECTOR_KEY_HEADER=fixture');
+    }
   }
 });
 
@@ -206,13 +211,24 @@ test('Unavailable sources remain distinct from known zero receipts and cannot cl
   assert.equal((await observeRows([moneyRows()[0]],data=>{data.sources.lda.returnedCount=0;})).status,'invalid_contract');
 });
 
+test('LD203 receipts distinguish explicit missing-ID fallback from native and malformed lineage',async()=>{
+  const child={...moneyRows()[1],childId:null,sourceId:`parent:fallback-${'a'.repeat(64)}-0`,childIdentityBasis:'content_occurrence_fallback',amount:null};
+  const accepted=await observeRows([child]);
+  assert.equal(accepted.status,'incomplete');
+  assert.equal(accepted.calls[0].financialEvidence.rows[0].lineage.childIdentityBasis,'content_occurrence_fallback');
+  assert.deepEqual(accepted.calls[0].financialEvidence.rows[0].amount,{state:'unknown',value:null});
+  for(const invalid of [{...child,childIdentityBasis:'native_id'},{...child,childIdentityBasis:undefined},{...child,sourceId:'parent:fallback-invalid-0'},{...moneyRows()[1],childIdentityBasis:'content_occurrence_fallback'}]) {
+    assert.equal((await observeRows([invalid])).status,'invalid_contract');
+  }
+});
+
 test('Exact production normalizer output passes financial verification using only inert provider fixtures',async()=>{
   const previous=process.env.DATA_GOV;process.env.DATA_GOV='inert-candidate-fixture';
   try {
     const normalized=await fetchMoneyFlows(fixed,{sleep:async()=>{},fetch:async(raw)=>{
       const url=new URL(raw);let data;
       if(url.hostname==='lda.gov') data={results:url.pathname.includes('/contributions/')
-        ?[{filing_uuid:'filing-child',registrant:{name:'CVS Health'},contribution_items:[{id:2,contributor_name:'CVS Health',payee_name:'Committee',amount:0,date:'2026-03-01'}]}]
+        ?[{filing_uuid:'filing-child',registrant:{name:'CVS Health'},contribution_items:[{id:2,contributor_name:'CVS Health',payee_name:'Committee',amount:0,date:'2026-03-01'},{contributor_name:'CVS Health',payee_name:'Committee',amount:null,date:'2026-03-01'}]}]
         :[{filing_uuid:'filing-parent',client:{name:'CVS Health'},income:null,expenses:-40}],next:null};
       else if(url.hostname==='api.open.fec.gov') data={results:url.searchParams.has('last_index')?[]:[{sub_id:'receipt',contributor_name:'Private donor',contributor_employer:'CVS Health',contribution_receipt_amount:0}],pagination:{last_indexes:url.searchParams.has('last_index')?null:{last_index:'receipt',last_contribution_receipt_date:'2026-03-01'}}};
       else if(url.hostname==='api.usaspending.gov') data={results:[{'Award ID':'award','Recipient Name':'CVS Health','Transaction Amount':-10,Mod:'1'}],page_metadata:{hasNext:false}};
@@ -224,6 +240,7 @@ test('Exact production normalizer output passes financial verification using onl
     const report=await observeRows(normalized.items,data=>{data.sources=normalized.sources;});
     assert.equal(report.status,'incomplete',JSON.stringify(report.calls[0].financialEvidence));
     assert.ok(report.calls[0].financialEvidence.rows.every(row=>row.valid));
+    assert.ok(report.calls[0].financialEvidence.rows.some(row=>row.lineage.childIdentityBasis==='content_occurrence_fallback'));
   } finally {if(previous===undefined)delete process.env.DATA_GOV;else process.env.DATA_GOV=previous;}
 });
 

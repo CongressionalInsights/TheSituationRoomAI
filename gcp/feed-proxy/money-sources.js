@@ -117,9 +117,48 @@ function safeNext(current, next, mutable = ['page'], ctx) {
   return after.toString();
 }
 
-async function pages(ctx, initial, { rows, next, options, retry = false, key = identity, diagnostic = {}, pageNumber }) {
+// LD-203 can paginate joined rows whose filing/child payloads are identical.
+// Only a stable finite count and exact page position may replace identity progress.
+// Missing-count legacy responses keep their existing duplicate guards.
+function contributionPosition(data, current, following, length, expectedCount, ctx) {
+  if (!Object.hasOwn(data, 'count')) {
+    if (expectedCount != null) throw new Error('missing_pagination');
+    return { count: null, proven: false };
+  }
+  const count = data.count, url = new URL(current), page = Number(url.searchParams.get('page'));
+  if (!Number.isSafeInteger(count) || count < 0 || (expectedCount != null && count !== expectedCount)
+      || !Number.isSafeInteger(page) || page < 1 || url.searchParams.get('page_size') !== '25') throw new Error('invalid_shape');
+  const lastPage = Math.max(1, Math.ceil(count / 25));
+  if (page > lastPage || length !== Math.min(25, count - (page - 1) * 25)) throw new Error('invalid_shape');
+  if (!(data.next === null || (typeof data.next === 'string' && data.next.length > 0))) throw new Error('missing_pagination');
+  if ((page === lastPage) !== (following === null)
+      || (following !== null && (new URL(following).searchParams.getAll('page').length !== 1
+        || Number(new URL(following).searchParams.get('page')) !== page + 1))) throw new Error('pagination_stalled');
+  // Empty results need no duplicate-parent exemption. Nonempty finite
+  // pages must also prove their predecessor, including omitted default page=1.
+  if (count > 0 || Object.hasOwn(data, 'previous')) {
+    if (page === 1) {
+      if (data.previous !== null) throw new Error('missing_pagination');
+    } else {
+      if (typeof data.previous !== 'string' || !data.previous) throw new Error('missing_pagination');
+      const previous = new URL(data.previous, url);
+      if (previous.username || previous.password || previous.hash || previous.searchParams.getAll('page').length > 1) throw new Error('invalid_next');
+      if (!previous.searchParams.has('page')) previous.searchParams.set('page', '1');
+      if (!/^\d+$/.test(previous.searchParams.get('page'))
+          || Number(previous.searchParams.get('page')) !== page - 1) throw new Error('pagination_stalled');
+      // Reuse origin/path/credential/query checks, with forward direction reversed.
+      safeNext(previous, url, ['page'], ctx);
+    }
+  }
+  const proven = page === 1 || expectedCount != null;
+  // A count first seen mid-search cannot establish an unbroken chain from page 1.
+  // Do not persist it as trusted evidence for a later repeated-parent exemption.
+  return { count: proven ? count : null, proven };
+}
+
+async function pages(ctx, initial, { rows, next, options, retry = false, key = identity, diagnostic = {}, pageNumber, retainRepeatedParents = false }) {
   const result = { items: [], pages: 0, complete: false, reason: null };
-  const seen = new Set(); let cursor = initial; const cursors = new Set();
+  const seen = new Set(); let cursor = initial, contributionCount = null; const cursors = new Set();
   try {
     for (let page = 0; page < ctx.budget.pages; page++) {
       const details = { ...diagnostic, page: pageNumber ? pageNumber(cursor) : page + 1, pageKind: pageNumber ? 'numbered' : 'ordinal' };
@@ -136,12 +175,21 @@ async function pages(ctx, initial, { rows, next, options, retry = false, key = i
         const id = String(key(item));
         ids.push(id);
         if (!seen.has(id)) { seen.add(id); result.items.push(item); added++; }
+        // LD-203 parent repetition does not imply identical contribution children.
+        // Retain already-fetched payloads before checking page progress.
+        else if (retainRepeatedParents) result.items.push(item);
       }
       annotateDiagnostic(ctx, { rowCount: batch.length, newIdentityCount: added, identityHash: hash(ids.sort()) });
-      if (result.pages > 1 && batch.length && !added) { annotateDiagnostic(ctx, { branch: 'no_new_identities' }); throw new Error('pagination_stalled'); }
-      const following = next(data, cursor, batch);
+      let following, finite = { proven: false };
+      if (retainRepeatedParents) {
+        following = next(data, cursor, batch);
+        finite = contributionPosition(data, cursor, following, batch.length, contributionCount, ctx);
+        contributionCount = finite.count;
+      }
+      if (result.pages > 1 && batch.length && !added && !finite.proven) { annotateDiagnostic(ctx, { branch: 'no_new_identities' }); throw new Error('pagination_stalled'); }
+      if (!retainRepeatedParents) following = next(data, cursor, batch);
       if (following === null) { result.complete = true; return result; }
-      if (!batch.length || !added) { annotateDiagnostic(ctx, { branch: 'empty_page_with_next' }); throw new Error('pagination_stalled'); }
+      if (!batch.length || (!added && !finite.proven)) { annotateDiagnostic(ctx, { branch: 'empty_page_with_next' }); throw new Error('pagination_stalled'); }
       cursor = following;
     }
     result.reason = 'page_budget';
@@ -193,7 +241,7 @@ export async function acquireLda({ terms, range, contributions = false, ctx }) {
   const result = await searches(ctx, specs, async ({ year, term, filter }) => {
     const url = new URL(`https://lda.gov/api/v1/${contributions ? 'contributions' : 'filings'}/`);
     url.search = new URLSearchParams({ filing_year: String(year), [filter]: term, ordering: '-dt_posted', page_size: '25', page: '1' });
-    return pages(ctx, url.toString(), { rows: (d) => d.results, diagnostic: { filter, year }, pageNumber: current => Number(new URL(current).searchParams.get('page')),
+    return pages(ctx, url.toString(), { rows: (d) => d.results, retainRepeatedParents: contributions, diagnostic: { filter, year }, pageNumber: current => Number(new URL(current).searchParams.get('page')),
       next: (d, current) => { if (!Object.hasOwn(d, 'next')) throw new Error('missing_pagination'); return d.next ? safeNext(current, d.next, ['page'], ctx) : null; } });
   });
   result.coverage.dateBasis = 'filing_year (whole years); child contribution dates filtered where known';
@@ -231,6 +279,7 @@ export async function acquireFec({ terms, range, key, runtime }) {
   });
   result.coverage.scope = 'Schedule A receipts: named donors, reported employers, or explicit committee IDs. Employer affiliation is not an employer donation. PAC affiliation is not inferred from names.';
   result.coverage.cycles = fecCycles(range.startIso, range.endIso);
+  result.coverage.nextRequestAt = Math.max(ctx.lastRequest === null ? 0 : ctx.lastRequest + ctx.intervalMs, Date.parse(ctx.retryAt) || 0);
   return result;
 }
 
@@ -351,8 +400,9 @@ export async function acquireLdaPage({ terms, range, binding, cursor, runtime = 
     state = JSON.parse(Buffer.from(cursor || startLdaCursor(binding), 'base64url').toString());
     if (state.version !== 1 || state.binding !== binding || !Number.isSafeInteger(state.search) || state.search < 0 || state.search >= specs.length ||
         !Number.isSafeInteger(state.page) || state.page < 1 ||
-        !(state.previous === null || /^[a-f0-9]{64}$/.test(state.previous)) ||
-        !Number.isFinite(state.notBefore) || state.notBefore < 0) throw new Error();
+        !(state.previous === null || typeof state.previous === 'string' && /^[a-f0-9]{64}$/.test(state.previous)) ||
+        !Number.isFinite(state.notBefore) || state.notBefore < 0 ||
+        (state.contributionCount != null && (!Number.isSafeInteger(state.contributionCount) || state.contributionCount < 0))) throw new Error();
   } catch { return { invalidCursor: true }; }
   const ctx = ldaContextFor(runtime);
   if (state.notBefore) ctx.lastRequest = state.notBefore - ctx.intervalMs;
@@ -370,16 +420,22 @@ export async function acquireLdaPage({ terms, range, binding, cursor, runtime = 
     fetched = true;
     const fingerprint = hash(items.map(identity).map(String).sort());
     annotateDiagnostic(ctx, { rowCount: items.length, identityHash: fingerprint });
-    if (items.length && fingerprint === state.previous) { annotateDiagnostic(ctx, { branch: 'repeated_page_fingerprint' }); throw new Error('pagination_stalled'); }
+    let following, finite = { count: null, proven: false };
+    if (spec.source === 'ldaContributions') {
+      if (!Object.hasOwn(data, 'next')) throw new Error('missing_pagination');
+      following = data.next ? safeNext(url, data.next, ['page'], ctx) : null;
+      finite = contributionPosition(data, url, following, items.length, state.contributionCount, ctx);
+    }
+    if (items.length && fingerprint === state.previous && !finite.proven) { annotateDiagnostic(ctx, { branch: 'repeated_page_fingerprint' }); throw new Error('pagination_stalled'); }
     if (!Object.hasOwn(data, 'next')) throw new Error('missing_pagination');
     if (data.next) {
       if (!items.length) { annotateDiagnostic(ctx, { branch: 'empty_page_with_next' }); throw new Error('pagination_stalled'); }
-      const following = new URL(safeNext(url, data.next, ['page'], ctx));
-      const page = Number(following.searchParams.get('page'));
+      const nextUrl = new URL(following ?? safeNext(url, data.next, ['page'], ctx));
+      const page = Number(nextUrl.searchParams.get('page'));
       if (!Number.isSafeInteger(page)) throw new Error('invalid_next');
-      nextState = { ...state, page, previous: fingerprint };
+      nextState = { ...state, page, previous: fingerprint, contributionCount: finite.count };
     } else {
-      nextState = { ...state, search: state.search + 1, page: 1, previous: null };
+      nextState = { ...state, search: state.search + 1, page: 1, previous: null, contributionCount: null };
     }
   } catch (failure) { paginationFailure(ctx, failure); error = failure.message; }
   nextState.notBefore = Math.max(state.notBefore, ldaNextRequestAt(ctx));
@@ -394,4 +450,139 @@ export async function acquireLdaPage({ terms, range, binding, cursor, runtime = 
       filingYear: spec.year, term: spec.term, nextRequestAt: nextState.notBefore,
       cursor: complete ? null : encodeLdaCursor(nextState) }
   };
+}
+
+// FEC continuation is separate from ranked discovery. The plan and native seek
+// state are credential-free; each invocation retains the existing source budget.
+export const FEC_TRAVERSAL_ORDER = 'schedule_a:-contribution_receipt_date:sort_hide_null=false:per_page=100:v1';
+const stableFecValue = value => Array.isArray(value) ? value.map(stableFecValue)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stableFecValue(value[key])])) : value;
+export const fecObservationHash = value => hash(stableFecValue(value));
+const encodeFecCursor = state => Buffer.from(JSON.stringify(state)).toString('base64url');
+const fecGuard = () => ({ anchor: hash({}), power: 1, distance: 0 });
+export function startFecCursor(binding, notBefore = 0, retryAt = null) {
+  return encodeFecCursor({ version: 1, binding, search: 0, page: 1, indexes: {}, previous: null,
+    guard: fecGuard(), notBefore, retryAt, halted: null });
+}
+function fecPlan(terms, range) {
+  const cycles = fecCycles(range.startIso, range.endIso);
+  return searchPlan(cycles.length * terms.length * 2, index => {
+    const term = terms[Math.floor(index / 2) % terms.length];
+    const filters = /^C\d{8}$/i.test(term) ? ['contributor_id', 'committee_id'] : ['contributor_name', 'contributor_employer'];
+    return { cycle: cycles[Math.floor(index / (terms.length * 2))], term, filter: filters[index % 2] };
+  });
+}
+function nativeFecIndexes(value) {
+  const allowed = ['last_index', 'last_contribution_receipt_date', 'last_contribution_receipt_amount', 'sort_null_only'];
+  if (!value || Array.isArray(value) || typeof value !== 'object' || Object.keys(value).some(k => !allowed.includes(k))) throw new Error('invalid_cursor');
+  const index = value.last_index;
+  if (!(typeof index === 'string' && /^\d{1,128}$/.test(index)) && !(Number.isSafeInteger(index) && index >= 0)) throw new Error('invalid_cursor');
+  if (Object.hasOwn(value, 'sort_null_only') && typeof value.sort_null_only !== 'boolean') throw new Error('invalid_cursor');
+  const date = value.last_contribution_receipt_date;
+  if (date != null && typeof date === 'string' && (!Number.isFinite(Date.parse(date)) ? '' : new Date(date.slice(0, 10)).toISOString().slice(0, 10)) !== date.slice(0, 10)) throw new Error('invalid_cursor');
+  if (date !== null && date !== undefined && !(typeof date === 'string' && /^\d{4}-\d{2}-\d{2}(?:T[\d:.]+(?:Z|[+-]\d{2}:\d{2})?)?$/.test(date) && Number.isFinite(Date.parse(date)))) throw new Error('invalid_cursor');
+  if (!Object.hasOwn(value, 'last_contribution_receipt_date') && value.sort_null_only !== true) throw new Error('missing_cursor');
+  if (value.sort_null_only === true && date != null) throw new Error('invalid_cursor');
+  const amount = value.last_contribution_receipt_amount;
+  if (amount != null && (typeof amount !== 'number' || !Number.isFinite(amount))) throw new Error('invalid_cursor');
+  const result = { last_index: String(index) };
+  if (date != null) result.last_contribution_receipt_date = date;
+  if (amount != null) result.last_contribution_receipt_amount = amount;
+  if (value.sort_null_only === true || date === null) result.sort_null_only = true;
+  else if (value.sort_null_only === false) result.sort_null_only = false;
+  return result;
+}
+const fecHalts = ['pagination_stalled', 'missing_cursor', 'invalid_cursor', 'missing_pagination', 'invalid_shape'];
+function readFecCursor(cursor, binding, plan) {
+  if (typeof cursor !== 'string' || cursor.length > 4096 || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error();
+  const state = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+  const keys = ['version', 'binding', 'search', 'page', 'indexes', 'previous', 'guard', 'notBefore', 'retryAt', 'halted'];
+  if (!state || Object.keys(state).length !== keys.length || Object.keys(state).some(k => !keys.includes(k)) ||
+      state.version !== 1 || state.binding !== binding || !Number.isSafeInteger(state.search) || state.search < 0 || state.search >= plan.length ||
+      !Number.isSafeInteger(state.page) || state.page < 1 || !Number.isFinite(state.notBefore) || state.notBefore < 0 ||
+      !(state.retryAt === null || Number.isFinite(state.retryAt) && state.retryAt >= 0) ||
+      !(state.halted === null || fecHalts.includes(state.halted)) || !(state.previous === null || typeof state.previous === 'string' && /^[a-f0-9]{64}$/.test(state.previous))) throw new Error();
+  if (!state.indexes || Array.isArray(state.indexes) || typeof state.indexes !== 'object') throw new Error();
+  if (Object.keys(state.indexes).length) {
+    if (JSON.stringify(nativeFecIndexes(state.indexes)) !== JSON.stringify(state.indexes) || state.page === 1 || state.previous === null) throw new Error();
+  } else if (state.page !== 1 || state.previous !== null) throw new Error();
+  const guard = state.guard;
+  if (!guard || typeof guard.anchor !== 'string' || Object.keys(guard).sort().join(',') !== 'anchor,distance,power' || !/^[a-f0-9]{64}$/.test(guard.anchor) ||
+      !Number.isSafeInteger(guard.power) || guard.power < 1 || !Number.isSafeInteger(guard.distance) || guard.distance < 0 || guard.distance >= guard.power) throw new Error();
+  return state;
+}
+
+export async function acquireFecPages({ terms, range, binding, cursor, key, runtime }) {
+  const plan = fecPlan(terms, range);
+  let state;
+  try { state = readFecCursor(cursor ?? startFecCursor(binding), binding, plan); }
+  catch { return { invalidCursor: true }; }
+  const ctx = context(runtime, 150);
+  if (state.notBefore) ctx.lastRequest = state.notBefore - ctx.intervalMs;
+  const items = [], searched = new Set(); let pagesRead = 0, queryPages = 0, reason = null;
+  let seen = new Set(), cursors = new Set();
+  if (state.halted) reason = state.halted;
+  else if (state.retryAt !== null && state.retryAt > ctx.now()) reason = 'provider_cooldown';
+  while (!reason && state.search < plan.length) {
+    const spec = plan.at(state.search), details = { filter: spec.filter, year: spec.cycle, page: state.page, pageKind: 'ordinal' };
+    if (queryPages >= ctx.budget.pages) { reason = 'page_budget'; recordDiagnostic(ctx, details, reason); break; }
+    const currentKey = hash(state.indexes);
+    if (cursors.has(currentKey)) { reason = 'pagination_stalled'; state.halted = reason; recordDiagnostic(ctx, details, 'repeated_cursor'); break; }
+    cursors.add(currentKey);
+    const url = new URL('https://api.open.fec.gov/v1/schedules/schedule_a/');
+    url.search = new URLSearchParams({ api_key: key || 'DEMO_KEY', per_page: '100', sort: '-contribution_receipt_date',
+      min_date: range.startIso, max_date: range.endIso, two_year_transaction_period: String(spec.cycle), [spec.filter]: spec.term, sort_hide_null: 'false' });
+    for (const [name, value] of Object.entries(state.indexes)) url.searchParams.set(name, String(value));
+    try {
+      const data = await request(ctx, url, {}, true, details);
+      searched.add(state.search);
+      if (!data || !Array.isArray(data.results) || data.results.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('invalid_shape');
+      const batch = data.results; pagesRead++; queryPages++;
+      // Preserve everything fetched before any guard. Normalization removes only
+      // exact repeated identified observations, not changed versions or unidentified occurrences.
+      items.push(...batch);
+      const ids = batch.map(identity).map(String), fingerprint = hash([...ids].sort());
+      const added = [...new Set(ids)].filter(id => !seen.has(id)); ids.forEach(id => seen.add(id));
+      annotateDiagnostic(ctx, { rowCount: batch.length, newIdentityCount: added.length, identityHash: fingerprint });
+      if (batch.length && ((queryPages > 1 && !added.length) || fingerprint === state.previous)) {
+        annotateDiagnostic(ctx, { branch: 'no_new_identities' }); throw new Error('pagination_stalled');
+      }
+      if (!data.pagination || typeof data.pagination !== 'object' || Array.isArray(data.pagination)) throw new Error('missing_pagination');
+      if (!batch.length) {
+        state = { ...state, search: state.search + 1, page: 1, indexes: {}, previous: null, guard: fecGuard() };
+        queryPages = 0; seen = new Set(); cursors = new Set();
+        continue;
+      }
+      if (data.pagination.last_indexes?.last_index == null) throw new Error('missing_cursor');
+      const next = nativeFecIndexes(data.pagination.last_indexes), nextKey = hash(next);
+      if (nextKey === currentKey || cursors.has(nextKey) || nextKey === state.guard.anchor) {
+        annotateDiagnostic(ctx, { branch: nextKey === currentKey ? 'nonadvancing_native_cursor' : 'repeated_cursor' });
+        throw new Error('pagination_stalled');
+      }
+      // Brent's constant-space cycle detector survives serialization without an
+      // ever-growing history/total-page cap. Within-call cursor/identity guards
+      // remain exact; longer cross-call cycles can require another bounded batch.
+      const guard = { ...state.guard, distance: state.guard.distance + 1 };
+      if (guard.distance === guard.power) { guard.anchor = nextKey; guard.power = Math.min(Number.MAX_SAFE_INTEGER, guard.power * 2); guard.distance = 0; }
+      state = { ...state, indexes: next, page: state.page + 1, previous: fingerprint, guard, retryAt: null };
+    } catch (error) {
+      paginationFailure(ctx, error); reason = error.message;
+      if (fecHalts.includes(reason)) state.halted = reason;
+      // Keep the input seek state on failure so the exact unfinished page is
+      // replayed. Returned rows may repeat; callers must deduplicate observations.
+    }
+  }
+  const complete = state.search === plan.length;
+  state.notBefore = Math.max(state.notBefore, ctx.lastRequest === null ? 0 : ctx.lastRequest + ctx.intervalMs, Date.parse(ctx.retryAt) || 0);
+  state.retryAt = Date.parse(ctx.retryAt) || (state.retryAt > ctx.now() ? state.retryAt : null);
+  const error = reason && !['page_budget', 'request_budget', 'deadline', 'provider_cooldown'].includes(reason) ? reason : null;
+  const blocked = Boolean(state.halted || ctx.blocked || reason === 'provider_cooldown');
+  return { items, error, retryAfterSeconds: state.retryAt ? Math.max(0, Math.ceil((state.retryAt - ctx.now()) / 1000)) : ctx.retryAfterSeconds,
+    retryAt: state.retryAt ? new Date(state.retryAt).toISOString() : null,
+    coverage: { status: complete ? 'complete_for_queries' : (pagesRead || !error ? 'partial' : 'unavailable'), complete,
+      reasons: reason ? [reason] : [], pages: pagesRead, requests: ctx.requests, searchesPlanned: plan.length, searchesRun: searched.size,
+      scope: 'Bounded Schedule A traversal batch; frozen cycle/filter plan. Completion is query exhaustion, not a snapshot, reconciliation or historical recovery.',
+      cycles: fecCycles(range.startIso, range.endIso), diagnostics: diagnosticSnapshot(ctx) },
+    traversal: { complete, blocked, requiresRestart: Boolean(state.halted), searchesPlanned: plan.length, searchesCompleted: state.search,
+      page: state.page, nextRequestAt: state.notBefore, cursor: complete ? null : encodeFecCursor(state) } };
 }

@@ -55,9 +55,10 @@ jobs:
           CANDIDATE_ONLY: ${{ inputs.candidate_only }}
         run: |
           set -euo pipefail
-          [[ "$CANDIDATE_ONLY" = true || "$CANDIDATE_ONLY" = false ]]
+          # Bash 3.2 does not apply errexit to a failing bare [[ ... ]] check.
+          [[ "$CANDIDATE_ONLY" = true || "$CANDIDATE_ONLY" = false ]] || exit 1
           test "$ACTUAL_REF" = refs/heads/main
-          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
           test "$EXPECTED_SHA" = "$ACTUAL_SHA"
           test "$(git rev-parse HEAD)" = "$ACTUAL_SHA"
           if [ "$SYNC_SECRET_VERSIONS" != false ]; then
