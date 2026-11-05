@@ -117,9 +117,44 @@ function safeNext(current, next, mutable = ['page'], ctx) {
   return after.toString();
 }
 
+// LD-203 can paginate joined rows whose filing/child payloads are identical.
+// Only a stable finite count and exact page position may replace identity progress.
+// Missing-count legacy responses keep their existing duplicate guards.
+function contributionPosition(data, current, following, length, expectedCount, ctx) {
+  if (!Object.hasOwn(data, 'count')) {
+    if (expectedCount != null) throw new Error('missing_pagination');
+    return { count: null, proven: false };
+  }
+  const count = data.count, url = new URL(current), page = Number(url.searchParams.get('page'));
+  if (!Number.isSafeInteger(count) || count < 0 || (expectedCount != null && count !== expectedCount)
+      || !Number.isSafeInteger(page) || page < 1 || url.searchParams.get('page_size') !== '25') throw new Error('invalid_shape');
+  const lastPage = Math.max(1, Math.ceil(count / 25));
+  if (page > lastPage || length !== Math.min(25, count - (page - 1) * 25)) throw new Error('invalid_shape');
+  if (!(data.next === null || (typeof data.next === 'string' && data.next.length > 0))) throw new Error('missing_pagination');
+  if ((page === lastPage) !== (following === null)
+      || (following !== null && (new URL(following).searchParams.getAll('page').length !== 1
+        || Number(new URL(following).searchParams.get('page')) !== page + 1))) throw new Error('pagination_stalled');
+  // Empty results need no duplicate-parent exemption. Nonempty finite
+  // pages must also prove their predecessor, including omitted default page=1.
+  if (count > 0 || Object.hasOwn(data, 'previous')) {
+    if (page === 1) {
+      if (data.previous !== null) throw new Error('missing_pagination');
+    } else {
+      if (typeof data.previous !== 'string' || !data.previous) throw new Error('missing_pagination');
+      const previous = new URL(data.previous, url);
+      if (previous.username || previous.password || previous.hash || previous.searchParams.getAll('page').length > 1) throw new Error('invalid_next');
+      if (!previous.searchParams.has('page')) previous.searchParams.set('page', '1');
+      if (Number(previous.searchParams.get('page')) !== page - 1) throw new Error('pagination_stalled');
+      // Reuse origin/path/credential/query checks, with forward direction reversed.
+      safeNext(previous, url, ['page'], ctx);
+    }
+  }
+  return { count, proven: page === 1 || expectedCount != null };
+}
+
 async function pages(ctx, initial, { rows, next, options, retry = false, key = identity, diagnostic = {}, pageNumber, retainRepeatedParents = false }) {
   const result = { items: [], pages: 0, complete: false, reason: null };
-  const seen = new Set(); let cursor = initial; const cursors = new Set();
+  const seen = new Set(); let cursor = initial, contributionCount = null; const cursors = new Set();
   try {
     for (let page = 0; page < ctx.budget.pages; page++) {
       const details = { ...diagnostic, page: pageNumber ? pageNumber(cursor) : page + 1, pageKind: pageNumber ? 'numbered' : 'ordinal' };
@@ -137,14 +172,20 @@ async function pages(ctx, initial, { rows, next, options, retry = false, key = i
         ids.push(id);
         if (!seen.has(id)) { seen.add(id); result.items.push(item); added++; }
         // LD-203 parent repetition does not imply identical contribution children.
-        // Retain already-fetched payloads while keeping parent-based progress guards.
+        // Retain already-fetched payloads before checking page progress.
         else if (retainRepeatedParents) result.items.push(item);
       }
       annotateDiagnostic(ctx, { rowCount: batch.length, newIdentityCount: added, identityHash: hash(ids.sort()) });
-      if (result.pages > 1 && batch.length && !added) { annotateDiagnostic(ctx, { branch: 'no_new_identities' }); throw new Error('pagination_stalled'); }
-      const following = next(data, cursor, batch);
+      let following, finite = { proven: false };
+      if (retainRepeatedParents) {
+        following = next(data, cursor, batch);
+        finite = contributionPosition(data, cursor, following, batch.length, contributionCount, ctx);
+        contributionCount = finite.count;
+      }
+      if (result.pages > 1 && batch.length && !added && !finite.proven) { annotateDiagnostic(ctx, { branch: 'no_new_identities' }); throw new Error('pagination_stalled'); }
+      if (!retainRepeatedParents) following = next(data, cursor, batch);
       if (following === null) { result.complete = true; return result; }
-      if (!batch.length || !added) { annotateDiagnostic(ctx, { branch: 'empty_page_with_next' }); throw new Error('pagination_stalled'); }
+      if (!batch.length || (!added && !finite.proven)) { annotateDiagnostic(ctx, { branch: 'empty_page_with_next' }); throw new Error('pagination_stalled'); }
       cursor = following;
     }
     result.reason = 'page_budget';
@@ -356,7 +397,8 @@ export async function acquireLdaPage({ terms, range, binding, cursor, runtime = 
     if (state.version !== 1 || state.binding !== binding || !Number.isSafeInteger(state.search) || state.search < 0 || state.search >= specs.length ||
         !Number.isSafeInteger(state.page) || state.page < 1 ||
         !(state.previous === null || typeof state.previous === 'string' && /^[a-f0-9]{64}$/.test(state.previous)) ||
-        !Number.isFinite(state.notBefore) || state.notBefore < 0) throw new Error();
+        !Number.isFinite(state.notBefore) || state.notBefore < 0 ||
+        (state.contributionCount != null && (!Number.isSafeInteger(state.contributionCount) || state.contributionCount < 0))) throw new Error();
   } catch { return { invalidCursor: true }; }
   const ctx = ldaContextFor(runtime);
   if (state.notBefore) ctx.lastRequest = state.notBefore - ctx.intervalMs;
@@ -374,16 +416,22 @@ export async function acquireLdaPage({ terms, range, binding, cursor, runtime = 
     fetched = true;
     const fingerprint = hash(items.map(identity).map(String).sort());
     annotateDiagnostic(ctx, { rowCount: items.length, identityHash: fingerprint });
-    if (items.length && fingerprint === state.previous) { annotateDiagnostic(ctx, { branch: 'repeated_page_fingerprint' }); throw new Error('pagination_stalled'); }
+    let following, finite = { count: null, proven: false };
+    if (spec.source === 'ldaContributions') {
+      if (!Object.hasOwn(data, 'next')) throw new Error('missing_pagination');
+      following = data.next ? safeNext(url, data.next, ['page'], ctx) : null;
+      finite = contributionPosition(data, url, following, items.length, state.contributionCount, ctx);
+    }
+    if (items.length && fingerprint === state.previous && !finite.proven) { annotateDiagnostic(ctx, { branch: 'repeated_page_fingerprint' }); throw new Error('pagination_stalled'); }
     if (!Object.hasOwn(data, 'next')) throw new Error('missing_pagination');
     if (data.next) {
       if (!items.length) { annotateDiagnostic(ctx, { branch: 'empty_page_with_next' }); throw new Error('pagination_stalled'); }
-      const following = new URL(safeNext(url, data.next, ['page'], ctx));
-      const page = Number(following.searchParams.get('page'));
+      const nextUrl = new URL(following ?? safeNext(url, data.next, ['page'], ctx));
+      const page = Number(nextUrl.searchParams.get('page'));
       if (!Number.isSafeInteger(page)) throw new Error('invalid_next');
-      nextState = { ...state, page, previous: fingerprint };
+      nextState = { ...state, page, previous: fingerprint, contributionCount: finite.count };
     } else {
-      nextState = { ...state, search: state.search + 1, page: 1, previous: null };
+      nextState = { ...state, search: state.search + 1, page: 1, previous: null, contributionCount: null };
     }
   } catch (failure) { paginationFailure(ctx, failure); error = failure.message; }
   nextState.notBefore = Math.max(state.notBefore, ldaNextRequestAt(ctx));
