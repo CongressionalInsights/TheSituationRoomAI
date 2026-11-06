@@ -397,8 +397,8 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS) {
-  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: true });
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS, { includeHttpFallback = true } = {}) {
+  const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback });
   let lastResponse = null;
   let lastError = null;
   for (const candidate of candidates) {
@@ -769,7 +769,9 @@ async function buildFeedPayload(feed) {
       body = rssResult.body;
       rssValid = rssResult.valid;
     } else {
-      response = await fetchWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
+      response = await fetchWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS, {
+        includeHttpFallback: feed.id !== 'nasa-firms'
+      });
       contentType = response.headers.get('content-type') || 'text/plain';
       body = await response.text();
     }
@@ -897,7 +899,9 @@ async function buildFeedPayload(feed) {
     const fallbackApplied = applyKey(fallbackUrl, feed, key);
     if (fallbackApplied.url !== applied.url) {
       try {
-        const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
+        const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS, {
+          includeHttpFallback: false
+        });
         const fallbackBody = await fallbackResponse.text();
         if (fallbackResponse.ok && fallbackBody) {
           const items = buildNasaFirmsItems(parseNasaFirmsRows(fallbackBody, fallbackResponse.headers.get('content-type')));

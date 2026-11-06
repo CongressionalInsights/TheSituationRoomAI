@@ -693,13 +693,15 @@ test('NASA FIRMS documented NOAA20 CSV preserves acquisition fields without inve
   }
 });
 
-test('static FIRMS skips the identical NOAA20 retry but retains a distinct legacy fallback', async () => {
+test('static FIRMS skips identical NOAA20 and plaintext retries but retains a distinct HTTPS legacy fallback', async () => {
   const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
   const source = fs.readFileSync(path.join(root, 'scripts/build_static_cache.mjs'), 'utf8');
   const declarations = [
     'function buildUrl(', 'function getUrlTemplateParamNames(', 'function getRuntimeOnlyParamNames(',
     'function applyCongressCommitteeDateWindow(', 'function applyUrlParams(', 'function applyKey(',
-    'function buildStaticRequestParams(', 'function buildNasaFirmsItems(', 'async function buildFeedPayload('
+    'function buildStaticRequestParams(', 'function buildNasaFirmsItems(', 'function applyProxy(',
+    'function buildFetchCandidates(', 'async function fetchWithTimeout(',
+    'async function fetchWithFallbacks(', 'async function buildFeedPayload('
   ];
   const code = declarations.map(declaration => {
     const start = source.indexOf(declaration);
@@ -708,31 +710,36 @@ test('static FIRMS skips the identical NOAA20 retry but retains a distinct legac
   }).join('\n');
   const csv = fs.readFileSync(path.join(root, 'scripts/test/fixtures/firms/noaa20-documentation.csv'), 'utf8');
   const header = csv.split('\n')[0];
-  for (const [product, body, status, error] of [
+  for (const [product, body, status, error, fallbackStatus = 200] of [
     ['VIIRS_NOAA20_NRT', 'unavailable', 503, 'http_503'],
+    ['VIIRS_NOAA20_NRT', 'denied', 401, 'http_401'],
+    ['VIIRS_NOAA20_NRT', 'forbidden', 403, 'http_403'],
+    ['VIIRS_NOAA20_NRT', 'rate limited', 429, 'http_429'],
     ['VIIRS_NOAA20_NRT', 'Invalid MAP_KEY', 200, 'invalid_response'],
     ['VIIRS_NOAA20_NRT', header, 200, 'empty_payload'],
     ['VIIRS_NOAA20_NRT', csv, 200, undefined],
-    ['VIIRS_SNPP_NRT', 'unavailable', 503, undefined]
+    ['VIIRS_SNPP_NRT', 'unavailable', 503, undefined],
+    ['VIIRS_SNPP_NRT', 'unavailable', 503, 'http_503', 503],
+    ['VIIRS_SNPP_NRT', 'unavailable', 503, 'http_503', 403]
   ]) {
     const feed = { id: 'nasa-firms', format: 'json', requiresKey: true,
       url: `https://fixture.invalid/api/area/csv/{{key}}/${product}/world/1` };
     const calls = [];
     const context = {
-      URL, Date, normalizeNasaFirmsItems, parseNasaFirmsRows,
+      URL, Date, AbortController, setTimeout, clearTimeout, normalizeNasaFirmsItems, parseNasaFirmsRows,
       SEEDED_JSON_FALLBACK_IDS: new Set(['nasa-firms']), seededFeedFallbacks: new Map(),
       appConfig: { userAgent: 'fixture' }, TIMEOUT_MS: 100,
       isEiaFeed: () => false, isJsonHtmlError: () => false,
       resolveServerKey: () => 'fixture-key',
       buildArcgisFireFallback: async () => null, fetchLiveFallback: async () => null,
-      fetchWithFallbacks: async url => {
+      fetch: async url => {
         calls.push(url);
         if (calls.length === 1) {
           assert.equal(url, feed.url.replace('{{key}}', 'fixture-key'));
           return new Response(body, { status, headers: { 'content-type': 'text/csv' } });
         }
         assert.equal(url, 'https://fixture.invalid/api/area/csv/fixture-key/VIIRS_NOAA20_NRT/world/1');
-        return new Response(csv, { headers: { 'content-type': 'text/csv' } });
+        return new Response(csv, { status: fallbackStatus, headers: { 'content-type': 'text/csv' } });
       }
     };
     vm.runInNewContext(code + '\nthis.build = buildFeedPayload;', context);
@@ -744,6 +751,42 @@ test('static FIRMS skips the identical NOAA20 retry but retains a distinct legac
       assert.equal(JSON.parse(result.body).items.length, 2);
     }
   }
+});
+
+test('static FIRMS HTTPS opt-out retains transport failures while other feeds keep their HTTP retry', async () => {
+  const source = fs.readFileSync(path.join(root, 'scripts/build_static_cache.mjs'), 'utf8');
+  const declarations = [
+    'function applyProxy(', 'function buildFetchCandidates(',
+    'async function fetchWithTimeout(', 'async function fetchWithFallbacks('
+  ];
+  const code = declarations.map(declaration => {
+    const start = source.indexOf(declaration);
+    assert.ok(start >= 0, declaration);
+    return source.slice(start, source.indexOf('\n}', start) + 2);
+  }).join('\n');
+  const calls = [];
+  let throws = false;
+  const context = {
+    AbortController, setTimeout, clearTimeout, TIMEOUT_MS: 100,
+    fetch: async url => {
+      calls.push(url);
+      if (throws) throw new Error('fixture_transport_failure');
+      return new Response('fixture', { status: url.startsWith('https:') ? 503 : 200 });
+    }
+  };
+  vm.runInNewContext(code + '\nthis.transport = fetchWithFallbacks;', context);
+  const keyed = 'https://fixture.invalid/api/area/csv/fake-key/VIIRS_NOAA20_NRT/world/1';
+  assert.equal((await context.transport(keyed, {}, [], 100, { includeHttpFallback: false })).status, 503);
+  assert.deepEqual(calls, [keyed]);
+  calls.length = 0;
+  throws = true;
+  await assert.rejects(context.transport(keyed, {}, [], 100, { includeHttpFallback: false }), /fixture_transport_failure/);
+  assert.deepEqual(calls, [keyed]);
+  calls.length = 0;
+  throws = false;
+  const publicUrl = 'https://fixture.invalid/public';
+  assert.equal((await context.transport(publicUrl, {})).status, 200);
+  assert.deepEqual(calls, [publicUrl, 'http://fixture.invalid/public']);
 });
 
 test('NASA FIRMS CSV adapters validate dates, times, numeric coordinates and the 200-item bound', async () => {
