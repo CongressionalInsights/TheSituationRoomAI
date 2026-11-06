@@ -3,6 +3,7 @@ import { dirname, join } from 'path';
 import { redactCredentialFields, sanitizeEiaBody } from '../analysis/monitor/lib/public_payload_safety.mjs';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
 import { getBlsApiError, sanitizeBlsBody } from '../gcp/feed-proxy/bls.js';
+import { generateBriefing } from '../gcp/openai-proxy/briefing.js';
 
 const ROOT = process.cwd();
 const FEEDS_PATH = join(ROOT, 'data', 'feeds.json');
@@ -369,45 +370,18 @@ async function buildAnalysis(feedPayloads) {
       : 'No signals available for briefing.'
   };
 
-  const openaiKey = process.env.OPEN_AI || process.env.OPENAI_API_KEY;
-  if (!openaiKey || uniqueTitles.length < 4) {
-    return fallback;
-  }
-
   const prompt = `Provide a concise situational briefing based on these headlines. Return 3 bullet sections with short labels.\n\nHeadlines:\n${uniqueTitles.map((title) => `- ${title}`).join('\n')}`;
-  try {
-    const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        input: [
-          { role: 'system', content: 'You are an intelligence analyst. Produce a concise situational briefing with labeled bullet sections.' },
-          { role: 'user', content: prompt }
-        ],
-        max_output_tokens: 320
-      })
-    }, 20000);
-    if (!response.ok) {
-      return fallback;
-    }
-    const data = await response.json();
-    const outputText = data?.output_text
-      || (Array.isArray(data?.output)
-        ? data.output.map((item) => (item.content || []).map((c) => c.text || '').join('')).join('\n')
-        : '');
-    if (!outputText) return fallback;
-    return {
-      generatedAt,
-      source: 'openai',
-      text: outputText.trim()
-    };
-  } catch {
-    return fallback;
-  }
+  const result = await generateBriefing({
+    apiKey: process.env.OPEN_AI || process.env.OPENAI_API_KEY,
+    model: process.env.SR_BRIEFING_MODEL,
+    skipReason: uniqueTitles.length < 4 ? 'insufficient_headlines' : null,
+    input: [
+      { role: 'system', content: 'You are an intelligence analyst. Produce a concise situational briefing with labeled bullet sections.' },
+      { role: 'user', content: prompt }
+    ]
+  });
+  if (!result.text) return { ...fallback, briefing: result.provenance };
+  return { generatedAt, source: 'openai', text: result.text, briefing: result.provenance };
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {

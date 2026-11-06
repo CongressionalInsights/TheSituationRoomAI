@@ -4221,7 +4221,6 @@ test('proxy deploy workflows preserve an unchanged Secret Manager version', () =
     'deploy-acled-proxy.yml',
     'deploy-feed-proxy.yml',
     'deploy-mcp-proxy.yml',
-    'deploy-openai-proxy.yml',
     'deploy-opensky-proxy.yml'
   ];
 
@@ -4236,6 +4235,12 @@ test('proxy deploy workflows preserve an unchanged Secret Manager version', () =
     assert.match(workflow, /printf '%s' .* \| gcloud secrets versions add .* --data-file=-/, workflowName);
     assert.doesNotMatch(workflow, /echo -n .* \| gcloud secrets versions add/, workflowName);
   }
+  const openai = fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'deploy-openai-proxy.yml'), 'utf8');
+  assert.match(openai, /gcloud secrets describe openai-api-key --project "\$PROJECT_ID"/);
+  assert.match(openai, /gcloud secrets versions describe latest --secret openai-api-key --project "\$PROJECT_ID"/);
+  assert.match(openai, /--set-secrets OPENAI_API_KEY=openai-api-key:latest/);
+  assert.doesNotMatch(openai, /gcloud secrets (?:create|versions (?:access|add|enable|disable|destroy))/);
+  assert.doesNotMatch(openai, /secrets\.OPEN_AI|cmp -s/);
 });
 
 test('pages deploy workflow validates required static build secrets', () => {

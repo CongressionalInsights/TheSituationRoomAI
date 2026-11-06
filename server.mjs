@@ -8,6 +8,7 @@ import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_ST
 import { normalizeNasaFirmsItems, parseNasaFirmsRows } from './scripts/firms-csv.js';
 import { inspectBlsPayload, sanitizeBlsBody, isDefaultBlsRequest } from './gcp/feed-proxy/bls.js';
 import { fetchBlsMcp } from './gcp/feed-proxy/bls-mcp.js';
+import { generateBriefing } from './gcp/openai-proxy/briefing.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -487,6 +488,17 @@ async function handleChat(payload, apiKey) {
   }
 
   input.push(...messages);
+
+  if (payload.purpose === 'briefing') {
+    const result = await generateBriefing({ apiKey, input, model: process.env.SR_BRIEFING_MODEL, temperature });
+    console.log(JSON.stringify({ severity: result.text ? 'INFO' : 'WARNING', message: 'briefing-result', ...result.provenance }));
+    return {
+      status: result.text ? 200 : 502,
+      body: result.text
+        ? { id: result.provenance.responseId, model: result.provenance.servedModel, text: result.text, briefing: result.provenance }
+        : { error: 'briefing_unavailable', message: 'AI briefing unavailable.', briefing: result.provenance }
+    };
+  }
 
   const response = await fetch(OPENAI_URL, {
     method: 'POST',

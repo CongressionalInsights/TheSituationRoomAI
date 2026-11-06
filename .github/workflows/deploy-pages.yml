@@ -11,6 +11,7 @@ on:
       - README.md
       - public/config.js
       - scripts/build_static_cache.mjs
+      - gcp/openai-proxy/briefing.js
   schedule:
     - cron: '0 * * * *'
 
@@ -49,6 +50,7 @@ jobs:
           OPENSTATES: ${{ secrets.OPENSTATES }}
           OPEN_AQ: ${{ secrets.OPEN_AQ }}
           OPEN_AI: ${{ secrets.OPEN_AI }}
+          SR_BRIEFING_MODEL: ${{ vars.SR_BRIEFING_MODEL || 'gpt-6.1-terra' }}
           OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
           OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
         run: node scripts/build_static_cache.mjs
