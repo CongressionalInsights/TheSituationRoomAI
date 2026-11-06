@@ -384,6 +384,16 @@ async function buildAnalysis(feedPayloads) {
   return { generatedAt, source: 'openai', text: result.text, briefing: result.provenance };
 }
 
+function assertTrustedFirmsUrl(url) {
+  let target;
+  try { target = new URL(url); } catch {}
+  if (!target || target.origin !== 'https://firms.modaps.eosdis.nasa.gov'
+    || !target.pathname.startsWith('/api/area/')
+    || target.username || target.password || target.hash) {
+    throw new Error('invalid_firms_source_url');
+  }
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
   const hasOptions = options && typeof options === 'object' && ('headers' in options || 'method' in options || 'body' in options);
   const fetchOptions = hasOptions ? { ...options } : { headers: options };
@@ -397,13 +407,13 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS, { includeHttpFallback = true } = {}) {
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS, { includeHttpFallback = true, redirect = null } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback });
   let lastResponse = null;
   let lastError = null;
   for (const candidate of candidates) {
     try {
-      const response = await fetchWithTimeout(candidate, headers, timeoutMs);
+      const response = await fetchWithTimeout(candidate, redirect ? { headers, redirect } : headers, timeoutMs);
       if (response.ok) return response;
       lastResponse = response;
     } catch (err) {
@@ -769,8 +779,10 @@ async function buildFeedPayload(feed) {
       body = rssResult.body;
       rssValid = rssResult.valid;
     } else {
-      response = await fetchWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS, {
-        includeHttpFallback: feed.id !== 'nasa-firms'
+      if (feed.id === 'nasa-firms') assertTrustedFirmsUrl(applied.url);
+      response = await fetchWithFallbacks(applied.url, headers, feed.id === 'nasa-firms' ? [] : proxyList, feed.timeoutMs || TIMEOUT_MS, {
+        includeHttpFallback: feed.id !== 'nasa-firms',
+        ...(feed.id === 'nasa-firms' ? { redirect: 'error' } : {})
       });
       contentType = response.headers.get('content-type') || 'text/plain';
       body = await response.text();
@@ -778,6 +790,9 @@ async function buildFeedPayload(feed) {
   } catch (error) {
     const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
     if (fallback) return fallback;
+    if (feed.id === 'nasa-firms') {
+      throw new Error(error.message === 'invalid_firms_source_url' ? 'invalid_firms_source_url' : 'fetch_failed');
+    }
     throw error;
   }
   let payload = {
@@ -899,8 +914,10 @@ async function buildFeedPayload(feed) {
     const fallbackApplied = applyKey(fallbackUrl, feed, key);
     if (fallbackApplied.url !== applied.url) {
       try {
-        const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS, {
-          includeHttpFallback: false
+        assertTrustedFirmsUrl(fallbackApplied.url);
+        const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, [], feed.timeoutMs || TIMEOUT_MS, {
+          includeHttpFallback: false,
+          redirect: 'error'
         });
         const fallbackBody = await fallbackResponse.text();
         if (fallbackResponse.ok && fallbackBody) {

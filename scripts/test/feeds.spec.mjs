@@ -145,7 +145,7 @@ function openAqRpc(id, overrides = {}) {
 function openAqFeedFixture(overrides = {}) {
   const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
   const code = [
-    'function applyKey(', 'function buildFetchCandidates(',
+    'function applyKey(', 'function buildFetchCandidates(', 'function assertTrustedFirmsUrl(',
     'async function fetchWithFallbacks(', 'async function fetchFeed('
   ].map(declaration => {
     const start = source.indexOf(declaration);
@@ -676,6 +676,101 @@ test('NASA FIRMS uses the documented CSV route while preserving the public JSON 
   }
 });
 
+test('NASA FIRMS trusted HTTPS area guard is aligned across all credentialed callers', () => {
+  const files = ['server.mjs', 'scripts/build_static_cache.mjs', 'gcp/feed-proxy/server.js', 'gcp/mcp-proxy/server.js'];
+  let expected;
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    const start = source.indexOf('function assertTrustedFirmsUrl(');
+    assert.ok(start >= 0, file);
+    const code = source.slice(start, source.indexOf('\n}', start) + 2);
+    if (expected) assert.equal(code, expected, file);
+    expected = code;
+    const context = { URL };
+    vm.runInNewContext(code + '\nthis.check = assertTrustedFirmsUrl;', context);
+    const good = 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/fake-key/VIIRS_NOAA20_NRT/world/1';
+    assert.doesNotThrow(() => context.check(good));
+    for (const bad of [
+      good.replace('https:', 'http:'), good.replace('nasa.gov', 'nasa.gov.relay.invalid'),
+      good.replace('https://', 'https://user@'), good + '#private',
+      good.replace('/api/area/', '/other/'), 'not-a-url-fake-key'
+    ]) assert.throws(() => context.check(bad), { message: 'invalid_firms_source_url' });
+  }
+});
+
+test('NASA FIRMS Feed and local callers keep the final fake-key attempt list direct HTTPS only', async () => {
+  const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
+  const csv = fs.readFileSync(path.join(root, 'scripts/test/fixtures/firms/noaa20-documentation.csv'), 'utf8');
+  for (const file of ['gcp/feed-proxy/server.js', 'server.mjs']) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    const declarations = [
+      'function buildUrl(', 'function applyKey(', 'function applyProxy(', 'function assertTrustedFirmsUrl(',
+      'function getUrlTemplateParamNames(', 'function getRuntimeOnlyParamNames(',
+      'function applyUrlParams(', 'function applyCongressCommitteeDateWindow(',
+      'function buildNasaFirmsItems(', 'async function fetchWithTimeout(',
+      'async function fetchWithFallbacks(', 'async function fetchFeed('
+    ];
+    if (file.startsWith('gcp/')) declarations.push('function buildFetchCandidates(');
+    const code = declarations.map(declaration => {
+      const start = source.indexOf(declaration);
+      assert.ok(start >= 0, `${file}: ${declaration}`);
+      return source.slice(start, source.indexOf('\n}', start) + 2);
+    }).join('\n');
+    const feed = { id: 'nasa-firms', format: 'json', requiresKey: true, keySource: 'server',
+      url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_NOAA20_NRT/world/1',
+      proxy: ['allorigins', 'jina'] };
+    const requests = [];
+    let scenario;
+    const context = {
+      URL, Date, AbortController, setTimeout, clearTimeout, FETCH_TIMEOUT_MS: 100,
+      cache: new Map(), appConfig: { userAgent: 'fixture', defaultRefreshMinutes: 60 },
+      normalizeNasaFirmsItems, parseNasaFirmsRows, buildFirmsPrimaryFailureDiagnostic,
+      mergeFeedParams, sanitizeParamsObject, serializeParams: value => JSON.stringify(value),
+      resolveServerKey: () => 'fake-firms-key', isEiaFeed: () => false,
+      isStateConnectorFeed: () => false, isStateLegislationScopedRequest: () => false,
+      isStateLegislationAllStatesRequest: () => false, isDefaultOpenAqRequest: () => false,
+      isDefaultBlsRequest: () => false, isJsonHtmlError: () => false,
+      canUseLiveFeedFallback: () => false, isUsableStaleFeedPayload: () => false,
+      loadLocalFeed: () => null, buildArcgisFireFallback: async () => null,
+      console: { warn: () => {} },
+      fetch: async (url, options) => {
+        requests.push({ url, redirect: options.redirect });
+        if (scenario === 'throw' || scenario === 'redirect') throw new TypeError('fake-key transport failure');
+        return new Response(scenario === 200 ? csv : 'unavailable', {
+          status: scenario, headers: { 'content-type': 'text/csv' }
+        });
+      }
+    };
+    vm.runInNewContext(code + '\nthis.run = fetchFeed;', context);
+    for (scenario of [200, 401, 403, 429, 503, 'throw', 'redirect']) {
+      requests.length = 0;
+      let result;
+      let failure;
+      try { result = await context.run(feed, { key: 'fake-firms-key', force: true }); } catch (error) { failure = error; }
+      assert.deepEqual(requests, [{ url: feed.url.replace('{{key}}', 'fake-firms-key'), redirect: 'error' }], `${file}: ${scenario}`);
+      if (scenario === 200) assert.equal(JSON.parse(result.body).items.length, 2);
+      else assert.ok(failure || result.error, `${file}: failed acquisition cannot become success`);
+      assert.equal(JSON.stringify(result || {}).includes('fake-firms-key'), false);
+    }
+    for (const bad of ['http://firms.modaps.eosdis.nasa.gov', 'https://relay.invalid']) {
+      requests.length = 0;
+      let result;
+      let failure;
+      try { result = await context.run({ ...feed, url: feed.url.replace('https://firms.modaps.eosdis.nasa.gov', bad) }, { key: 'fake-firms-key', force: true }); } catch (error) { failure = error; }
+      assert.deepEqual(requests, []);
+      assert.ok(failure || result.error);
+    }
+    requests.length = 0;
+    context.fetch = async (url, options) => {
+      requests.push({ url, redirect: options.redirect });
+      return new Response('{}', { status: url.startsWith('https:') ? 503 : 200, headers: { 'content-type': 'application/json' } });
+    };
+    const control = await context.run({ ...feed, id: 'public-json-fixture', requiresKey: false, proxy: [], url: 'https://fixture.invalid/public' }, { force: true });
+    assert.equal(control.httpStatus, 200);
+    assert.deepEqual(requests, [{ url: 'https://fixture.invalid/public', redirect: undefined }, { url: 'http://fixture.invalid/public', redirect: undefined }]);
+  }
+});
+
 test('NASA FIRMS documented NOAA20 CSV preserves acquisition fields without inventing satellite provenance', async () => {
   // Historical rows from the official FIRMS API tutorial, not a live acquisition.
   const csv = fs.readFileSync(path.join(root, 'scripts/test/fixtures/firms/noaa20-documentation.csv'), 'utf8');
@@ -700,7 +795,7 @@ test('static FIRMS skips identical NOAA20 and plaintext retries but retains a di
     'function buildUrl(', 'function getUrlTemplateParamNames(', 'function getRuntimeOnlyParamNames(',
     'function applyCongressCommitteeDateWindow(', 'function applyUrlParams(', 'function applyKey(',
     'function buildStaticRequestParams(', 'function buildNasaFirmsItems(', 'function applyProxy(',
-    'function buildFetchCandidates(', 'async function fetchWithTimeout(',
+    'function buildFetchCandidates(', 'function assertTrustedFirmsUrl(', 'async function fetchWithTimeout(',
     'async function fetchWithFallbacks(', 'async function buildFeedPayload('
   ];
   const code = declarations.map(declaration => {
@@ -723,7 +818,8 @@ test('static FIRMS skips identical NOAA20 and plaintext retries but retains a di
     ['VIIRS_SNPP_NRT', 'unavailable', 503, 'http_503', 403]
   ]) {
     const feed = { id: 'nasa-firms', format: 'json', requiresKey: true,
-      url: `https://fixture.invalid/api/area/csv/{{key}}/${product}/world/1` };
+      url: `https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/${product}/world/1`,
+      proxy: ['allorigins', 'jina'] };
     const calls = [];
     const context = {
       URL, Date, AbortController, setTimeout, clearTimeout, normalizeNasaFirmsItems, parseNasaFirmsRows,
@@ -732,13 +828,12 @@ test('static FIRMS skips identical NOAA20 and plaintext retries but retains a di
       isEiaFeed: () => false, isJsonHtmlError: () => false,
       resolveServerKey: () => 'fixture-key',
       buildArcgisFireFallback: async () => null, fetchLiveFallback: async () => null,
-      fetch: async url => {
-        calls.push(url);
+      loadBestFallbackPayload: async () => null,
+      fetch: async (url, options) => {
+        calls.push({ url, redirect: options.redirect });
         if (calls.length === 1) {
-          assert.equal(url, feed.url.replace('{{key}}', 'fixture-key'));
           return new Response(body, { status, headers: { 'content-type': 'text/csv' } });
         }
-        assert.equal(url, 'https://fixture.invalid/api/area/csv/fixture-key/VIIRS_NOAA20_NRT/world/1');
         return new Response(csv, { status: fallbackStatus, headers: { 'content-type': 'text/csv' } });
       }
     };
@@ -746,9 +841,27 @@ test('static FIRMS skips identical NOAA20 and plaintext retries but retains a di
     const result = await context.build(feed);
     assert.equal(result.error, error, `${product}: ${body.slice(0, 16)}`);
     assert.equal(calls.length, product === 'VIIRS_NOAA20_NRT' ? 1 : 2);
+    assert.deepEqual(calls, product === 'VIIRS_NOAA20_NRT'
+      ? [{ url: feed.url.replace('{{key}}', 'fixture-key'), redirect: 'error' }]
+      : [{ url: feed.url.replace('{{key}}', 'fixture-key'), redirect: 'error' },
+        { url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/fixture-key/VIIRS_NOAA20_NRT/world/1', redirect: 'error' }]);
     if (!error) {
       assert.equal(result.fallback, product === 'VIIRS_SNPP_NRT' ? 'VIIRS_NOAA20_NRT' : undefined);
       assert.equal(JSON.parse(result.body).items.length, 2);
+    }
+    if (status === 401) {
+      for (const bad of ['http://firms.modaps.eosdis.nasa.gov', 'https://relay.invalid']) {
+        calls.length = 0;
+        await assert.rejects(context.build({ ...feed, url: feed.url.replace('https://firms.modaps.eosdis.nasa.gov', bad) }), /invalid_firms_source_url/);
+        assert.deepEqual(calls, []);
+      }
+      calls.length = 0;
+      context.fetch = async (url, options) => {
+        calls.push({ url, redirect: options.redirect });
+        throw new Error('fake-firms-key transport failure');
+      };
+      await assert.rejects(context.build(feed), { message: 'fetch_failed' });
+      assert.deepEqual(calls, [{ url: feed.url.replace('{{key}}', 'fixture-key'), redirect: 'error' }]);
     }
   }
 });
@@ -1206,7 +1319,7 @@ test('NASA FIRMS primary diagnostics allow only bounded fields and stay aligned 
 test('NASA FIRMS Feed Proxy logs the direct failure before fallback without changing outward or cache behavior', async () => {
   const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', format: 'json', category: 'disaster',
-    url: 'https://fixture.invalid/api/area/csv/fixture-secret/world/1' };
+    url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/fixture-secret/VIIRS_NOAA20_NRT/world/1' };
   const fallback = { id: feed.id, fetchedAt: Date.now(), httpStatus: 200, contentType: 'application/json',
     body: JSON.stringify({ items: [{ source: 'NOAA HMS', publishedAt: null }] }), fallbackUsed: true, proxyUsed: 'arcgis-hms-fire' };
   for (const scenario of [
@@ -1270,7 +1383,7 @@ test('NASA FIRMS Feed Proxy logs the direct failure before fallback without chan
 test('NASA FIRMS Feed Proxy logs bounded transport failure before stale-cache fallback', async () => {
   const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', format: 'json', category: 'disaster',
-    url: 'https://fixture.invalid/api/area/csv/fixture-secret/world/1' };
+    url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/fixture-secret/VIIRS_NOAA20_NRT/world/1' };
   const stale = { id: feed.id, httpStatus: 200, contentType: 'application/json', body: '{"items":[]}' };
   const returned = { ...stale, stale: true, fallback: 'live-cache' };
   const logs = [];

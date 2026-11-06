@@ -697,6 +697,16 @@ async function fetchGpsJam(force = false) {
   return payload;
 }
 
+function assertTrustedFirmsUrl(url) {
+  let target;
+  try { target = new URL(url); } catch {}
+  if (!target || target.origin !== 'https://firms.modaps.eosdis.nasa.gov'
+    || !target.pathname.startsWith('/api/area/')
+    || target.username || target.password || target.hash) {
+    throw new Error('invalid_firms_source_url');
+  }
+}
+
 async function fetchWithTimeout(url, options, timeoutMs, consumeResponse = null) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -708,7 +718,7 @@ async function fetchWithTimeout(url, options, timeoutMs, consumeResponse = null)
   }
 }
 
-async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false, includeHttpFallback = true, onPrimaryFailure = null } = {}) {
+async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { budgetAttempts = false, includeHttpFallback = true, onPrimaryFailure = null, redirect = null } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback });
   const perAttemptTimeout = budgetAttempts
     ? Math.max(3000, Math.floor(timeoutMs / Math.max(1, candidates.length)))
@@ -716,7 +726,7 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_
   let lastResponse = null;
   for (const [index, candidate] of candidates.entries()) {
     try {
-      const response = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout);
+      const response = await fetchWithTimeout(candidate, { headers, ...(redirect ? { redirect } : {}) }, perAttemptTimeout);
       if (response.ok) return response;
       lastResponse = response;
       if (index === 0 && onPrimaryFailure) {
@@ -1304,10 +1314,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
           }
           response = scopedResult.response;
         } else {
-          // OpenAQ authenticates with a header; never replay it over plaintext HTTP.
-          response = await fetchWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
+          if (feed.id === 'nasa-firms') assertTrustedFirmsUrl(applied.url);
+          // Authenticated FIRMS requests cannot be replayed through a relay or redirect.
+          response = await fetchWithFallbacks(applied.url, headers, feed.id === 'nasa-firms' ? [] : proxyList, timeoutMs, {
             budgetAttempts,
-            includeHttpFallback: feed.id !== 'openaq-api',
+            includeHttpFallback: feed.id !== 'openaq-api' && feed.id !== 'nasa-firms',
+            ...(feed.id === 'nasa-firms' ? { redirect: 'error' } : {}),
             onPrimaryFailure: feed.id === 'nasa-firms'
               ? diagnostic => { firmsPrimaryFailure = diagnostic; } : null
           });

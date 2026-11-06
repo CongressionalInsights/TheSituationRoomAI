@@ -1009,6 +1009,16 @@ async function fetchStateConnectorRaw(feed, options = {}) {
   }
 }
 
+function assertTrustedFirmsUrl(url) {
+  let target;
+  try { target = new URL(url); } catch {}
+  if (!target || target.origin !== 'https://firms.modaps.eosdis.nasa.gov'
+    || !target.pathname.startsWith('/api/area/')
+    || target.username || target.password || target.hash) {
+    throw new Error('invalid_firms_source_url');
+  }
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS, consumeResponse = null) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -1788,6 +1798,12 @@ async function fetchRawUncached(feed, options) {
     }
   }
 
+  if (feed.id === 'nasa-firms') {
+    try { assertTrustedFirmsUrl(feed.url); } catch {
+      return { error: 'invalid_source_url', message: 'FIRMS requires its trusted HTTPS area endpoint.' };
+    }
+  }
+
   const startedAt = Date.now();
   const key = options.key || resolveServerKey(feed);
   if (feed.requiresKey && !key) {
@@ -1798,6 +1814,11 @@ async function fetchRawUncached(feed, options) {
   }
   const url = buildFeedUrl(feed, { ...options, key });
   const { url: keyedUrl, headers } = applyKey(url, feed, key, options.keyParam, options.keyHeader);
+  if (feed.id === 'nasa-firms') {
+    try { assertTrustedFirmsUrl(keyedUrl); } catch {
+      return { error: 'invalid_source_url', message: 'FIRMS requires its trusted HTTPS area endpoint.' };
+    }
+  }
   if (feed.id === 'transport-opensky' && /opensky-network\.org/.test(keyedUrl)) {
     const token = await getOpenSkyToken();
     if (!token) {
@@ -1870,8 +1891,8 @@ async function fetchRawUncached(feed, options) {
     }
     return aggregatePayload;
   }
-  // Keep OpenAQ's authenticated request on its provider origin.
-  const directOnlyRequest = openStatesRequest || feed.id === 'openaq-api' || feed.id === 'bls-cpi';
+  // Keep authenticated provider-only requests off configured and option relays.
+  const directOnlyRequest = openStatesRequest || feed.id === 'openaq-api' || feed.id === 'bls-cpi' || feed.id === 'nasa-firms';
   const attemptList = directOnlyRequest ? [null] : [null, ...configuredProxies, optionProxy, ...FALLBACK_PROXIES];
   const isRssFeed = feed.format === 'rss';
   const seen = new Set();
@@ -1924,10 +1945,10 @@ async function fetchRawUncached(feed, options) {
       : totalTimeoutMs);
     let firmsPayloadDiagnostic = null;
     try {
-      if (gdacsDeadline !== null || feed.id === 'openaq-api' || feed.id === 'bls-cpi') {
+      if (gdacsDeadline !== null || feed.id === 'openaq-api' || feed.id === 'bls-cpi' || feed.id === 'nasa-firms') {
         [response, body] = await fetchWithTimeout(proxiedUrl, {
           headers: requestHeaders,
-          ...(feed.id === 'openaq-api' || feed.id === 'bls-cpi' ? { redirect: 'error' } : {})
+          ...(feed.id === 'openaq-api' || feed.id === 'bls-cpi' || feed.id === 'nasa-firms' ? { redirect: 'error' } : {})
         }, perAttemptTimeoutMs,
           async (upstream) => [upstream, await upstream.text()]);
       } else {
@@ -2019,7 +2040,8 @@ async function fetchRawUncached(feed, options) {
         break;
       }
     } catch (error) {
-      lastError = { error: 'fetch_failed', message: feed.id === 'bls-cpi' ? 'BLS request failed.' : error.message, code: normalizeFetchErrorCode(error) };
+      lastError = { error: 'fetch_failed', message: feed.id === 'bls-cpi' ? 'BLS request failed.'
+        : feed.id === 'nasa-firms' ? 'NASA FIRMS request failed.' : error.message, code: normalizeFetchErrorCode(error) };
       if (feed.id === 'nasa-firms' && index === 0) {
         firmsPrimaryFailure = buildFirmsPrimaryFailureDiagnostic(error);
       }
