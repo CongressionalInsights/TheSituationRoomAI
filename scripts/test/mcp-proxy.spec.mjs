@@ -2000,12 +2000,12 @@ test('supported state zero-result metadata remains bound to the requested state'
   assert.equal(new URL(result.fetchedUrl).searchParams.get('state'), 'NC');
 });
 
-test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and redacted URL', async (t) => {
+test('NASA FIRMS NOAA20 CSV primary preserves normalized JSON, acquisition time and redacted URL', async (t) => {
   const logs = [];
   t.mock.method(console, 'warn', log => logs.push(log));
-  const csv = 'latitude,longitude,acq_date,acq_time,frp,confidence\n0,-118.2,2026-09-22,35,12.4,n';
+  const csv = fs.readFileSync(new URL('./fixtures/firms/noaa20-documentation.csv', import.meta.url), 'utf8');
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
-    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_NOAA20_NRT/world/1' };
   t.mock.method(globalThis, 'fetch', async (url) => {
     assert.equal(String(url), feed.url.replace('{{key}}', 'fixture-secret'));
     return new Response(csv, { headers: { 'content-type': 'text/csv' } });
@@ -2017,12 +2017,14 @@ test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and red
   assert.equal(result.proxyUsed, null);
   assert.equal(result.fetchedUrl.includes('fixture-secret'), false);
   assert.match(result.fetchedUrl, /\/csv\/REDACTED\//);
+  assert.match(result.fetchedUrl, /\/VIIRS_NOAA20_NRT\/world\/1$/);
   const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
   assert.equal(raw.warning, null);
-  assert.equal(raw.data.items[0].latitude, 0);
-  assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-22T00:35:00Z'));
+  assert.deepEqual(raw.data.items.map(item => item.latitude).sort((a, b) => a - b), [-16.28359, -16.2819]);
+  assert.equal(raw.data.items[0].publishedAt, Date.parse('2025-06-06T00:01:00Z'));
   assert.equal(raw.data.items[0].source, 'NASA FIRMS');
-  assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+  assert.equal(raw.data.items[0].satellite, undefined);
+  assert.equal(normalizeJsonSignals(result.body, feed).length, 2);
   assert.deepEqual(logs, []);
 });
 

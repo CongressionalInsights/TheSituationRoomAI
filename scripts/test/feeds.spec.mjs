@@ -668,11 +668,81 @@ test('NASA FIRMS uses the documented CSV route while preserving the public JSON 
   const paths = ['data/feeds.json', 'public/data/feeds.json', 'gcp/feed-proxy/feeds.json', 'gcp/mcp-proxy/feeds.json'];
   for (const file of paths) {
     const feed = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8')).feeds.find((row) => row.id === 'nasa-firms');
-    assert.equal(feed.url, 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1');
+    assert.equal(feed.url, 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_NOAA20_NRT/world/1');
     assert.equal(feed.format, 'json');
     assert.equal(feed.requiresKey, true);
     assert.equal(feed.keySource, 'server');
     assert.equal(feed.ttlMinutes, 60);
+  }
+});
+
+test('NASA FIRMS documented NOAA20 CSV preserves acquisition fields without inventing satellite provenance', async () => {
+  // Historical rows from the official FIRMS API tutorial, not a live acquisition.
+  const csv = fs.readFileSync(path.join(root, 'scripts/test/fixtures/firms/noaa20-documentation.csv'), 'utf8');
+  for (const modulePath of firmsHelperPaths) {
+    const { parseNasaFirmsRows, normalizeNasaFirmsItems } = await import(modulePath);
+    const rows = parseNasaFirmsRows(csv, 'text/csv');
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].acq_time, '0001');
+    const items = normalizeNasaFirmsItems(rows);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].publishedAt, Date.parse('2025-06-06T00:01:00Z'));
+    assert.equal(items[0].source, 'NASA FIRMS');
+    assert.equal(items[0].satellite, undefined);
+    assert.equal(items[0].instrument, undefined);
+  }
+});
+
+test('static FIRMS skips the identical NOAA20 retry but retains a distinct legacy fallback', async () => {
+  const { normalizeNasaFirmsItems, parseNasaFirmsRows } = await import('../../scripts/firms-csv.js');
+  const source = fs.readFileSync(path.join(root, 'scripts/build_static_cache.mjs'), 'utf8');
+  const declarations = [
+    'function buildUrl(', 'function getUrlTemplateParamNames(', 'function getRuntimeOnlyParamNames(',
+    'function applyCongressCommitteeDateWindow(', 'function applyUrlParams(', 'function applyKey(',
+    'function buildStaticRequestParams(', 'function buildNasaFirmsItems(', 'async function buildFeedPayload('
+  ];
+  const code = declarations.map(declaration => {
+    const start = source.indexOf(declaration);
+    assert.ok(start >= 0, declaration);
+    return source.slice(start, source.indexOf('\n}', start) + 2);
+  }).join('\n');
+  const csv = fs.readFileSync(path.join(root, 'scripts/test/fixtures/firms/noaa20-documentation.csv'), 'utf8');
+  const header = csv.split('\n')[0];
+  for (const [product, body, status, error] of [
+    ['VIIRS_NOAA20_NRT', 'unavailable', 503, 'http_503'],
+    ['VIIRS_NOAA20_NRT', 'Invalid MAP_KEY', 200, 'invalid_response'],
+    ['VIIRS_NOAA20_NRT', header, 200, 'empty_payload'],
+    ['VIIRS_NOAA20_NRT', csv, 200, undefined],
+    ['VIIRS_SNPP_NRT', 'unavailable', 503, undefined]
+  ]) {
+    const feed = { id: 'nasa-firms', format: 'json', requiresKey: true,
+      url: `https://fixture.invalid/api/area/csv/{{key}}/${product}/world/1` };
+    const calls = [];
+    const context = {
+      URL, Date, normalizeNasaFirmsItems, parseNasaFirmsRows,
+      SEEDED_JSON_FALLBACK_IDS: new Set(['nasa-firms']), seededFeedFallbacks: new Map(),
+      appConfig: { userAgent: 'fixture' }, TIMEOUT_MS: 100,
+      isEiaFeed: () => false, isJsonHtmlError: () => false,
+      resolveServerKey: () => 'fixture-key',
+      buildArcgisFireFallback: async () => null, fetchLiveFallback: async () => null,
+      fetchWithFallbacks: async url => {
+        calls.push(url);
+        if (calls.length === 1) {
+          assert.equal(url, feed.url.replace('{{key}}', 'fixture-key'));
+          return new Response(body, { status, headers: { 'content-type': 'text/csv' } });
+        }
+        assert.equal(url, 'https://fixture.invalid/api/area/csv/fixture-key/VIIRS_NOAA20_NRT/world/1');
+        return new Response(csv, { headers: { 'content-type': 'text/csv' } });
+      }
+    };
+    vm.runInNewContext(code + '\nthis.build = buildFeedPayload;', context);
+    const result = await context.build(feed);
+    assert.equal(result.error, error, `${product}: ${body.slice(0, 16)}`);
+    assert.equal(calls.length, product === 'VIIRS_NOAA20_NRT' ? 1 : 2);
+    if (!error) {
+      assert.equal(result.fallback, product === 'VIIRS_SNPP_NRT' ? 'VIIRS_NOAA20_NRT' : undefined);
+      assert.equal(JSON.parse(result.body).items.length, 2);
+    }
   }
 });
 

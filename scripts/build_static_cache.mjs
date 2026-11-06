@@ -895,24 +895,26 @@ async function buildFeedPayload(feed) {
     const fallbackUrl = buildUrl(feed.url, { key, dataset: 'VIIRS_NOAA20_NRT' })
       .replace('VIIRS_SNPP_NRT', 'VIIRS_NOAA20_NRT');
     const fallbackApplied = applyKey(fallbackUrl, feed, key);
-    try {
-      const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
-      const fallbackBody = await fallbackResponse.text();
-      if (fallbackResponse.ok && fallbackBody) {
-        const items = buildNasaFirmsItems(parseNasaFirmsRows(fallbackBody, fallbackResponse.headers.get('content-type')));
-        if (items.length) {
-        payload = {
-          id: feed.id,
-          fetchedAt: Date.now(),
-          contentType: 'application/json',
-          body: JSON.stringify({ items }),
-          httpStatus: fallbackResponse.status,
-          fallback: 'VIIRS_NOAA20_NRT'
-        };
+    if (fallbackApplied.url !== applied.url) {
+      try {
+        const fallbackResponse = await fetchWithFallbacks(fallbackApplied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
+        const fallbackBody = await fallbackResponse.text();
+        if (fallbackResponse.ok && fallbackBody) {
+          const items = buildNasaFirmsItems(parseNasaFirmsRows(fallbackBody, fallbackResponse.headers.get('content-type')));
+          if (items.length) {
+            payload = {
+              id: feed.id,
+              fetchedAt: Date.now(),
+              contentType: 'application/json',
+              body: JSON.stringify({ items }),
+              httpStatus: fallbackResponse.status,
+              fallback: 'VIIRS_NOAA20_NRT'
+            };
+          }
         }
+      } catch {
+        // keep original payload
       }
-    } catch {
-      // keep original payload
     }
   }
 
