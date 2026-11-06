@@ -2000,12 +2000,57 @@ test('supported state zero-result metadata remains bound to the requested state'
   assert.equal(new URL(result.fetchedUrl).searchParams.get('state'), 'NC');
 });
 
-test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and redacted URL', async (t) => {
+test('NASA FIRMS MCP never relays a keyed URL and rejects untrusted sources before transport', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-06T21:00:00Z') });
+  const registry = JSON.parse(fs.readFileSync(new URL('../../gcp/mcp-proxy/feeds.json', import.meta.url), 'utf8')).feeds;
+  const feed = { ...registry.find(row => row.id === 'nasa-firms'), proxy: ['jina', 'allorigins'] };
+  const csv = fs.readFileSync(new URL('./fixtures/firms/noaa20-documentation.csv', import.meta.url), 'utf8');
+  const requests = [];
+  let scenario;
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url: String(url), redirect: options.redirect });
+    if (String(url).startsWith('https://firms.modaps.eosdis.nasa.gov/')) {
+      if (scenario === 'throw' || scenario === 'redirect') throw new TypeError('fake-firms-key transport failure');
+      return new Response(scenario === 200 ? csv : 'unavailable', { status: scenario, headers: { 'content-type': 'text/csv' } });
+    }
+    return new Response('unavailable', { status: 403 });
+  });
+  for (scenario of [200, 401, 403, 429, 503, 'throw', 'redirect']) {
+    requests.length = 0;
+    const result = await fetchRaw(feed, { key: 'fake-firms-key', proxy: 'allorigins' });
+    const primary = { url: feed.url.replace('{{key}}', 'fake-firms-key'), redirect: 'error' };
+    assert.deepEqual(requests.filter(row => row.url.includes('fake-firms-key')), [primary], String(scenario));
+    assert.deepEqual(requests.map(row => row.url), scenario === 200 ? [primary.url] : [
+      primary.url, registry.find(row => row.id === 'arcgis-hms-fire').url,
+      `https://congressionalinsights.github.io/TheSituationRoomAI/data/feeds/nasa-firms.json?ts=${Date.now()}`
+    ]);
+    assert.equal(JSON.stringify(result).includes('fake-firms-key'), false);
+    if (scenario !== 200) assert.ok(result.error);
+  }
+  for (const url of [feed.url.replace('https:', 'http:'), feed.url.replace('nasa.gov', 'nasa.gov.relay.invalid'), feed.url.replace('/api/area/', '/other/')]) {
+    requests.length = 0;
+    const result = await fetchRaw({ ...feed, url }, { key: 'fake-firms-key', proxy: 'jina' });
+    assert.equal(result.error, 'invalid_source_url');
+    assert.deepEqual(requests, []);
+  }
+  requests.length = 0;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    requests.push(String(url));
+    return new Response('{}', { status: String(url).startsWith('https://fixture.invalid/') ? 503 : 200,
+      headers: { 'content-type': 'application/json' } });
+  });
+  const control = await fetchRaw({ id: 'public-json-fixture', format: 'json', url: 'https://fixture.invalid/public', proxy: 'jina' });
+  assert.equal(control.proxyUsed, 'jina');
+  assert.deepEqual(requests, ['https://fixture.invalid/public', 'https://r.jina.ai/http://fixture.invalid/public']);
+});
+
+test('NASA FIRMS NOAA20 CSV primary preserves normalized JSON, acquisition time and redacted URL', async (t) => {
   const logs = [];
   t.mock.method(console, 'warn', log => logs.push(log));
-  const csv = 'latitude,longitude,acq_date,acq_time,frp,confidence\n0,-118.2,2026-09-22,35,12.4,n';
+  const csv = fs.readFileSync(new URL('./fixtures/firms/noaa20-documentation.csv', import.meta.url), 'utf8');
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
-    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+    url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_NOAA20_NRT/world/1' };
   t.mock.method(globalThis, 'fetch', async (url) => {
     assert.equal(String(url), feed.url.replace('{{key}}', 'fixture-secret'));
     return new Response(csv, { headers: { 'content-type': 'text/csv' } });
@@ -2017,18 +2062,20 @@ test('NASA FIRMS CSV primary preserves normalized JSON, acquisition time and red
   assert.equal(result.proxyUsed, null);
   assert.equal(result.fetchedUrl.includes('fixture-secret'), false);
   assert.match(result.fetchedUrl, /\/csv\/REDACTED\//);
+  assert.match(result.fetchedUrl, /\/VIIRS_NOAA20_NRT\/world\/1$/);
   const raw = buildRawStructuredContent({ sourceId: feed.id, feed, result, responseFormat: 'json' });
   assert.equal(raw.warning, null);
-  assert.equal(raw.data.items[0].latitude, 0);
-  assert.equal(raw.data.items[0].publishedAt, Date.parse('2026-09-22T00:35:00Z'));
+  assert.deepEqual(raw.data.items.map(item => item.latitude).sort((a, b) => a - b), [-16.28359, -16.2819]);
+  assert.equal(raw.data.items[0].publishedAt, Date.parse('2025-06-06T00:01:00Z'));
   assert.equal(raw.data.items[0].source, 'NASA FIRMS');
-  assert.equal(normalizeJsonSignals(result.body, feed).length, 1);
+  assert.equal(raw.data.items[0].satellite, undefined);
+  assert.equal(normalizeJsonSignals(result.body, feed).length, 2);
   assert.deepEqual(logs, []);
 });
 
 test('NASA FIRMS MCP logs bounded direct failures before NOAA fallback and preserves outward metadata', async (t) => {
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
-    url: 'https://fixture.invalid/api/area/csv/{{key}}/world/1' };
+    url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_NOAA20_NRT/world/1' };
   const logs = [];
   t.mock.method(console, 'warn', log => logs.push(JSON.parse(log)));
   let scenario;
@@ -2167,13 +2214,13 @@ test('NASA FIRMS MCP raw, bounded signals, search and get retain the newest tail
 test('NASA FIRMS invalid or empty CSV retains NOAA fallback attribution and warnings', async (t) => {
   let primary = 'latitude,longitude,acq_date,acq_time';
   t.mock.method(globalThis, 'fetch', async (url) => {
-    if (String(url).includes('fixture.invalid')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    if (String(url).includes('firms.modaps')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
     assert.match(String(url), /arcgis/i);
     return new Response(JSON.stringify({ features: [{
       geometry: { type: 'Point', coordinates: [-105, 46] }, properties: { frp: 10, acq_date: '2026-09-04' }
     }] }), { headers: { 'content-type': 'application/json' } });
   });
-  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://fixture.invalid/fire' };
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/fixture-key/VIIRS_NOAA20_NRT/world/1' };
   for (const body of [primary, 'Invalid MAP_KEY', 'latitude,longitude,acq_date,acq_time\n91,0,2026-09-22,0']) {
     primary = body;
     const result = await fetchRaw(feed, {});
@@ -2189,11 +2236,11 @@ test('NASA FIRMS invalid or empty CSV retains NOAA fallback attribution and warn
 test('NASA FIRMS unusable CSV without a fallback remains an explicit redacted failure', async (t) => {
   let primary = 'latitude,longitude,acq_date,acq_time';
   t.mock.method(globalThis, 'fetch', async (url) => {
-    if (String(url).includes('fixture.invalid')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
+    if (String(url).includes('firms.modaps')) return new Response(primary, { headers: { 'content-type': 'text/csv' } });
     return new Response('unavailable', { status: 403 });
   });
   const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', requiresKey: true,
-    url: 'https://fixture.invalid/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
+    url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{{key}}/VIIRS_SNPP_NRT/world/1' };
   for (const [body, error] of [[primary, 'empty_payload'], ['Invalid MAP_KEY fixture-secret', 'invalid_response']]) {
     primary = body;
     const result = await fetchRaw(feed, { key: 'fixture-secret' });
@@ -2207,10 +2254,10 @@ test('NASA FIRMS unusable CSV without a fallback remains an explicit redacted fa
 
 test('NASA fire fallback keeps the raw response contract and identifies NOAA substitution', async (t) => {
   t.mock.method(globalThis, 'fetch', async (url) => {
-    if (String(url).includes('upstream.test')) return new Response('unavailable', { status: 403 });
+    if (String(url).includes('firms.modaps')) return new Response('unavailable', { status: 403 });
     return new Response(JSON.stringify({ features: [{ geometry: { type: 'Point', coordinates: [-105, 46] }, properties: { frp: 10, acq_date: '2026-09-04' } }] }), { headers: { 'content-type': 'application/json' } });
   });
-  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://upstream.test/fire' };
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/fixture-key/VIIRS_NOAA20_NRT/world/1' };
   const result = await fetchRaw(feed, {});
   assert.equal(result.error, undefined);
   assert.equal(result.fallbackUsed, true);
@@ -2229,7 +2276,7 @@ test('published NASA snapshots remain flagged as fallback and retain record attr
     if (String(url).includes('/data/feeds/nasa-firms.json')) return new Response(JSON.stringify({ body, contentType: 'application/json', httpStatus: 200 }));
     return new Response('unavailable', { status: 403 });
   });
-  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://upstream.test/fire' };
+  const feed = { id: 'nasa-firms', name: 'NASA FIRMS', category: 'disaster', format: 'json', url: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/fixture-key/VIIRS_NOAA20_NRT/world/1' };
   for (const publishedAt of [1788548983402, null]) {
     body = JSON.stringify({ items: [{ title: 'Fire detection', latitude: 40, longitude: -100, source: 'NOAA HMS', publishedAt }] });
     const result = await fetchRaw(feed, {});
