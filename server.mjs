@@ -864,6 +864,16 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_
   throw new Error('fetch_failed');
 }
 
+function assertTrustedFirmsUrl(url) {
+  let target;
+  try { target = new URL(url); } catch {}
+  if (!target || target.origin !== 'https://firms.modaps.eosdis.nasa.gov'
+    || !target.pathname.startsWith('/api/area/')
+    || target.username || target.password || target.hash) {
+    throw new Error('invalid_firms_source_url');
+  }
+}
+
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -1055,11 +1065,13 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     return aggregatePayload;
   }
   let response;
+  if (feed.id === 'nasa-firms') assertTrustedFirmsUrl(applied.url);
   try {
-    response = feed.id === 'bls-cpi'
+    response = feed.id === 'bls-cpi' || feed.id === 'nasa-firms'
       ? await fetchWithTimeout(applied.url, { headers: { ...headers, ...applied.headers }, redirect: 'error' }, feed.timeoutMs || FETCH_TIMEOUT_MS)
       : await fetchWithFallbacks(applied.url, { ...headers, ...applied.headers }, proxyList);
   } catch (error) {
+    if (feed.id === 'nasa-firms') throw new Error('fetch_failed');
     if (feed.id !== 'bls-cpi') throw error;
     return { id: feed.id, fetchedAt: Date.now(), httpStatus: 502, contentType: 'application/json',
       error: 'fetch_failed', message: 'BLS request failed.', body: JSON.stringify({ error: 'fetch_failed', message: 'BLS request failed.' }) };
