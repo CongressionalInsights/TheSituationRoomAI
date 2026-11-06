@@ -19,35 +19,29 @@ jobs:
       REGION: us-central1
       SERVICE_NAME: situation-room-openai
       ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
+      SR_BRIEFING_MODEL: ${{ vars.SR_BRIEFING_MODEL || 'gpt-6.1-terra' }}
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
       - uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
       - uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: ${{ env.PROJECT_ID }}
-      - name: Ensure OpenAI secret
-        env:
-          OPEN_AI: ${{ secrets.OPEN_AI }}
+      - name: Require existing OpenAI secret
         run: |
-          if [ -z "$OPEN_AI" ]; then
-            echo "OPEN_AI secret missing."
+          set -euo pipefail
+          gcloud secrets describe openai-api-key --project "$PROJECT_ID" >/dev/null
+          if [ "$(gcloud secrets versions describe latest --secret openai-api-key --project "$PROJECT_ID" --format='value(state)')" != "ENABLED" ]; then
+            echo "Existing OpenAI secret binding unavailable." >&2
             exit 1
-          fi
-          if ! gcloud secrets describe openai-api-key --project "$PROJECT_ID" >/dev/null 2>&1; then
-            gcloud secrets create openai-api-key --replication-policy=automatic
-          fi
-          if gcloud secrets versions access latest --secret openai-api-key --project "$PROJECT_ID" 2>/dev/null | cmp -s - <(printf '%s' "$OPEN_AI"); then
-            echo "Secret openai-api-key unchanged; preserving latest version."
-          else
-            printf '%s' "$OPEN_AI" | gcloud secrets versions add openai-api-key --data-file=-
           fi
       - name: Deploy OpenAI proxy service
         run: |
-          cat > /tmp/sr-openai-env.yaml <<EOF
-          ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
-          EOF
+          node -e 'require("node:fs").writeFileSync("/tmp/sr-openai-env.yaml", JSON.stringify({ ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS, SR_BRIEFING_MODEL: process.env.SR_BRIEFING_MODEL }))'
           gcloud run deploy "$SERVICE_NAME" \
             --region "$REGION" \
             --source gcp/openai-proxy \

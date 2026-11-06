@@ -83,6 +83,19 @@ node scripts/validate_congress_detail.mjs --base https://situation-room-feed-382
 - Optional: set `OPENAI_API_KEY` on the server if you prefer not to send the key from the browser.
 - AI briefing context includes Congress.gov signals and the most recent search query/scope so legislative updates stay visible in the summary.
 
+### Briefing model configuration
+`SR_BRIEFING_MODEL` controls only the build-time and interactive briefings. It defaults to `gpt-6.1-terra`, with `reasoning.effort: none`. Set the repository Actions variable of the same name for the existing Pages and OpenAI proxy workflows, or the environment variable for a local server/build. The existing `OPEN_AI` / `OPENAI_API_KEY` bindings are unchanged. General chat and query-translation model defaults are independent.
+
+The reviewed higher settings are `gpt-6.1-sol` and `gpt-6-astra`; both use `low` effort and omit temperature because they do not support `none`. Other model identifiers are rejected without a model request. A new identifier needs a compatibility review; an unavailable model never causes a lower-model retry.
+
+Compatibility references: [Terra model](https://developers.openai.com/api/docs/models/gpt-6.1-terra) and [GPT-6 migration guide](https://developers.openai.com/api/docs/guides/latest-model).
+
+Briefings use at most 320 output tokens and one 20-second request, including response-body acquisition. Static input remains capped at 60 unique headlines and requires at least four; unavailable AI produces the existing factual-headline fallback. Interactive failures retain heuristic analysis. Completed responses must identify the requested model or its dated snapshot; errors, incomplete responses and wrong-model results are not published as AI briefings.
+
+`public/data/analysis.json` retains requested/served model, response ID/status, reasoning settings, available token counts and fallback reason under `briefing`. Interactive `/api/chat` requests marked `purpose: briefing` return the same metadata and log it without prompts or keys. Browser state retains it as `analysisProvenance`. Missing usage or served reasoning remains unknown, not zero or inferred success. Mocked fixtures do not prove account access or live model behavior.
+
+Browser briefing requests also carry a Terra minimum model hint for older proxies during rollout. Upgraded handlers select `SR_BRIEFING_MODEL` independently of that hint. Legacy proxy responses without verified briefing metadata use the existing heuristic fallback.
+
 ## GitHub Pages static mode (recommended for this repo)
 GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snapshot mode** by default. A scheduled GitHub Action pulls all feeds using repo secrets and publishes the cached results under `public/data/`. The UI reads those cached JSON files when hosted on `*.github.io`.
 
@@ -97,7 +110,7 @@ GitHub Pages cannot keep secrets at runtime, so this repo ships in **static snap
   - `OPENSTATES` (required for state legislation feeds)
   - `EARTHDATA_NASA` (optional, only needed if you add Earthdata‑protected feeds)
   - `OPEN_AI` (optional, enables build-time AI briefing cache)
-  - `analysis.json` is generated at build time if `OPEN_AI` is set.
+  - `analysis.json` is generated at build time, with explicit factual fallback when AI is unavailable.
 
 Static mode limits (optional):
 - The **Refresh Now** button reloads cached JSON; it does not re-fetch live data.
