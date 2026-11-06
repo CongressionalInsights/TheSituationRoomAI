@@ -108,6 +108,8 @@ jobs:
           node --check gcp/mcp-proxy/public-payload-safety.js
       - name: Verify MCP response contracts
         run: node --test scripts/test/mcp-proxy.spec.mjs
+      - name: Verify offline briefing model and fallback contracts
+        run: node --test scripts/test/briefing.spec.mjs
       - name: Verify metadata-only release fixtures
         run: node --test scripts/test/verify_mcp_metadata_candidate.spec.mjs
       - name: Verify CISA release fixtures

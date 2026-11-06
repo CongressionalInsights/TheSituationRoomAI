@@ -296,6 +296,7 @@ const state = {
   previousSignals: null,
   analysisSignature: null,
   analysisRunning: false,
+  analysisProvenance: null,
   searching: false,
   mcpTrends: {
     loading: false,
@@ -8530,7 +8531,21 @@ async function callOpenAIDirect({ messages, context, temperature = 0.2, model } 
   return (data?.output_text || '').trim();
 }
 
-async function callAssistant({ messages, context, temperature = 0.2, model } = {}) {
+function readAssistantText(data, purpose) {
+  if (purpose === 'briefing') {
+    state.analysisProvenance = data.briefing || null;
+    if (data.briefing?.policy !== 'terra-minimum-v1' || data.briefing?.status !== 'completed'
+      || data.briefing?.modelVerified !== true || !data.briefing?.requestedModel
+      || data.model !== data.briefing.servedModel
+      || typeof data.text !== 'string' || !data.text.trim()) {
+      throw new Error('briefing_unverified');
+    }
+  }
+  if (data.error) throw new Error(data.message || data.error);
+  return (data.text || '').trim();
+}
+
+async function callAssistant({ messages, context, temperature = 0.2, model, purpose } = {}) {
   const proxyUrl = getOpenAiProxy();
   const key = getClientOpenAiKey();
   if (proxyUrl) {
@@ -8540,6 +8555,11 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
       temperature
     };
     if (model) payload.model = model;
+    if (purpose === 'briefing') {
+      payload.purpose = purpose;
+      // Older proxies honor model but not purpose; upgraded handlers select server config.
+      payload.model = 'gpt-6.1-terra';
+    }
     const headers = {
       'Content-Type': 'application/json'
     };
@@ -8550,10 +8570,7 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
       body: JSON.stringify(payload)
     });
     const data = await response.json();
-    if (data.error) {
-      throw new Error(data.message || data.error);
-    }
-    return (data.text || '').trim();
+    return readAssistantText(data, purpose);
   }
 
   if (isStaticMode()) {
@@ -8565,6 +8582,10 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
     temperature
   };
   if (model) payload.model = model;
+  if (purpose === 'briefing') {
+    payload.purpose = purpose;
+    payload.model = 'gpt-6.1-terra';
+  }
 
   const response = await apiFetch('/api/chat', {
     method: 'POST',
@@ -8575,10 +8596,7 @@ async function callAssistant({ messages, context, temperature = 0.2, model } = {
     body: JSON.stringify(payload)
   });
   const data = await response.json();
-  if (data.error) {
-    throw new Error(data.message || data.error);
-  }
-  return (data.text || '').trim();
+  return readAssistantText(data, purpose);
 }
 
 function generateAnalysis(emitChat = false, options = {}) {
@@ -8663,6 +8681,7 @@ async function runAiAnalysis({ emitChat = true } = {}) {
   elements.analysisRun.setAttribute('aria-busy', 'true');
   elements.analysisRun.textContent = 'Briefing…';
   state.analysisRunning = true;
+  state.analysisProvenance = null;
   if (!hasAssistantAccess()) {
     generateAnalysis(emitChat, { metaNote: 'AI unavailable' });
     elements.analysisRun.disabled = false;
@@ -8682,7 +8701,8 @@ async function runAiAnalysis({ emitChat = true } = {}) {
         content: 'Provide a concise situation briefing with 3 bullets: global pulse, local risks, and notable market/cyber signals. Mention sources when possible.'
       }],
       context: buildChatContext(),
-      temperature: 0.2
+      temperature: 0.2,
+      purpose: 'briefing'
     });
     const cleaned = text || 'No response yet.';
     setAnalysisMeta('ai');

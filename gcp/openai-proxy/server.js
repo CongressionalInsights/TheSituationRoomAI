@@ -1,4 +1,5 @@
 import http from 'http';
+import { generateBriefing } from './briefing.js';
 
 const PORT = process.env.PORT || 8080;
 const OPENAI_URL = 'https://api.openai.com/v1/responses';
@@ -81,6 +82,13 @@ async function handleChat(req, res) {
     input.push({ role: 'system', content: `Context snapshot: ${context}` });
   }
   input.push(...messages);
+
+  if (payload.purpose === 'briefing') {
+    const result = await generateBriefing({ apiKey, input, model: process.env.SR_BRIEFING_MODEL, temperature });
+    console.log(JSON.stringify({ severity: result.text ? 'INFO' : 'WARNING', message: 'briefing-result', ...result.provenance }));
+    if (!result.text) return sendJson(res, 502, { error: 'briefing_unavailable', message: 'AI briefing unavailable.', briefing: result.provenance }, origin);
+    return sendJson(res, 200, { id: result.provenance.responseId, model: result.provenance.servedModel, text: result.text, briefing: result.provenance }, origin);
+  }
 
   try {
     const response = await fetch(OPENAI_URL, {
