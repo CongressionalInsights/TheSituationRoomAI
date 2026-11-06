@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { spawnSync } from 'node:child_process';
 import { DEFAULT_BRIEFING_MODEL, BRIEFING_MAX_OUTPUT_TOKENS, BRIEFING_TIMEOUT_MS, generateBriefing, inspectBriefingResponse, resolveBriefingProfile } from '../../gcp/openai-proxy/briefing.js';
 
 const key = 'inert-briefing-fixture-key';
@@ -337,8 +338,38 @@ test('Pages and existing OpenAI proxy workflows share only the dedicated briefin
   for (const file of ['.github/workflows/deploy-pages.yml', '.github/workflows/deploy-openai-proxy.yml']) {
     const source = fs.readFileSync(file, 'utf8');
     assert.ok(source.includes("${{ vars.SR_BRIEFING_MODEL || 'gpt-6.1-terra' }}"), file);
-    assert.ok(source.includes('${{ secrets.OPEN_AI }}'), file);
   }
   const pages = fs.readFileSync('.github/workflows/deploy-pages.yml', 'utf8');
+  assert.ok(pages.includes('${{ secrets.OPEN_AI }}'));
   assert.ok(pages.includes('gcp/openai-proxy/briefing.js'));
+});
+
+test('OpenAI deploy requires enabled existing secret metadata without reading or repairing credentials', () => {
+  const source = fs.readFileSync('.github/workflows/deploy-openai-proxy.yml', 'utf8');
+  assert.doesNotMatch(source, /secrets\.OPEN_AI|gcloud secrets (?:create|versions (?:access|add|enable|disable|destroy))/);
+  assert.match(source, /--set-secrets OPENAI_API_KEY=openai-api-key:latest/);
+  const block = source.match(/      - name: Require existing OpenAI secret\n        run: \|\n([\s\S]*?)(?=      - name:)/);
+  assert.ok(block, 'actual metadata-only workflow prerequisite');
+  const script = block[1].split('\n').map(line => line.replace(/^ {10}/, '')).join('\n');
+  const stub = `gcloud() {
+    printf 'CALL:%s\\n' "$*" >&2
+    if [ "$2" = describe ]; then return "$FIXTURE_SECRET_EXIT"; fi
+    if [ "$2" = versions ] && [ "$3" = describe ]; then
+      printf '%s' "$FIXTURE_VERSION_STATE"
+      return "$FIXTURE_VERSION_EXIT"
+    fi
+    return 99
+  }`;
+  for (const [secretExit, versionExit, state, pass, count] of [[0, 0, 'ENABLED', true, 2], [1, 0, 'ENABLED', false, 1], [0, 1, '', false, 2], [0, 0, 'DISABLED', false, 2], [0, 0, 'DESTROYED', false, 2]]) {
+    const result = spawnSync('bash', ['-c', `${stub}\n${script}`], {
+      encoding: 'utf8', env: { PATH: process.env.PATH, PROJECT_ID: 'fixture-project', FIXTURE_SECRET_EXIT: String(secretExit), FIXTURE_VERSION_EXIT: String(versionExit), FIXTURE_VERSION_STATE: state }
+    });
+    assert.equal(result.status === 0, pass, result.stderr);
+    const calls = result.stderr.split('\n').filter(line => line.startsWith('CALL:'));
+    assert.deepEqual(calls, [
+      'CALL:secrets describe openai-api-key --project fixture-project',
+      'CALL:secrets versions describe latest --secret openai-api-key --project fixture-project --format=value(state)'
+    ].slice(0, count));
+    assert.equal(result.stdout, '');
+  }
 });

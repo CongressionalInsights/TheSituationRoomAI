@@ -31,21 +31,13 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: ${{ env.PROJECT_ID }}
-      - name: Ensure OpenAI secret
-        env:
-          OPEN_AI: ${{ secrets.OPEN_AI }}
+      - name: Require existing OpenAI secret
         run: |
-          if [ -z "$OPEN_AI" ]; then
-            echo "OPEN_AI secret missing."
+          set -euo pipefail
+          gcloud secrets describe openai-api-key --project "$PROJECT_ID" >/dev/null
+          if [ "$(gcloud secrets versions describe latest --secret openai-api-key --project "$PROJECT_ID" --format='value(state)')" != "ENABLED" ]; then
+            echo "Existing OpenAI secret binding unavailable." >&2
             exit 1
-          fi
-          if ! gcloud secrets describe openai-api-key --project "$PROJECT_ID" >/dev/null 2>&1; then
-            gcloud secrets create openai-api-key --replication-policy=automatic
-          fi
-          if gcloud secrets versions access latest --secret openai-api-key --project "$PROJECT_ID" 2>/dev/null | cmp -s - <(printf '%s' "$OPEN_AI"); then
-            echo "Secret openai-api-key unchanged; preserving latest version."
-          else
-            printf '%s' "$OPEN_AI" | gcloud secrets versions add openai-api-key --data-file=-
           fi
       - name: Deploy OpenAI proxy service
         run: |
