@@ -1,0 +1,122 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 9 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 24,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 41,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 0,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "No clear winner after tight New Zealand general election",
+      "summary": "Weeks of coalition talks could follow after preliminary results pointed to a highly divided national parliament.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c3ewev11g1e0o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1794063610000
+    },
+    {
+      "title": "With Stephen Miller pick, Trump readies for a battle",
+      "summary": "The US president's promotion of Miller, a loyal partisan firebrand to be his new chief of staff sets up likely clashes with Congress.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/crp3gg2z171go?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1794007455000
+    },
+    {
+      "title": "Paraguay's president impeached and under house arrest after bank collapse",
+      "summary": "Santiago Peña was ousted due to a banking crisis which left millions of people unable to access their money.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c68jzzvjgdy9o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1794036000000
+    },
+    {
+      "title": "The American Declaration of Freedom in Space",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/06/2026-22789/the-american-declaration-of-freedom-in-space",
+      "category": "gov",
+      "publishedAt": 1793923200000
+    },
+    {
+      "title": "Anti-Communism Week, 2026",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/06/2026-22787/anti-communism-week-2026",
+      "category": "gov",
+      "publishedAt": 1793923200000
+    },
+    {
+      "title": "Amendments to the “Small Business” and “Small Organization” Definitions for Investment Companies and Investment Advisers for Purposes of the Regulatory Flexibility Act",
+      "summary": "The Securities and Exchange Commission (the \"Commission\" or the \"SEC\") is amending the definitions of \"small business\" and \"small organization\" (collectively, \"small entities\") that are used in connection with Commission rulemaking under the Investment Company Act of 1940 (the \"Investment Company Act\") and the Investment Advisers Act of 1940 (the \"Advisers Act\"). These definitions concern regulatory requirements applicable to registered investment companies and business development companies ...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/06/2026-22741/amendments-to-the-small-business-and-small-organization-definitions-for-investment-companies-and",
+      "category": "gov",
+      "publishedAt": 1793923200000
+    },
+    {
+      "title": "Wildfire Wild River, Coos, New Hampshire",
+      "summary": "5 Miles SW from Shelburne, NH",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_26057",
+      "category": "disaster",
+      "publishedAt": 1793606280000
+    },
+    {
+      "title": "Tropical Cyclone Murasu",
+      "summary": "Severe Storms • Magnitude 65 kts",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25964",
+      "category": "disaster",
+      "publishedAt": 1793685600000
+    },
+    {
+      "title": "Prescribed Fire Dry Lake Hills Piles RX, Coconino, Arizona",
+      "summary": "Wildfires • Magnitude 902 acres",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_25984",
+      "category": "disaster",
+      "publishedAt": 1793355180000
+    }
+  ],
+  "generatedAt": "2026-11-07T15:07:09.544Z"
+}

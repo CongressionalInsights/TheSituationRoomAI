@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-11-07T15:07:05.041Z",
+  "source": "openai",
+  "text": "- **Security:** Russian strikes reportedly caused further damage to Ukraine’s power network. An armed man was arrested near the White House after allegedly threatening Trump.\n- **Politics:** Headlines report Paraguay’s president was impeached and placed under house arrest; New Zealand’s election remains too close to call. Houston’s mayor has curtailed police cooperation with ICE.\n- **Health:** The CDC reportedly recorded more than 5,000 U.S. measles cases, the highest in 35 years; Wisconsin reported a baby’s death from measles.\n\n*These are headline-based reports, not independently verified.*",
+  "briefing": {
+    "policy": "terra-minimum-v1",
+    "requestedModel": "gpt-6.1-terra",
+    "requestedReasoningEffort": "none",
+    "maxOutputTokens": 320,
+    "attempted": true,
+    "status": "completed",
+    "modelVerified": true,
+    "responseId": "resp_0a2caafd185fdf82006aef3e99c60087d2aa97958ca62f3d96",
+    "servedModel": "gpt-6.1-terra",
+    "responseStatus": "completed",
+    "servedReasoningEffort": "none",
+    "httpStatus": 200,
+    "reason": null,
+    "usage": {
+      "inputTokens": 1261,
+      "outputTokens": 122,
+      "reasoningTokens": 0
+    }
+  }
+}
