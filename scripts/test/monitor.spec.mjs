@@ -67,6 +67,41 @@ import { verifyMcpCandidate } from '../../scripts/verify_mcp_candidate.mjs';
 import { verifyTypedSeriesReport } from '../../scripts/verify_typed_series_report.mjs';
 
 const fixture = (name) => fs.readFileSync(path.join(process.cwd(), 'scripts', 'test', 'fixtures', 'monitor', name), 'utf8');
+
+test('GDACS monitor retains bounded primary failure evidence, unknowns and alerts through JSON', async (t) => {
+  const entry = { id: 'gdacs-alerts', format: 'rss', tier: 'standard', invariants: [], knownUpstreamQuirks: [] };
+  const diagnostic = { event: 'gdacs_primary_failure', feedId: entry.id,
+    errorClass: 'invalid_response', upstreamStatus: 200, transportCode: null };
+  let primaryFailure;
+  let failed = false;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const payload = { body: '<rss><channel><item><title>Retained</title></item></channel></rss>',
+      contentType: 'application/xml', httpStatus: 200, stale: true, fallback: 'live-cache', primaryFailure };
+    if (String(url).endsWith('/api/feed')) return new Response(JSON.stringify(payload));
+    const request = JSON.parse(options.body);
+    const content = request.params.name === 'raw.fetch'
+      ? { ...payload, error: failed ? 'fetch_failed' : null, fallbackUsed: !failed, proxyUsed: failed ? null : 'live-cache' }
+      : { items: [], fallbackUsed: true };
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { structuredContent: content } }));
+  });
+  for (primaryFailure of [undefined, { ...diagnostic, body: 'private-fixture', url: 'private-fixture' },
+    { ...diagnostic, upstreamStatus: 'private-fixture', transportCode: 'private-fixture' }]) {
+    const result = JSON.parse(JSON.stringify(await auditEntry(entry, {
+      base: 'https://fixture.test', mcp: 'https://fixture.test/mcp', timeoutMs: 100, includeStatic: false
+    })));
+    const expected = !primaryFailure ? null : { ...diagnostic, upstreamStatus: typeof primaryFailure.upstreamStatus === 'number' ? 200 : null };
+    assert.deepEqual(result.proxy.primaryFailure, expected);
+    assert.deepEqual(result.raw.primaryFailure, expected);
+    assert.equal(JSON.stringify(result).includes('private-fixture'), false);
+    assert.deepEqual(result.alerts.map(alert => alert.regressionClass).sort(), ['fallback-engaged', 'feed-stale']);
+  }
+  failed = true;
+  primaryFailure = diagnostic;
+  const failure = await auditEntry(entry, { base: 'https://fixture.test', mcp: 'https://fixture.test/mcp', timeoutMs: 100, includeStatic: false });
+  assert.equal(failure.raw.error, 'fetch_failed');
+  assert.deepEqual(failure.raw.primaryFailure, diagnostic);
+  assert.equal(summarizeProxyPayload(entry, { body: '<rss/>', httpStatus: 200 }).primaryFailure, null);
+});
 const parseFixture = (name) => JSON.parse(fixture(name));
 const baselineModuleUrl = new URL('../../analysis/monitor/lib/baseline.mjs', import.meta.url).href;
 

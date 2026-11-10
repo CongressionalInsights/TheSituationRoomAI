@@ -7,7 +7,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fetchOpenAqMcp, isDefaultOpenAqRequest } from '../../gcp/feed-proxy/openaq-mcp.js';
 import { mergeFeedParams, sanitizeParamsObject } from '../../gcp/feed-proxy/state-signals.js';
-import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic } from '../../gcp/feed-proxy/firms-diagnostics.js';
+import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic, readGdacsPrimaryFailureDiagnostic } from '../../gcp/feed-proxy/firms-diagnostics.js';
 import { redactDiagnosticUrl } from '../../gcp/mcp-proxy/public-payload-safety.js';
 
 const root = process.cwd();
@@ -635,6 +635,7 @@ test('GDACS Feed Proxy retains the first primary failure before stale snapshot f
     assert.deepEqual(logs, [{ event: 'gdacs_primary_failure', feedId: feed.id,
       errorClass: scenario.errorClass, upstreamStatus: scenario.status || null,
       transportCode: scenario.transportCode }]);
+    assert.deepEqual(result.primaryFailure, logs[0]);
     assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
     const requestCount = calls.length;
     assert.equal(await context.fetchFeed(feed), result);
@@ -659,9 +660,52 @@ test('GDACS Feed Proxy leaves direct and proxy recovery quiet without changing r
     assert.equal(result.body, '<rss>Current alert</rss>');
     assert.notEqual(result.stale, true);
     assert.equal(result.fallback, undefined);
+    assert.equal(result.primaryFailure, undefined);
     assert.equal(calls, recoverThroughProxy ? 2 : 1);
     assert.deepEqual(logs, []);
   }
+});
+
+test('GDACS Feed Proxy retains failure evidence when no snapshot is available', async () => {
+  const { feed, context } = rssFeedFixture('gdacs-alerts', true);
+  context.fetch = async () => new Response('<html>unavailable</html>', { headers: { 'content-type': 'text/html' } });
+  context.fetchLiveFallback = async () => null;
+  const result = await context.fetchFeed(feed);
+  assert.equal(result.error, 'invalid_rss');
+  assert.equal(result.primaryFailure.errorClass, 'invalid_response');
+  assert.equal(result.primaryFailure.upstreamStatus, 200);
+  assert.equal(result.fallback, undefined);
+});
+
+test('GDACS diagnostic readback uses only known fields and preserves unknown cause values', async () => {
+  const other = await import('../../gcp/mcp-proxy/firms-diagnostics.js');
+  for (const read of [readGdacsPrimaryFailureDiagnostic, other.readGdacsPrimaryFailureDiagnostic]) {
+    for (const value of [undefined, null, {}, { event: 'firms_primary_failure', feedId: 'nasa-firms' }]) assert.equal(read(value), null);
+    assert.deepEqual(read({ event: 'gdacs_primary_failure', feedId: 'gdacs-alerts',
+      errorClass: 'private-fixture', upstreamStatus: 999, transportCode: 'private-fixture', body: 'private-fixture' }), {
+      event: 'gdacs_primary_failure', feedId: 'gdacs-alerts', errorClass: 'fetch_failed', upstreamStatus: null, transportCode: null
+    });
+  }
+});
+
+test('GDACS terminal transport failure keeps bounded evidence in the HTTP 502 response', async () => {
+  const { feed, context } = rssFeedFixture('gdacs-alerts', true);
+  context.fetch = async () => { throw Object.assign(new Error('private-fixture'), { code: 'ECONNRESET' }); };
+  context.fetchLiveFallback = async () => null;
+  const source = fs.readFileSync(path.join(root, 'gcp/feed-proxy/server.js'), 'utf8');
+  const start = source.indexOf("  if (url.pathname === '/api/feed') {");
+  const end = source.indexOf("  if (url.pathname === '/api/energy-map') {", start);
+  const routeContext = { Date, URL, origin: null, feedsConfig: { feeds: [feed] }, sanitizeParamsObject,
+    fetchFeed: context.fetchFeed, sanitizeEiaPayload: (_feed, payload) => payload,
+    readGdacsPrimaryFailureDiagnostic, console: { log: () => {} },
+    sendJson: (_res, status, body) => ({ status, body }) };
+  vm.runInNewContext('this.route = async (req, res, url) => {' + source.slice(start, end) + '};', routeContext);
+  const result = await routeContext.route({ method: 'GET' }, {}, new URL('https://fixture.test/api/feed?id=gdacs-alerts&force=1'));
+  assert.equal(result.status, 502);
+  assert.equal(result.body.error, 'fetch_failed');
+  assert.deepEqual(result.body.primaryFailure, { event: 'gdacs_primary_failure', feedId: feed.id,
+    errorClass: 'fetch_failed', upstreamStatus: null, transportCode: 'ECONNRESET' });
+  assert.equal(JSON.stringify(result).includes('private-fixture'), false);
 });
 
 test('NASA FIRMS uses the documented CSV route while preserving the public JSON contract', () => {

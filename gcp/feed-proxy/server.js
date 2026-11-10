@@ -13,7 +13,7 @@ import {
 } from './state-legislation-timeout.js';
 import { isEiaFeed, sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
-import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
+import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic, readGdacsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
 import { fetchOpenAqMcp, isDefaultOpenAqRequest } from './openaq-mcp.js';
 import { inspectBlsPayload, sanitizeBlsBody, isDefaultBlsRequest } from './bls.js';
 import { fetchBlsMcp } from './bls-mcp.js';
@@ -1271,6 +1271,8 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   let firmsError = null;
   let firmsPrimaryFailure = null;
   let gdacsPrimaryFailure = null;
+  const withGdacsPrimaryFailure = payload => gdacsPrimaryFailure
+    ? { ...payload, primaryFailure: gdacsPrimaryFailure } : payload;
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
@@ -1383,20 +1385,22 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic(error)));
     }
     if (feed.id === 'gdacs-alerts') {
-      console.warn(JSON.stringify(gdacsPrimaryFailure || buildGdacsPrimaryFailureDiagnostic(error)));
+      gdacsPrimaryFailure ||= buildGdacsPrimaryFailureDiagnostic(error);
+      console.warn(JSON.stringify(gdacsPrimaryFailure));
     }
     if (!isEiaSeries) {
       if (isUsableStaleFeedPayload(feed, staleCache)) {
-        return markStaleFeedPayload(feed, staleCache);
+        return withGdacsPrimaryFailure(markStaleFeedPayload(feed, staleCache));
       }
       if (allowLiveFallback) {
         const fallback = await fetchLiveFallback(feed.id);
         if (fallback) {
-          const fallbackPayload = markSnapshotFallback(feed, fallback);
+          const fallbackPayload = withGdacsPrimaryFailure(markSnapshotFallback(feed, fallback));
           cache.set(cacheKey, fallbackPayload);
           return fallbackPayload;
         }
       }
+      if (gdacsPrimaryFailure) error.primaryFailure = gdacsPrimaryFailure;
       throw error;
     }
   }
@@ -1499,6 +1503,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   if (shouldCache) {
     cache.set(cacheKey, payload);
   }
+  if (payload.error && feed.id === 'gdacs-alerts') {
+    gdacsPrimaryFailure ||= buildGdacsPrimaryFailureDiagnostic({
+      error: response.ok ? 'invalid_response' : 'fetch_failed', httpStatus: response.status
+    });
+    payload.primaryFailure = gdacsPrimaryFailure;
+  }
   if (payload.error && allowLiveFallback) {
     if (feed.id === 'gdacs-alerts') {
       console.warn(JSON.stringify(gdacsPrimaryFailure || buildGdacsPrimaryFailureDiagnostic({
@@ -1506,11 +1516,11 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       })));
     }
     if (isUsableStaleFeedPayload(feed, staleCache)) {
-      return markStaleFeedPayload(feed, staleCache);
+      return withGdacsPrimaryFailure(markStaleFeedPayload(feed, staleCache));
     }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback) {
-      const fallbackPayload = markSnapshotFallback(feed, fallback);
+      const fallbackPayload = withGdacsPrimaryFailure(markSnapshotFallback(feed, fallback));
       cache.set(cacheKey, fallbackPayload);
       return fallbackPayload;
     }
@@ -1923,7 +1933,8 @@ const server = http.createServer(async (req, res) => {
         elapsedMs: Date.now() - startedAt,
         error: message
       }));
-      return sendJson(res, 502, { error: 'fetch_failed', message }, origin);
+      return sendJson(res, 502, { error: 'fetch_failed', message,
+        ...(id === 'gdacs-alerts' ? { primaryFailure: readGdacsPrimaryFailureDiagnostic(error.primaryFailure) } : {}) }, origin);
     }
   }
 
