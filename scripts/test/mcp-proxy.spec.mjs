@@ -575,6 +575,7 @@ test('GDACS MCP service recovery still succeeds within the deadline after time a
   assert.equal(outcome.result.fallbackUsed, true);
   assert.match(outcome.result.body, /Current service alert/);
   assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result: outcome.result, responseFormat: 'text' }).warning, /fallback \(feed-proxy\)/);
+  assert.equal(outcome.result.primaryFailure.upstreamStatus, 503);
   assert.deepEqual(calls, ['upstream', 'upstream', 'upstream', 'feed-proxy']);
 });
 
@@ -704,6 +705,8 @@ test('GDACS MCP logs only the first bounded primary failure before service or sn
     assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).warning, /published cache snapshot/);
     assert.deepEqual(logs, [{ event: 'gdacs_primary_failure', feedId: gdacsFeed.id,
       errorClass: scenario.errorClass, upstreamStatus: scenario.status || null, transportCode: scenario.transportCode }]);
+    assert.deepEqual(result.primaryFailure, logs[0]);
+    assert.deepEqual(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).primaryFailure, logs[0]);
     assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
   }
   direct = true;
@@ -711,6 +714,8 @@ test('GDACS MCP logs only the first bounded primary failure before service or sn
   const result = await fetchRaw(gdacsFeed, {});
   assert.equal(result.fallbackUsed, false);
   assert.deepEqual(logs, []);
+  assert.equal(result.primaryFailure, undefined);
+  assert.equal(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).primaryFailure, null);
 });
 
 test('Google News MCP fallback preserves the requested query through the Feed Proxy', async () => {

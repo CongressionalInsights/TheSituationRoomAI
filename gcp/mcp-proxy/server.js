@@ -14,7 +14,7 @@ import { mergeFeedParams, normalizeJurisdictionCode, sanitizeParamsObject, US_ST
 import { normalizeCsvSignals, normalizeJsonSignals, parseJsonFeedPayload } from './signal-normalization.js';
 import { redactDiagnosticText, redactDiagnosticUrl, sanitizeDiagnosticPayload, sanitizeEiaPayload } from './public-payload-safety.js';
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
-import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
+import { buildFirmsPrimaryFailureDiagnostic, buildGdacsPrimaryFailureDiagnostic, readGdacsPrimaryFailureDiagnostic } from './firms-diagnostics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1355,6 +1355,7 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
   const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null;
   return {
     sourceId,
+    ...(feed.id === 'gdacs-alerts' ? { primaryFailure: readGdacsPrimaryFailureDiagnostic(result.primaryFailure) } : {}),
     ...(feed.id === 'bls-cpi' ? { acquiredAt: result.acquiredAt || null, cacheHit: Boolean(result.cacheHit),
       upstreamHttpStatus: result.upstreamHttpStatus || null, upstreamError: result.upstreamError || null } : {}),
     ...coverageFields(result),
@@ -2060,7 +2061,8 @@ async function fetchRawUncached(feed, options) {
 
   if (!succeeded) {
     if (feed.id === 'gdacs-alerts') {
-      console.warn(JSON.stringify(gdacsPrimaryFailure || buildGdacsPrimaryFailureDiagnostic(lastError)));
+      gdacsPrimaryFailure ||= buildGdacsPrimaryFailureDiagnostic(lastError);
+      console.warn(JSON.stringify(gdacsPrimaryFailure));
     }
     if (feed.id === 'nasa-firms') {
       console.warn(JSON.stringify(firmsPrimaryFailure || buildFirmsPrimaryFailureDiagnostic(lastError)));
@@ -2082,7 +2084,7 @@ async function fetchRawUncached(feed, options) {
       ? await fetchFeedProxyFallback(feed, options, { timeoutMs: feedProxyTimeoutMs })
       : null;
     if (feedProxyFallback) {
-      return feedProxyFallback;
+      return gdacsPrimaryFailure ? { ...feedProxyFallback, primaryFailure: gdacsPrimaryFailure } : feedProxyFallback;
     }
     const snapshotTimeoutMs = gdacsDeadline === null ? FETCH_TIMEOUT_MS
       : Math.max(0, Math.min(gdacsSnapshotReserveMs, gdacsDeadline - Date.now() - gdacsReturnReserveMs));
@@ -2106,6 +2108,7 @@ async function fetchRawUncached(feed, options) {
       }));
       return {
         body: feed.id === 'bls-cpi' ? sanitizeBlsBody(fallback.body, 'CUUR0000SA0') : fallback.body,
+        ...(gdacsPrimaryFailure ? { primaryFailure: gdacsPrimaryFailure } : {}),
         ...(feed.id === 'bls-cpi' ? { upstreamHttpStatus: lastError?.httpStatus || null, upstreamError: lastError?.error || null } : {}),
         httpStatus: fallback.httpStatus || 200,
         contentType: fallback.contentType || 'application/json',
@@ -2125,6 +2128,7 @@ async function fetchRawUncached(feed, options) {
     }));
     const failureResult = {
       ...lastError,
+      ...(gdacsPrimaryFailure ? { primaryFailure: gdacsPrimaryFailure } : {}),
       fetchedUrl: stripSecretsFromUrl(fetchedUrl),
       proxyUsed: usedProxy,
       fallbackUsed: Boolean(usedProxy && usedProxy !== primaryProxy && !configuredProxies.includes(usedProxy)),
@@ -2248,6 +2252,7 @@ server.registerTool(
         content: [{ type: 'text', text: `Fetch failed: ${safeResult.message || safeResult.error}` }],
         structuredContent: {
           error: safeResult.error,
+          ...(feed.id === 'gdacs-alerts' ? { primaryFailure: readGdacsPrimaryFailureDiagnostic(safeResult.primaryFailure) } : {}),
           ...coverageFields(safeResult),
           code: safeResult.code || null,
           message: safeResult.message,

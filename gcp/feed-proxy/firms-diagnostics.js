@@ -46,3 +46,10 @@ export function buildGdacsPrimaryFailureDiagnostic(failure = {}) {
     transportCode: bounded.transportCode
   };
 }
+
+export function readGdacsPrimaryFailureDiagnostic(value) {
+  if (value?.event !== 'gdacs_primary_failure' || value?.feedId !== 'gdacs-alerts') return null;
+  return buildGdacsPrimaryFailureDiagnostic({
+    error: value.errorClass, httpStatus: value.upstreamStatus, code: value.transportCode
+  });
+}

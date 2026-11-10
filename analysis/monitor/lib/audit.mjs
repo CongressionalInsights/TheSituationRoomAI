@@ -7,6 +7,7 @@ import {
 } from './client.mjs';
 import { redactCredentialFields } from './public_payload_safety.mjs';
 import { inspectBlsPayload, sanitizeBlsBody } from '../../../gcp/feed-proxy/bls.js';
+import { readGdacsPrimaryFailureDiagnostic } from '../../../gcp/feed-proxy/firms-diagnostics.js';
 import { createAlert, applyKnownUpstreamQuirks, dedupeAlerts } from './reporting.mjs';
 import { summarizeCpiPublication } from './cpi_cadence.mjs';
 import { createHash } from 'node:crypto';
@@ -266,6 +267,7 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
   if (feed.format === 'rss') {
     const rss = parseRssSummary(typeof body === 'string' ? body : '');
     return {
+      ...(feed.id === 'gdacs-alerts' ? { primaryFailure: readGdacsPrimaryFailureDiagnostic(payload?.primaryFailure) } : {}),
       httpStatus: payload?.httpStatus ?? transport.status ?? null,
       error: payload?.error || transport.error || null,
       errorMessage,
@@ -338,7 +340,8 @@ function summarizeMcpRaw(feed, result) {
     contentType: payload.contentType || null,
     httpStatus: payload.httpStatus || result?.status || null,
     error: payload.error || result?.error || null,
-    message: payload.message || result?.message || null
+    message: payload.message || result?.message || null,
+    primaryFailure: payload.primaryFailure
   };
   const summary = summarizeProxyPayload(feed, rawWrapper, result || {});
   summary.fetchedUrl = payload.fetchedUrl || null;

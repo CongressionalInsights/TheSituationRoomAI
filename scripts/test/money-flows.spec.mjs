@@ -10,6 +10,30 @@ import { inspectMoneyFlows, auditMoneyFlows } from '../../analysis/monitor/lib/m
 const range = { startIso: '2025-01-01', endIso: '2026-11-03', years: [2025, 2026] };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
 const runtime = (fetch, budget = {}) => ({ fetch, sleep: async () => {}, budget });
+
+test('FEC six successful pages remain partial when only the employer search hits its page budget', async () => {
+  const calls = [];
+  const result = await acquireFec({ terms: ['Fixture'], range: { startIso: '2026-01-01', endIso: '2026-11-09' },
+    runtime: runtime(async raw => {
+      const url = new URL(raw);
+      const employer = url.searchParams.has('contributor_employer');
+      const page = calls.filter(call => call.employer === employer).length + 1;
+      calls.push({ employer, page });
+      const count = employer ? 100 : [100, 28, 0][page - 1];
+      assert.notEqual(count, undefined, 'no page beyond the existing three-page search budget');
+      return json({ results: Array.from({ length: count }, (_, i) => ({ sub_id: `${employer}-${page}-${i}` })),
+        pagination: { last_indexes: count ? { last_index: String(page), last_contribution_receipt_date: '2026-11-08' } : null } });
+    }) });
+  assert.equal(result.items.length, 428);
+  assert.equal(result.error, null);
+  assert.equal(result.coverage.complete, false);
+  assert.equal(result.coverage.status, 'partial');
+  assert.deepEqual(result.coverage.reasons, ['page_budget']);
+  assert.equal(result.coverage.requests, 6);
+  assert.equal(result.coverage.pages, 6);
+  assert.equal(result.coverage.searchesRun, 2);
+  assert.equal(result.coverage.diagnostics.attempts.filter(row => row.attempted).every(row => row.attempt === 1 && row.httpStatus === 200), true);
+});
 const empty = (url) => {
   if (url.hostname === 'lda.gov') return json({ results: [], next: null, count: 0 });
   if (url.hostname === 'api.open.fec.gov') return json({ results: [], pagination: { last_indexes: null } });
