@@ -1,4 +1,5 @@
 import test from 'node:test';
+import './gdelt-geo-window.spec.mjs';
 import './mcp-request-limits.spec.mjs';
 import './diagnostic-url-redaction.spec.mjs';
 import assert from 'node:assert/strict';

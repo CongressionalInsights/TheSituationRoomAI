@@ -549,6 +549,10 @@ function buildFeedProxyFallbackParams(feed) {
 function buildStaticRequestParams(feed) {
   if (!feed) return {};
   const defaults = feed.supportsParams ? { ...(feed.defaultParams || {}) } : {};
+  if (feed.id === 'gdelt-conflict-geo') {
+    // GEO supports at most seven days, unlike the DOC API's longer window.
+    return { timespan: '7d', ...defaults };
+  }
   if (feed.id === 'state-legislation') {
     return {
       jurisdiction: 'ocd-jurisdiction/country:us/state:ny/government',
