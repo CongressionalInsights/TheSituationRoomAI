@@ -3554,7 +3554,7 @@ test('documentation watch pins stable provider surfaces without accepting unknow
       'cea87092ea9b4497a96fef6cd20b29ccc6f9864cc4688b90b539ea36bfb216d1'
     ],
     'docs:https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json': 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774',
-    'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '1422c9786e0dcf4d43ec123a89bf6942a8c025eb2405b20ce5668709b705f45b',
+    'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '2312106bfc7fa90df43efe41d945d7465b26a7cf08903866a2d675b7c2ee102b',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
     'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
   };
@@ -3564,6 +3564,25 @@ test('documentation watch pins stable provider surfaces without accepting unknow
     assert.deepEqual(surfaces.get(key)?.acceptedHashes, expectedHashes, key);
     assert.equal(surfaces.get(key)?.acceptedHashes.includes('unknown-contract-hash'), false, key);
   }
+
+  const congressUrl = 'https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md';
+  const congressSurface = surfaces.get(`changelog:${congressUrl}`);
+  assert.deepEqual(congressSurface.feedIds, ['congress-api', 'congress-reports']);
+  assert.equal(congressSurface.representativeFeedId, 'congress-api');
+  assert.equal(congressSurface.enforceAcceptedHashes, false);
+  assert.deepEqual(congressSurface.requiredMarkers, []);
+  for (const id of congressSurface.feedIds) {
+    assert.equal(monitoring[id].acceptedSurfaceHashes.changelog[congressUrl], congressSurface.acceptedHashes[0]);
+  }
+  // November's upcoming query filters do not change the existing response or freshness contract.
+  assert.equal(monitoring['congress-api'].freshnessWindowMinutes, 2880);
+  assert.equal(monitoring['congress-reports'].freshnessWindowMinutes, 4320);
+  assert.equal(classifyDocChange({
+    previous: { hash: congressSurface.acceptedHashes[0] },
+    current: { hash: 'unknown-contract-hash', normalizedText: 'A required field was removed.' },
+    surfaceType: congressSurface.surfaceType,
+    tier: 'core'
+  }).regressionClass, 'docs-contract-change');
 
   const cisaSchema = surfaces.get('docs:https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json');
   assert.equal(cisaSchema.acceptedHashes.includes('b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774'), true);
