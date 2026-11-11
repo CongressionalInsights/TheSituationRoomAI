@@ -141,8 +141,7 @@ function getAcledWindow() {
 }
 
 function buildGdeltConflictUrl(feed) {
-  const { start, end } = getAcledWindow();
-  const timespan = `${DEFAULT_LOOKBACK_DAYS}d`;
+  const timespan = '7d';
   const query = feed.defaultQuery || '';
   let url = feed.url || '';
   url = url.replaceAll('{{query}}', encodeURIComponent(query));
@@ -1097,6 +1096,13 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
 }
 
 async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
+  // Window params are not declared for this route; do not answer them with a narrower default.
+  if (feed.id === 'gdelt-conflict-geo' && (/^(timespan|start|end|startdatetime|enddatetime)$/i.test(keyParam || '')
+    || Object.keys(sanitizeParamsObject(params)).some(name => /^(timespan|start|end|startdatetime|enddatetime)$/i.test(name)))) {
+    return { id: feed.id, fetchedAt: Date.now(), httpStatus: 400, error: 'unsupported_geo_window',
+      message: 'This Feed route supports the default seven-day GEO window only; explicit window parameters are not supported.',
+      fallbackUsed: false };
+  }
   if (feed.id === 'stooq-quote') {
     return { id: feed.id, error: 'source_retired', status: 'retired', available: false,
       httpStatus: 410, fallbackUsed: false, message: 'TSR retired the Stooq integration; no replacement is active.' };
@@ -1890,6 +1896,11 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 410, { id, error: 'source_retired', status: 'retired', available: false,
         message: 'TSR retired the Stooq integration; no replacement is active.', fallbackUsed: false }, origin);
     }
+    if (id === 'gdelt-conflict-geo' && [...Object.keys(body || {}), ...url.searchParams.keys()]
+      .some(name => /^(timespan|start|end|startdatetime|enddatetime)$/i.test(name))) {
+      return sendJson(res, 400, { id, error: 'unsupported_geo_window', httpStatus: 400, fallbackUsed: false,
+        message: 'This Feed route supports the default seven-day GEO window only; explicit window parameters are not supported.' }, origin);
+    }
     const query = body.query || url.searchParams.get('query') || undefined;
     const force = body.force === true || url.searchParams.get('force') === '1';
     const key = body.key || url.searchParams.get('key') || undefined;
@@ -1922,7 +1933,7 @@ const server = http.createServer(async (req, res) => {
         httpStatus: payload.httpStatus || null,
         elapsedMs: Date.now() - startedAt
       }));
-      return sendJson(res, 200, payload, origin);
+      return sendJson(res, id === 'gdelt-conflict-geo' && payload.error === 'unsupported_geo_window' ? 400 : 200, payload, origin);
     } catch (error) {
       const message = error?.message || 'fetch failed';
       console.log(JSON.stringify({

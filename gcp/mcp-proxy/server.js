@@ -552,13 +552,26 @@ function applyCongressCommitteeDateWindow(url, feed, params = {}) {
   return parsed.toString();
 }
 
+function getGdeltGeoWindowError(feed, options = {}) {
+  if (feed?.id !== 'gdelt-conflict-geo') return null;
+  // GEO has no registered exact-range mapping; a relative timespan would lose caller endpoints.
+  if (options.start || options.end || /^(timespan|start|end|startdatetime|enddatetime)$/i.test(options.keyParam || '')
+    || Object.keys(sanitizeParamsObject(options.params)).some(name => /^(timespan|start|end|startdatetime|enddatetime)$/i.test(name))) {
+    return { error: 'unsupported_geo_window', httpStatus: 400, upstreamStatus: null, fallbackUsed: false,
+      message: 'This GEO source supports the default seven-day window only; explicit ranges and window parameters are not supported.' };
+  }
+  return null;
+}
+
 export function buildFeedUrl(feed, options) {
+  const windowError = getGdeltGeoWindowError(feed, options);
+  if (windowError) throw Object.assign(new Error(windowError.message), windowError);
   const query = feed.supportsQuery
     ? (options.query || feed.defaultQuery || '')
     : (options.query || '');
   const start = options.start || '';
   const end = options.end || '';
-  const timespan = computeTimespan(start, end);
+  const timespan = feed.id === 'gdelt-conflict-geo' && !start && !end ? '7d' : computeTimespan(start, end);
   const templateParams = feed.supportsParams
     ? {
       ...sanitizeParamsObject(feed.defaultParams),
@@ -1549,6 +1562,8 @@ export function shouldUseLiveFallback(feedOrOptions = {}, maybeOptions = null) {
   if (options?.history || options?.start || options?.end) return false;
   if (!feed) return true;
   if (feed.id === 'openaq-api') return false;
+  // Published GEO envelopes do not identify their acquisition window.
+  if (feed.id === 'gdelt-conflict-geo') return false;
   if (feed.id === 'bls-cpi') return isDefaultBlsRequest(feed, options);
 
   const requestQuery = getFallbackComparableQuery(feed, options);
@@ -1780,6 +1795,8 @@ async function fetchRawUncached(feed, options) {
       message: `History ranges are not supported for ${feed?.id || 'this source'}.`
     };
   }
+  const windowError = getGdeltGeoWindowError(feed, options);
+  if (windowError) return windowError;
   if (isStateConnectorFeed(feed)) {
     return fetchStateConnectorRaw(feed, options);
   }
@@ -2257,7 +2274,7 @@ server.registerTool(
           code: safeResult.code || null,
           message: safeResult.message,
           httpStatus: safeResult.httpStatus || null,
-          upstreamStatus: safeResult.upstreamStatus || safeResult.httpStatus || null,
+          upstreamStatus: safeResult.error === 'unsupported_geo_window' ? null : safeResult.upstreamStatus || safeResult.httpStatus || null,
           fetchedUrl: safeResult.fetchedUrl || null,
           fallbackUsed: Boolean(safeResult.fallbackUsed),
           proxyUsed: safeResult.proxyUsed || null
