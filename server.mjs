@@ -490,7 +490,8 @@ async function handleChat(payload, apiKey) {
   input.push(...messages);
 
   if (payload.purpose === 'briefing') {
-    const result = await generateBriefing({ apiKey, input, model: process.env.SR_BRIEFING_MODEL, temperature });
+    const result = await generateBriefing({ apiKey, input, model: process.env.SR_BRIEFING_MODEL,
+      maxOutputTokens: process.env.SR_BRIEFING_MAX_OUTPUT_TOKENS, temperature });
     console.log(JSON.stringify({ severity: result.text ? 'INFO' : 'WARNING', message: 'briefing-result', ...result.provenance }));
     return {
       status: result.text ? 200 : 502,
