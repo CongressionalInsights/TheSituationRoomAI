@@ -3689,6 +3689,160 @@ test('CISA documentation mirror keeps the reviewed schema and unrelated failures
   assert.deepEqual(requests, [schemaUrl, schemaUrl, schemaUrl]);
 });
 
+// Normalization replaces NBSP after collapsing spaces; replay its saved output without a second collapse.
+const treasuryDocumentationReplay = (text) => text.replace(/ {2,}/g, (spaces) => '\u00a0'.repeat(spaces.length));
+
+test('Treasury documentation fixture binds the exact reviewed endpoint-count change', () => {
+  const observed = parseFixture('treasury-docs-observed.json');
+  assert.equal(observed.sourceUrl, 'https://fiscaldata.treasury.gov/api-documentation/');
+  assert.equal(observed.observedHash, 'f0a5611f27426afc6dc79feb4bb87e2f2be0a33cbf0ff6e1c23c3ef04edee9e5');
+  assert.equal(observed.previousHash, '30f66a98b2d82092be322c2a804bd90ae339dbf5bf6a71db86923843549e0295');
+  assert.equal(Buffer.byteLength(observed.normalizedText, 'utf8'), 23071);
+  assert.equal(hashContent(observed.normalizedText), observed.observedHash);
+  assert.equal(normalizeDocText(treasuryDocumentationReplay(observed.normalizedText), 'text/plain'), observed.normalizedText);
+  assert.equal(observed.normalizedText.split(observed.observedCountLabel).length - 1, 1);
+  const previousText = observed.normalizedText.replace(observed.observedCountLabel, observed.previousCountLabel);
+  assert.equal(hashContent(previousText), observed.previousHash);
+});
+
+for (const count of [182, 184]) {
+  test(`Treasury documentation watch accepts only the exact reviewed ${count}-row body`, async (t) => {
+    const observed = parseFixture('treasury-docs-observed.json');
+    const entry = resolveMonitoringEntry(
+      typedMonitorFeeds.find((feed) => feed.id === 'treasury-debt'),
+      typedMonitorOverrides['treasury-debt']
+    );
+    assert.equal(entry.docsUrl, observed.sourceUrl);
+    assert.equal(entry.supportUrl, null);
+    assert.equal(entry.enforceAcceptedSurfaceHashes, true);
+    assert.deepEqual(entry.acceptedSurfaceHashes.docs[observed.sourceUrl], [
+      observed.previousHash, observed.observedHash
+    ]);
+    assert.deepEqual(collectDocumentSurfaces([entry])[0].requiredMarkers, []);
+    const text = count === 184 ? observed.normalizedText
+      : observed.normalizedText.replace(observed.observedCountLabel, observed.previousCountLabel);
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.equal(url, observed.sourceUrl, 'retained documentation only, never a provider acquisition');
+      requests.push(url);
+      return new Response(treasuryDocumentationReplay(text), { headers: { 'Content-Type': 'text/plain' } });
+    });
+    const results = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+    assert.deepEqual(requests, [observed.sourceUrl]);
+    assert.equal(results.length, 1);
+    const [result] = results;
+    assert.equal(result.surfaceType, 'docs');
+    assert.equal(result.hash, count === 184 ? observed.observedHash : observed.previousHash);
+    assert.equal(result.acceptedHashRequired, true);
+    assert.equal(result.acceptedBaseline, true);
+    assert.equal(result.changed, false);
+    assert.equal(result.classification, null);
+  });
+}
+
+for (const scenario of ['method', 'authentication', 'endpoint', 'count', 'unknown', 'empty']) {
+  test(`Treasury documentation watch keeps unreviewed ${scenario} evidence actionable on first and repeated observation`, async (t) => {
+    const observed = parseFixture('treasury-docs-observed.json');
+    const entry = resolveMonitoringEntry(
+      typedMonitorFeeds.find((feed) => feed.id === 'treasury-debt'),
+      typedMonitorOverrides['treasury-debt']
+    );
+    const mutations = {
+      method: (text) => text.replace('Our API accepts GET requests', 'Our API accepts POST requests'),
+      authentication: (text) => text.replace('does not require a user account or registration for a token', 'requires a user account and registration for a token'),
+      endpoint: (text) => text.replaceAll('v2/accounting/od/debt_to_penny', 'retired_debt_endpoint'),
+      count: (text) => text.replace(observed.observedCountLabel, 'Showing 1 - 10 rows of 185 rows'),
+      unknown: () => 'Unreviewed page revision.',
+      empty: () => ''
+    };
+    const text = mutations[scenario](observed.normalizedText);
+    assert.notEqual(text, observed.normalizedText);
+    assert.equal(normalizeDocText(treasuryDocumentationReplay(text), 'text/plain'), text);
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.equal(url, observed.sourceUrl);
+      requests.push(url);
+      return new Response(treasuryDocumentationReplay(text), { headers: { 'Content-Type': 'text/plain' } });
+    });
+    const initial = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+    const repeated = await watchDocumentation({
+      entries: [entry],
+      previousDocs: { [initial[0].key]: initial[0] },
+      timeoutMs: 1000
+    });
+    assert.deepEqual(requests, [observed.sourceUrl, observed.sourceUrl]);
+    for (const results of [initial, repeated]) {
+      assert.equal(results.length, 1);
+      const [result] = results;
+      assert.equal(result.hash, hashContent(text));
+      assert.equal(result.acceptedHashRequired, true);
+      assert.equal(result.acceptedBaseline, false);
+      assert.equal(result.changed, true);
+      const hasContractText = !['unknown', 'empty'].includes(scenario);
+      assert.equal(result.classification.regressionClass, hasContractText ? 'docs-contract-change' : 'docs-surface-updated');
+      assert.equal(result.classification.severity, hasContractText ? 'critical' : 'warning');
+      const alert = createAlert({ feedId: entry.id, ...result.classification, docsHash: result.hash,
+        metadata: { surfaceKey: result.key, url: result.url } });
+      assert.deepEqual(applyKnownUpstreamQuirks(alert, entry.knownUpstreamQuirks), alert);
+    }
+  });
+}
+
+for (const failure of ['403', 'transport', 'timeout']) {
+  test(`Treasury documentation watch retains one ${failure} warning with an unknown hash`, async (t) => {
+    const observed = parseFixture('treasury-docs-observed.json');
+    const entry = resolveMonitoringEntry(
+      typedMonitorFeeds.find((feed) => feed.id === 'treasury-debt'),
+      typedMonitorOverrides['treasury-debt']
+    );
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.equal(url, observed.sourceUrl);
+      requests.push(url);
+      if (failure === 'transport') throw new TypeError('fixture transport failure');
+      if (failure === 'timeout') throw new DOMException('fixture timeout', 'AbortError');
+      return new Response(observed.normalizedText, { status: 403 });
+    });
+    const results = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+    assert.deepEqual(requests, [observed.sourceUrl]);
+    assert.equal(results.length, 1);
+    const [result] = results;
+    assert.equal(result.ok, false);
+    assert.equal(result.hash, null, 'even an error body identical to reviewed content must not be accepted');
+    assert.equal(result.acceptedBaseline, false);
+    assert.equal(result.changed, true);
+    assert.deepEqual(result.classification, {
+      regressionClass: 'docs-fetch-failed', severity: 'warning',
+      message: failure === '403' ? 'HTTP 403' : failure === 'timeout' ? 'timeout' : 'fetch_failed'
+    });
+  });
+}
+
+test('Treasury documentation deduplication removes a role, not a unique URL or failure class', async (t) => {
+  const entry = resolveMonitoringEntry(
+    typedMonitorFeeds.find((feed) => feed.id === 'treasury-debt'),
+    typedMonitorOverrides['treasury-debt']
+  );
+  const priorEntry = { ...entry, supportUrl: entry.docsUrl };
+  const before = collectDocumentSurfaces([priorEntry]);
+  const after = collectDocumentSurfaces([entry]);
+  assert.deepEqual(before.map((surface) => surface.surfaceType), ['docs', 'support']);
+  assert.deepEqual(after.map((surface) => surface.surfaceType), ['docs']);
+  assert.deepEqual([...new Set(before.map((surface) => surface.url))], after.map((surface) => surface.url));
+  assert.deepEqual(after[0].feedIds, ['treasury-debt']);
+  assert.equal(after[0].tiers['treasury-debt'], 'core');
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(url, entry.docsUrl);
+    requests.push(url);
+    return new Response('A required schema field was removed.');
+  });
+  const [result] = await watchDocumentation({ entries: [entry], timeoutMs: 1000 });
+  assert.deepEqual(requests, [entry.docsUrl]);
+  assert.equal(result.classification.regressionClass, 'docs-contract-change');
+  assert.equal(result.classification.severity, 'critical');
+});
+
 test('CDC documentation watch accepts the exact owner-reviewed saved body for both roles', async (t) => {
   const observed = parseFixture('cdc-rss-observed.json');
   const entry = resolveMonitoringEntry(
