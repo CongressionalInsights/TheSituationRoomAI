@@ -20,6 +20,7 @@ jobs:
       SERVICE_NAME: situation-room-openai
       ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
       SR_BRIEFING_MODEL: ${{ vars.SR_BRIEFING_MODEL || 'gpt-6.1-terra' }}
+      SR_BRIEFING_MAX_OUTPUT_TOKENS: ${{ vars.SR_BRIEFING_MAX_OUTPUT_TOKENS || '320' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -41,7 +42,7 @@ jobs:
           fi
       - name: Deploy OpenAI proxy service
         run: |
-          node -e 'require("node:fs").writeFileSync("/tmp/sr-openai-env.yaml", JSON.stringify({ ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS, SR_BRIEFING_MODEL: process.env.SR_BRIEFING_MODEL }))'
+          node -e 'require("node:fs").writeFileSync("/tmp/sr-openai-env.yaml", JSON.stringify({ ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS, SR_BRIEFING_MODEL: process.env.SR_BRIEFING_MODEL, SR_BRIEFING_MAX_OUTPUT_TOKENS: process.env.SR_BRIEFING_MAX_OUTPUT_TOKENS }))'
           gcloud run deploy "$SERVICE_NAME" \
             --region "$REGION" \
             --source gcp/openai-proxy \

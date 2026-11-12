@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
-import { DEFAULT_BRIEFING_MODEL, BRIEFING_MAX_OUTPUT_TOKENS, BRIEFING_TIMEOUT_MS, generateBriefing, inspectBriefingResponse, resolveBriefingProfile } from '../../gcp/openai-proxy/briefing.js';
+import { DEFAULT_BRIEFING_MODEL, BRIEFING_MAX_OUTPUT_TOKENS, BRIEFING_OUTPUT_TOKEN_CEILING, BRIEFING_TIMEOUT_MS, generateBriefing, inspectBriefingResponse, resolveBriefingProfile, resolveBriefingOutputLimit } from '../../gcp/openai-proxy/briefing.js';
 
 const key = 'inert-briefing-fixture-key';
 const input = [{ role: 'user', content: 'Four fixture headlines.' }];
@@ -54,6 +54,43 @@ test('briefing transport requests Terra with none,320tokens, fixed HTTPS and saf
   assert.equal(result.provenance.responseId, 'resp_briefing_fixture');
   assert.equal(result.provenance.usage.reasoningTokens, 0);
   assert.ok(!JSON.stringify(result).includes(key));
+});
+
+test('briefing output configuration is bounded, explicit and defaults to the existing ceiling', () => {
+  for (const value of [undefined, null, '', '  ']) assert.equal(resolveBriefingOutputLimit(value), 320);
+  for (const [value, expected] of [[320, 320], [' 1024 ', 1024], [4096, 4096]]) {
+    assert.equal(resolveBriefingOutputLimit(value), expected);
+  }
+  assert.equal(BRIEFING_OUTPUT_TOKEN_CEILING, 4096);
+  for (const value of [0, 319, 4097, -1, 1024.5, NaN, Infinity, true, {}, [], '1e3', '0x400', '1024 tokens']) {
+    assert.equal(resolveBriefingOutputLimit(value), null, String(value));
+  }
+});
+
+test('configured briefing output ceiling binds request, acceptance and provenance without retry', async () => {
+  for (const outputTokens of [800, 1024, 1025]) {
+    let calls = 0;
+    const result = await generateBriefing({ apiKey: key, input, maxOutputTokens: '1024', fetchImpl: async (_url, options) => {
+      calls++;
+      assert.equal(JSON.parse(options.body).max_output_tokens, 1024);
+      return response(complete({ usage: { input_tokens: 80, output_tokens: outputTokens, output_tokens_details: { reasoning_tokens: 0 } } }));
+    } });
+    assert.equal(calls, 1);
+    assert.equal(result.provenance.maxOutputTokens, 1024);
+    assert.equal(result.provenance.status, outputTokens <= 1024 ? 'completed' : 'fallback');
+    assert.equal(result.provenance.reason, outputTokens <= 1024 ? null : 'output_limit_exceeded');
+  }
+});
+
+test('invalid briefing ceiling fails before acquisition and standalone inspection is bounded', async () => {
+  let calls = 0;
+  const result = await generateBriefing({ apiKey: key, input, maxOutputTokens: '4097', fetchImpl: async () => { calls++; return response(complete()); } });
+  assert.equal(calls, 0);
+  assert.equal(result.provenance.attempted, false);
+  assert.equal(result.provenance.maxOutputTokens, null);
+  assert.equal(result.provenance.reason, 'invalid_output_limit_config');
+  assert.equal(inspectBriefingResponse(complete(), DEFAULT_BRIEFING_MODEL, 'bad').provenance.reason, 'invalid_output_limit_config');
+  assert.equal(inspectBriefingResponse(complete({ usage: { output_tokens: 1025 } }), DEFAULT_BRIEFING_MODEL, 1024).provenance.reason, 'output_limit_exceeded');
 });
 
 test('explicit higher briefing profiles use low and omit unsupported temperature', async () => {
@@ -182,6 +219,18 @@ test('actual static briefing function selects configured request, deduplicates/c
   assert.equal(data.text, 'Complete fixture briefing.');
 });
 
+test('actual static briefing passes the configured ceiling without changing its three-section input', async () => {
+  const configured = staticFixture({ OPEN_AI: key, SR_BRIEFING_MAX_OUTPUT_TOKENS: '1024' }, async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(body.max_output_tokens, 1024);
+    assert.match(body.input[1].content, /Return 3 bullet sections with short labels/);
+    return response(complete({ usage: { output_tokens: 800 } }));
+  });
+  const result = await configured.build(headlineInput(4));
+  assert.equal(result.source, 'openai');
+  assert.equal(result.briefing.maxOutputTokens, 1024);
+});
+
 test('actual static builder preserves factual fallback for insufficient, absent-key, incomplete and wrong-model responses', async () => {
   let calls = 0;
   const mock = payload => async () => { calls++; return response(payload); };
@@ -218,6 +267,23 @@ function routeFixture(file, payload, fetchImpl, env = {}) {
 }
 
 for (const file of ['server.mjs', 'gcp/openai-proxy/server.js']) {
+  test(`${file} takes the output ceiling only from server configuration`, async () => {
+    let calls = 0;
+    const route = routeFixture(file, { purpose: 'briefing', messages: input, maxOutputTokens: 4096, max_output_tokens: 4096 }, async (_url, options) => {
+      calls++;
+      assert.equal(JSON.parse(options.body).max_output_tokens, 1024);
+      return response(complete({ usage: { output_tokens: 800 } }));
+    }, { SR_BRIEFING_MAX_OUTPUT_TOKENS: '1024' });
+    const result = await route.invoke();
+    assert.equal(calls, 1);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.briefing.maxOutputTokens, 1024);
+    const invalid = routeFixture(file, { purpose: 'briefing', messages: input }, async () => { calls++; throw new Error('must not acquire'); }, { SR_BRIEFING_MAX_OUTPUT_TOKENS: '1e3' });
+    const failure = await invalid.invoke();
+    assert.equal(calls, 1);
+    assert.equal(failure.status, 502);
+    assert.equal(failure.body.briefing.reason, 'invalid_output_limit_config');
+  });
   test(`${file} applies dedicated briefing configuration and refuses a lower configured model without acquisition`, async () => {
     let calls = 0;
     const fetchImpl = async (_url, options) => {
@@ -338,10 +404,13 @@ test('Pages and existing OpenAI proxy workflows share only the dedicated briefin
   for (const file of ['.github/workflows/deploy-pages.yml', '.github/workflows/deploy-openai-proxy.yml']) {
     const source = fs.readFileSync(file, 'utf8');
     assert.ok(source.includes("${{ vars.SR_BRIEFING_MODEL || 'gpt-6.1-terra' }}"), file);
+    assert.ok(source.includes("${{ vars.SR_BRIEFING_MAX_OUTPUT_TOKENS || '320' }}"), file);
   }
   const pages = fs.readFileSync('.github/workflows/deploy-pages.yml', 'utf8');
   assert.ok(pages.includes('${{ secrets.OPEN_AI }}'));
   assert.ok(pages.includes('gcp/openai-proxy/briefing.js'));
+  const proxy = fs.readFileSync('.github/workflows/deploy-openai-proxy.yml', 'utf8');
+  assert.ok(proxy.includes('SR_BRIEFING_MAX_OUTPUT_TOKENS: process.env.SR_BRIEFING_MAX_OUTPUT_TOKENS'));
 });
 
 test('OpenAI deploy requires enabled existing secret metadata without reading or repairing credentials', () => {

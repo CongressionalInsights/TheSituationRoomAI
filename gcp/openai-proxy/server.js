@@ -84,7 +84,8 @@ async function handleChat(req, res) {
   input.push(...messages);
 
   if (payload.purpose === 'briefing') {
-    const result = await generateBriefing({ apiKey, input, model: process.env.SR_BRIEFING_MODEL, temperature });
+    const result = await generateBriefing({ apiKey, input, model: process.env.SR_BRIEFING_MODEL,
+      maxOutputTokens: process.env.SR_BRIEFING_MAX_OUTPUT_TOKENS, temperature });
     console.log(JSON.stringify({ severity: result.text ? 'INFO' : 'WARNING', message: 'briefing-result', ...result.provenance }));
     if (!result.text) return sendJson(res, 502, { error: 'briefing_unavailable', message: 'AI briefing unavailable.', briefing: result.provenance }, origin);
     return sendJson(res, 200, { id: result.provenance.responseId, model: result.provenance.servedModel, text: result.text, briefing: result.provenance }, origin);

@@ -1,5 +1,6 @@
 export const DEFAULT_BRIEFING_MODEL = 'gpt-6.1-terra';
 export const BRIEFING_MAX_OUTPUT_TOKENS = 320;
+export const BRIEFING_OUTPUT_TOKEN_CEILING = 4096;
 export const BRIEFING_TIMEOUT_MS = 20000;
 
 // Higher profiles require their supported effort, never Terra's `none` by inheritance.
@@ -32,7 +33,19 @@ function tokenCount(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
-export function inspectBriefingResponse(data, requestedModel) {
+export function resolveBriefingOutputLimit(value) {
+  if (value === undefined || value === null || value === '') return BRIEFING_MAX_OUTPUT_TOKENS;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const text = String(value).trim();
+  if (!text) return BRIEFING_MAX_OUTPUT_TOKENS;
+  if (!/^\d+$/.test(text)) return null;
+  const tokens = Number(text);
+  return Number.isSafeInteger(tokens) && tokens >= BRIEFING_MAX_OUTPUT_TOKENS
+    && tokens <= BRIEFING_OUTPUT_TOKEN_CEILING ? tokens : null;
+}
+
+export function inspectBriefingResponse(data, requestedModel, maxOutputTokens = BRIEFING_MAX_OUTPUT_TOKENS) {
+  const outputLimit = resolveBriefingOutputLimit(maxOutputTokens);
   const provenance = {
     responseId: safeIdentifier(data?.id),
     servedModel: safeIdentifier(data?.model),
@@ -45,11 +58,12 @@ export function inspectBriefingResponse(data, requestedModel) {
     }
   };
   const reject = reason => ({ text: null, provenance: { ...provenance, reason } });
+  if (outputLimit === null) return reject('invalid_output_limit_config');
   if (!data || typeof data !== 'object' || data.error) return reject('response_error');
   if (!provenance.responseId) return reject('invalid_response');
   if (data.status !== 'completed' || data.incomplete_details) return reject('incomplete_response');
   if (!matchesBriefingModel(requestedModel, data.model)) return reject('wrong_model');
-  if (provenance.usage.outputTokens > BRIEFING_MAX_OUTPUT_TOKENS) return reject('output_limit_exceeded');
+  if (provenance.usage.outputTokens > outputLimit) return reject('output_limit_exceeded');
   if (!Array.isArray(data.output)) return reject('invalid_output');
   const messages = data.output.filter(item => item?.type === 'message');
   if (!messages.length) return reject('empty_output');
@@ -66,13 +80,14 @@ export function inspectBriefingResponse(data, requestedModel) {
   return { text: completeText, provenance: { ...provenance, reason: null } };
 }
 
-export async function generateBriefing({ apiKey, input, model, temperature, skipReason, fetchImpl = fetch } = {}) {
+export async function generateBriefing({ apiKey, input, model, maxOutputTokens, temperature, skipReason, fetchImpl = fetch } = {}) {
   const profile = resolveBriefingProfile(model);
+  const outputLimit = resolveBriefingOutputLimit(maxOutputTokens);
   const provenance = {
     policy: 'terra-minimum-v1',
     requestedModel: profile?.model || safeIdentifier(typeof model === 'string' ? model.trim() : null),
     requestedReasoningEffort: profile?.reasoningEffort || null,
-    maxOutputTokens: BRIEFING_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: outputLimit,
     attempted: false,
     status: 'fallback',
     modelVerified: false,
@@ -85,6 +100,7 @@ export async function generateBriefing({ apiKey, input, model, temperature, skip
   };
   const fallback = reason => ({ text: null, provenance: { ...provenance, reason } });
   if (!profile) return fallback('unsupported_model_config');
+  if (outputLimit === null) return fallback('invalid_output_limit_config');
   if (skipReason) return fallback(skipReason);
   if (typeof apiKey !== 'string' || !apiKey.trim()) return fallback('missing_key');
   const controller = new AbortController();
@@ -94,7 +110,7 @@ export async function generateBriefing({ apiKey, input, model, temperature, skip
       model: profile.model,
       input,
       reasoning: { effort: profile.reasoningEffort },
-      max_output_tokens: BRIEFING_MAX_OUTPUT_TOKENS
+      max_output_tokens: outputLimit
     };
     if (profile.reasoningEffort === 'none' && Number.isFinite(temperature)) body.temperature = temperature;
     provenance.attempted = true;
@@ -105,7 +121,7 @@ export async function generateBriefing({ apiKey, input, model, temperature, skip
     });
     provenance.httpStatus = response.status;
     if (!response.ok) return fallback('http_error');
-    const inspected = inspectBriefingResponse(await response.json(), profile.model);
+    const inspected = inspectBriefingResponse(await response.json(), profile.model, outputLimit);
     Object.assign(provenance, inspected.provenance);
     if (!inspected.text) return fallback(inspected.provenance.reason);
     if (provenance.servedReasoningEffort && provenance.servedReasoningEffort !== profile.reasoningEffort) return fallback('wrong_reasoning_effort');

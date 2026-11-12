@@ -374,6 +374,7 @@ async function buildAnalysis(feedPayloads) {
   const result = await generateBriefing({
     apiKey: process.env.OPEN_AI || process.env.OPENAI_API_KEY,
     model: process.env.SR_BRIEFING_MODEL,
+    maxOutputTokens: process.env.SR_BRIEFING_MAX_OUTPUT_TOKENS,
     skipReason: uniqueTitles.length < 4 ? 'insufficient_headlines' : null,
     input: [
       { role: 'system', content: 'You are an intelligence analyst. Produce a concise situational briefing with labeled bullet sections.' },

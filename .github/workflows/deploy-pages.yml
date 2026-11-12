@@ -51,6 +51,7 @@ jobs:
           OPEN_AQ: ${{ secrets.OPEN_AQ }}
           OPEN_AI: ${{ secrets.OPEN_AI }}
           SR_BRIEFING_MODEL: ${{ vars.SR_BRIEFING_MODEL || 'gpt-6.1-terra' }}
+          SR_BRIEFING_MAX_OUTPUT_TOKENS: ${{ vars.SR_BRIEFING_MAX_OUTPUT_TOKENS || '320' }}
           OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
           OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
         run: node scripts/build_static_cache.mjs
