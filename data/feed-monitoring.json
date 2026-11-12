@@ -444,7 +444,16 @@
     "docsUrl": "https://fiscaldata.treasury.gov/api-documentation/",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://fiscaldata.treasury.gov/api-documentation/",
+    "supportUrl": null,
+    "enforceAcceptedSurfaceHashes": true,
+    "acceptedSurfaceHashes": {
+      "docs": {
+        "https://fiscaldata.treasury.gov/api-documentation/": [
+          "30f66a98b2d82092be322c2a804bd90ae339dbf5bf6a71db86923843549e0295",
+          "f0a5611f27426afc6dc79feb4bb87e2f2be0a33cbf0ff6e1c23c3ef04edee9e5"
+        ]
+      }
+    },
     "freshnessWindowMinutes": 10080,
     "sampleParams": {},
     "invariants": [
