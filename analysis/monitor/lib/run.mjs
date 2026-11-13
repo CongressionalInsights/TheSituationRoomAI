@@ -119,7 +119,7 @@ function unlinkIfExists(filePath) {
   }
 }
 
-function buildDocAlerts(docResults = [], entriesById = new Map()) {
+export function buildDocAlerts(docResults = [], entriesById = new Map()) {
   return docResults
     .filter((result) => result.classification)
     .map((result) => {

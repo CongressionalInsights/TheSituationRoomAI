@@ -925,6 +925,11 @@
     "changelogUrl": "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md",
     "statusUrl": null,
     "supportUrl": "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md",
+    "enforceAcceptedSurfaceHashesByUrl": {
+      "support": {
+        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md": true
+      }
+    },
     "timeoutMs": 60000,
     "freshnessWindowMinutes": 2880,
     "sampleParams": {},
@@ -947,6 +952,9 @@
     "acceptedSurfaceHashes": {
       "changelog": {
         "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md": "2312106bfc7fa90df43efe41d945d7465b26a7cf08903866a2d675b7c2ee102b"
+      },
+      "support": {
+        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md": "ccb9cb02c600776548c7e54b7ecfadafe92107ed8a1b500dcf41bfac751df39d"
       }
     }
   },
@@ -956,6 +964,11 @@
     "changelogUrl": "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md",
     "statusUrl": null,
     "supportUrl": "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md",
+    "enforceAcceptedSurfaceHashesByUrl": {
+      "support": {
+        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md": true
+      }
+    },
     "freshnessWindowMinutes": 4320,
     "sampleParams": {},
     "invariants": [
@@ -977,6 +990,9 @@
     "acceptedSurfaceHashes": {
       "changelog": {
         "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md": "2312106bfc7fa90df43efe41d945d7465b26a7cf08903866a2d675b7c2ee102b"
+      },
+      "support": {
+        "https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md": "ccb9cb02c600776548c7e54b7ecfadafe92107ed8a1b500dcf41bfac751df39d"
       }
     }
   },

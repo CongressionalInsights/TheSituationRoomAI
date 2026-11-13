@@ -110,6 +110,9 @@ export function resolveMonitoringEntry(feed, override = {}, appConfig = {}) {
       ? override.acceptedSurfaceHashes
       : {},
     enforceAcceptedSurfaceHashes: override.enforceAcceptedSurfaceHashes === true,
+    enforceAcceptedSurfaceHashesByUrl: override.enforceAcceptedSurfaceHashesByUrl && typeof override.enforceAcceptedSurfaceHashesByUrl === 'object'
+      ? override.enforceAcceptedSurfaceHashesByUrl
+      : {},
     requiredSurfaceMarkers: override.requiredSurfaceMarkers && typeof override.requiredSurfaceMarkers === 'object'
       ? override.requiredSurfaceMarkers
       : {},
