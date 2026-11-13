@@ -137,7 +137,8 @@ export function collectDocumentSurfaces(entries) {
       };
       existing.feedIds.push(entry.id);
       existing.tiers[entry.id] = entry.tier;
-      existing.enforceAcceptedHashes ||= entry.enforceAcceptedSurfaceHashes === true;
+      existing.enforceAcceptedHashes ||= entry.enforceAcceptedSurfaceHashes === true
+        || entry.enforceAcceptedSurfaceHashesByUrl?.[surfaceType]?.[url] === true;
       const acceptedHash = entry.acceptedSurfaceHashes?.[surfaceType]?.[url];
       if (Array.isArray(acceptedHash)) {
         existing.acceptedHashes.push(...acceptedHash);

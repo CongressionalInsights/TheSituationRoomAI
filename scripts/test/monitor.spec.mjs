@@ -61,6 +61,7 @@ import {
 } from '../../analysis/monitor/lib/reporting.mjs';
 import {
   applyMonitorWriteDisposition,
+  buildDocAlerts,
   shouldFailMonitorRun
 } from '../../analysis/monitor/lib/run.mjs';
 import { verifyMcpCandidate } from '../../scripts/verify_mcp_candidate.mjs';
@@ -3555,6 +3556,7 @@ test('documentation watch pins stable provider surfaces without accepting unknow
     ],
     'docs:https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json': 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774',
     'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '2312106bfc7fa90df43efe41d945d7465b26a7cf08903866a2d675b7c2ee102b',
+    'support:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md': 'ccb9cb02c600776548c7e54b7ecfadafe92107ed8a1b500dcf41bfac751df39d',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
     'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
   };
@@ -3691,6 +3693,112 @@ test('CISA documentation mirror keeps the reviewed schema and unrelated failures
 
 // Normalization replaces NBSP after collapsing spaces; replay its saved output without a second collapse.
 const treasuryDocumentationReplay = (text) => text.replace(/ {2,}/g, (spaces) => '\u00a0'.repeat(spaces.length));
+
+test('Congress support acknowledgement accepts only the reviewed README and preserves reported failure policy', async (t) => {
+  const observed = parseFixture('congress-support-observed.json');
+  assert.equal(hashContent(observed.normalizedText), observed.observedHash);
+  assert.equal(normalizeDocText(observed.normalizedText), observed.normalizedText);
+  assert.equal(observed.reviewedAddition.length, 146);
+  assert.equal(observed.normalizedText.split(observed.reviewedAddition).length - 1, 1);
+  assert.equal(hashContent(observed.normalizedText.replace(observed.reviewedAddition, '')), observed.previousHash);
+  const entries = ['congress-api', 'congress-reports'].map((id) => {
+    const entry = resolveMonitoringEntry(typedMonitorFeeds.find((feed) => feed.id === id), typedMonitorOverrides[id]);
+    assert.equal(entry.supportUrl, observed.sourceUrl);
+    assert.equal(entry.enforceAcceptedSurfaceHashes, false);
+    assert.deepEqual(entry.enforceAcceptedSurfaceHashesByUrl, { support: { [observed.sourceUrl]: true } });
+    assert.equal(entry.acceptedSurfaceHashes.support[observed.sourceUrl], observed.observedHash);
+    return entry;
+  });
+  const supportEntries = entries.map((entry) => ({ ...entry, docsUrl: null, changelogUrl: null, statusUrl: null }));
+  const [surface] = collectDocumentSurfaces(supportEntries);
+  assert.deepEqual(surface.feedIds, ['congress-api', 'congress-reports']);
+  assert.deepEqual(surface.acceptedHashes, [observed.observedHash]);
+  assert.equal(surface.enforceAcceptedHashes, true);
+  assert.deepEqual(surface.requiredMarkers, []);
+  const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+  const reported = (result, severity) => {
+    const alerts = buildDocAlerts([result], entriesById);
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].severity, severity);
+    assert.equal(alerts[0].docsHash, result.hash);
+    const markdown = buildMarkdownReport({ mode: 'docs', alerts, docResults: [result] });
+    assert.ok(markdown.includes(`support ${observed.sourceUrl} (${severity})`));
+    return alerts[0];
+  };
+  let text = observed.normalizedText;
+  let status = 200;
+  let failure = null;
+  let expectedUrl = observed.sourceUrl;
+  let requests = 0;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(url, expectedUrl, 'offline documentation fixture only; never live transport');
+    requests += 1;
+    if (failure === 'transport') throw new TypeError('fixture transport failure');
+    if (failure === 'timeout') throw new DOMException('fixture timeout', 'AbortError');
+    return new Response(text, { status, headers: { 'Content-Type': 'text/plain' } });
+  });
+  const watch = async (previousDocs = {}) => {
+    const before = requests;
+    const results = await watchDocumentation({ entries: supportEntries, previousDocs, timeoutMs: 1000 });
+    assert.equal(requests - before, 1, 'shared URL is acquired once per watch');
+    assert.equal(results.length, 1);
+    return results[0];
+  };
+  const accepted = await watch();
+  assert.equal(accepted.hash, observed.observedHash);
+  assert.equal(accepted.acceptedHashRequired, true);
+  assert.equal(accepted.acceptedBaseline, true);
+  assert.equal(accepted.classification, null);
+  assert.deepEqual(buildDocAlerts([accepted], entriesById), []);
+  assert.equal((await watch({ [surface.key]: { hash: observed.previousHash } })).classification, null);
+
+  for (text of [
+    observed.normalizedText.replace('version 3 (v3)', 'version 4 (v4)'),
+    observed.normalizedText + '\nUnreviewed authentication requirement.',
+    'Unreviewed support revision.',
+    ''
+  ]) {
+    assert.notEqual(hashContent(text), observed.observedHash);
+    const first = await watch();
+    const repeated = await watch({ [surface.key]: first });
+    for (const result of [first, repeated]) {
+      assert.equal(result.acceptedBaseline, false);
+      assert.equal(result.acceptedHashRequired, true);
+      assert.equal(result.changed, true);
+      assert.equal(result.classification.regressionClass, 'support-surface-updated');
+      assert.equal(result.classification.severity, 'warning');
+      assert.equal(reported(result, 'warning').regressionClass, 'support-surface-updated');
+    }
+  }
+  text = observed.normalizedText;
+  for (failure of ['403', 'transport', 'timeout']) {
+    status = failure === '403' ? 403 : 200;
+    const result = await watch({ [surface.key]: accepted });
+    assert.equal(result.ok, false);
+    assert.equal(result.hash, null, 'even a reviewed error body is not an accepted response');
+    assert.equal(result.acceptedBaseline, false);
+    assert.equal(result.classification.regressionClass, 'docs-fetch-failed');
+    assert.equal(result.classification.severity, 'warning');
+    const alert = reported(result, 'info');
+    assert.equal(alert.regressionClass, 'docs-fetch-failed');
+    assert.equal(alert.knownQuirkId, 'congress-github-docs-fetch-transient');
+  }
+  // A README acknowledgement must not pin editorial changes to the sibling changelog.
+  failure = null;
+  status = 200;
+  text = 'Editorial correction.';
+  expectedUrl = entries[0].changelogUrl;
+  const changelogEntries = entries.map((entry) => ({ ...entry, docsUrl: null, supportUrl: null, statusUrl: null }));
+  const [changelogSurface] = collectDocumentSurfaces(changelogEntries);
+  assert.equal(changelogSurface.enforceAcceptedHashes, false);
+  const [changed] = await watchDocumentation({ entries: changelogEntries,
+    previousDocs: { [changelogSurface.key]: { hash: 'previous-changelog-hash' } } });
+  assert.equal(changed.acceptedHashRequired, false);
+  assert.equal(changed.classification.severity, 'critical');
+  const [repeated] = await watchDocumentation({ entries: changelogEntries,
+    previousDocs: { [changelogSurface.key]: changed } });
+  assert.equal(repeated.classification, null);
+});
 
 test('Treasury documentation fixture binds the exact reviewed endpoint-count change', () => {
   const observed = parseFixture('treasury-docs-observed.json');
