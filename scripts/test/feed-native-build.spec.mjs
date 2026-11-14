@@ -83,9 +83,15 @@ test('Native Feed prerequisites require existing exact resources, API state and 
     bucket: { name: feedBuild.bucket, projectNumber: feedBuild.projectNumber, location: 'US-CENTRAL1' },
     repository: { name: `projects/${feedBuild.project}/locations/${feedBuild.region}/repositories/${feedBuild.repository}`, format: 'DOCKER' },
     account: { email: feedBuild.buildAccount }, services:
-      ['cloudbuild.googleapis.com', 'run.googleapis.com', 'artifactregistry.googleapis.com', 'storage.googleapis.com']
+      ['cloudbuild.googleapis.com', 'run.googleapis.com', 'artifactregistry.googleapis.com', 'storage.googleapis.com', 'containeranalysis.googleapis.com']
         .map(api => ({ name: `projects/${feedBuild.projectNumber}/services/${api}`, config: { name: api }, state: 'ENABLED' })) };
   assert.doesNotThrow(() => verifyNativePreconditions(fixture));
+  const missingVerification = structuredClone(fixture);
+  missingVerification.services.pop();
+  assert.throws(() => verifyNativePreconditions(missingVerification), /missing: containeranalysis\.googleapis\.com/);
+  const disabledVerification = structuredClone(fixture);
+  disabledVerification.services.at(-1).state = 'DISABLED';
+  assert.throws(() => verifyNativePreconditions(disabledVerification), /containeranalysis\.googleapis\.com must already be enabled/);
   const extra = structuredClone(fixture);
   extra.services.push({ name: 'projects/other/services/bigquerystorage.googleapis.com', config: { name: 'bigquerystorage.googleapis.com' }, state: 'ENABLED' });
   assert.doesNotThrow(() => verifyNativePreconditions(extra));

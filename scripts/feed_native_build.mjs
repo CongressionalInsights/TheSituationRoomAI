@@ -17,7 +17,8 @@ export const feedBuild = Object.freeze({
 const hash = (algorithm, value, encoding = 'hex') => createHash(algorithm).update(value).digest(encoding);
 const read = (dir, name) => JSON.parse(fs.readFileSync(path.join(dir, `${name}.json`)));
 const write = (dir, name, value) => fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(value, null, 2));
-const requiredApis = ['cloudbuild.googleapis.com', 'run.googleapis.com', 'artifactregistry.googleapis.com', 'storage.googleapis.com'];
+const requiredApis = ['cloudbuild.googleapis.com', 'run.googleapis.com', 'artifactregistry.googleapis.com', 'storage.googleapis.com',
+  'containeranalysis.googleapis.com'];
 export function digestBytes(value, length) {
   assert.ok(typeof value === 'string' && /^[A-Za-z0-9+/_-]+={0,2}$/.test(value), 'Malformed native digest');
   const standard = value.replaceAll('-', '+').replaceAll('_', '/');
@@ -65,6 +66,8 @@ export function verifyNativePreconditions({ identity, bucket, repository, accoun
   assert.equal(account.email, feedBuild.buildAccount, 'Unexpected build service account');
   assert.ok(!account.disabled, 'Existing build service account is disabled');
   const selected = services.filter(service => requiredApis.includes(service.config?.name));
+  const missing = requiredApis.filter(api => !selected.some(service => service.config.name === api));
+  assert.equal(missing.length, 0, `Required enabled APIs are missing: ${missing.join(', ')}`);
   assert.equal(selected.length, requiredApis.length, 'Required enabled APIs are missing or ambiguous');
   assert.equal(new Set(selected.map(service => service.config.name)).size, requiredApis.length);
   for (const api of requiredApis) {

@@ -96,7 +96,7 @@ BUILD_ACCOUNT=382918878290-compute@developer.gserviceaccount.com
 gcloud storage buckets describe "gs://$SOURCE_BUCKET" --raw --format=json --project "$PROJECT_ID" > "$DIAG_DIR/bucket.json"
 gcloud artifacts repositories describe cloud-run-source-deploy --location "$REGION" --project "$PROJECT_ID" --format=json > "$DIAG_DIR/repository.json"
 gcloud iam service-accounts describe "$BUILD_ACCOUNT" --project "$PROJECT_ID" --format=json > "$DIAG_DIR/build-account.json"
-gcloud services list --enabled --filter='config.name:(cloudbuild.googleapis.com run.googleapis.com artifactregistry.googleapis.com storage.googleapis.com)' \
+gcloud services list --enabled --filter='config.name:(cloudbuild.googleapis.com run.googleapis.com artifactregistry.googleapis.com storage.googleapis.com containeranalysis.googleapis.com)' \
   --project "$PROJECT_ID" --format=json > "$DIAG_DIR/apis.json"
 node scripts/feed_native_build.mjs preconditions "$DIAG_DIR"
 node scripts/feed_native_build.mjs archive "$DIAG_DIR" "$GITHUB_SHA" "$TAG"
