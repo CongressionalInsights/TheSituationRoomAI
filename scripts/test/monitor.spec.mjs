@@ -32,7 +32,8 @@ import {
   fetchText,
   hashContent,
   parseCliArgs,
-  sanitizeObservedUrl
+  sanitizeObservedUrl,
+  writeJson
 } from '../../analysis/monitor/lib/client.mjs';
 import {
   normalizeDocText,
@@ -62,6 +63,7 @@ import {
 import {
   applyMonitorWriteDisposition,
   buildDocAlerts,
+  runMonitor,
   shouldFailMonitorRun
 } from '../../analysis/monitor/lib/run.mjs';
 import { verifyMcpCandidate } from '../../scripts/verify_mcp_candidate.mjs';
@@ -1057,6 +1059,89 @@ test('CLI can allow alerts without failing workflow runs', () => {
   assert.equal(parseCliArgs([]).allowLegacyBaseline, false);
   assert.equal(parseCliArgs(['--allow-legacy-baseline']).allowLegacyBaseline, true);
   assert.equal(parseCliArgs(['--scope-tag', 'tenant-alpha']).scopeTag, 'tenant-alpha');
+});
+
+test('atomic JSON writer keeps pretty output by default and supports lossless compact output', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'situation-room-monitor-json-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const value = { diagnostics: { unknown: null, available: false, count: 0, text: 'line\n  indentation' }, items: [1, 2] };
+  const prettyPath = path.join(root, 'pretty.json');
+  const compactPath = path.join(root, 'compact.json');
+  writeJson(prettyPath, value);
+  writeJson(compactPath, value, 0);
+  assert.equal(fs.readFileSync(prettyPath, 'utf8'), JSON.stringify(value, null, 2));
+  assert.equal(fs.readFileSync(compactPath, 'utf8'), JSON.stringify(value));
+  assert.deepEqual(JSON.parse(fs.readFileSync(compactPath, 'utf8')), value);
+  assert.deepEqual(fs.readdirSync(root).sort(), ['compact.json', 'pretty.json']);
+});
+
+test('monitor publication writes lossless compact latest and history with byte-bound markers', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'situation-room-monitor-compact-publication-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const outputDir = path.join(root, 'output');
+  const baselineDir = path.join(root, 'state');
+  const base = 'https://fixture.invalid';
+  const mcp = `${base}/mcp`;
+  const stamp = '2026-09-30T12:00:00.000Z';
+  const cisaBody = { vulnerabilities: [{ cveID: 'CVE-2026-0001', dateAdded: '2026-09-30', vulnerabilityName: 'Fixture' }] };
+  const bodyFor = (id) => retainedTypedFixtures[id] || (id === 'cisa-kev' ? cisaBody : { data: [{ id: 'fixture', value: 0, publishedAt: stamp }] });
+  let fixtureCalls = 0;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    fixtureCalls += 1;
+    const parsed = new URL(url);
+    if (options.method !== 'POST') {
+      return new Response(fixture('docs-contract.html'), { headers: { 'content-type': 'text/html' } });
+    }
+    assert.equal(parsed.hostname, 'fixture.invalid', 'all API calls use intercepted fixture transport');
+    const request = JSON.parse(options.body);
+    if (parsed.pathname === '/api/feed') {
+      return Response.json({ body: bodyFor(request.id), httpStatus: 200, fetchedAt: stamp,
+        stale: true, fallback: 'live-cache', ...(request.id === 'openaq-api' ? { error: 'fixture-failure' } : {}) });
+    }
+    assert.equal(parsed.pathname, '/mcp');
+    const id = request.params.arguments.sourceId;
+    const output = request.params.name === 'raw.fetch'
+      ? { data: bodyFor(id), httpStatus: 200, fallbackUsed: true, proxyUsed: 'live-cache' }
+      : { items: retainedTypedFixtures[id] ? typedMonitorContext(id).signalSummary.items
+        : [{ id: `fixture:${id}`, sourceId: id, title: 'Fixture', publishedAt: Date.parse(stamp),
+          forensicTriage: { status: 'fixture', evidence: ['retained'] } }], fallbackUsed: true };
+    return Response.json({ jsonrpc: '2.0', id: request.id, result: { structuredContent: output } });
+  });
+
+  const report = await runMonitor('core', [
+    '--base', base, '--mcp', mcp, '--static', base,
+    '--output-dir', outputDir, '--baseline-dir', baselineDir, '--no-static'
+  ]);
+  assert.ok(fixtureCalls > 0);
+  const latestRaw = fs.readFileSync(path.join(outputDir, 'latest.json'), 'utf8');
+  const markerRaw = fs.readFileSync(path.join(outputDir, 'latest-commit.json'), 'utf8');
+  const marker = JSON.parse(markerRaw);
+  const historyRaw = fs.readFileSync(path.join(outputDir, marker.artifacts.history.path), 'utf8');
+  assert.equal(latestRaw, JSON.stringify(report));
+  assert.equal(historyRaw, latestRaw);
+  assert.deepEqual(JSON.parse(latestRaw), JSON.parse(JSON.stringify(report, null, 2)));
+  assert.ok(Buffer.byteLength(latestRaw) < Buffer.byteLength(JSON.stringify(report, null, 2)));
+  assert.deepEqual(JSON.parse(latestRaw).feedResults.find((result) => result.feedId === 'cisa-kev').raw.parsedBody, cisaBody);
+  assert.ok(report.feedResults.find((result) => result.feedId === 'energy-eia').signals.comparison);
+  assert.ok(report.feedResults.find((result) => result.feedId === 'cisa-kev').signals.items[0].forensicTriage);
+  assert.equal(report.feedResults.find((result) => result.feedId === 'openaq-api').proxy.error, 'fixture-failure');
+  assert.ok(report.docResults.length > 0 && report.docResults.every((result) => result.hash));
+  assert.ok(report.alerts.length > 0);
+  assert.equal(marker.runStartedAt, report.runStartedAt);
+  assert.equal(marker.generatedAt, report.generatedAt);
+  for (const [name, artifact] of Object.entries(marker.artifacts)) {
+    const artifactRoot = name === 'baseline' ? baselineDir : outputDir;
+    const raw = fs.readFileSync(path.join(artifactRoot, artifact.path), 'utf8');
+    assert.equal(artifact.sha256, hashContent(raw), name);
+    if (name === 'baseline') assert.equal(raw, `${JSON.stringify(JSON.parse(raw), null, 2)}\n`);
+  }
+  assert.equal(fs.readFileSync(path.join(outputDir, 'latest.md'), 'utf8'), buildMarkdownReport(report));
+  assert.equal(markerRaw, JSON.stringify(marker, null, 2));
+  assert.equal(fs.readFileSync(monitorPublicationHeadPath(baselineDir), 'utf8'), markerRaw);
+  assert.equal(fs.existsSync(monitorPublicationJournalPath('core', baselineDir, marker.scopeId)), false);
+  assert.equal(fs.existsSync(monitorPublicationLockPath(baselineDir)), false);
+  assert.deepEqual(fs.readdirSync(path.join(outputDir, 'history')), [path.basename(marker.artifacts.history.path)]);
+  assert.deepEqual(fs.readdirSync(outputDir).sort(), ['history', 'latest-commit.json', 'latest.json', 'latest.md']);
 });
 
 test('only semantic supersession suppresses critical monitor exit status', () => {

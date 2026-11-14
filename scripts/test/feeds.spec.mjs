@@ -465,6 +465,8 @@ function rssFeedFixture(id, withTransport = false) {
     'function applyKey(', 'function canUseLiveFeedFallback(',
     'function shouldPromotePublishedSnapshot(', 'function markSnapshotFallback(',
     'function markStaleFeedPayload(', 'function isUsableStaleFeedPayload(',
+    'function normalizeContentType(', 'function looksLikeHtmlDocument(',
+    'function looksLikeXmlFeed(', 'function isLikelyRssPayload(',
     'async function fetchFeed(',
     ...(withTransport ? [
       'function applyProxy(', 'function buildFetchCandidates(',
@@ -488,7 +490,6 @@ function rssFeedFixture(id, withTransport = false) {
     buildUrl: url => url, applyUrlParams: url => url,
     applyCongressCommitteeDateWindow: url => url,
     isStateLegislationScopedRequest: () => false, isStateLegislationAllStatesRequest: () => false,
-    isLikelyRssPayload: (_type, body) => body.startsWith('<rss>'),
     fetchRssWithFallbacks: async () => { throw new Error('fixture upstream unavailable'); },
     fetchLiveFallback: async () => ({ id, fetchedAt: 1, body: '<rss>Old snapshot</rss>', contentType: 'application/xml', httpStatus: 200 })
   };
@@ -604,6 +605,59 @@ test('Google News US failed stale refreshes retain cached body and fallback mark
   assert.equal(await other.context.fetchFeed(other.feed), otherStale);
 });
 
+test('GDACS Feed Proxy uses the source RSS predicate rather than inferring a parser failure', async () => {
+  const cases = [
+    { contentType: 'text/plain', body: '<?xml version="1.0"?><rss><channel/></rss>', accepted: true },
+    { contentType: 'text/plain', body: '<rss version="2.0"><channel/></rss>', accepted: true },
+    { contentType: 'application/atom+xml', body: '<feed xmlns="http://www.w3.org/2005/Atom"/>', accepted: true },
+    { contentType: 'application/xml', body: '<rdf:RDF xmlns:rdf="fixture"/>', accepted: true },
+    { contentType: 'text/html', body: '<html><body>private-fixture</body></html>', accepted: false,
+      xmlContentTypeHint: false, htmlDocumentHint: true },
+    { contentType: 'APPLICATION/XML; charset=UTF-8', body: '<html><body>private-fixture</body></html>', accepted: false,
+      xmlContentTypeHint: true, htmlDocumentHint: true },
+    { contentType: 'text/plain', body: 'private-fixture non-XML response', accepted: false,
+      xmlContentTypeHint: false, htmlDocumentHint: false },
+    { contentType: 'text/plain', body: '', accepted: false,
+      xmlContentTypeHint: false, htmlDocumentHint: false },
+    { contentType: 'text/plain', body: 'A\u{1f30d}', accepted: false, bodyCharacterCount: 3,
+      xmlContentTypeHint: false, htmlDocumentHint: false }
+  ];
+  for (const scenario of cases) {
+    const { feed, context } = rssFeedFixture('gdacs-alerts', true);
+    const logs = [];
+    let requests = 0, snapshots = 0;
+    context.console.warn = value => logs.push(JSON.parse(value));
+    context.fetch = async () => {
+      requests++;
+      return new Response(scenario.body, { headers: { 'content-type': scenario.contentType } });
+    };
+    context.fetchLiveFallback = async () => {
+      snapshots++;
+      return { id: feed.id, body: '<rss>Retained snapshot</rss>', contentType: 'application/xml', httpStatus: 200 };
+    };
+    const result = await context.fetchFeed({ ...feed, proxy: [] });
+    assert.equal(requests, 1);
+    assert.equal(snapshots, scenario.accepted ? 0 : 1);
+    if (scenario.accepted) {
+      assert.equal(result.body, scenario.body);
+      assert.equal(result.contentType, scenario.contentType);
+      assert.equal(result.primaryFailure, undefined);
+      assert.notEqual(result.stale, true);
+      assert.deepEqual(logs, []);
+    } else {
+      assert.equal(result.fallback, 'live-cache');
+      assert.equal(result.stale, true);
+      assert.equal(result.contentType, 'application/xml', 'returned MIME describes the snapshot, not the primary');
+      assert.deepEqual(result.primaryFailure, { event: 'gdacs_primary_failure', feedId: feed.id,
+        errorClass: 'invalid_response', upstreamStatus: 200, transportCode: null,
+        bodyCharacterCount: scenario.bodyCharacterCount ?? scenario.body.length,
+        xmlContentTypeHint: scenario.xmlContentTypeHint, htmlDocumentHint: scenario.htmlDocumentHint });
+      assert.deepEqual(logs, [result.primaryFailure]);
+      assert.doesNotMatch(JSON.stringify(logs), /private-fixture|<html|content-type/);
+    }
+  }
+});
+
 test('GDACS Feed Proxy retains the first primary failure before stale snapshot fallback', async () => {
   for (const scenario of [
     { status: 503, errorClass: 'fetch_failed', transportCode: null },
@@ -635,7 +689,9 @@ test('GDACS Feed Proxy retains the first primary failure before stale snapshot f
     assert.equal(result.fallback, 'live-cache');
     assert.deepEqual(logs, [{ event: 'gdacs_primary_failure', feedId: feed.id,
       errorClass: scenario.errorClass, upstreamStatus: scenario.status || null,
-      transportCode: scenario.transportCode }]);
+      transportCode: scenario.transportCode,
+      ...(scenario.status === 200 ? { bodyCharacterCount: '<html>fixture-secret-url-body</html>'.length,
+        xmlContentTypeHint: false, htmlDocumentHint: true } : {}) }]);
     assert.deepEqual(result.primaryFailure, logs[0]);
     assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
     const requestCount = calls.length;
@@ -646,14 +702,16 @@ test('GDACS Feed Proxy retains the first primary failure before stale snapshot f
 });
 
 test('GDACS Feed Proxy leaves direct and proxy recovery quiet without changing returned data', async () => {
-  for (const recoverThroughProxy of [false, true]) {
+  for (const recovery of ['direct', 'http', 'invalid']) {
     const { feed, context } = rssFeedFixture('gdacs-alerts', true);
     const logs = [];
     let calls = 0;
     context.console.warn = value => logs.push(value);
     context.fetch = async () => {
       calls += 1;
-      return recoverThroughProxy && calls === 1 ? new Response('unavailable', { status: 503 })
+      return recovery !== 'direct' && calls === 1
+        ? new Response('<html>unavailable</html>', { status: recovery === 'http' ? 503 : 200,
+          headers: { 'content-type': 'text/html' } })
         : new Response('<rss>Current alert</rss>', { headers: { 'content-type': 'application/xml' } });
     };
     context.fetchLiveFallback = async () => assert.fail('successful acquisition must not use a snapshot');
@@ -662,7 +720,7 @@ test('GDACS Feed Proxy leaves direct and proxy recovery quiet without changing r
     assert.notEqual(result.stale, true);
     assert.equal(result.fallback, undefined);
     assert.equal(result.primaryFailure, undefined);
-    assert.equal(calls, recoverThroughProxy ? 2 : 1);
+    assert.equal(calls, recovery === 'direct' ? 1 : 2);
     assert.deepEqual(logs, []);
   }
 });
@@ -686,6 +744,66 @@ test('GDACS diagnostic readback uses only known fields and preserves unknown cau
       errorClass: 'private-fixture', upstreamStatus: 999, transportCode: 'private-fixture', body: 'private-fixture' }), {
       event: 'gdacs_primary_failure', feedId: 'gdacs-alerts', errorClass: 'fetch_failed', upstreamStatus: null, transportCode: null
     });
+  }
+});
+
+test('GDACS diagnostic optional metadata preserves zero and false while rejecting untrusted types', async () => {
+  const mcp = await import('../../gcp/mcp-proxy/firms-diagnostics.js');
+  const { summarizeProxyPayload } = await import('../../analysis/monitor/lib/audit.mjs');
+  const baseline = { event: 'gdacs_primary_failure', feedId: 'gdacs-alerts',
+    errorClass: 'invalid_response', upstreamStatus: 200, transportCode: null };
+  const secret = 'https://fixture.invalid/private-fixture?key=private-fixture';
+  for (const [build, read] of [[buildGdacsPrimaryFailureDiagnostic, readGdacsPrimaryFailureDiagnostic],
+    [mcp.buildGdacsPrimaryFailureDiagnostic, mcp.readGdacsPrimaryFailureDiagnostic]]) {
+    const check = (metadata, expected) => {
+      const failure = { error: 'invalid_response', httpStatus: 200, body: secret, url: secret,
+        headers: { secret }, message: secret, bodyHash: secret, ...metadata };
+      const diagnostic = build(failure);
+      assert.deepEqual(diagnostic, { ...baseline, ...expected });
+      assert.deepEqual(read({ ...diagnostic, body: secret, url: secret, headers: { secret }, bodyHash: secret }), diagnostic);
+      assert.deepEqual(read({ ...baseline, ...metadata, body: secret }), { ...baseline, ...expected });
+      assert.doesNotMatch(JSON.stringify(diagnostic), /private-fixture|https?:|bodyHash|headers/);
+      const summary = summarizeProxyPayload({ id: 'gdacs-alerts', format: 'rss' }, {
+        body: '<rss><channel/></rss>', contentType: 'application/xml', httpStatus: 200,
+        stale: true, fallback: 'live-cache', primaryFailure: { ...diagnostic, body: secret }
+      });
+      assert.deepEqual(summary.primaryFailure, diagnostic, 'existing monitor helper consumer retains sanitized fields');
+      assert.equal(summary.stale, true);
+      assert.equal(summary.fallback, 'live-cache');
+    };
+    check({}, {});
+    check({ bodyCharacterCount: 0, xmlContentTypeHint: false, htmlDocumentHint: false },
+      { bodyCharacterCount: 0, xmlContentTypeHint: false, htmlDocumentHint: false });
+    check({ bodyCharacterCount: Number.MAX_SAFE_INTEGER, xmlContentTypeHint: true, htmlDocumentHint: true },
+      { bodyCharacterCount: Number.MAX_SAFE_INTEGER, xmlContentTypeHint: true, htmlDocumentHint: true });
+    for (const value of [undefined, null, -1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1,
+      '0', secret, {}, [], true, new Number(0)]) {
+      check({ bodyCharacterCount: value, xmlContentTypeHint: false }, { xmlContentTypeHint: false });
+    }
+    for (const value of [undefined, null, 0, 1, 'false', secret, {}, [], new Boolean(false)]) {
+      check({ bodyCharacterCount: 0, xmlContentTypeHint: value, htmlDocumentHint: value }, { bodyCharacterCount: 0 });
+    }
+    const hints = { bodyCharacterCount: 0, xmlContentTypeHint: false, htmlDocumentHint: true };
+    assert.deepEqual(build({ error: 'invalid_rss', httpStatus: 200, ...hints }), { ...baseline, ...hints });
+    for (const failure of [
+      { error: 'fetch_failed', code: 'ENOTFOUND' },
+      { error: 'invalid_response' },
+      { error: 'invalid_response', httpStatus: 201 },
+      { error: 'invalid_response', httpStatus: 403 },
+      { error: 'fetch_failed', httpStatus: 200 },
+      { error: 'unknown-fixture', httpStatus: 200 }
+    ]) {
+      const expected = build(failure);
+      assert.deepEqual(build({ ...failure, ...hints }), expected);
+      assert.deepEqual(read({ ...expected, ...hints }), expected);
+      const summary = summarizeProxyPayload({ id: 'gdacs-alerts', format: 'rss' }, {
+        body: '<rss><channel/></rss>', contentType: 'application/xml', httpStatus: 200,
+        stale: true, fallback: 'live-cache', primaryFailure: { ...expected, ...hints }
+      });
+      assert.deepEqual(summary.primaryFailure, expected, 'fallback data cannot invent primary response evidence');
+      assert.equal(summary.stale, true);
+      assert.equal(summary.fallback, 'live-cache');
+    }
   }
 });
 

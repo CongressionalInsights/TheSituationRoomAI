@@ -468,6 +468,22 @@ const gdacsFeed = JSON.parse(fs.readFileSync(new URL('../../data/feeds.json', im
   .find((entry) => entry.id === 'gdacs-alerts');
 const gdacsRss = (title) => `<?xml version="1.0"?><rss><channel><item><title>${title}</title><link>https://www.gdacs.org/report/fixture</link><pubDate>Sun, 04 Oct 2026 13:45:03 GMT</pubDate></item></channel></rss>`;
 
+test('GDACS structured diagnostic metadata keeps only optional allowlisted values', () => {
+  const baseline = { event: 'gdacs_primary_failure', feedId: gdacsFeed.id,
+    errorClass: 'invalid_response', upstreamStatus: 200, transportCode: null };
+  for (const metadata of [{}, { bodyCharacterCount: 0, xmlContentTypeHint: false, htmlDocumentHint: false },
+    { bodyCharacterCount: 35, xmlContentTypeHint: true, htmlDocumentHint: true }]) {
+    const raw = buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, responseFormat: 'text',
+      result: { contentType: 'application/xml', body: gdacsRss('Retained fixture'), fallbackUsed: true,
+        proxyUsed: 'live-cache', primaryFailure: { ...baseline, ...metadata,
+          body: 'private-fixture', headers: 'private-fixture', url: 'private-fixture', bodyHash: 'private-fixture' } } });
+    assert.deepEqual(raw.primaryFailure, { ...baseline, ...metadata });
+    assert.equal(raw.fallbackUsed, true);
+    assert.match(raw.warning, /published cache snapshot/);
+    assert.doesNotMatch(JSON.stringify(raw.primaryFailure), /private-fixture|bodyHash|headers/);
+  }
+});
+
 async function gdacsWithinMockDeadline(t, run) {
   const startedAt = Date.now();
   let outcome;
@@ -673,50 +689,79 @@ test('GDACS MCP logs only the first bounded primary failure before service or sn
   let scenario;
   let primaryCalls = 0;
   let direct = false;
+  let relayRecovery = false;
   t.mock.method(console, 'warn', value => logs.push(JSON.parse(value)));
   t.mock.method(globalThis, 'fetch', async url => {
     const target = String(url);
     if (target.endsWith('/api/feed')) {
       assert.equal(logs.length, 1, 'diagnostic precedes fallback acquisition');
-      return new Response(JSON.stringify({ error: 'fixture-unavailable' }));
+      return new Response(JSON.stringify(scenario.serviceRecovery ? {
+        body: gdacsRss('Service alert'), contentType: 'application/xml', httpStatus: 200,
+        primaryFailure: { event: 'gdacs_primary_failure', feedId: gdacsFeed.id,
+          errorClass: 'invalid_response', upstreamStatus: 200, transportCode: null,
+          bodyCharacterCount: 999, xmlContentTypeHint: true, htmlDocumentHint: false }
+      } : { error: 'fixture-unavailable' }));
     }
     if (target.includes('/data/feeds/gdacs-alerts.json')) {
       assert.equal(logs.length, 1);
       return new Response(JSON.stringify({ body: gdacsRss('Old alert'), contentType: 'application/xml', httpStatus: 200 }));
     }
     primaryCalls += 1;
-    if (direct) return new Response(gdacsRss('Current alert'), { headers: { 'content-type': 'application/xml' } });
+    if (direct || (relayRecovery && primaryCalls > 1)) {
+      return new Response(gdacsRss('Current alert'), { headers: { 'content-type': 'application/xml' } });
+    }
     if (scenario.failure && primaryCalls === 1) throw scenario.failure;
-    return new Response('<html>fixture-secret-url-body</html>', {
-      status: primaryCalls === 1 ? scenario.status : 502, headers: { 'content-type': 'text/html' }
+    return new Response(primaryCalls === 1 ? scenario.body ?? '<html>fixture-secret-url-body</html>' : 'later-relay-body', {
+      status: primaryCalls === 1 ? scenario.status : 200,
+      headers: { 'content-type': primaryCalls === 1 ? scenario.contentType || 'text/html' : 'text/plain' }
     });
   });
   for (scenario of [
     { status: 503, errorClass: 'fetch_failed', transportCode: null },
     { status: 403, errorClass: 'fetch_failed', transportCode: null },
-    { status: 200, errorClass: 'invalid_response', transportCode: null },
+    { status: 200, errorClass: 'invalid_response', transportCode: null,
+      metadata: { bodyCharacterCount: '<html>fixture-secret-url-body</html>'.length,
+        xmlContentTypeHint: false, htmlDocumentHint: true } },
+    { status: 200, body: '<html>fixture-secret-url-body</html>', contentType: 'APPLICATION/XML; charset=UTF-8',
+      errorClass: 'invalid_response', transportCode: null, serviceRecovery: true,
+      metadata: { bodyCharacterCount: '<html>fixture-secret-url-body</html>'.length,
+        xmlContentTypeHint: true, htmlDocumentHint: true } },
+    { status: 200, body: '', contentType: 'text/plain', errorClass: 'invalid_response', transportCode: null,
+      metadata: { bodyCharacterCount: 0, xmlContentTypeHint: false, htmlDocumentHint: false } },
+    { status: 200, body: 'A\u{1f30d}', contentType: 'text/plain', errorClass: 'invalid_response', transportCode: null,
+      metadata: { bodyCharacterCount: 3, xmlContentTypeHint: false, htmlDocumentHint: false } },
     { failure: Object.assign(new Error('fixture-secret-url-body'), { cause: { code: 'ECONNRESET' } }),
-      errorClass: 'fetch_failed', transportCode: 'ECONNRESET' }
+      errorClass: 'fetch_failed', transportCode: 'ECONNRESET' },
+    { failure: new Error('fixture-secret-url-body'), errorClass: 'fetch_failed', transportCode: null }
   ]) {
     logs.length = 0;
     primaryCalls = 0;
     const result = await fetchRaw(gdacsFeed, {});
-    assert.equal(result.proxyUsed, 'live-cache');
+    assert.equal(primaryCalls, 3, 'existing direct/relay request count remains unchanged');
+    assert.equal(result.proxyUsed, scenario.serviceRecovery ? 'feed-proxy' : 'live-cache');
     assert.equal(result.fallbackUsed, true);
-    assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).warning, /published cache snapshot/);
+    assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).warning,
+      scenario.serviceRecovery ? /fallback \(feed-proxy\)/ : /published cache snapshot/);
     assert.deepEqual(logs, [{ event: 'gdacs_primary_failure', feedId: gdacsFeed.id,
-      errorClass: scenario.errorClass, upstreamStatus: scenario.status || null, transportCode: scenario.transportCode }]);
+      errorClass: scenario.errorClass, upstreamStatus: scenario.status || null, transportCode: scenario.transportCode,
+      ...scenario.metadata }]);
     assert.deepEqual(result.primaryFailure, logs[0]);
     assert.deepEqual(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).primaryFailure, logs[0]);
     assert.equal(JSON.stringify(logs).includes('fixture-secret'), false);
   }
-  direct = true;
-  logs.length = 0;
-  const result = await fetchRaw(gdacsFeed, {});
-  assert.equal(result.fallbackUsed, false);
-  assert.deepEqual(logs, []);
-  assert.equal(result.primaryFailure, undefined);
-  assert.equal(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).primaryFailure, null);
+  scenario = { status: 200 };
+  for (direct of [true, false]) {
+    relayRecovery = !direct;
+    primaryCalls = 0;
+    logs.length = 0;
+    const result = await fetchRaw(gdacsFeed, {});
+    assert.equal(primaryCalls, direct ? 1 : 2);
+    assert.equal(result.proxyUsed, direct ? null : gdacsFeed.proxy[0]);
+    assert.equal(result.fallbackUsed, false, 'configured relay success retains its existing fallback classification');
+    assert.deepEqual(logs, []);
+    assert.equal(result.primaryFailure, undefined);
+    assert.equal(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result, responseFormat: 'text' }).primaryFailure, null);
+  }
 });
 
 test('Google News MCP fallback preserves the requested query through the Feed Proxy', async () => {

@@ -11,6 +11,60 @@ const range = { startIso: '2025-01-01', endIso: '2026-11-03', years: [2025, 2026
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
 const runtime = (fetch, budget = {}) => ({ fetch, sleep: async () => {}, budget });
 
+test('FEC retained-shape employer timeouts keep 134 acquired rows and cumulative attempt timing', async (t) => {
+  let now = 0;
+  const timeouts = [], calls = [], sleeps = [];
+  t.mock.method(AbortSignal, 'timeout', ms => {
+    timeouts.push(ms);
+    return new AbortController().signal;
+  });
+  const result = await acquireFec({ terms: ['private-fixture'], key: 'private-key',
+    range: { startIso: '2026-01-01', endIso: '2026-11-14' }, runtime: {
+      now: () => now, enforcePacing: true,
+      sleep: async ms => { sleeps.push(ms); now += ms; },
+      fetch: async (raw, options) => {
+        const url = new URL(raw);
+        const employer = url.searchParams.has('contributor_employer');
+        calls.push({ url: String(raw), employer, startedAt: now, redirect: options.redirect });
+        if (employer) {
+          now += 15002;
+          throw new DOMException('private-fixture', 'TimeoutError');
+        }
+        const page = calls.length;
+        now = [810, 980, 1092][page - 1];
+        const count = [100, 34, 0][page - 1];
+        assert.notEqual(count, undefined, 'no fourth name page');
+        return json({ results: Array.from({ length: count }, (_, i) => ({ sub_id: `private-${page}-${i}` })),
+          pagination: { last_indexes: count ? { last_index: String(page), last_contribution_receipt_date: '2026-11-13' } : null } });
+      }
+    } });
+  assert.deepEqual(MONEY_BUDGET, { requests: 12, pages: 3, deadlineMs: 45000, timeoutMs: 15000 });
+  assert.equal(result.items.length, 134);
+  assert.equal(result.error, 'fetch_failed');
+  assert.equal(result.coverage.status, 'partial');
+  assert.equal(result.coverage.complete, false);
+  assert.deepEqual(result.coverage.reasons, ['fetch_failed']);
+  assert.equal(result.coverage.requests, 5);
+  assert.equal(result.coverage.pages, 3);
+  assert.equal(result.coverage.searchesRun, 2);
+  assert.equal(calls.length, 5);
+  assert.deepEqual(timeouts, [15000, 15000, 15000, 15000, 15000]);
+  assert.deepEqual(sleeps, [38, 500]);
+  assert.equal(calls[3].url, calls[4].url, 'retry preserves the exact employer query');
+  assert.ok(calls.every(call => call.redirect === 'error'));
+  const attempts = result.coverage.diagnostics.attempts;
+  assert.deepEqual(attempts.map(row => row.elapsedMs), [810, 980, 1092, 16132, 31634]);
+  assert.deepEqual(attempts.slice(0, 3).map(row => row.rowCount), [100, 34, 0]);
+  assert.deepEqual(attempts.slice(3).map((row, i) => ({ filter: row.filter, page: row.page,
+    attempt: row.attempt, branch: row.branch, httpStatus: row.httpStatus, category: row.exceptionCategory,
+    rowCount: row.rowCount, durationMs: row.elapsedMs - calls[i + 3].startedAt })), [1, 2].map(attempt => ({
+      filter: 'contributor_employer', page: 1, attempt, branch: 'fetch_exception', httpStatus: null,
+      category: 'timeout', rowCount: null, durationMs: 15002
+    })));
+  assert.equal(attempts.at(-1).remainingMs, 13366);
+  assert.doesNotMatch(JSON.stringify(result.coverage.diagnostics), /private-|https?:|api_key|last_index/);
+});
+
 test('FEC six successful pages remain partial when only the employer search hits its page budget', async () => {
   const calls = [];
   const result = await acquireFec({ terms: ['Fixture'], range: { startIso: '2026-01-01', endIso: '2026-11-09' },

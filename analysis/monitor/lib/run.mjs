@@ -335,12 +335,12 @@ export async function runMonitor(mode, argv = []) {
         stageArtifacts.history = createArtifactStage(historyPath);
         stageArtifacts.latestMarkdown = createArtifactStage(latestMarkdownPath);
         stageArtifacts.latestJson = createArtifactStage(latestPath);
-        writeJson(stageArtifacts.history.stagedPath, committedReport);
+        writeJson(stageArtifacts.history.stagedPath, committedReport, 0);
         writeText(
           stageArtifacts.latestMarkdown.stagedPath,
           buildMarkdownReport(committedReport)
         );
-        writeJson(stageArtifacts.latestJson.stagedPath, committedReport);
+        writeJson(stageArtifacts.latestJson.stagedPath, committedReport, 0);
       },
       beforeBaselineCommit: (
         committedReport,

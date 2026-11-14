@@ -787,7 +787,15 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
           valid: true
         };
       }
-      if (index === 0 && onPrimaryFailure) onPrimaryFailure({ error: 'invalid_response', httpStatus: response.status });
+      if (index === 0 && onPrimaryFailure) {
+        const normalizedType = normalizeContentType(contentType);
+        onPrimaryFailure({ error: 'invalid_response', httpStatus: response.status,
+          ...(response.status === 200 ? {
+            bodyCharacterCount: body.length,
+            xmlContentTypeHint: normalizedType.includes('rss') || normalizedType.includes('atom') || normalizedType.includes('xml'),
+            htmlDocumentHint: looksLikeHtmlDocument(body)
+          } : {}) });
+      }
     } catch (error) {
       if (index === 0 && onPrimaryFailure) onPrimaryFailure(error);
       // ignore
