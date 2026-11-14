@@ -1,0 +1,122 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 9 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 25,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 39,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 0,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "What we know about the ground stop and what to do if you're affected",
+      "summary": "US officials say the disruption was caused by old equipment overloading and not a cyber-attack.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cqx2wyvyr3zzo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1794666057000
+    },
+    {
+      "title": "US has floated Ukraine ceding Donbas for Nato membership, Zelensky says",
+      "summary": "The Ukrainian president says US envoys touted the exchange as part of efforts to end the war with Russia.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cwvg2l312ylqo?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1794669357000
+    },
+    {
+      "title": "Italy fines Meta €805m over accessing users' photos",
+      "summary": "The social media giant is accused of not informing about 20 million users it had access to their photos.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cwn83gxemk35o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1794673788000
+    },
+    {
+      "title": "Privacy Act of 1974; Matching Program",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/16/C1-2026-20951/privacy-act-of-1974-matching-program",
+      "category": "gov",
+      "publishedAt": 1794787200000
+    },
+    {
+      "title": "Presidential Determination Concerning Wildfire Suppression Activities in the United States",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/16/2026-23349/presidential-determination-concerning-wildfire-suppression-activities-in-the-united-states",
+      "category": "gov",
+      "publishedAt": 1794787200000
+    },
+    {
+      "title": "Veterans Day, 2026",
+      "summary": "",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/16/2026-23348/veterans-day-2026",
+      "category": "gov",
+      "publishedAt": 1794787200000
+    },
+    {
+      "title": "Wildfire Red Hill, Perry, Mississippi",
+      "summary": "Wildfires • Magnitude 519 acres",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_26331",
+      "category": "disaster",
+      "publishedAt": 1794442920000
+    },
+    {
+      "title": "Prescribed Fire Bienville CPT 29 Sub 2 RX, Scott, Mississippi",
+      "summary": "Wildfires • Magnitude 660 acres",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_26332",
+      "category": "disaster",
+      "publishedAt": 1794391020000
+    },
+    {
+      "title": "Prescribed Fire Compartment 170 RX, Greene, Georgia",
+      "summary": "Wildfires • Magnitude 643 acres",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_26333",
+      "category": "disaster",
+      "publishedAt": 1794241800000
+    }
+  ],
+  "generatedAt": "2026-11-14T17:06:35.850Z"
+}

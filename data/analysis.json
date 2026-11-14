@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-11-14T17:06:28.991Z",
+  "source": "openai",
+  "text": "- **International security:** Zelensky says the U.S. has floated Ukraine ceding Donbas in exchange for NATO membership. Iran says three oil tankers hit mines in the Strait of Hormuz.\n\n- **U.S. disruptions:** Flights have resumed after a nationwide FAA ground stop attributed by the administration to overloaded systems, but thousands of cancellations continue. A bomb found at an Illinois ethanol plant prompted evacuations.\n\n- **Politics and technology:** Stephen Miller faces an early crisis as White House chief of staff; officials are also disputing how China obtained Nvidia chips. Microsoft says its services are fully restored after a global outage.",
+  "briefing": {
+    "policy": "terra-minimum-v1",
+    "requestedModel": "gpt-6.1-terra",
+    "requestedReasoningEffort": "none",
+    "maxOutputTokens": 1024,
+    "attempted": true,
+    "status": "completed",
+    "modelVerified": true,
+    "responseId": "resp_0869a661ed3bca51006af89515999487d2b02b49f92c9e46ed",
+    "servedModel": "gpt-6.1-terra",
+    "responseStatus": "completed",
+    "servedReasoningEffort": "none",
+    "httpStatus": 200,
+    "reason": null,
+    "usage": {
+      "inputTokens": 1294,
+      "outputTokens": 128,
+      "reasoningTokens": 0
+    }
+  }
+}

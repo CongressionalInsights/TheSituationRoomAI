@@ -1,0 +1,7 @@
+{
+  "id": "usda-nass-reports",
+  "fetchedAt": 1794675944243,
+  "contentType": "application/rss+xml; charset=utf-8",
+  "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\"><channel><title>USDA - National Agricultural Statistics Service Reports</title><link>http://www-origin.nass.usda.gov/</link><description>National Agricultural Statistics Service provides timely, accurate, and useful statistics in service to U.S. agriculture.</description><language>en-us</language><ttl>1</ttl><lastBuildDate>Sat, 14 Nov 2026 17:05:07 +0000</lastBuildDate><atom:link xmlns:atom=\"http://www.w3.org/2005/Atom\" href=\"http://www-origin.nass.usda.gov/rss/reports.xml\" rel=\"self\" type=\"application/rss+xml\"/></channel></rss>\n",
+  "httpStatus": 200
+}
