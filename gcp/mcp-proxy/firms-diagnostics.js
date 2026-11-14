@@ -40,16 +40,27 @@ export function buildGdacsPrimaryFailureDiagnostic(failure = {}) {
   // Reuse the fixed status/transport allowlist without retaining RSS or error text.
   const bounded = buildFirmsPrimaryFailureDiagnostic(failure?.error === 'invalid_rss'
     ? { error: 'invalid_response', httpStatus: failure.httpStatus } : failure);
-  return {
+  const diagnostic = {
     event: 'gdacs_primary_failure', feedId: 'gdacs-alerts',
     errorClass: bounded.errorClass, upstreamStatus: bounded.upstreamStatus,
     transportCode: bounded.transportCode
   };
+  if (bounded.errorClass === 'invalid_response' && bounded.upstreamStatus === 200) {
+    if (Number.isSafeInteger(failure?.bodyCharacterCount) && failure.bodyCharacterCount >= 0) {
+      diagnostic.bodyCharacterCount = failure.bodyCharacterCount;
+    }
+    for (const field of ['xmlContentTypeHint', 'htmlDocumentHint']) {
+      if (typeof failure?.[field] === 'boolean') diagnostic[field] = failure[field];
+    }
+  }
+  return diagnostic;
 }
 
 export function readGdacsPrimaryFailureDiagnostic(value) {
   if (value?.event !== 'gdacs_primary_failure' || value?.feedId !== 'gdacs-alerts') return null;
   return buildGdacsPrimaryFailureDiagnostic({
-    error: value.errorClass, httpStatus: value.upstreamStatus, code: value.transportCode
+    error: value.errorClass, httpStatus: value.upstreamStatus, code: value.transportCode,
+    bodyCharacterCount: value.bodyCharacterCount,
+    xmlContentTypeHint: value.xmlContentTypeHint, htmlDocumentHint: value.htmlDocumentHint
   });
 }

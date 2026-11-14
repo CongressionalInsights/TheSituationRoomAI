@@ -2031,11 +2031,18 @@ async function fetchRawUncached(feed, options) {
           }
         }
         if (isRssFeed && !isLikelyRssPayload(response.headers.get('content-type') || '', body)) {
+          const primaryGdacsRejection = feed.id === 'gdacs-alerts' && index === 0 && response.status === 200;
+          const normalizedType = primaryGdacsRejection ? normalizeContentType(response.headers.get('content-type') || '') : '';
           lastError = {
             error: 'invalid_rss',
             httpStatus: response.status,
             message: 'Upstream response was not valid RSS/Atom XML.',
-            body
+            body,
+            ...(primaryGdacsRejection ? {
+              bodyCharacterCount: body.length,
+              xmlContentTypeHint: normalizedType.includes('rss') || normalizedType.includes('atom') || normalizedType.includes('xml'),
+              htmlDocumentHint: looksLikeHtmlDocument(body)
+            } : {})
           };
           continue;
         }

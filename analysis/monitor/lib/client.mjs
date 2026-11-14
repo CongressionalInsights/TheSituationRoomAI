@@ -122,8 +122,8 @@ function writeFileAtomic(filePath, value) {
   }
 }
 
-export function writeJson(filePath, value) {
-  writeFileAtomic(filePath, JSON.stringify(value, null, 2));
+export function writeJson(filePath, value, space = 2) {
+  writeFileAtomic(filePath, JSON.stringify(value, null, space));
 }
 
 export function writeText(filePath, value) {
