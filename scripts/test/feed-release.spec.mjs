@@ -8,6 +8,8 @@ import { buildFeedManifest } from '../build_feed_manifest.mjs';
 import { readBuildIdentity } from '../../gcp/feed-proxy/build-identity.js';
 import { assertCandidate, assertReleaseState, buildProvenance } from '../verify_feed_release.mjs';
 import { verifyFeedContent } from '../verify_feed_candidate.mjs';
+import { feedBuild, releaseImage } from '../feed_native_build.mjs';
+import { nativeBuildFixture } from './feed-native-build.spec.mjs';
 
 const sha = 'c'.repeat(40);
 const digest = 'sha256:' + 'a'.repeat(64);
@@ -78,6 +80,24 @@ test('Feed candidate acceptance requires source bytes, built image, exact revisi
     const value = structuredClone(f);
     mutate(value);
     assert.throws(() => assertCandidate(value));
+  }
+});
+
+test('Native image candidate binds independent Build/archive proof and ignores stale source annotations', () => {
+  const f = fixtures();
+  const native = nativeBuildFixture();
+  f.revision.spec.containers[0].image = f.revision.status.imageDigest = releaseImage(tag).replace(/:[^:]+$/, '@' + digest);
+  const input = { ...f, ...native, buildMode: 'native-source-v1' };
+  assert.doesNotThrow(() => assertCandidate(input));
+  assert.throws(() => assertCandidate({ ...input, archive: undefined }));
+  assert.throws(() => assertCandidate({ ...input, buildMode: 'unknown' }));
+  const wrong = structuredClone(input);
+  wrong.revision.spec.containers[0].image = wrong.revision.status.imageDigest = image;
+  assert.throws(() => assertCandidate(wrong), /independently built immutable image/);
+  for (const field of ['sourceSha', 'contentSha256']) {
+    const drift = structuredClone(input);
+    drift.archive[field] = 'e'.repeat(field === 'sourceSha' ? 40 : 64);
+    assert.throws(() => assertCandidate(drift), /Archive/);
   }
 });
 
@@ -191,12 +211,57 @@ function fakeCloud() {
   const stateFile = path.join(dir, 'state.json');
   const state = JSON.parse(fs.readFileSync(stateFile));
   const args = process.argv.slice(2);
+  if (process.env.CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API !== 'false') throw Error('API enablement must be disabled');
   fs.appendFileSync(path.join(dir, 'cloud.log'), JSON.stringify(args) + '\n');
   const output = value => console.log(JSON.stringify(value));
-  if (args[0] === 'builds') output(f.build);
+  const project = 'situationroom-ai-20260112', number = '382918878290';
+  const bucket = 'run-sources-situationroom-ai-20260112-us-central1';
+  if (args[0] === 'config' && args[1] === 'get') console.log(args[2] === 'auth/credential_file_override' ? process.env.GOOGLE_GHA_CREDS_PATH :
+    args[2] === 'core/should_prompt_to_enable_api' ? process.env.CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API : '');
+  else if (args[0] === 'storage' && args[1] === 'buckets') output({ name: bucket, projectNumber: number, location: process.env.SCENARIO === 'wrong-bucket-location' ? 'EU' : 'US-CENTRAL1' });
+  else if (args[0] === 'artifacts') output({ name: 'projects/' + project + '/locations/us-central1/repositories/cloud-run-source-deploy', format: process.env.SCENARIO === 'resource-missing' ? 'UNKNOWN' : 'DOCKER' });
+  else if (args[0] === 'iam') output({ email: number + '-compute@developer.gserviceaccount.com' });
+  else if (args[0] === 'services' && args[1] === 'list') {
+    const apis = ['cloudbuild.googleapis.com', 'run.googleapis.com', 'artifactregistry.googleapis.com', 'storage.googleapis.com'];
+    if (process.env.SCENARIO === 'extra-api') apis.push('bigquerystorage.googleapis.com');
+    output(apis.map(api => ({ name: 'projects/' + number + '/services/' + api, config: { name: api }, state: 'ENABLED' })));
+  }
+  else if (args[0] === 'storage' && args[1] === 'cp') {
+    if (!args.includes('--if-generation-match=0')) throw Error('Source upload is not create-only');
+    const archive = JSON.parse(fs.readFileSync(path.join(dir, 'diagnostics/archive.json')));
+    state.object = { bucket, name: archive.object, generation: '123', size: String(archive.bytes), md5Hash: archive.md5 };
+  } else if (args[0] === 'storage' && args[1] === 'objects') {
+    const object = { ...state.object };
+    if (process.env.SCENARIO === 'wrong-upload') object.md5Hash = 'wrong';
+    output(object);
+  }
+  else if (args[0] === 'builds' && args[1] === 'submit') {
+    if (!args.includes('--no-source')) throw Error('Source must be explicitly pinned');
+    const config = JSON.parse(fs.readFileSync(path.join(dir, 'diagnostics/build-config.json')));
+    const archive = JSON.parse(fs.readFileSync(path.join(dir, 'diagnostics/archive.json')));
+    state.build = { ...config, id: 'build-1', projectId: project, name: 'projects/' + number + '/locations/us-central1/builds/build-1', status: 'SUCCESS',
+      sourceProvenance: { resolvedStorageSource: config.source.storageSource,
+        fileHashes: { [archive.uri + '#123']: { fileHash: [{ type: 'SHA256', value: archive.sha256 }] } } },
+      results: { images: [{ name: archive.image, digest: 'sha256:' + 'a'.repeat(64) }] } };
+    output(state.build);
+    if (process.env.SCENARIO === 'submit-failure') process.exitCode = 9;
+  } else if (args[0] === 'builds') {
+    const build = structuredClone(state.build);
+    if (process.env.SCENARIO === 'missing-proof') build.sourceProvenance = {};
+    if (process.env.SCENARIO === 'wrong-generation') build.sourceProvenance.resolvedStorageSource.generation = '456';
+    if (process.env.SCENARIO === 'wrong-archive-hash') Object.values(build.sourceProvenance.fileHashes)[0].fileHash[0].value = 'wrong';
+    if (process.env.SCENARIO === 'wrong-build-image') build.results.images[0].name = 'wrong';
+    if (process.env.SCENARIO === 'extra-build-image') build.results.images.push({ name: 'gcr.io/other/unreviewed', digest: build.results.images[0].digest });
+    if (process.env.SCENARIO === 'url-safe-hash') Object.values(build.sourceProvenance.fileHashes)[0].fileHash[0].value =
+      Object.values(build.sourceProvenance.fileHashes)[0].fileHash[0].value.replaceAll('+', '-').replaceAll('/', '_');
+    output(build);
+  }
   else if (args[1] === 'revisions') output(args[3] === f.candidate ? f.revision : f.beforeRevision);
   else if (args[1] === 'services' && args[2] === 'describe') output(state.current);
-  else if (args[1] === 'deploy') { state.current = f.current; }
+  else if (args[1] === 'deploy') {
+    if (process.env.SCENARIO === 'api-disabled-at-deploy') process.exitCode = 9;
+    else state.current = f.current;
+  }
   else if (args[2] === 'update-traffic') {
     const to = args.indexOf('--to-revisions');
     if (to >= 0) {
@@ -224,7 +289,9 @@ function fakeCloud() {
   fs.writeFileSync(stateFile, JSON.stringify(state));
 }
 
-for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate-success', 'candidate-content-failure', 'candidate-feature-failure']) {
+for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate-success', 'candidate-content-failure', 'candidate-feature-failure',
+  'missing-proof', 'wrong-generation', 'wrong-archive-hash', 'wrong-build-image', 'resource-missing', 'wrong-upload', 'submit-failure',
+  'extra-api', 'url-safe-hash', 'extra-build-image', 'wrong-bucket-location', 'bad-credential-override', 'api-disabled-at-deploy']) {
   test(`Feed actual release helper executes inert ${scenario} promotion/recovery`, t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsr-feed-release-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -233,29 +300,52 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate
     fs.mkdirSync(path.join(dir, 'gcp/feed-proxy'), { recursive: true });
     fs.symlinkSync(path.resolve('scripts'), path.join(dir, 'scripts'));
     const f = fixtures();
+    const sourceDir = path.join(dir, 'gcp/feed-proxy');
+    fs.writeFileSync(path.join(sourceDir, 'server.js'), 'console.log("fixture");');
+    fs.writeFileSync(path.join(sourceDir, 'feeds.json'), '{"feeds":[]}');
+    fs.writeFileSync(path.join(sourceDir, 'package.json'), '{"type":"module","engines":{"node":"24.x"}}');
+    f.manifest = buildFeedManifest(sourceDir, sha);
+    f.identity = { available: true, ...f.manifest, revision: candidate, service };
+    f.revision.spec.containers[0].image = f.revision.status.imageDigest = releaseImage(tag).replace(/:[^:]+$/, '@' + digest);
+    f.current.spec.template.spec.containers[0].image = f.revision.spec.containers[0].image;
+    const credentialPath = path.join(dir, 'workflow-credential-metadata.json');
+    json(credentialPath, { type: 'service_account', client_email: scenario === 'bad-credential-override' ? 'unreviewed@fixture' : feedBuild.principal,
+      private_key: 'inert-fixture-never-print' });
     json(path.join(dir, 'fixtures.json'), f);
     json(path.join(dir, 'state.json'), { current: f.before });
     json(path.join(dir, 'gcp/feed-proxy/build-manifest.json'), f.manifest);
     const executable = (name, body) => fs.writeFileSync(path.join(bin, name), body, { mode: 0o700 });
     executable('gcloud', `#!${process.execPath}\n(${fakeCloud.toString()})();\n`);
-    executable('git', `#!/bin/sh\nprintf '%s\\n' '${sha}'\n`);
+    executable('git', `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a[0]==='show')process.stdout.write(fs.readFileSync(process.env.FIXTURE_DIR+'/gcp/feed-proxy/'+a[1].split('/').at(-1)));else if(a[0]==='ls-tree')console.log(['feeds.json','package.json','server.js'].join('\\n'));else console.log('${sha}');\n`);
     executable('curl', `#!${process.execPath}\nconst f=require(process.env.FIXTURE_DIR+'/fixtures.json');const identity={...f.identity};if(process.env.SCENARIO==='old-healthy'&&process.argv.at(-1).includes('382918878290'))identity.revision='${old}';console.log(JSON.stringify(identity));\n`);
     executable('node', `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='scripts/verify_feed_candidate.mjs'||args[0]==='scripts/verify_money_candidate.mjs'){fs.appendFileSync(process.env.FIXTURE_DIR+'/verification.log',JSON.stringify(args)+'\\n');if((process.env.SCENARIO==='candidate-content-failure'&&args[0].includes('verify_feed_candidate'))||(process.env.SCENARIO==='candidate-feature-failure'&&args[0].includes('verify_money_candidate')))process.exitCode=9;else console.log('{}');}else{if(!args[0].startsWith('-'))args[0]=fs.realpathSync(args[0]);const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exitCode=r.status??1;}\n`);
     const result = spawnSync('bash', [path.resolve('scripts/deploy_feed_candidate.sh')], { cwd: dir, encoding: 'utf8',
       env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, FIXTURE_DIR: dir, SCENARIO: scenario,
-        PROJECT_ID: 'fixture', REGION: 'fixture', SERVICE_NAME: service, GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main', EXPECTED_SHA: sha, CANDIDATE_ONLY: String(scenario.startsWith('candidate-')), SYNC_SECRET_VERSIONS: 'false', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', DIAG_DIR: path.join(dir, 'diagnostics') } });
+        GOOGLE_GHA_CREDS_PATH: credentialPath, CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: credentialPath, GOOGLE_APPLICATION_CREDENTIALS: credentialPath,
+        PROJECT_ID: feedBuild.project, REGION: feedBuild.region, SERVICE_NAME: service, GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main', EXPECTED_SHA: sha, CANDIDATE_ONLY: String(scenario.startsWith('candidate-')), SYNC_SECRET_VERSIONS: 'false', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', DIAG_DIR: path.join(dir, 'diagnostics') } });
     const commands = fs.readFileSync(path.join(dir, 'cloud.log'), 'utf8');
     const final = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'))).current;
-    if (scenario === 'success' || scenario === 'candidate-success') assert.equal(result.status, 0, result.stdout + result.stderr);
+    const fullSuccess = ['success', 'extra-api', 'url-safe-hash'].includes(scenario);
+    if (fullSuccess || scenario === 'candidate-success') assert.equal(result.status, 0, result.stdout + result.stderr);
     else assert.notEqual(result.status, 0, result.stdout + result.stderr);
-    if (scenario.startsWith('candidate-')) {
+    const prebuildStop = ['missing-proof', 'wrong-generation', 'wrong-archive-hash', 'wrong-build-image', 'resource-missing', 'wrong-upload', 'submit-failure',
+      'extra-build-image', 'wrong-bucket-location', 'bad-credential-override'].includes(scenario);
+    if (prebuildStop) {
+      assert.deepEqual(final, f.before);
+      assert.doesNotMatch(commands, /"run","deploy"|update-traffic/);
+      assert.equal(fs.existsSync(path.join(dir, 'verification.log')), false);
+    } else if (scenario.startsWith('candidate-')) {
       assert.equal(final.status.traffic[0].revisionName, old);
-      assert.doesNotMatch(commands, /--to-revisions|delete|secrets|iam/);
+      assert.doesNotMatch(commands, /--to-revisions|delete|secrets|(?:add|set)-iam-policy|--impersonate/);
       const checks = fs.readFileSync(path.join(dir, 'verification.log'), 'utf8');
       assert.doesNotMatch(checks, /382918878290/);
       assert.match(checks, /verify_feed_candidate/);
       if (scenario !== 'candidate-content-failure') assert.match(checks, /verify_money_candidate/);
-    } else if (scenario === 'success') assert.equal(final.status.traffic[0].revisionName, candidate);
+    } else if (fullSuccess) assert.equal(final.status.traffic[0].revisionName, candidate);
+    else if (scenario === 'api-disabled-at-deploy') {
+      assert.deepEqual(final, f.before);
+      assert.doesNotMatch(commands, /update-traffic|"enable"/);
+    }
     else if (scenario === 'alien') {
       assert.equal(final.status.traffic[0].revisionName, 'unrelated');
       assert.doesNotMatch(commands, new RegExp(old + '=100'));
@@ -266,6 +356,12 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate
     }
     if (scenario !== 'alien') assert.equal(final.status.traffic.some(row => row.tag), false);
     assert.doesNotMatch(commands, /--update-secrets|--env-vars-file|--allow-unauthenticated/);
+    assert.doesNotMatch(commands, /"create"|"enable"|--source/);
+    assert.ok(!(result.stdout + result.stderr).includes('inert-fixture-never-print'));
+    for (const args of commands.trim().split('\n').map(line => JSON.parse(line)).filter(args => args[0] === 'iam')) {
+      assert.deepEqual(args.slice(0, 4), ['iam', 'service-accounts', 'describe', feedBuild.buildAccount]);
+    }
+    assert.ok(commands.trim().split('\n').map(line => JSON.parse(line)).filter(args => args[0] === 'builds' && args[1] === 'submit').length <= 1);
   });
 }
 
@@ -292,4 +388,7 @@ test('Feed source-preserving release rejects secret synchronization before authe
   }
   assert.ok(workflow.indexOf('reject secret synchronization before authentication') < workflow.indexOf('google-github-actions/auth'));
   assert.ok(workflow.indexOf('reject secret synchronization before authentication') < workflow.indexOf('Ensure feed proxy secrets'));
+  assert.match(workflow, /CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API: 'false'/);
+  const helper = fs.readFileSync(new URL('../deploy_feed_candidate.sh', import.meta.url), 'utf8');
+  assert.match(helper, /export CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API=false/);
 });

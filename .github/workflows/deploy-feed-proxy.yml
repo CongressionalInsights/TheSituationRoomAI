@@ -37,6 +37,8 @@ jobs:
       PROJECT_ID: situationroom-ai-20260112
       REGION: us-central1
       SERVICE_NAME: situation-room-feed
+      CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+      CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API: 'false'
       ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
       ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
       STATE_CONNECTOR_BASE_URL: ${{ secrets.STATE_CONNECTOR_BASE_URL }}

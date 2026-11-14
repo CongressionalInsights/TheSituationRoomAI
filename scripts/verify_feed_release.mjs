@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
+import { verifyNativeBuild } from './feed_native_build.mjs';
 
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
@@ -81,7 +82,8 @@ export function buildProvenance(service, revision) {
   return { id, sourceLocation: values('run.googleapis.com/build-source-location') };
 }
 
-export function assertCandidate({ beforeRevision, revision, build, manifest, identity, candidate, service, candidateService }) {
+export function assertCandidate({ beforeRevision, revision, build, manifest, identity, candidate, service, candidateService,
+  buildMode, submitted, archive, object, config, tag }) {
   assert.equal(revision.metadata?.name, candidate, 'Wrong revision');
   assert.ok(revision.status?.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'True'), 'Revision not ready');
   equal(revisionConfig(revision), revisionConfig(beforeRevision), 'Revision secret/public/runtime configuration changed');
@@ -90,12 +92,21 @@ export function assertCandidate({ beforeRevision, revision, build, manifest, ide
   assert.ok(revision.spec.containers.length === 1, 'Unexpected containers');
   assert.ok(revision.spec.containers[0].image.endsWith(`@${digest}`), 'Revision image is not the immutable built image');
   assert.equal(build.status, 'SUCCESS', 'Build did not succeed');
-  const provenance = buildProvenance(candidateService, revision);
-  assert.equal(provenance.id, build.id, 'Build ID does not own the revision');
-  assert.ok(build.results?.images?.some(image => image.digest === digest), 'Built image digest differs from revision');
-  const source = build.sourceProvenance?.resolvedStorageSource || build.source?.storageSource;
-  assert.ok(source?.generation, 'Build has no resolved source generation');
-  assert.equal(provenance.sourceLocation, `gs://${source.bucket}/${source.object}#${source.generation}`, 'Build source archive differs');
+  if (buildMode === 'native-source-v1') {
+    // Image deployments retain old source annotations; native Build + archive proof owns this binding.
+    const image = verifyNativeBuild({ build, submitted, archive, object, config, tag });
+    assert.equal(revision.spec.containers[0].image, image, 'Candidate is not the independently built immutable image');
+    assert.equal(manifest.sourceSha, archive.sourceSha, 'Archive is from another source SHA');
+    assert.equal(manifest.contentSha256, archive.contentSha256, 'Archive packaged bytes differ');
+  } else {
+    assert.equal(buildMode, undefined, 'Unknown release build mode');
+    const provenance = buildProvenance(candidateService, revision);
+    assert.equal(provenance.id, build.id, 'Build ID does not own the revision');
+    assert.ok(build.results?.images?.some(image => image.digest === digest), 'Built image digest differs from revision');
+    const source = build.sourceProvenance?.resolvedStorageSource || build.source?.storageSource;
+    assert.ok(source?.generation, 'Build has no resolved source generation');
+    assert.equal(provenance.sourceLocation, `gs://${source.bucket}/${source.object}#${source.generation}`, 'Build source archive differs');
+  }
   assert.equal(identity.available, true, 'Runtime source bytes unverified');
   assert.equal(identity.sourceSha, manifest.sourceSha, 'Runtime source SHA mismatch');
   assert.equal(identity.contentSha256, manifest.contentSha256, 'Runtime source bytes mismatch');
@@ -117,8 +128,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const release = read('release');
   if (mode === 'build-id') console.log(buildProvenance(read('service-candidate'), read('revision-candidate')).id);
   else if (mode === 'identity') assertCandidate({ beforeRevision: read('revision-before'), revision: read('revision-candidate'),
-    candidateService: read('service-current'), build: read('build'), manifest: read('manifest'), identity: read('identity'), ...release });
+    candidateService: read('service-current'), build: read('build'), manifest: read('manifest'), identity: read('identity'),
+    ...(release.buildMode === 'native-source-v1' ? { submitted: read('build-submitted'), archive: read('archive'),
+      object: read('source-object'), config: read('build-config') } : {}), ...release });
   else if (mode === 'revision') assertRevisionUnchanged(read('revision-candidate'), read('revision-canonical'));
+  else if (mode === 'untouched') equal(read('service-current'), read('service-before'), 'Service changed before candidate deployment');
   else assertReleaseState(read('service-before'), read('service-current'), release.candidate, release.tag, mode,
     fs.existsSync(`${dir}/revision-candidate.json`) ? read('revision-candidate') : null);
   if (mode !== 'build-id') console.log(`Feed release ${mode} verified`);
