@@ -222,7 +222,9 @@ function fakeCloud() {
   else if (args[0] === 'artifacts') output({ name: 'projects/' + project + '/locations/us-central1/repositories/cloud-run-source-deploy', format: process.env.SCENARIO === 'resource-missing' ? 'UNKNOWN' : 'DOCKER' });
   else if (args[0] === 'iam') output({ email: number + '-compute@developer.gserviceaccount.com' });
   else if (args[0] === 'services' && args[1] === 'list') {
+    if (!args.some(arg => arg.startsWith('--filter=') && arg.includes('containeranalysis.googleapis.com'))) throw Error('Verification API must be inspected before upload');
     const apis = ['cloudbuild.googleapis.com', 'run.googleapis.com', 'artifactregistry.googleapis.com', 'storage.googleapis.com'];
+    if (process.env.SCENARIO !== 'missing-verification-api') apis.push('containeranalysis.googleapis.com');
     if (process.env.SCENARIO === 'extra-api') apis.push('bigquerystorage.googleapis.com');
     output(apis.map(api => ({ name: 'projects/' + number + '/services/' + api, config: { name: api }, state: 'ENABLED' })));
   }
@@ -291,7 +293,7 @@ function fakeCloud() {
 
 for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate-success', 'candidate-content-failure', 'candidate-feature-failure',
   'missing-proof', 'wrong-generation', 'wrong-archive-hash', 'wrong-build-image', 'resource-missing', 'wrong-upload', 'submit-failure',
-  'extra-api', 'url-safe-hash', 'extra-build-image', 'wrong-bucket-location', 'bad-credential-override', 'api-disabled-at-deploy']) {
+  'extra-api', 'url-safe-hash', 'extra-build-image', 'wrong-bucket-location', 'bad-credential-override', 'api-disabled-at-deploy', 'missing-verification-api']) {
   test(`Feed actual release helper executes inert ${scenario} promotion/recovery`, t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsr-feed-release-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -329,7 +331,7 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate
     if (fullSuccess || scenario === 'candidate-success') assert.equal(result.status, 0, result.stdout + result.stderr);
     else assert.notEqual(result.status, 0, result.stdout + result.stderr);
     const prebuildStop = ['missing-proof', 'wrong-generation', 'wrong-archive-hash', 'wrong-build-image', 'resource-missing', 'wrong-upload', 'submit-failure',
-      'extra-build-image', 'wrong-bucket-location', 'bad-credential-override'].includes(scenario);
+      'extra-build-image', 'wrong-bucket-location', 'bad-credential-override', 'missing-verification-api'].includes(scenario);
     if (prebuildStop) {
       assert.deepEqual(final, f.before);
       assert.doesNotMatch(commands, /"run","deploy"|update-traffic/);
@@ -355,6 +357,10 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate
       assert.match(commands, new RegExp(old + '=100'));
     }
     if (scenario !== 'alien') assert.equal(final.status.traffic.some(row => row.tag), false);
+    if (scenario === 'missing-verification-api') {
+      assert.match(result.stderr, /containeranalysis\.googleapis\.com/);
+      assert.doesNotMatch(commands, /"storage","cp"|"builds"/);
+    }
     assert.doesNotMatch(commands, /--update-secrets|--env-vars-file|--allow-unauthenticated/);
     assert.doesNotMatch(commands, /"create"|"enable"|--source/);
     assert.ok(!(result.stdout + result.stderr).includes('inert-fixture-never-print'));
