@@ -4395,11 +4395,12 @@ test('mcp proxy deploy workflow preserves the deployed secret bindings by defaul
   assert.match(workflow, /gcloud run revisions describe "\$ROLLBACK_REVISION"/);
   assert.match(workflow, /jq -er -f scripts\/cloud-run-serving-revision\.jq/);
   assert.match(workflow, /jq -S -c -f scripts\/cloud-run-secret-schema\.jq/);
-  assert.match(workflow, /SECRET_ARGS=\(\)/);
-  assert.match(workflow, /if \[ "\$SYNC_SECRET_VERSIONS" = "true" \]; then[\s\S]*?SECRET_ARGS=\(--update-secrets "\$SECRET_BINDINGS"\)/);
+  assert.match(workflow, /test "\$SYNC_SECRET_VERSIONS" = false/);
+  assert.doesNotMatch(workflow, /--update-secrets/);
   assert.doesNotMatch(workflow, /--set-secrets/);
-  assert.match(workflow, /--revision-suffix "\$REVISION_SUFFIX"[\s\S]*?--tag "\$REVISION_SUFFIX"[\s\S]*?--no-traffic[\s\S]*?"\$\{SECRET_ARGS\[@\]\}"/);
-  assert.match(workflow, /CONFIG_ARGS=\(--allow-unauthenticated --min 1 --min-instances 0 --timeout 900 --update-env-vars/);
+  assert.match(workflow, /--image "\$IMAGE"[\s\S]*?--revision-suffix "\$REVISION_SUFFIX"[\s\S]*?--tag "\$REVISION_SUFFIX"[\s\S]*?--no-traffic/);
+  assert.doesNotMatch(workflow, /--allow-unauthenticated|--min-instances|--update-env-vars/);
+  assert.match(workflow, /check_mcp_state.sh candidate/);
   assert.match(workflow, /expected_serving_tag:\s*\n[\s\S]*?default: ''/);
   assert.match(workflow, /MCP traffic tags differ from the exact serving tag approved for this release/);
   const tagGuard = workflow.match(/jq -e --arg revision "\$ROLLBACK_REVISION" --arg expected "\$EXPECTED_SERVING_TAG" '([\s\S]*?)' \\\n\s*\/tmp\/mcp-service-before\.json/);
@@ -4431,7 +4432,7 @@ test('mcp proxy deploy workflow preserves the deployed secret bindings by defaul
     { revisionName: 'candidate', percent: 0, tag: 'smoke' },
     { revisionName: 'other', percent: 0, tag: 'legacy' }
   ], 'gha-123-1').status, 0);
-  assert.match(workflow, /--update-env-vars "\$ENV_UPDATES"/);
+  assert.doesNotMatch(workflow, /--update-env-vars/);
   assert.doesNotMatch(workflow, /--env-vars-file/);
   assert.match(workflow, /gcloud run revisions describe "\$CANDIDATE_REVISION"/);
   assert.match(workflow, /cmp -s "\$DIAG_DIR\/secret-bindings-before\.json" "\$DIAG_DIR\/secret-bindings-after\.json"/);

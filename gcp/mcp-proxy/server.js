@@ -1,3 +1,4 @@
+import { readBuildIdentity } from './build-identity.js';
 import { fetchMoneyFlows } from './money-flows.js';
 export { attachMoneyMatch, buildMoneyQueryProfile, buildUsaspendingTransactionKey, findBestMoneyNameMatch, resolveMoneyAliasExpansion, settleMoneyTasks, summarizeMoneyEntities } from './money-flows.js';
 import http from 'http';
@@ -2619,6 +2620,11 @@ export const httpServer = http.createServer(async (req, res) => {
   }
 
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (url.pathname === '/health/build') {
+    const identity = readBuildIdentity(__dirname);
+    return sendJson(res, identity.available ? 200 : 503, identity, origin);
+  }
 
   if (url.pathname === '/health') {
     return sendJson(res, 200, { ok: true }, origin);

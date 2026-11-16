@@ -15,7 +15,7 @@ const replace = (text, candidateOnly = true) => text
   .replaceAll('${{ inputs.candidate_only }}', String(candidateOnly)).replaceAll('${{ inputs.sync_secret_versions }}', 'false')
   .replaceAll('${{ inputs.cisa_only }}', 'false').replaceAll('${{ inputs.metadata_only }}', 'false')
   .replaceAll('${{ steps.current.outputs.rollback_revision }}', old).replaceAll('${{ steps.deploy.outputs.candidate_revision }}', candidate)
-  .replaceAll('${{ steps.deploy.outputs.candidate_tag }}', tag).replaceAll('${{ steps.promote.outcome }}', 'skipped').replaceAll('${{ steps.canonical.outcome }}', 'skipped');
+  .replaceAll('${{ steps.deploy.outputs.candidate_tag }}', tag).replaceAll('${{ steps.deploy.outputs.deploy_succeeded }}', 'true').replaceAll('${{ steps.promote.outcome }}', 'skipped').replaceAll('${{ steps.canonical.outcome }}', 'skipped');
 function state() {
   const before = { metadata: { generation: 1, annotations: {} }, spec: { template: { metadata: { annotations: {} }, spec: { containers: [{ image: 'old', env: [] }] } }, traffic: [{ revisionName: old, percent: 100 }] }, status: { observedGeneration: 1, latestCreatedRevisionName: old, latestReadyRevisionName: old, traffic: [{ revisionName: old, percent: 100, tag: 'old-serving' }] } };
   const current = structuredClone(before);
@@ -54,9 +54,10 @@ test('Candidate-only guards retain main/full-SHA binding before authentication a
   assert.ok(smoke.indexOf('verify_money_candidate.mjs') > smoke.indexOf('verify_typed_series_report.mjs'));
 });
 
-test('Actual MCP deploy command omits IAM/configuration mutations in candidate-only mode', t => {
+test('Actual MCP immutable deploy command omits IAM/configuration mutations in both modes', t => {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tsr-mcp-command-')); t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
   const {before}=state(); fs.writeFileSync(`${dir}/before.json`,JSON.stringify(before));
+  fs.mkdirSync(`${dir}/diag`); fs.writeFileSync(`${dir}/diag/immutable-image.txt`, 'fixture@sha256:'+'a'.repeat(64));
   for (const candidateOnly of [true,false]) {
     const code=replace(script(block(workflows.mcp,'Deploy MCP proxy service')),candidateOnly).replaceAll('/tmp/mcp-diagnostics',`${dir}/diag`).replaceAll('/tmp/mcp-service-before.json',`${dir}/before.json`);
     const output=`${dir}/args.json`;
@@ -67,11 +68,8 @@ test('Actual MCP deploy command omits IAM/configuration mutations in candidate-o
     const argv=args.split('\n').slice(0,-1);
     assert.equal(argv.includes(''),false,'empty optional arrays must not add an empty argument');
     assert.match(args,/--no-traffic/); assert.match(args,/--tag/);
-    if(candidateOnly) assert.doesNotMatch(args,/--allow-unauthenticated|--(?:update|set)-secrets|--update-env-vars|--min|--timeout|iam/);
-    else {
-      assert.match(args,/--allow-unauthenticated[\s\S]*--min[\s\S]*--timeout[\s\S]*--update-env-vars/);
-      assert.equal(argv[argv.indexOf('--update-env-vars')+1],'^|^ALLOWED_ORIGINS=fixture with spaces|ACLED_PROXY=fixture|STATE_CONNECTOR_BASE_URL=fixture|STATE_CONNECTOR_KEY_HEADER=fixture');
-    }
+    assert.doesNotMatch(args,/--allow-unauthenticated|--(?:update|set)-secrets|--update-env-vars|--min|--timeout|iam/);
+    assert.equal(argv[argv.indexOf('--image')+1], 'fixture@sha256:'+'a'.repeat(64));
   }
 });
 
@@ -84,7 +82,7 @@ test('Actual MCP candidate cleanup removes only its verified tag; drift fails wi
     if(scenario==='configuration') current.spec.template.spec.containers[0].env.push({name:'NEW',value:'changed'});
     if(scenario==='old-tag') current.status.traffic[0].tag='changed';
     fs.writeFileSync(`${dir}/before.json`,JSON.stringify(before));fs.writeFileSync(`${dir}/current.json`,JSON.stringify(current));fs.writeFileSync(`${dir}/mutations`, '');
-    const code=replace(script(block(workflows.mcp,"Remove this release's temporary smoke tag"))).replaceAll('/tmp/mcp-service-before.json',`${dir}/before.json`).replaceAll('/tmp/mcp-service-cleanup.json',`${dir}/cleanup.json`).replaceAll('/tmp/mcp-service-final.json',`${dir}/final.json`).replaceAll('/tmp/mcp-diagnostics',dir);
+    const code=replace(script(block(workflows.mcp,"Remove this release's temporary smoke tag"))).replaceAll('bash scripts/check_mcp_state.sh recover','true # complete state guard covered by mcp-native-release fixtures').replaceAll('bash scripts/check_mcp_state.sh cleaned-restored','true # complete state guard covered by mcp-native-release fixtures').replaceAll('/tmp/mcp-service-before.json',`${dir}/before.json`).replaceAll('/tmp/mcp-service-cleanup.json',`${dir}/cleanup.json`).replaceAll('/tmp/mcp-service-final.json',`${dir}/final.json`).replaceAll('/tmp/mcp-diagnostics',dir);
     const stub=`gcloud(){ if [ "$3" = describe ]; then cat '${dir}/current.json'; elif [ "$3" = update-traffic ]; then printf '%s\\n' "$@" >> '${dir}/mutations'; jq 'del(.status.traffic[] | select(.tag == "${tag}")) | del(.spec.traffic[] | select(.tag == "${tag}"))' '${dir}/current.json' > '${dir}/next.json'; mv '${dir}/next.json' '${dir}/current.json'; else return 91; fi; };`;
     const result=spawnSync('bash',['-c',stub+code],{encoding:'utf8',env:{...process.env,SERVICE_NAME:'fixture',REGION:'fixture',PROJECT_ID:'fixture',EXPECTED_SERVING_TAG:'old-serving'}});
     const mutations=fs.readFileSync(`${dir}/mutations`,'utf8');

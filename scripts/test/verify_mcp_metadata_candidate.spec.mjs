@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { httpServer } from '../../gcp/mcp-proxy/server.js';
 import { verifyMcpMetadataCandidate, metadataDigest } from '../verify_mcp_metadata_candidate.mjs';
@@ -184,12 +186,14 @@ test('metadata-only release pin is conditional and retains reviewed-main binding
   }
 });
 
-test('metadata-only workflow routes only metadata smokes and parity while retaining normal/CISA paths', () => {
-  const smoke = runScript(step('Smoke test isolated MCP candidate'));
-  const canonical = runScript(step('Verify canonical MCP release'));
+test('metadata-only workflow routes only metadata smokes and parity while retaining normal/CISA paths', (t) => {
+  const scratch = mkdtempSync(path.join(os.tmpdir(), 'mcp-mode-branches-'));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const smoke = runScript(step('Smoke test isolated MCP candidate')).replaceAll('/tmp/mcp-diagnostics', scratch);
+  const canonical = runScript(step('Verify canonical MCP release')).replaceAll('/tmp/mcp-diagnostics', scratch);
   // Execute actual branches inertly. Piped jq stubs drain stdin so pipefail cannot
   // mistake a fixture-only SIGPIPE race for a release failure.
-  const stubs = `SERVICE_NAME=fixture; REGION=fixture; PROJECT_ID=fixture; gcloud(){ printf 'fixture'; }; curl(){ :; }; tee(){ printf 'tee:%s\\n' "$*"; command cat; };\n`;
+  const stubs = `SERVICE_NAME=fixture; REGION=fixture; PROJECT_ID=fixture; gcloud(){ printf 'fixture'; }; curl(){ :; }; bash(){ printf 'native-state:%s\\n' "$*"; }; cp(){ :; }; tee(){ printf 'tee:%s\\n' "$*"; command cat; };\n`;
   for (const [metadata, cisa] of [[true, false], [false, true], [false, false]]) {
     const script = substitute(smoke, { metadata, cisa });
     const result = spawnSync('bash', ['-c', `${stubs} jq(){ command cat >/dev/null; printf 'https://candidate.fixture.invalid'; }; node(){ printf 'node:%s\\n' "$*"; }; ${script}`], { encoding: 'utf8' });

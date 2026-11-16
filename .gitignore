@@ -32,3 +32,6 @@ public/feeds/
 # test outputs
 /test-results
 /reports
+
+# Runtime identity manifest generated only from the reviewed MCP checkout.
+gcp/mcp-proxy/build-manifest.json
