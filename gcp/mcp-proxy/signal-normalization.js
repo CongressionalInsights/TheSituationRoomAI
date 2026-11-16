@@ -16,12 +16,16 @@ function parseTimestamp(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function parseFirstValidTimestamp(...values) {
+function parseFirstValidTimestampOrNull(...values) {
   for (const value of values) {
     const parsed = parseTimestamp(value);
     if (parsed !== null) return parsed;
   }
-  return Date.now();
+  return null;
+}
+
+function parseFirstValidTimestamp(...values) {
+  return parseFirstValidTimestampOrNull(...values) ?? Date.now();
 }
 
 export function normalizeSwpcTimestamp(value) {
@@ -754,7 +758,8 @@ export function parseGenericJsonFeed(data, feed) {
       ].filter(Boolean).join(' • ')
     );
     const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
-    const publishedAt = parseFirstValidTimestamp(
+    // HMS YearDay/Time semantics are not admitted; never replace unknown time with retrieval time.
+    const publishedAt = (feed?.id === 'arcgis-hms-fire' ? parseFirstValidTimestampOrNull : parseFirstValidTimestamp)(
       entry.publishedAt,
       entry.published_at,
       properties.time,

@@ -106,6 +106,8 @@ jobs:
           node --check gcp/mcp-proxy/server.js
           node --check gcp/mcp-proxy/state-signals.js
           node --check gcp/mcp-proxy/public-payload-safety.js
+      - name: Verify native MCP release fixtures
+        run: node --test scripts/test/mcp-native-release.spec.mjs
       - name: Verify MCP response contracts
         run: node --test scripts/test/mcp-proxy.spec.mjs
       - name: Verify offline briefing model and fallback contracts
@@ -134,6 +136,8 @@ jobs:
       PROJECT_ID: situationroom-ai-20260112
       REGION: us-central1
       SERVICE_NAME: situation-room-mcp
+      CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+      CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API: 'false'
       ALLOWED_ORIGINS: https://congressionalinsights.github.io,http://localhost:5173
       ACLED_PROXY: https://situation-room-acled-382918878290.us-central1.run.app/api/acled
       STATE_CONNECTOR_BASE_URL: ${{ secrets.STATE_CONNECTOR_BASE_URL }}
@@ -151,6 +155,7 @@ jobs:
           ACTUAL_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
+          test "${{ inputs.sync_secret_versions }}" = false
           test "$ACTUAL_REF" = refs/heads/main
           [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
           test "$EXPECTED_SHA" = "$ACTUAL_SHA"
@@ -251,7 +256,7 @@ jobs:
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --format=json > /tmp/mcp-service-before.json
-          if [ "${{ inputs.candidate_only }}" = true ]; then cp /tmp/mcp-service-before.json "$DIAG_DIR/service-before.json"; fi
+          cp /tmp/mcp-service-before.json "$DIAG_DIR/service-before.json"
 
           ROLLBACK_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-before.json)
           SERVICE_URL="https://situation-room-mcp-382918878290.us-central1.run.app"
@@ -303,6 +308,20 @@ jobs:
             echo "rollback_revision=${ROLLBACK_REVISION}"
             echo "serving_tag=${EXPECTED_SERVING_TAG}"
           } >> "$GITHUB_OUTPUT"
+      - name: Build exact native MCP source before deployment
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          SYNC_SECRET_VERSIONS: ${{ inputs.sync_secret_versions }}
+          EXPECTED_SERVING_TAG: ${{ inputs.expected_serving_tag }}
+        run: |
+          set -euo pipefail
+          export DIAG_DIR=/tmp/mcp-diagnostics
+          cp /tmp/mcp-revision-before.json "$DIAG_DIR/revision-before.json"
+          gcloud run services get-iam-policy "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --format=json > "$DIAG_DIR/iam-before.json"
+          node --input-type=module -e 'import fs from "node:fs";const tag=`gha-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;fs.writeFileSync(process.env.DIAG_DIR+"/release.json",JSON.stringify({tag,candidate:process.env.SERVICE_NAME+"-"+tag,oldTag:process.env.EXPECTED_SERVING_TAG||""}))'
+          bash scripts/check_mcp_state.sh untouched
+          bash scripts/build_mcp_native.sh
+          bash scripts/check_mcp_state.sh untouched
       - name: Deploy MCP proxy service
         id: deploy
         env:
@@ -314,58 +333,15 @@ jobs:
           REVISION_SUFFIX="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "candidate_revision=${SERVICE_NAME}-${REVISION_SUFFIX}" >> "$GITHUB_OUTPUT"
           echo "candidate_tag=${REVISION_SUFFIX}" >> "$GITHUB_OUTPUT"
-          if [ -z "${STATE_CONNECTOR_BASE_URL}" ]; then
-            STATE_CONNECTOR_BASE_URL="https://state-connector-382918878290.us-central1.run.app"
-          fi
-          if [ -z "${STATE_CONNECTOR_KEY_HEADER}" ]; then
-            STATE_CONNECTOR_KEY_HEADER="X-API-Key"
-          fi
-          for value in \
-            "$ALLOWED_ORIGINS" "$ACLED_PROXY" \
-            "$STATE_CONNECTOR_BASE_URL" "$STATE_CONNECTOR_KEY_HEADER"; do
-            if [[ "$value" == *"|"* || "$value" == *$'\n'* ]]; then
-              echo "MCP environment value contains an unsupported deploy delimiter."
-              exit 1
-            fi
-          done
-          ENV_UPDATES="^|^ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|ACLED_PROXY=${ACLED_PROXY}|STATE_CONNECTOR_BASE_URL=${STATE_CONNECTOR_BASE_URL}|STATE_CONNECTOR_KEY_HEADER=${STATE_CONNECTOR_KEY_HEADER}"
-          CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
-            --region "$REGION" --project "$PROJECT_ID" --format=json \
-            | jq -er -f scripts/cloud-run-serving-revision.jq)
-          test "$CURRENT_REVISION" = "${{ steps.current.outputs.rollback_revision }}"
-          SECRET_ARGS=()
-          if [ "$SYNC_SECRET_VERSIONS" = "true" ]; then
-            SECRET_BINDINGS="DATA_GOV=data-gov-key:latest,EIA=eia-key:latest,NASA_FIRMS=nasa-firms-key:latest,OPEN_AQ=openaq-key:latest,EARTHDATA_NASA=earthdata-nasa-key:latest,OPENSKY_CLIENTID=opensky-clientid:latest,OPENSKY_CLIENTSECRET=opensky-clientsecret:latest,SAMGOV_API_KEY=samgov-key:latest"
-            OPENSTATES_VERSION=$(gcloud secrets versions list openstates-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
-            if [ -n "$OPENSTATES_VERSION" ]; then
-              SECRET_BINDINGS="${SECRET_BINDINGS},OPENSTATES=openstates-key:latest"
-            else
-              echo "OPENSTATES not configured (no enabled versions); deploying MCP proxy without OPENSTATES."
-            fi
-            STATE_CONNECTOR_VERSION=$(gcloud secrets versions list state-connector-key --project "$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
-            if [ -n "$STATE_CONNECTOR_VERSION" ]; then
-              SECRET_BINDINGS="${SECRET_BINDINGS},STATE_CONNECTOR_API_KEY=state-connector-key:latest"
-            else
-              echo "STATE_CONNECTOR_API_KEY not configured; deploying MCP proxy without state connector key."
-            fi
-            SECRET_ARGS=(--update-secrets "$SECRET_BINDINGS")
-          fi
-          CONFIG_ARGS=()
-          if [ "${{ inputs.candidate_only }}" = true ]; then
-            test "$SYNC_SECRET_VERSIONS" = false
-            jq -e '(.spec.template.metadata.annotations["autoscaling.knative.dev/minScale"] // "0") == "0"' /tmp/mcp-service-before.json >/dev/null
-          else
-            CONFIG_ARGS=(--allow-unauthenticated --min 1 --min-instances 0 --timeout 900 --update-env-vars "$ENV_UPDATES")
-          fi
+          test "$SYNC_SECRET_VERSIONS" = false
+          IMAGE=$(cat "$DIAG_DIR/immutable-image.txt")
           set +e
           gcloud run deploy "$SERVICE_NAME" \
             --region "$REGION" \
-            --source gcp/mcp-proxy \
-            ${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"} \
+            --image "$IMAGE" \
             --revision-suffix "$REVISION_SUFFIX" \
             --tag "$REVISION_SUFFIX" \
-            --no-traffic \
-            ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} 2>&1 | tee "$DIAG_DIR/deploy-output.log"
+            --no-traffic 2>&1 | tee "$DIAG_DIR/deploy-output.log"
           DEPLOY_EXIT=${PIPESTATUS[0]}
           set -e
 
@@ -389,6 +365,8 @@ jobs:
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --format=json > /tmp/mcp-revision-after.json
+          cp /tmp/mcp-revision-after.json "$DIAG_DIR/revision-candidate.json"
+          bash scripts/check_mcp_state.sh candidate
           jq -e '(.metadata.annotations["autoscaling.knative.dev/minScale"] // "0") == "0"' \
             /tmp/mcp-revision-after.json >/dev/null
           gcloud run services describe "$SERVICE_NAME" \
@@ -445,6 +423,9 @@ jobs:
               | if length == 1 then .[0] else error("isolated candidate URL not found") end
             ')
           echo "Testing isolated MCP candidate ${CANDIDATE_REVISION}."
+          curl --fail --silent --show-error --max-time 30 "${CANDIDATE_URL}/health/build" > /tmp/mcp-diagnostics/runtime-identity.json
+          node scripts/mcp_native_release.mjs runtime /tmp/mcp-diagnostics
+          cp /tmp/mcp-diagnostics/runtime-identity.json /tmp/mcp-diagnostics/identity-candidate.json
           curl -fsS "${CANDIDATE_URL}/health" >/dev/null
           curl -fsS "${CANDIDATE_URL}/.well-known/mcp.json" >/dev/null
           if [ "${{ inputs.metadata_only }}" = true ]; then
@@ -489,6 +470,7 @@ jobs:
               + (if $old_tag == "" then [] else [{tag: $old_tag, revisionName: $rollback}] end)
               | sort_by(.tag))
           ' /tmp/mcp-service-prepromote.json >/dev/null
+          bash scripts/check_mcp_state.sh candidate
           gcloud run services update-traffic "$SERVICE_NAME" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
@@ -520,6 +502,10 @@ jobs:
             --region "$REGION" --project "$PROJECT_ID" --format=json \
             | jq -er -f scripts/cloud-run-serving-revision.jq)
           test "$CURRENT_REVISION" = "$CANDIDATE_REVISION"
+          bash scripts/check_mcp_state.sh promoted
+          curl --fail --silent --show-error --max-time 30 "${SERVICE_URL}/health/build" > /tmp/mcp-diagnostics/runtime-identity.json
+          node scripts/mcp_native_release.mjs runtime /tmp/mcp-diagnostics
+          cp /tmp/mcp-diagnostics/runtime-identity.json /tmp/mcp-diagnostics/identity-canonical.json
           curl -fsS "${SERVICE_URL}/health" >/dev/null
           curl -fsS "${SERVICE_URL}/.well-known/mcp.json" >/dev/null
           if [ "${{ inputs.metadata_only }}" = true ]; then
@@ -551,6 +537,8 @@ jobs:
             --region "$REGION" --project "$PROJECT_ID" --format=json \
             | jq -er -f scripts/cloud-run-serving-revision.jq)
           if [ "$CURRENT_REVISION" = "$CANDIDATE_REVISION" ]; then
+            bash scripts/check_mcp_state.sh recover
+            mkdir /tmp/mcp-diagnostics/rollback-once
             gcloud run services update-traffic "$SERVICE_NAME" \
               --region "$REGION" --project "$PROJECT_ID" \
               --to-revisions "${ROLLBACK_REVISION}=100"
@@ -578,6 +566,18 @@ jobs:
           gcloud run services describe "$SERVICE_NAME" \
             --region "$REGION" --project "$PROJECT_ID" --format=json \
             > /tmp/mcp-service-cleanup.json
+          if [ "${{ steps.deploy.outputs.deploy_succeeded }}" != true ]; then
+            bash scripts/check_mcp_state.sh failed-cleanup
+            TAG_REVISION=$(jq -er --arg tag "$CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .revisionName] | if length == 0 then "" elif length == 1 then .[0] else error("duplicate failed-deploy tag") end' /tmp/mcp-diagnostics/service-current.json)
+            if [ -n "$TAG_REVISION" ]; then
+              test "$TAG_REVISION" = "$CANDIDATE_REVISION"
+              gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --remove-tags "$CANDIDATE_TAG"
+            fi
+            bash scripts/check_mcp_state.sh failed-cleaned
+            cp /tmp/mcp-diagnostics/service-current.json /tmp/mcp-diagnostics/service-final.json
+            exit 0
+          fi
+          bash scripts/check_mcp_state.sh recover
           if [ "${{ inputs.candidate_only }}" = true ]; then
             cp /tmp/mcp-service-cleanup.json /tmp/mcp-diagnostics/service-cleanup.json
             node scripts/verify_candidate_only.mjs /tmp/mcp-service-before.json /tmp/mcp-service-cleanup.json "$CANDIDATE_REVISION" "$CANDIDATE_TAG" cleanup
@@ -587,6 +587,7 @@ jobs:
             gcloud run services describe "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --format=json > /tmp/mcp-service-final.json
             node scripts/verify_candidate_only.mjs /tmp/mcp-service-before.json /tmp/mcp-service-final.json "$CANDIDATE_REVISION" "$CANDIDATE_TAG" cleaned
             cp /tmp/mcp-service-final.json /tmp/mcp-diagnostics/service-final.json
+            bash scripts/check_mcp_state.sh cleaned-restored
             exit 0
           fi
           SERVING_REVISION=$(jq -er -f scripts/cloud-run-serving-revision.jq /tmp/mcp-service-cleanup.json)
@@ -631,6 +632,11 @@ jobs:
               [.status.traffic[]? | select(.tag == $tag and .revisionName == $revision)] | length == 1
             ' /tmp/mcp-service-final.json >/dev/null
           fi
+          if [ "$SERVING_REVISION" = "$CANDIDATE_REVISION" ]; then
+            bash scripts/check_mcp_state.sh cleaned
+          else
+            bash scripts/check_mcp_state.sh cleaned-restored
+          fi
       - name: Fail release when promotion or canonical verification failed
         if: always() && !inputs.candidate_only && (steps.promote.outcome == 'failure' || steps.canonical.outcome == 'failure')
         run: exit 1
@@ -641,23 +647,9 @@ jobs:
           DIAG_DIR=/tmp/mcp-diagnostics
           mkdir -p "$DIAG_DIR"
 
-          gcloud builds list \
-            --project "$PROJECT_ID" \
-            --region "$REGION" \
-            --sort-by=~createTime \
-            --limit=10 \
-            --format=json > "$DIAG_DIR/cloudbuild-latest.json" 2>&1
-
-          gcloud builds list \
-            --project "$PROJECT_ID" \
-            --region "$REGION" \
-            --sort-by=~createTime \
-            --limit=10 \
-            --format='table(id,status,createTime,finishTime,logUrl)' > "$DIAG_DIR/cloudbuild-latest.table.txt" 2>&1
-
-          BUILD_ID=$(gcloud builds list --project "$PROJECT_ID" --region "$REGION" --sort-by=~createTime --limit=1 --format='value(id)')
+          BUILD_ID=$(jq -er '.id | select(test("^[a-zA-Z0-9][a-zA-Z0-9-]{0,127}$"))' "$DIAG_DIR/build-submitted.json" 2>/dev/null || true)
           if [ -n "$BUILD_ID" ]; then
-            echo "Latest Cloud Build ID: $BUILD_ID" | tee "$DIAG_DIR/cloudbuild-summary.txt"
+            echo "Exact submitted Cloud Build ID: $BUILD_ID" | tee "$DIAG_DIR/cloudbuild-summary.txt"
             LOG_URL=$(gcloud builds describe "$BUILD_ID" --project "$PROJECT_ID" --region "$REGION" --format='value(logUrl)')
             if [ -n "$LOG_URL" ]; then
               echo "Cloud Build log URL: $LOG_URL" | tee -a "$DIAG_DIR/cloudbuild-summary.txt"
@@ -673,7 +665,7 @@ jobs:
             fi
             gcloud builds log "$BUILD_ID" --project "$PROJECT_ID" --region "$REGION" > "$DIAG_DIR/cloudbuild-${BUILD_ID}.log" 2>&1
           else
-            echo "No Cloud Build ID found from gcloud builds list." | tee "$DIAG_DIR/cloudbuild-summary.txt"
+            echo "No submitted native Cloud Build ID; no build lookup attempted." | tee "$DIAG_DIR/cloudbuild-summary.txt"
           fi
           set -e
       - name: Upload MCP deploy diagnostics

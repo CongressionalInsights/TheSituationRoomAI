@@ -48,9 +48,9 @@ export function effectiveReleaseIdentity({ getProperty, env = process.env, readF
     'Effective release credential identity differs');
   return { principal: feedBuild.principal, credentialType: 'service_account_override', workflowBindingMatched: true };
 }
-export function releaseImage(tag) {
+export function releaseImage(tag, contract = feedBuild) {
   assert.match(tag, /^gha-[0-9]+-[0-9]+$/);
-  return `${feedBuild.region}-docker.pkg.dev/${feedBuild.project}/${feedBuild.repository}/${feedBuild.service}:${tag}`;
+  return `${contract.region}-docker.pkg.dev/${contract.project}/${contract.repository}/${contract.service}:${tag}`;
 }
 
 export function verifyNativePreconditions({ identity, bucket, repository, account, services }) {
@@ -78,7 +78,7 @@ export function verifyNativePreconditions({ identity, bucket, repository, accoun
   }
 }
 
-export function createSourceArchive(sourceDir, outputDir, sourceSha, tag, { git = execFileSync } = {}) {
+export function createSourceArchive(sourceDir, outputDir, sourceSha, tag, { git = execFileSync, contract = feedBuild } = {}) {
   const manifestBytes = fs.readFileSync(path.join(sourceDir, 'build-manifest.json'));
   const manifest = JSON.parse(manifestBytes);
   assert.match(sourceSha, /^[a-f0-9]{40}$/);
@@ -86,7 +86,7 @@ export function createSourceArchive(sourceDir, outputDir, sourceSha, tag, { git 
   assert.equal(manifest.contentSha256, hash('sha256', JSON.stringify(manifest.files)), 'Invalid packaged manifest');
   const names = manifest.files.map(file => file.path);
   assert.equal(new Set(names).size, names.length, 'Duplicate packaged path');
-  const reviewedNames = git('git', ['ls-tree', '-r', '--name-only', `${sourceSha}:gcp/feed-proxy`]).toString().trim().split('\n');
+  const reviewedNames = git('git', ['ls-tree', '-r', '--name-only', `${sourceSha}:${contract.sourcePath || 'gcp/feed-proxy'}`]).toString().trim().split('\n');
   assert.deepEqual([...names].sort(), reviewedNames.sort(), 'Packaged manifest omits or adds reviewed source files');
   assert.ok(names.includes('server.js') && names.includes('package.json') && names.includes('feeds.json'));
   const verified = [];
@@ -96,11 +96,11 @@ export function createSourceArchive(sourceDir, outputDir, sourceSha, tag, { git 
     assert.ok(fs.lstatSync(local).isFile() && !fs.lstatSync(local).isSymbolicLink(), 'Packaged source is not a regular file');
     const bytes = fs.readFileSync(local);
     assert.equal(hash('sha256', bytes), file.sha256, 'Packaged bytes changed after manifest');
-    assert.equal(hash('sha256', git('git', ['show', `${sourceSha}:gcp/feed-proxy/${file.path}`])), file.sha256,
+    assert.equal(hash('sha256', git('git', ['show', `${sourceSha}:${contract.sourcePath || 'gcp/feed-proxy'}/${file.path}`])), file.sha256,
       'Packaged bytes differ from the reviewed Git source');
     verified.push({ name: file.path, bytes });
   }
-  assert.equal(JSON.parse(verified.find(file => file.name === 'package.json').bytes).engines?.node, '24.x');
+  assert.equal(JSON.parse(verified.find(file => file.name === 'package.json').bytes).engines?.node, contract.nodeVersion || '24.x');
   const archivePath = path.join(outputDir, 'source.tgz');
   // Archive verified buffers, not a second read of a potentially changing checkout.
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'tsr-feed-source-'));
@@ -112,22 +112,23 @@ export function createSourceArchive(sourceDir, outputDir, sourceSha, tag, { git 
     fs.rmSync(staging, { recursive: true, force: true });
   }
   const bytes = fs.readFileSync(archivePath);
-  const object = `services/${feedBuild.service}/releases/${tag}/source.tgz`;
-  return { sourceSha, contentSha256: manifest.contentSha256, bucket: feedBuild.bucket, object,
-    uri: `gs://${feedBuild.bucket}/${object}`, image: releaseImage(tag), bytes: bytes.length,
+  const object = `services/${contract.service}/releases/${tag}/source.tgz`;
+  return { sourceSha, contentSha256: manifest.contentSha256, bucket: contract.bucket, object,
+    uri: `gs://${contract.bucket}/${object}`, image: releaseImage(tag, contract), bytes: bytes.length,
     md5: hash('md5', bytes, 'base64'), sha256: hash('sha256', bytes, 'base64') };
 }
 
-export function nativeBuildConfig(archive, object) {
-  const tag = archive.object.match(/^services\/situation-room-feed\/releases\/(gha-[0-9]+-[0-9]+)\/source\.tgz$/)?.[1];
+export function nativeBuildConfig(archive, object, contract = feedBuild) {
+  const tag = archive.object.match(/\/(gha-[0-9]+-[0-9]+)\/source\.tgz$/)?.[1];
   assert.ok(tag, 'Source archive is not release-owned');
-  assert.equal(archive.image, releaseImage(tag), 'Archive image is not release-owned');
-  assert.equal(archive.uri, `gs://${feedBuild.bucket}/${archive.object}`, 'Invalid archive URI');
+  assert.equal(archive.object, `services/${contract.service}/releases/${tag}/source.tgz`);
+  assert.equal(archive.image, releaseImage(tag, contract), 'Archive image is not release-owned');
+  assert.equal(archive.uri, `gs://${contract.bucket}/${archive.object}`, 'Invalid archive URI');
   assert.match(archive.sourceSha, /^[a-f0-9]{40}$/);
   assert.match(archive.contentSha256, /^[a-f0-9]{64}$/);
   assert.ok(Number.isSafeInteger(archive.bytes) && archive.bytes > 0);
   assert.match(archive.sha256, /^[A-Za-z0-9+/]{43}=$/);
-  assert.equal(object.bucket, feedBuild.bucket, 'Wrong uploaded bucket');
+  assert.equal(object.bucket, contract.bucket, 'Wrong uploaded bucket');
   assert.equal(object.bucket, archive.bucket);
   assert.equal(object.name, archive.object, 'Wrong uploaded object');
   assert.match(object.generation, /^[1-9][0-9]*$/, 'Missing native object generation');
@@ -136,21 +137,21 @@ export function nativeBuildConfig(archive, object) {
   return {
     source: { storageSource: { bucket: object.bucket, object: object.name, generation: object.generation } },
     steps: [{ name: 'gcr.io/k8s-skaffold/pack', entrypoint: 'pack', args: ['build', archive.image,
-      '--network', 'cloudbuild', '--builder', feedBuild.builder, '--env', 'GOOGLE_NODEJS_VERSION=24.x',
+      '--network', 'cloudbuild', '--builder', contract.builder, '--env', `GOOGLE_NODEJS_VERSION=${contract.nodeVersion || '24.x'}`,
       '--env', 'GOOGLE_ENTRYPOINT=node server.js'] }],
-    images: [archive.image], serviceAccount: `projects/${feedBuild.project}/serviceAccounts/${feedBuild.buildAccount}`,
+    images: [archive.image], serviceAccount: `projects/${contract.project}/serviceAccounts/${contract.buildAccount}`,
     options: { logging: 'CLOUD_LOGGING_ONLY', sourceProvenanceHash: ['SHA256'], requestedVerifyOption: 'VERIFIED' }
   };
 }
 
-export function verifyNativeBuild({ build, submitted, archive, object, config, tag }) {
-  assert.equal(archive.image, releaseImage(tag), 'Archive belongs to another release');
-  assert.deepEqual(config, nativeBuildConfig(archive, object), 'Build configuration differs from native-source contract');
+export function verifyNativeBuild({ build, submitted, archive, object, config, tag, contract = feedBuild }) {
+  assert.equal(archive.image, releaseImage(tag, contract), 'Archive belongs to another release');
+  assert.deepEqual(config, nativeBuildConfig(archive, object, contract), 'Build configuration differs from native-source contract');
   assert.equal(build.id, submitted.id, 'Build readback differs from submitted build');
   assert.match(build.id, /^[a-zA-Z0-9][a-zA-Z0-9-]{0,127}$/);
-  assert.equal(build.projectId, feedBuild.project, 'Build belongs to another project');
-  assert.ok([feedBuild.project, feedBuild.projectNumber].some(project =>
-    build.name === `projects/${project}/locations/${feedBuild.region}/builds/${build.id}`), 'Build region/name mismatch');
+  assert.equal(build.projectId, contract.project, 'Build belongs to another project');
+  assert.ok([contract.project, contract.projectNumber].some(project =>
+    build.name === `projects/${project}/locations/${contract.region}/builds/${build.id}`), 'Build region/name mismatch');
   assert.equal(build.status, 'SUCCESS', 'Native source build did not succeed');
   assert.deepEqual(Object.keys(build.source || {}), ['storageSource'], 'Native build does not have the exact storage source variant');
   for (const field of ['bucket', 'object', 'generation']) {
