@@ -566,7 +566,9 @@ jobs:
           gcloud run services describe "$SERVICE_NAME" \
             --region "$REGION" --project "$PROJECT_ID" --format=json \
             > /tmp/mcp-service-cleanup.json
-          if [ "${{ steps.deploy.outputs.deploy_succeeded }}" != true ]; then
+          # Snapshot readback may fail after a successful deploy. Ownership-only
+          # cleanup still requires unchanged rollback traffic and native image proof.
+          if [ "${{ steps.deploy.outputs.deploy_succeeded }}" != true ] || [ ! -s /tmp/mcp-diagnostics/revision-candidate.json ]; then
             bash scripts/check_mcp_state.sh failed-cleanup
             TAG_REVISION=$(jq -er --arg tag "$CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .revisionName] | if length == 0 then "" elif length == 1 then .[0] else error("duplicate failed-deploy tag") end' /tmp/mcp-diagnostics/service-current.json)
             if [ -n "$TAG_REVISION" ]; then

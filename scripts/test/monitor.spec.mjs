@@ -3640,7 +3640,7 @@ test('documentation watch pins stable provider surfaces without accepting unknow
       'cea87092ea9b4497a96fef6cd20b29ccc6f9864cc4688b90b539ea36bfb216d1'
     ],
     'docs:https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities_schema.json': 'b29ea416edde504c2aa9d17331dbe2cda47d0a32f0d4d3ed3a42ece786966774',
-    'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': '2312106bfc7fa90df43efe41d945d7465b26a7cf08903866a2d675b7c2ee102b',
+    'changelog:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md': 'ddffe9764b2221891b998ef6213cbda1cd8609b474772391cf3a9f306eb69cb9',
     'support:https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/README.md': 'ccb9cb02c600776548c7e54b7ecfadafe92107ed8a1b500dcf41bfac751df39d',
     'docs:https://services.swpc.noaa.gov/text/scn/fy26-03/solar-wind-speed.json': 'bdba7f8f67fc652f56a323d73ee2d66a1e833b344532b19e8d3bb721f104c74e',
     'docs:https://services.swpc.noaa.gov/text/scn/fy22-kp/10-102_planetary_k_index_1m_sample.json': '3887f823dbf795a7dd4c02c66a3917172b382ee12cba9b241e32212968a4911a'
@@ -3661,7 +3661,7 @@ test('documentation watch pins stable provider surfaces without accepting unknow
   for (const id of congressSurface.feedIds) {
     assert.equal(monitoring[id].acceptedSurfaceHashes.changelog[congressUrl], congressSurface.acceptedHashes[0]);
   }
-  // November's upcoming query filters do not change the existing response or freshness contract.
+  // The verified upcoming release-month edit changes no response or freshness contract.
   assert.equal(monitoring['congress-api'].freshnessWindowMinutes, 2880);
   assert.equal(monitoring['congress-reports'].freshnessWindowMinutes, 4320);
   assert.equal(classifyDocChange({
@@ -5588,4 +5588,27 @@ test('SWPC product invariants preserve warnings for live wire-format failures', 
   );
   assert.equal(missingKpField.regressionClass, 'swpc-kp-contract');
   assert.equal(missingKpField.severity, 'warning');
+});
+
+
+test('Congress date-only changelog acknowledgement is exact and future contract changes still alert', async t => {
+  const url='https://raw.githubusercontent.com/LibraryOfCongress/api.congress.gov/main/ChangeLog.md';
+  const reviewed='ddffe9764b2221891b998ef6213cbda1cd8609b474772391cf3a9f306eb69cb9';
+  const entries=['congress-api','congress-reports'].map(id=>{
+    const entry=resolveMonitoringEntry(typedMonitorFeeds.find(feed=>feed.id===id),typedMonitorOverrides[id]);
+    assert.equal(entry.acceptedSurfaceHashes.changelog[url],reviewed);
+    assert.deepEqual(entry.enforceAcceptedSurfaceHashesByUrl,{support:{[entry.supportUrl]:true}});
+    assert.equal(entry.freshnessWindowMinutes,id==='congress-api'?2880:4320);
+    return {...entry,docsUrl:null,supportUrl:null,statusUrl:null};
+  });
+  const [surface]=collectDocumentSurfaces(entries);assert.deepEqual(surface.acceptedHashes,[reviewed]);
+  // Root independently compared all83,762 source bytes; this fixture does not
+  // synthesize or claim to rehash that retained document. It tests future refusal.
+  let text='Future unreviewed authentication parameter required.',status=200,calls=0;
+  t.mock.method(globalThis,'fetch',async actual=>{assert.equal(actual,url);calls++;return new Response(text,{status,headers:{'Content-Type':'text/plain'}});});
+  for(const body of ['Future unreviewed authentication parameter required.','Unreviewed editorial change.']){
+    text=body;const [result]=await watchDocumentation({entries,previousDocs:{[surface.key]:{hash:reviewed}}});
+    assert.equal(result.acceptedBaseline,false);assert.notEqual(result.hash,reviewed);assert.equal(result.classification.severity,'critical');
+  }
+  status=403;const [failed]=await watchDocumentation({entries});assert.equal(failed.hash,null);assert.equal(failed.acceptedBaseline,false);assert.equal(failed.classification.regressionClass,'docs-fetch-failed');assert.equal(calls,3);
 });
