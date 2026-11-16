@@ -1,0 +1,71 @@
+name: Read existing TSR GDACS diagnostics
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed main workflow and helper commit
+        required: true
+        type: string
+      approval_ref:
+        description: Exact Root reserved role for this single read; not reusable authorization
+        required: true
+        type: string
+      start_utc:
+        description: Completed window start YYYY-MM-DDTHH:mm:ssZ
+        required: true
+        type: string
+      end_utc:
+        description: Completed window end, at most 15 minutes after start
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: tsr-gdacs-log-read
+  cancel-in-progress: false
+jobs:
+  read:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DIAG_DIR: /tmp/tsr-gdacs-log-read
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      APPROVAL_REF: ${{ inputs.approval_ref }}
+      START_UTC: ${{ inputs.start_utc }}
+      END_UTC: ${{ inputs.end_utc }}
+      CLOUDSDK_CORE_DISABLE_PROMPTS: 'true'
+      CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API: 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Bind exact main, window, role and first attempt before authentication
+        run: node scripts/read_tsr_gdacs_logs.mjs prepare "$DIAG_DIR"
+      - name: Verify offline log-read contract before authentication
+        run: node --test scripts/test/tsr-gdacs-log-read.spec.mjs
+      - uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: situationroom-ai-20260112
+      - name: Read one fixed existing-resource diagnostic window
+        run: node scripts/read_tsr_gdacs_logs.mjs read "$DIAG_DIR"
+      - name: Preserve failed or uncertain read disposition
+        if: always()
+        run: node scripts/read_tsr_gdacs_logs.mjs finalize "$DIAG_DIR"
+      - name: Upload sanitized intent and result only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tsr-gdacs-log-read-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/tsr-gdacs-log-read/request.json
+            /tmp/tsr-gdacs-log-read/read-intent.json
+            /tmp/tsr-gdacs-log-read/result.json
+          if-no-files-found: warn
+          retention-days: 14
