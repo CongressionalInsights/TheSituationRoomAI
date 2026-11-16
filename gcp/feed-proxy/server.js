@@ -1290,7 +1290,16 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   try {
     if (isEiaSeries) {
       for (let attempt = 0; attempt < EIA_RETRY_ATTEMPTS; attempt += 1) {
-        response = await fetchWithTimeout(applied.url, { headers }, Math.max(timeoutMs, FETCH_TIMEOUT_MS) * 2);
+        // Keep the body under the same abort lifetime as its response headers.
+        [response, body] = await fetchWithTimeout(applied.url, { headers }, Math.max(timeoutMs, FETCH_TIMEOUT_MS) * 2,
+          async upstream => {
+            // Retain HTTP failure metadata even when its error body cannot be read.
+            if (!upstream.ok) {
+              response = upstream;
+              contentType = upstream.headers.get('content-type') || 'text/plain';
+            }
+            return [upstream, upstream.ok || attempt === EIA_RETRY_ATTEMPTS - 1 ? await upstream.text() : ''];
+          });
         responseOk = response.ok;
         if (responseOk) break;
         if (attempt < EIA_RETRY_ATTEMPTS - 1) {
@@ -1298,7 +1307,6 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
         }
       }
       contentType = response.headers.get('content-type') || 'text/plain';
-      body = await response.text();
     } else {
       if (isRssFeed) {
         const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
@@ -1430,11 +1438,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     const legacyUrl = buildEiaLegacyUrl(feed, effectiveKey);
     if (legacyUrl) {
       try {
-        const legacyResponse = await fetchWithTimeout(legacyUrl, { headers }, Math.max(timeoutMs, FETCH_TIMEOUT_MS) * 2);
+        const [legacyResponse, legacyBody] = await fetchWithTimeout(legacyUrl, { headers }, Math.max(timeoutMs, FETCH_TIMEOUT_MS) * 2,
+          async upstream => [upstream, upstream.ok ? await upstream.text() : '']);
         if (legacyResponse.ok) {
           response = legacyResponse;
           contentType = legacyResponse.headers.get('content-type') || 'text/plain';
-          body = await legacyResponse.text();
+          body = legacyBody;
         }
       } catch {
         // fallthrough to error
