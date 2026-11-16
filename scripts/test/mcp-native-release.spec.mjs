@@ -120,3 +120,31 @@ test('Failed MCP deploy cleanup needs no Ready candidate or success-only file, b
  assertMcpState({...f,phase:'failed-cleaned'});
  const workflow=fs.readFileSync('.github/workflows/deploy-mcp-proxy.yml','utf8');const cleanup=workflow.split("name: Remove this release's temporary smoke tag")[1];assert.ok(cleanup.indexOf('failed-cleanup')<cleanup.indexOf('check_mcp_state.sh recover'));assert.ok(cleanup.includes('failed-cleaned'));
 });
+
+test('Successful MCP deploy with missing candidate snapshot cleans only its owned tag without promotion or traffic restoration', t=>{
+ const workflow=fs.readFileSync('.github/workflows/deploy-mcp-proxy.yml','utf8');
+ const block=workflow.split("      - name: Remove this release's temporary smoke tag\n")[1].split('\n      - name:')[0];
+ const shell=block.split('        run: |\n')[1].split('\n').map(line=>line.startsWith('          ')?line.slice(10):line).join('\n');
+ for(const scenario of ['full','candidate-only','old-tag','config-drift','secret-drift','iam-drift','foreign-traffic','foreign-tag','unowned-image','missing-provenance','promoted']){
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mcp-success-no-snapshot-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const f=stateFixture(scenario==='old-tag'?'accepted-old':'');const b=nativeFixture();
+  if(scenario==='config-drift')f.current.spec.template.spec.timeoutSeconds=1;
+  if(scenario==='secret-drift')f.current.spec.template.spec.containers[0].env[0].valueFrom.secretKeyRef.key='latest';
+  if(scenario==='iam-drift')f.iamCurrent.bindings=[];
+  if(scenario==='foreign-traffic')for(const s of[f.current.spec,f.current.status])s.traffic[0].revisionName='foreign';
+  if(scenario==='foreign-tag')for(const s of[f.current.spec,f.current.status])s.traffic.push({tag:'intruder',revisionName:'old'});
+  if(scenario==='unowned-image')f.current.spec.template.spec.containers[0].image='unowned';
+  if(scenario==='missing-provenance')delete b.build.sourceProvenance;
+  if(scenario==='promoted')for(const s of[f.current.spec,f.current.status])s.traffic[0]={revisionName:candidate,percent:100};
+  for(const[name,value]of Object.entries({'service-before':f.before,'service-current':f.current,'fixture-service':f.current,'iam-before':f.iamBefore,'iam-current':f.iamCurrent,'fixture-iam':f.iamCurrent,'revision-before':f.beforeRevision,release:{tag,candidate,oldTag:f.oldTag},build:b.build,'build-submitted':b.submitted,archive:b.archive,'source-object':b.object,'build-config':b.config}))fs.writeFileSync(path.join(dir,name+'.json'),JSON.stringify(value));
+  const bin=path.join(dir,'bin');fs.mkdirSync(bin);fs.writeFileSync(path.join(bin,'gcloud'),'#!'+process.execPath+'\n'+`const fs=require('node:fs'),p=process.env.DIAG_DIR,a=process.argv.slice(2);fs.appendFileSync(p+'/commands.jsonl',JSON.stringify(a)+'\\n');const read=n=>JSON.parse(fs.readFileSync(p+'/'+n+'.json'));if(a[0]!=='run'||a[1]!=='services')process.exit(8);if(a[2]==='describe')console.log(JSON.stringify(read('fixture-service')));else if(a[2]==='get-iam-policy')console.log(JSON.stringify(read('fixture-iam')));else if(a[2]==='update-traffic'){if(a[a.indexOf('--remove-tags')+1]!=='${tag}'||a.includes('--to-revisions'))process.exit(9);const x=read('fixture-service');for(const s of[x.spec,x.status])s.traffic=s.traffic.filter(v=>v.tag!=='${tag}');fs.writeFileSync(p+'/fixture-service.json',JSON.stringify(x));}else process.exit(10);`,{mode:0o755});
+  const substitutions={'steps.deploy.outputs.candidate_revision':candidate,'steps.deploy.outputs.candidate_tag':tag,'steps.deploy.outputs.deploy_succeeded':'true','inputs.candidate_only':String(scenario==='candidate-only'),'steps.current.outputs.rollback_revision':'old','steps.promote.outcome':'skipped','steps.canonical.outcome':'skipped'};
+  let code=shell.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g,(_,k)=>{assert.ok(k in substitutions,k);return substitutions[k];}).replaceAll('/tmp/mcp-diagnostics',dir).replaceAll('/tmp/mcp-service-cleanup.json',dir+'/cleanup.json');
+  assert.equal(fs.existsSync(path.join(dir,'revision-candidate.json')),false);
+  const run=spawnSync('bash',['-c',code],{encoding:'utf8',env:{PATH:bin+':'+path.dirname(process.execPath)+':/usr/bin:/bin',DIAG_DIR:dir,PROJECT_ID:mcpBuild.project,REGION:mcpBuild.region,SERVICE_NAME:mcpBuild.service,EXPECTED_SERVING_TAG:f.oldTag}});
+  const calls=fs.readFileSync(path.join(dir,'commands.jsonl'),'utf8').trim().split('\n').map(JSON.parse),writes=calls.filter(a=>a[2]==='update-traffic');
+  if(['full','candidate-only','old-tag'].includes(scenario)){
+   assert.equal(run.status,0,scenario+': '+run.stderr);assert.equal(writes.length,1);const final=JSON.parse(fs.readFileSync(path.join(dir,'service-final.json')));assert.deepEqual(final.status.traffic,f.before.status.traffic);assert.ok(!fs.existsSync(path.join(dir,'rollback-once')));
+  }else{assert.notEqual(run.status,0,scenario);assert.equal(writes.length,0,scenario);}
+ }
+});

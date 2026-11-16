@@ -82,6 +82,9 @@ test('Actual MCP candidate cleanup removes only its verified tag; drift fails wi
     if(scenario==='configuration') current.spec.template.spec.containers[0].env.push({name:'NEW',value:'changed'});
     if(scenario==='old-tag') current.status.traffic[0].tag='changed';
     fs.writeFileSync(`${dir}/before.json`,JSON.stringify(before));fs.writeFileSync(`${dir}/current.json`,JSON.stringify(current));fs.writeFileSync(`${dir}/mutations`, '');
+    // This existing fixture exercises normal snapshot-present cleanup; the native
+    // release fixtures execute the real guard for missing-snapshot cleanup.
+    fs.writeFileSync(`${dir}/revision-candidate.json`, '{}');
     const code=replace(script(block(workflows.mcp,"Remove this release's temporary smoke tag"))).replaceAll('bash scripts/check_mcp_state.sh recover','true # complete state guard covered by mcp-native-release fixtures').replaceAll('bash scripts/check_mcp_state.sh cleaned-restored','true # complete state guard covered by mcp-native-release fixtures').replaceAll('/tmp/mcp-service-before.json',`${dir}/before.json`).replaceAll('/tmp/mcp-service-cleanup.json',`${dir}/cleanup.json`).replaceAll('/tmp/mcp-service-final.json',`${dir}/final.json`).replaceAll('/tmp/mcp-diagnostics',dir);
     const stub=`gcloud(){ if [ "$3" = describe ]; then cat '${dir}/current.json'; elif [ "$3" = update-traffic ]; then printf '%s\\n' "$@" >> '${dir}/mutations'; jq 'del(.status.traffic[] | select(.tag == "${tag}")) | del(.spec.traffic[] | select(.tag == "${tag}"))' '${dir}/current.json' > '${dir}/next.json'; mv '${dir}/next.json' '${dir}/current.json'; else return 91; fi; };`;
     const result=spawnSync('bash',['-c',stub+code],{encoding:'utf8',env:{...process.env,SERVICE_NAME:'fixture',REGION:'fixture',PROJECT_ID:'fixture',EXPECTED_SERVING_TAG:'old-serving'}});
