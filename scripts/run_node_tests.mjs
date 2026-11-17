@@ -1,5 +1,6 @@
 import { globSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,11 +11,18 @@ export function listNodeTests(cwd = process.cwd()) {
   }).sort();
 }
 
+export function nodeTestConcurrency(parallelism = availableParallelism()) {
+  // Match Node's default on the four-CPU hosted runner; bound larger hosts.
+  return Math.max(1, Math.min(4, parallelism - 1));
+}
+
 export function runNodeTests({ cwd = process.cwd(), args = [], stdio = 'inherit' } = {}) {
   const tests = listNodeTests(cwd);
   if (!tests.length) throw new Error('No offline Node tests found; refusing an empty successful run.');
-  // Keep Node's default worker limit and per-file process isolation.
-  return spawnSync(process.execPath, ['--test', ...args, ...tests], { cwd, stdio });
+  const concurrency = nodeTestConcurrency();
+  console.log(`Offline Node tests: ${tests.length} files; ${concurrency} workers`);
+  // Keep per-file process isolation, with the same hosted-runner worker count.
+  return spawnSync(process.execPath, ['--test', `--test-concurrency=${concurrency}`, ...args, ...tests], { cwd, stdio });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

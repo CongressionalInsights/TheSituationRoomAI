@@ -6,6 +6,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import vm from 'node:vm';
 import { listOfflineTests, runOfflineTests } from '../run_tests.mjs';
+import { nodeTestConcurrency } from '../run_node_tests.mjs';
+
+test('offline workers retain the hosted default and cap larger machines', () => {
+  assert.equal(nodeTestConcurrency(1), 1);
+  assert.equal(nodeTestConcurrency(4), 3);
+  assert.equal(nodeTestConcurrency(32), 4);
+});
 
 test('offline discovery includes new/nested and connector specs but never browser specs or helpers', t => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'tsr-ci-inventory-'));

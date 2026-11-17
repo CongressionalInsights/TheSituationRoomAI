@@ -50,7 +50,8 @@ mean a guaranteed fleet-wide saving or a fixed latency budget.
   Connector package installs supply the offline tests. The unnecessary root
   frontend-tooling install is omitted. PR #278's compatibility entrypoint now
   delegates to the same discovery/execution functions. Node's default file
-  worker count and process isolation remain in use. All existing inventory,
+  worker count on the four-CPU hosted runner and process isolation remain in use;
+  larger hosts are explicitly capped at four workers. All existing inventory,
   failure-propagation, concurrency and release checks are retained.
 - Execute real Feed/MCP helper modules in the already-fresh fixture shim process
   after setting their normal CLI argv. An import failure remains nonzero, real
@@ -92,6 +93,15 @@ corrected before publication, and that failed run remains in the evidence.
 Workflow validation has no new findings (`actionlint -ignore SC2016` passes;
 the pre-existing SC2016 is in the unchanged deploy body). Syntax, whitespace and
 both sets of runner/required-check guards pass.
+
+The automated PR review identified a missing upper bound on larger hosts.
+The final policy uses `max(1, min(4, availableParallelism - 1))`: three workers
+on the existing four-CPU runner, at most four elsewhere, and at least one.
+A focused guard covers one-, four- and 32-CPU inputs; CI prints the actual
+worker count for readback. This preserves the qualified hosted execution policy.
+The final ceiling-guard revision passed **802 cases**, no failures or skips,
+in 31.02 seconds wall / 40.40 child CPU seconds locally. All 801 preceding
+optimized case names remain, with the worker-ceiling regression guard added.
 
 Remote qualification uses the normal PR event followed by one fresh-runner
 replication of the same source, preserving attempt-specific logs. Both runs
