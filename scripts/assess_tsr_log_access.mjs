@@ -11,7 +11,7 @@ export const limits = Object.freeze({ timeoutMs: 20000, maxBytes: 65536, tokenTi
 const apiName = 'projects/382918878290/services/logging.googleapis.com';
 export const operations = Object.freeze({
   permissions: Object.freeze({ method: 'POST', url: 'https://cloudresourcemanager.googleapis.com/v1/projects/situationroom-ai-20260112:testIamPermissions', body: JSON.stringify({ permissions }) }),
-  api: Object.freeze({ method: 'GET', url: 'https://serviceusage.googleapis.com/v1/' + apiName })
+  api: Object.freeze({ method: 'GET', url: 'https://serviceusage.googleapis.com/v1/' + apiName + '?fields=name%2Cstate' })
 });
 const codes = ['PERMISSION_DENIED','UNAUTHENTICATED','SERVICE_DISABLED','INVALID_ARGUMENT','NOT_FOUND','RESOURCE_EXHAUSTED','DEADLINE_EXCEEDED','UNAVAILABLE'];
 const failure = code => Object.assign(new Error('Fixed assessment failed'), { safeCode: code });
