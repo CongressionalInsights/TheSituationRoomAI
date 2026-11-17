@@ -224,8 +224,57 @@ Source review and local timings do not establish a remote deployment result.
   23 cases and the subsequent complete suite passed. Failed probes and setup
   attempts remain in the local evidence directory.
 
-No GitHub workflow was dispatched, branch pushed, production provider called by
-a monitor/build, or release performed. Remote feedback and occupied-runner
-improvements remain **unverified** until this local candidate runs as a PR.
-The public runner's existing $0 cash price does not change. Retain the complete
-suite if future affected-test selection lacks a proven dependency boundary.
+At the initial local closeout, no workflow had been dispatched, branch pushed,
+or release performed; remote gains were unverified. That publication status is
+historical and is superseded by the follow-up below. The public runner's $0
+cash price does not change. Retain the complete suite if future affected-test
+selection lacks a proven dependency boundary.
+
+## PR and remote validation — November 16, 2026
+
+The follow-up user instruction explicitly authorized pushing this branch,
+opening a PR and verifying remote CI, and explicitly excluded deployment. That
+replaces the earlier local-only publication scope for this branch and
+[PR #278](https://github.com/CongressionalInsights/TheSituationRoomAI/pull/278).
+No merge or deployment is performed under that instruction.
+
+Current main (`d09c3df`) was merged without conflicts before publication. The
+implementation diff remains byte-for-byte identical to the reviewed diff;
+upstream supplied 17 additional offline cases. The complete integrated local
+suite passed all 793 cases, with no skips.
+
+The first [remote run, 44014226462](https://github.com/CongressionalInsights/TheSituationRoomAI/actions/runs/44014226462)
+completed successfully on the standard Linux runner at attempt 1. It tested
+head `2efb176cca7b29e8be22b4f2c1b68471a620a351` through GitHub merge revision
+`927e7fa2536e6c003b5d0de5046fe2fc19d2fe29`. The merge's tree matches the pushed
+head's tree, and its parents include that head. Logs prove **793 passed**, zero
+failed, skipped or cancelled cases. The GitHub Actions app ID is still 15368
+and the required check is still `preflight`. GitGuardian also passed; the
+`deploy` job was **skipped**, with no steps executed.
+
+| Remote metric | Historical baseline p50 / p90 (20 runs) | First PR run |
+| --- | ---: | ---: |
+| Required-check feedback | 54 / 61 s | 57 s |
+| Occupied preflight runner time | 51.5 / 59 s | 55 s |
+| Queue | 2 / 3 s | 2 s |
+| Rounded-up per-job minute proxy | 1 / 1 min | 1 min |
+
+This first observation is 5.6% slower than historical median feedback and
+6.8% higher than median occupied runner time, while below both p90 values.
+It does **not** establish a remote speedup or compute reduction. The baseline
+contains changing revisions and a narrower fixture selection, so this is an
+operational comparison, not a paired experiment or a new latency percentile.
+One run also cannot establish cancellation savings or a long-run trend.
+
+GNU time measured the full test command at 38.09 s elapsed, 41.26 s user CPU
+and 16.55 s system CPU (**57.81 CPU s**), with maximum RSS 794,592 KiB
+(about 776 MiB). The old workflow did not record CPU/RSS, so there is no
+historical Linux CPU or memory delta to claim. Checkout, setup and installation
+remain part of the 55 s job and are not included in that test-command timing.
+
+Standard public-runner compute still costs **$0**. The first run remains one
+rounded minute, matching the baseline median; neither a cash saving nor a
+material billing-unit reduction is demonstrated. Full offline coverage is
+retained despite this tradeoff. The PR description records final-head CI
+acceptance after the measurement report is published, without changing any
+required checks, permissions, release gates or deployment conditions.
