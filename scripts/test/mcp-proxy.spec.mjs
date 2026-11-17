@@ -1,13 +1,13 @@
 import test from 'node:test';
-import './gdelt-geo-window.spec.mjs';
-import './mcp-request-limits.spec.mjs';
-import './diagnostic-url-redaction.spec.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+
+// Preserve the offline transport guard previously supplied by imported specs.
+globalThis.fetch = async () => { throw new Error('Unmocked MCP fixture transport'); };
 
 const {
   getStateBillSortTimestamp,

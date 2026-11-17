@@ -1,7 +1,4 @@
 import test from 'node:test';
-import './bls-acquisition.spec.mjs';
-import './briefing.spec.mjs';
-import './static-gdelt.spec.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1849,4 +1846,3 @@ test('source highlights use explicit feeds and disclose partial coverage', async
   assert.notEqual(failed.status, 0);
   assert.equal(fs.readFileSync(outputPath, 'utf8'), output, 'failed refresh must not overwrite the prior artifact');
 });
-import './feed-refresh-efficiency.spec.mjs';

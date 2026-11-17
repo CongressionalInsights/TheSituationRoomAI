@@ -216,7 +216,7 @@ test('metadata-only workflow routes only metadata smokes and parity while retain
   }
   assert.match(workflow, /if: always\(\) && !inputs.cisa_only && !inputs.metadata_only && hashFiles/);
   assert.match(step('Upload MCP deploy diagnostics'), /if: always\(\)/);
-  assert.match(workflow, /node --test scripts\/test\/verify_mcp_metadata_candidate\.spec\.mjs/);
+  assert.match(workflow.split('\n  deploy:')[0], /run: npm test/);
   const parityExpression = canonical.match(/'(\.mode == "metadata_only"[^']+)'/)[1];
   const candidate = { mode: 'metadata_only', fingerprint: 'fixture-a' };
   for (const [fingerprint, succeeds] of [['fixture-a', true], ['fixture-b', false]]) {
