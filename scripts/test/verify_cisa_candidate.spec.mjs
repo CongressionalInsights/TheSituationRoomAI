@@ -125,18 +125,18 @@ test('only opted-in CISA list reads a complete SSE event above the default limit
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const localEndpoint = `http://127.0.0.1:${server.address().port}/mcp`;
 
-  const ordinary = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'cisa-kev' }, 10000);
+  const ordinary = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'cisa-kev' }, 10000, { retry: false });
   assert.equal(ordinary.error, 'response_too_large');
   const unrelated = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'other' }, 10000,
-    { allowCompleteEvent: true });
+    { allowCompleteEvent: true, retry: false });
   assert.equal(unrelated.error, 'response_too_large');
   const approved = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'cisa-kev' }, 10000,
-    { allowCompleteEvent: true });
+    { allowCompleteEvent: true, retry: false });
   assert.equal(approved.ok, true);
   assert.equal(approved.data.sourceId, 'cisa-kev');
   assert.equal(approved.data.padding.length, 2 * 1024 * 1024);
   const oversized = await callMcpTool(`http://127.0.0.1:${server.address().port}/oversize`,
-    'signals.list', { sourceId: 'cisa-kev' }, 10000, { allowCompleteEvent: true });
+    'signals.list', { sourceId: 'cisa-kev' }, 10000, { allowCompleteEvent: true, retry: false });
   assert.equal(oversized.error, 'response_too_large');
 });
 
