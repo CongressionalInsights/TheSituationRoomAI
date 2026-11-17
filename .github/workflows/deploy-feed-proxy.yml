@@ -72,7 +72,7 @@ jobs:
       - name: Verify Feed release fixtures and build source manifest
         run: |
           set -euo pipefail
-          node --test scripts/test/feed-release.spec.mjs scripts/test/candidate-only.spec.mjs
+          node --test scripts/test/feed-native-build.spec.mjs scripts/test/feed-release.spec.mjs scripts/test/candidate-only.spec.mjs
           node scripts/build_feed_manifest.mjs "$GITHUB_SHA"
       - uses: google-github-actions/auth@v3
         with:

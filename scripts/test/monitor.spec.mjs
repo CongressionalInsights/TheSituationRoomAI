@@ -1,5 +1,4 @@
 import test from 'node:test';
-import './feed-release.spec.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';

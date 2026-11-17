@@ -39,7 +39,7 @@ An uncertain upload/build/deploy effect must be reconciled from its retained dia
 Run inert fixtures with inherited credentials cleared:
 
 ```sh
-env -i PATH="$PATH" node --test scripts/test/feed-release.spec.mjs scripts/test/candidate-only.spec.mjs
+env -i PATH="$PATH" node --test scripts/test/feed-native-build.spec.mjs scripts/test/feed-release.spec.mjs scripts/test/candidate-only.spec.mjs
 ```
 
 The Feed fixtures invoke the actual shell helper against fake cloud/curl executables and include native-source rejection before candidate mutation. They do not validate live permissions, actual buildpack output or provider health. A new meaningful release diff receives the normal bounded review chain before integration. Production still requires an exact renewed approval, current-head CI, immutable candidate/readback proof and canonical acceptance; offline green is not release acceptance.
