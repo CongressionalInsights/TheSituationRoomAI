@@ -1,0 +1,65 @@
+name: Assess existing TSR log access
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed main source commit
+        required: true
+        type: string
+      approval_ref:
+        description: New Root-reserved one-use assessment role
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: tsr-log-access-assessment
+  cancel-in-progress: false
+jobs:
+  assess:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ASSESS_DIR: /tmp/tsr-log-access-assessment
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      APPROVAL_REF: ${{ inputs.approval_ref }}
+      CLOUDSDK_CORE_DISABLE_PROMPTS: 'true'
+      CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API: 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Bind exact source and first-attempt role before authentication
+        run: node scripts/assess_tsr_log_access.mjs prepare "$ASSESS_DIR"
+      - name: Verify fixed offline assessment contract before authentication
+        run: node --test scripts/test/tsr-log-access-assessment.spec.mjs
+      - uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: situationroom-ai-20260112
+      - name: Assess only named caller permissions and existing Logging API state
+        run: node scripts/assess_tsr_log_access.mjs assess "$ASSESS_DIR"
+      - name: Preserve terminal or interrupted disposition
+        if: always()
+        run: node scripts/assess_tsr_log_access.mjs finalize "$ASSESS_DIR"
+      - name: Upload only sanitized assessment receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tsr-log-access-assessment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/tsr-log-access-assessment/request.json
+            /tmp/tsr-log-access-assessment/assessment-intent.json
+            /tmp/tsr-log-access-assessment/permissions-intent.json
+            /tmp/tsr-log-access-assessment/permissions-result.json
+            /tmp/tsr-log-access-assessment/api-intent.json
+            /tmp/tsr-log-access-assessment/api-result.json
+            /tmp/tsr-log-access-assessment/result.json
+          if-no-files-found: warn
+          retention-days: 14
