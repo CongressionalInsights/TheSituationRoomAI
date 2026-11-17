@@ -1,5 +1,4 @@
 import test from 'node:test';
-import './feed-release.spec.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -699,7 +698,8 @@ test('typed series release report workflow gate runs after collection and before
   assert.ok(verifier < smoke.lastIndexOf('fi'));
   assert.match(smoke, /set -euo pipefail/);
   assert.match(smoke, /tee \/tmp\/mcp-diagnostics\/typed-series-candidate\.json/);
-  assert.match(workflow, /node --test --test-name-pattern="typed series release report" scripts\/test\/monitor\.spec\.mjs/);
+  // The full offline suite includes this spec, with no test-name filter.
+  assert.match(workflow.split('\n  deploy:')[0], /run: npm test/);
 });
 
 async function readJsonRequest(request) {
