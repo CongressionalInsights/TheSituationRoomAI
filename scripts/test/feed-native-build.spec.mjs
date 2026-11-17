@@ -10,6 +10,8 @@ import { buildFeedManifest } from '../build_feed_manifest.mjs';
 import { feedBuild, releaseImage, createSourceArchive, nativeBuildConfig, verifyNativeBuild, verifyNativePreconditions,
   effectiveReleaseIdentity, digestBytes } from '../feed_native_build.mjs';
 
+import { nativeBuildFixture } from './fixtures/feed-release/native-build-fixture.mjs';
+
 const sha = 'c'.repeat(40);
 const digest = 'sha256:' + 'a'.repeat(64);
 

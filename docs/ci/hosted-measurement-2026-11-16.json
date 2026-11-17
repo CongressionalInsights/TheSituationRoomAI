@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "pullRequest": "https://github.com/CongressionalInsights/TheSituationRoomAI/pull/277",
+  "runId": 44013915337,
+  "attempt": 1,
+  "runUrl": "https://github.com/CongressionalInsights/TheSituationRoomAI/actions/runs/44013915337",
+  "headSha": "68464e9aba1c28c04d0b1120908eeb006a3b0602",
+  "baseSha": "d09c3dfc72af2b310bbfda0bc7a52eab7b5455cf",
+  "testedMergeSha": "f50f321c7baa79caab39a54c28153a95aac690b5",
+  "event": "pull_request",
+  "conclusion": "success",
+  "createdAt": "2026-11-17T03:58:41Z",
+  "jobStartedAt": "2026-11-17T03:58:43Z",
+  "jobCompletedAt": "2026-11-17T03:59:20Z",
+  "runnerSeconds": 37.0,
+  "queueSeconds": 2.0,
+  "feedbackSeconds": 39.0,
+  "runnerImage": "ubuntu-26.04",
+  "nodeVersion": "24.22.2",
+  "tests": 797,
+  "passed": 797,
+  "failed": 0,
+  "skipped": 0,
+  "testDurationMs": 28479.319843,
+  "logSha256": "923f44a34dcff0882b48761b3c5e4b7aa1b9e192dd906a03fa44ffe62b451379",
+  "jobs": [
+    {
+      "id": 133807167199,
+      "name": "preflight",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-11-17T03:58:43Z",
+      "completedAt": "2026-11-17T03:59:20Z",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:44Z",
+          "completedAt": "2026-11-17T03:58:44Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:44Z",
+          "completedAt": "2026-11-17T03:58:46Z"
+        },
+        {
+          "name": "Run actions/setup-node@v6",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:46Z",
+          "completedAt": "2026-11-17T03:58:47Z"
+        },
+        {
+          "name": "Bind manual release to reviewed main commit",
+          "conclusion": "skipped",
+          "startedAt": "2026-11-17T03:58:47Z",
+          "completedAt": "2026-11-17T03:58:47Z"
+        },
+        {
+          "name": "Sync feed registry",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:47Z",
+          "completedAt": "2026-11-17T03:58:47Z"
+        },
+        {
+          "name": "Verify MCP deploy source files",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:47Z",
+          "completedAt": "2026-11-17T03:58:47Z"
+        },
+        {
+          "name": "Dependency preflight",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:47Z",
+          "completedAt": "2026-11-17T03:58:49Z"
+        },
+        {
+          "name": "State Connector test dependencies",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:49Z",
+          "completedAt": "2026-11-17T03:58:49Z"
+        },
+        {
+          "name": "Syntax preflight",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:49Z",
+          "completedAt": "2026-11-17T03:58:49Z"
+        },
+        {
+          "name": "Verify full offline suite including release, PID reuse and typed series contracts",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:58:49Z",
+          "completedAt": "2026-11-17T03:59:18Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@v6",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:59:18Z",
+          "completedAt": "2026-11-17T03:59:18Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:59:18Z",
+          "completedAt": "2026-11-17T03:59:18Z"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "startedAt": "2026-11-17T03:59:18Z",
+          "completedAt": "2026-11-17T03:59:18Z"
+        }
+      ]
+    },
+    {
+      "id": 133807390820,
+      "name": "deploy",
+      "conclusion": "skipped",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-11-17T03:59:20Z",
+      "completedAt": "2026-11-17T03:59:20Z",
+      "steps": []
+    }
+  ]
+}

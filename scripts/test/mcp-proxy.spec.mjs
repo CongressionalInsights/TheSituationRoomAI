@@ -6,6 +6,9 @@ import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+// Preserve the offline transport guard previously supplied by imported specs.
+globalThis.fetch = async () => { throw new Error('Unmocked MCP fixture transport'); };
+
 const {
   getStateBillSortTimestamp,
   normalizeCsvSignals,

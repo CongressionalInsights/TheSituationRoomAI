@@ -9,8 +9,8 @@ import { readBuildIdentity } from '../../gcp/feed-proxy/build-identity.js';
 import { assertCandidate, assertReleaseState, buildProvenance } from '../verify_feed_release.mjs';
 import { verifyFeedContent } from '../verify_feed_candidate.mjs';
 import { feedBuild, releaseImage } from '../feed_native_build.mjs';
-import { nativeBuildFixture } from './helpers/feed-native.mjs';
-import { listOfflineTests } from '../run_tests.mjs';
+import { nativeBuildFixture } from './fixtures/feed-release/native-build-fixture.mjs';
+import { listNodeTests as listOfflineTests } from '../run_node_tests.mjs';
 
 const sha = 'c'.repeat(40);
 const digest = 'sha256:' + 'a'.repeat(64);

@@ -698,7 +698,8 @@ test('typed series release report workflow gate runs after collection and before
   assert.ok(verifier < smoke.lastIndexOf('fi'));
   assert.match(smoke, /set -euo pipefail/);
   assert.match(smoke, /tee \/tmp\/mcp-diagnostics\/typed-series-candidate\.json/);
-  assert.match(workflow, /name: Verify full offline suite[\s\S]*?run: \/usr\/bin\/time -v npm test/);
+  // The full offline suite includes this spec, with no test-name filter.
+  assert.match(workflow.split('\n  deploy:')[0], /run: \/usr\/bin\/time -v npm test/);
 });
 
 async function readJsonRequest(request) {
@@ -3034,9 +3035,48 @@ test('monitor fetch text times out while reading a stalled response body', async
   }
 });
 
+test('MCP retries preserve both backoffs and stop after three failed attempts', async t => {
+  for (const error of ['network_error', 'invalid_response', 'response_too_large', 'rpc_failure']) {
+    await t.test(error, async t => {
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      let attempts = 0;
+      t.mock.method(globalThis, 'fetch', async (_url, options) => {
+        attempts += 1;
+        if (error === 'network_error') throw new Error('inert fixture');
+        const { id } = JSON.parse(options.body);
+        if (error === 'response_too_large') return new Response('{}', {
+          headers: { 'content-length': String(16 * 1024 * 1024 + 1) }
+        });
+        return new Response(JSON.stringify(error === 'invalid_response'
+          ? { jsonrpc: '2.0', id: id + 1, result: {} }
+          : { jsonrpc: '2.0', id, error: { message: 'rpc_failure' } }));
+      });
+      const result = callMcpTool('https://fixture.invalid/mcp', 'signals.list');
+      const settle = () => new Promise(resolve => setImmediate(resolve));
+      await settle();
+      assert.equal(attempts, 1);
+      t.mock.timers.tick(499);
+      await settle();
+      assert.equal(attempts, 1);
+      t.mock.timers.tick(1);
+      await settle();
+      assert.equal(attempts, 2);
+      t.mock.timers.tick(1199);
+      await settle();
+      assert.equal(attempts, 2);
+      t.mock.timers.tick(1);
+      assert.equal((await result).error, error);
+      assert.equal(attempts, 3);
+      t.mock.timers.tick(30000);
+      await settle();
+      assert.equal(attempts, 3);
+    });
+  }
+});
+
 test('monitor transport failures do not echo credentials from endpoint URLs', async () => {
   const endpoint = 'https://operator:supersecret@example.com/mcp?access_token=querysecret';
-  const result = await callMcpTool(endpoint, 'catalog.sources', {}, 10);
+  const result = await callMcpTool(endpoint, 'catalog.sources', {}, 10, { retry: false });
 
   assert.equal(result.ok, false);
   assert.equal(result.error, 'network_error');
@@ -3067,7 +3107,7 @@ test('monitor MCP error payloads redact credentials echoed from endpoint URLs', 
 
   const { port } = server.address();
   const endpoint = `http://127.0.0.1:${port}/mcp?x-api-key=querysecret&region=us-east-1`;
-  const result = await callMcpTool(endpoint, 'catalog.sources', {}, 1000);
+  const result = await callMcpTool(endpoint, 'catalog.sources', {}, 1000, { retry: false });
 
   assert.equal(result.ok, false);
   assert.match(result.message, /credential REDACTED/);
@@ -3163,7 +3203,7 @@ test('MCP event streams ignore notifications until the matching response arrives
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
   const { port } = server.address();
-  const result = await callMcpTool(`http://127.0.0.1:${port}/mcp`, 'signals.list', {}, 1000);
+  const result = await callMcpTool(`http://127.0.0.1:${port}/mcp`, 'signals.list', {}, 1000, { retry: false });
 
   assert.equal(result.ok, false);
   assert.equal(result.message, 'matching tool failure');
@@ -3299,9 +3339,9 @@ test('large unrelated MCP sources and tools retain the default response limit', 
     await t.test(`${name} ${sourceId}`, async () => {
       const before = requestCount;
       const result = await callMcpTool(
-        `http://127.0.0.1:${port}/mcp`, name, { sourceId, format: 'json' }, 5000
+        `http://127.0.0.1:${port}/mcp`, name, { sourceId, format: 'json' }, 5000, { retry: false }
       );
-      assert.equal(requestCount - before, 3);
+      assert.equal(requestCount - before, 1);
       assert.equal(result.ok, false);
       assert.equal(result.error, 'response_too_large');
       assert.equal(result.message, 'MCP event exceeded the monitor response limit.');
@@ -3335,9 +3375,9 @@ test('bounded raw MCP events retain the total response byte limit', async (t) =>
     await t.test(sourceId, async () => {
       const before = requestCount;
       const result = await callMcpTool(
-        `http://127.0.0.1:${port}/mcp`, 'raw.fetch', { sourceId, format: 'json' }, 5000
+        `http://127.0.0.1:${port}/mcp`, 'raw.fetch', { sourceId, format: 'json' }, 5000, { retry: false }
       );
-      assert.equal(requestCount - before, 3);
+      assert.equal(requestCount - before, 1);
       assert.equal(result.ok, false);
       assert.equal(result.error, 'response_too_large');
       assert.equal(result.message, 'MCP response exceeded the monitor response limit.');
@@ -3386,13 +3426,14 @@ test('non-SSE MCP responses reject stale ids and notification-shaped results', a
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
   const { port } = server.address();
-  const result = await callMcpTool(`http://127.0.0.1:${port}/mcp`, 'signals.list', {}, 1000);
-
-  assert.equal(requestCount, 3);
-  assert.equal(result.ok, false);
-  assert.equal(result.error, 'invalid_response');
-  assert.equal(result.data, null);
-  assert.doesNotMatch(JSON.stringify(result), /stale evidence|notification evidence/);
+  for (const expectedCount of [1, 2]) {
+    const result = await callMcpTool(`http://127.0.0.1:${port}/mcp`, 'signals.list', {}, 1000, { retry: false });
+    assert.equal(requestCount, expectedCount);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'invalid_response');
+    assert.equal(result.data, null);
+    assert.doesNotMatch(JSON.stringify(result), /stale evidence|notification evidence/);
+  }
 });
 
 test('shaped non-success MCP responses remain audit-visible failures', async (t) => {

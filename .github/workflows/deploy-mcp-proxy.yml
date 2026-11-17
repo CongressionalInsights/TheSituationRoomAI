@@ -45,6 +45,7 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     concurrency:
+      # Only superseded PR validation may be cancelled; manual release gates remain independent.
       group: mcp-preflight-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
@@ -101,19 +102,17 @@ jobs:
           done
 
           find gcp/mcp-proxy -maxdepth 2 -type f | sort
-      - name: Install offline test dependencies
-        run: npm ci
       - name: Dependency preflight
         run: npm ci --prefix gcp/mcp-proxy
+      - name: State Connector test dependencies
+        run: npm ci --prefix gcp/state-connector
       - name: Syntax preflight
         run: |
           set -euo pipefail
           node --check gcp/mcp-proxy/server.js
           node --check gcp/mcp-proxy/state-signals.js
           node --check gcp/mcp-proxy/public-payload-safety.js
-      - name: Verify full offline suite
-        # Keep all native release, MCP, briefing, CISA, ACLED, Feed/BLS and
-        # monitor PID/typed-series contracts. Unknown impact runs everything.
+      - name: Verify full offline suite including release, PID reuse and typed series contracts
         run: /usr/bin/time -v npm test
 
   deploy:
