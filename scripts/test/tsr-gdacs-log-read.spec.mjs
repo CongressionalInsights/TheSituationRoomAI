@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { contract, validateInputs, readArgs, sanitizeEntries, prepare, executeRead, finalize } from '../read_tsr_gdacs_logs.mjs';
+import { contract, validateInputs, readArgs, sanitizeEntries, prepare, executeRead, finalize, safeNativeFailure } from '../read_tsr_gdacs_logs.mjs';
 const sha='a'.repeat(40), now=Date.parse('2026-11-16T15:00:00Z');
 const env={GITHUB_REPOSITORY:contract.repository,GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_RUN_ATTEMPT:'1',GITHUB_RUN_ID:'123',GITHUB_SHA:sha,EXPECTED_SHA:sha,APPROVAL_REF:'tsr-log-fixture-not-real-authority',START_UTC:'2026-11-16T14:45:00Z',END_UTC:'2026-11-16T14:50:00Z',GOOGLE_GHA_CREDS_PATH:'/fixture/identity.json'};
 const entry={timestamp:'2026-11-16T14:46:57.560641Z',resource:{labels:{service_name:'situation-room-feed',revision_name:contract.revisions['situation-room-feed']}},jsonPayload:{event:'gdacs_primary_failure',feedId:'gdacs-alerts',errorClass:'invalid_response',upstreamStatus:200,bodyCharacterCount:5706,xmlContentTypeHint:false,htmlDocumentHint:true,body:'PRIVATE_BODY',headers:{cookie:'PRIVATE_COOKIE'},title:'PRIVATE_TITLE',cause:'PRIVATE_CAUSE'}};
@@ -63,4 +63,27 @@ test('Finalize retains no-read or interrupted-uncertain state without command or
 });
 test('Actual CLI refuses invalid pre-auth input without reading key or invoking gcloud',t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tsr-log-cli-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const run=spawnSync(process.execPath,['scripts/read_tsr_gdacs_logs.mjs','prepare',dir],{env:{PATH:path.dirname(process.execPath)+':/usr/bin:/bin',...env,EXPECTED_SHA:'wrong'},encoding:'utf8'});assert.notEqual(run.status,0);assert.match(run.stderr,/validation refused/);assert.ok(!fs.existsSync(path.join(dir,'request.json')));
+});
+
+test('Fixed CLI and structured SDK refusal identifiers survive without private error details',()=>{
+ for(const [id,hint] of Object.entries({PERMISSION_DENIED:'permission_denied',UNAUTHENTICATED:'unauthenticated',SERVICE_DISABLED:'service_disabled',INVALID_ARGUMENT:'invalid_argument',NOT_FOUND:'not_found',RESOURCE_EXHAUSTED:'quota',DEADLINE_EXCEEDED:'deadline_exceeded',UNAVAILABLE:'unavailable'})){
+  for(const stderr of [`ERROR: (gcloud.logging.read) ${id}: PRIVATE_KEY PRIVATE_URL`, `  reason: ${id}`, `  "reason": "${id}",`]){
+   assert.deepEqual(safeNativeFailure({status:1,stderr}),{exitStatus:1,signal:null,refusalHints:[hint]});
+  }
+ }
+});
+test('Unstructured hostile text, arbitrary codes, headers and signals never escape',()=>{
+ for(const stderr of ['PRIVATE_KEY PERMISSION_DENIED','Authorization: PRIVATE_TOKEN','ERROR: (gcloud.run.deploy) PERMISSION_DENIED: PRIVATE_TEXT','reason: PRIVATE_REASON','reason: SERVICE_DISABLED PRIVATE_KEY','"reason": "PERMISSION_DENIED_PRIVATE"']){
+  const r=safeNativeFailure({status:'PRIVATE_STATUS',signal:'PRIVATE_SIGNAL',error:{code:'PRIVATE_CODE',message:'PRIVATE_MESSAGE',stack:'PRIVATE_STACK'},stderr});
+  assert.deepEqual(r,{exitStatus:null,signal:null,refusalHints:[]});assert.doesNotMatch(JSON.stringify(r),/PRIVATE_/);
+ }
+});
+test('Spawn failure exit and signal are bounded; no unobserved Google permission inference',()=>{
+ assert.deepEqual(safeNativeFailure({status:null,signal:'SIGTERM',error:{code:'ETIMEDOUT'}}),{exitStatus:null,signal:'SIGTERM',refusalHints:['command_timeout']});
+ assert.deepEqual(safeNativeFailure({status:1,stderr:'unknown failure'}),{exitStatus:1,signal:null,refusalHints:[]});
+ for(const [code,hint] of [['ENOBUFS','selected_output_cap'],['ENOENT','executable_not_found'],['ECONNREFUSED','network_refused'],['ECONNRESET','network_reset'],['ENOTFOUND','dns_failure'],['EAI_AGAIN','dns_temporary']])assert.deepEqual(safeNativeFailure({status:null,error:{code}}).refusalHints,[hint]);
+});
+test('Refused actual adapter persists only safe hints and refuses any replay',t=>{
+ const f=fixture(t,{response:{status:1,signal:null,stdout:'PRIVATE_BODY',stderr:'ERROR: (gcloud.logging.read) PERMISSION_DENIED: PRIVATE_KEY\nreason: SERVICE_DISABLED'}});
+ const r=executeRead(f.dir,env,sha,f.args);assert.equal(r.state,'read_failed_or_uncertain');assert.deepEqual(r.nativeFailure,{exitStatus:1,signal:null,refusalHints:['permission_denied','service_disabled']});assert.doesNotMatch(fs.readFileSync(path.join(f.dir,'result.json'),'utf8'),/PRIVATE_|stderr|stack/);assert.throws(()=>executeRead(f.dir,env,sha,f.args));assert.equal(f.calls.filter(x=>x.args[0]==='logging').length,1);
 });

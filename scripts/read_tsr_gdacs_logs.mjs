@@ -64,6 +64,25 @@ export function prepare(dir, env, actualHead, now = Date.now()) {
   exclusive(path.join(dir,'request.json'), { ...request, state: 'validated_before_authentication' });
   return request;
 }
+// Interpret fixed CLI/SDK error identifiers only; never retain source text.
+export function safeNativeFailure(response) {
+  const hints = new Set();
+  const names = { PERMISSION_DENIED: 'permission_denied', UNAUTHENTICATED: 'unauthenticated',
+    SERVICE_DISABLED: 'service_disabled', INVALID_ARGUMENT: 'invalid_argument', NOT_FOUND: 'not_found',
+    RESOURCE_EXHAUSTED: 'quota', DEADLINE_EXCEEDED: 'deadline_exceeded', UNAVAILABLE: 'unavailable' };
+  const stderr = typeof response.stderr === 'string' ? response.stderr.slice(0, contract.maxOutputBytes) : '';
+  for (const line of stderr.split(/\r?\n/)) {
+    const cli = /^ERROR: \(gcloud\.logging\.read\) (PERMISSION_DENIED|UNAUTHENTICATED|SERVICE_DISABLED|INVALID_ARGUMENT|NOT_FOUND|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED|UNAVAILABLE):/.exec(line);
+    const reason = /^\s*(?:reason: |"reason"\s*:\s*")(PERMISSION_DENIED|UNAUTHENTICATED|SERVICE_DISABLED|INVALID_ARGUMENT|NOT_FOUND|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED|UNAVAILABLE)(?:"[,]?|\s*)$/.exec(line);
+    if (cli || reason) hints.add(names[(cli || reason)[1]]);
+  }
+  const errors = { ETIMEDOUT: 'command_timeout', ENOBUFS: 'selected_output_cap', ENOENT: 'executable_not_found',
+    ECONNREFUSED: 'network_refused', ECONNRESET: 'network_reset', ENOTFOUND: 'dns_failure', EAI_AGAIN: 'dns_temporary' };
+  if (Object.hasOwn(errors, response.error?.code || '')) hints.add(errors[response.error.code]);
+  return { exitStatus: Number.isInteger(response.status) && response.status >= 0 && response.status <= 255 ? response.status : null,
+    signal: ['SIGTERM','SIGKILL','SIGINT','SIGABRT'].includes(response.signal) ? response.signal : null,
+    refusalHints: [...hints].sort() };
+}
 export function executeRead(dir, env, actualHead, { run = spawnSync, now = Date.now, readFile = fs.readFileSync } = {}) {
   const request = validateInputs(env, actualHead, now());
   const saved = JSON.parse(fs.readFileSync(path.join(dir,'request.json')));
@@ -88,6 +107,7 @@ export function executeRead(dir, env, actualHead, { run = spawnSync, now = Date.
     const response = command(readArgs(request), contract.commandTimeoutMs);
     if (response.error || response.status !== 0) {
       result.state = 'read_failed_or_uncertain';
+      result.nativeFailure = safeNativeFailure(response);
       result.failureClass = response.error?.code === 'ETIMEDOUT' ? 'command_timeout' : response.error?.code === 'ENOBUFS' ? 'selected_output_cap' : 'native_command_refusal';
     } else {
       assert.ok(Buffer.byteLength(response.stdout) <= contract.maxOutputBytes);
