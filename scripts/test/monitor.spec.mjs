@@ -698,7 +698,7 @@ test('typed series release report workflow gate runs after collection and before
   assert.ok(verifier < smoke.lastIndexOf('fi'));
   assert.match(smoke, /set -euo pipefail/);
   assert.match(smoke, /tee \/tmp\/mcp-diagnostics\/typed-series-candidate\.json/);
-  assert.match(workflow, /node --test --test-name-pattern="typed series release report" scripts\/test\/monitor\.spec\.mjs/);
+  assert.match(workflow, /name: Verify full offline suite[\s\S]*?run: \/usr\/bin\/time -v npm test/);
 });
 
 async function readJsonRequest(request) {

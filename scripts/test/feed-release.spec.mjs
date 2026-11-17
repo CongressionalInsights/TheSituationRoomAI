@@ -10,6 +10,7 @@ import { assertCandidate, assertReleaseState, buildProvenance } from '../verify_
 import { verifyFeedContent } from '../verify_feed_candidate.mjs';
 import { feedBuild, releaseImage } from '../feed_native_build.mjs';
 import { nativeBuildFixture } from './helpers/feed-native.mjs';
+import { listOfflineTests } from '../run_tests.mjs';
 
 const sha = 'c'.repeat(40);
 const digest = 'sha256:' + 'a'.repeat(64);
@@ -373,9 +374,14 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate
 
 test('Existing required preflight includes Feed release and BLS fixtures beside unchanged specialized gates', () => {
   const workflow = fs.readFileSync(new URL('../../.github/workflows/deploy-mcp-proxy.yml', import.meta.url), 'utf8').split('\n  deploy:')[0];
-  for (const text of ['feed-release.spec.mjs', 'bls-acquisition.spec.mjs', 'verify_mcp_metadata_candidate.spec.mjs',
-    'verify_cisa_candidate.spec.mjs', 'PID reuse', 'typed series release report']) assert.ok(workflow.includes(text), text);
+  assert.match(workflow, /run: \/usr\/bin\/time -v npm test/);
+  const inventory = listOfflineTests();
+  for (const file of ['feed-release', 'feed-native-build', 'bls-acquisition', 'verify_mcp_metadata_candidate',
+    'verify_cisa_candidate', 'monitor', 'mcp-native-release', 'mcp-proxy', 'briefing', 'acled-pagination']) {
+    assert.ok(inventory.includes(`scripts/test/${file}.spec.mjs`), file);
+  }
   const feedWorkflow = fs.readFileSync(new URL('../../.github/workflows/deploy-feed-proxy.yml', import.meta.url), 'utf8');
+  assert.match(feedWorkflow, /node --test scripts\/test\/feed-native-build\.spec\.mjs scripts\/test\/feed-release\.spec\.mjs scripts\/test\/candidate-only\.spec\.mjs/);
   assert.ok(feedWorkflow.indexOf('test "$EXPECTED_SHA" = "$ACTUAL_SHA"') < feedWorkflow.indexOf('google-github-actions/auth'));
   assert.ok(feedWorkflow.indexOf('build_feed_manifest.mjs') < feedWorkflow.indexOf('google-github-actions/auth'));
   assert.match(feedWorkflow, /cancel-in-progress: false/);

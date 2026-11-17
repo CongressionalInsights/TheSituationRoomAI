@@ -44,6 +44,9 @@ permissions:
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    concurrency:
+      group: mcp-preflight-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -98,6 +101,8 @@ jobs:
           done
 
           find gcp/mcp-proxy -maxdepth 2 -type f | sort
+      - name: Install offline test dependencies
+        run: npm ci
       - name: Dependency preflight
         run: npm ci --prefix gcp/mcp-proxy
       - name: Syntax preflight
@@ -106,24 +111,10 @@ jobs:
           node --check gcp/mcp-proxy/server.js
           node --check gcp/mcp-proxy/state-signals.js
           node --check gcp/mcp-proxy/public-payload-safety.js
-      - name: Verify native MCP release fixtures
-        run: node --test scripts/test/mcp-native-release.spec.mjs
-      - name: Verify MCP response contracts
-        run: node --test scripts/test/mcp-proxy.spec.mjs
-      - name: Verify offline briefing model and fallback contracts
-        run: node --test scripts/test/briefing.spec.mjs
-      - name: Verify metadata-only release fixtures
-        run: node --test scripts/test/verify_mcp_metadata_candidate.spec.mjs
-      - name: Verify CISA release fixtures
-        run: node --test scripts/test/verify_cisa_candidate.spec.mjs
-      - name: Verify ACLED pagination fixtures
-        run: node --test scripts/test/acled-pagination.spec.mjs
-      - name: Verify unchanged monitor PID reuse test on Linux
-        run: node --test --test-name-pattern="^fresh same-host PID reuse evidence reclaims the prior owner immediately$" scripts/test/monitor.spec.mjs
-      - name: Verify typed series release report fixtures
-        run: node --test --test-name-pattern="typed series release report" scripts/test/monitor.spec.mjs
-      - name: Verify Feed serving identity and BLS acquisition fixtures
-        run: node --test scripts/test/feed-release.spec.mjs scripts/test/bls-acquisition.spec.mjs
+      - name: Verify full offline suite
+        # Keep all native release, MCP, briefing, CISA, ACLED, Feed/BLS and
+        # monitor PID/typed-series contracts. Unknown impact runs everything.
+        run: /usr/bin/time -v npm test
 
   deploy:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

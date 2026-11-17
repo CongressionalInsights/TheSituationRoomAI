@@ -99,16 +99,20 @@ release fixtures. Some standalone guards were absent from `npm test` and the
 old required preflight. No independent assertion should be deleted to improve
 these numbers.
 
-The CISA response-size test alone took 7.35 s locally, with most time spent
-shutting down fixture HTTP connections. Cleanup must happen after its awaited
-size-limit and SSE assertions, not shorten production deadlines or skip the
-large response.
+The CISA response-size case alone took 7.35 s locally. An initial hypothesis
+blamed fixture HTTP shutdown. A measured teardown-only experiment still took
+7.09 s for its eight-case file and 62.27 s for the monitor file, so that change
+was discarded. Reading the client revealed repeated 500/1,200 ms retry sleeps;
+the fixture's deterministic payload rejection did not need those retries.
 
-## Proposed reviewable steps
+## Decisions and implemented steps
 
-1. Reuse Node's native HTTP shutdown API in test-only teardown. Preserve all
-   assertions, payload sizes and timeouts. Re-run the affected specs and compare
-   the same CISA cases.
+1. Use the existing `retry: false` option in the CISA payload-size fixture. Keep
+   all eight cases, assertions and payload sizes, and assert exactly four
+   requests for the four transport cases. Default retry coverage remains in
+   the full monitor suite, including explicit three-attempt assertions. The
+   eight-case file fell from 7.49 s / 2.48 CPU s to 0.79 s / 0.90 CPU s in the
+   recorded local invocation. No production client, backoff or deadline changed.
 2. Discover all offline specs explicitly and run them once, with process
    isolation and bounded file concurrency on one existing runner. Move shared
    fixture data out of a spec and remove only aggregation imports. Keep browser
@@ -118,6 +122,53 @@ large response.
    syntax, source-file and manual-release guards. Cancel superseded PR
    preflights only, using a job-level concurrency group unique to each PR;
    non-PR runs must use distinct groups. Leave deploy serialization unchanged.
+
+The implementation uses Node 24's native `globSync`, `spawnSync` and
+`availableParallelism`, with no new dependency. `npm test` verifies feed sync
+and runs every offline spec under `scripts/test/` and
+`gcp/state-connector/test/`, including nested future specs. The browser boundary
+matches the existing Playwright config. Empty inventories and subprocess
+failures cannot succeed silently. A fixture test proves a real failing child
+test returns failure; a guard prevents spec-to-spec imports from reintroducing
+duplicate execution.
+
+Same source, 775-case candidate trials (before the final concurrency guard):
+
+| File worker limit | Wall | Child CPU | Result |
+| --- | ---: | ---: | --- |
+| 2 | 40.50 s | 55.00 s | 775 passed |
+| 4 | 37.02 s | 55.75 s | 775 passed |
+
+The default caps workers at four, respecting smaller CPU allocations. The
+existing public runner has [four CPUs / 16 GB](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories).
+These single local trials favor four workers: 8.6% less elapsed time than two
+for 1.4% more process CPU. This is qualification on macOS, not a Linux speedup
+claim or a runner memory measurement.
+
+Against the complete broad baseline, the four-worker trial reduced wall time
+by 43.0% and child CPU by 41.0%, retaining all 772 distinct baseline TAP names
+and adding three runner checks. The removed work is 232 duplicate executions,
+not deleted behavioral assertions. Against the old narrow preflight, local
+test wall time fell 30.1%, while process CPU **increased 29.1%** (43.19 → 55.75
+CPU s) because the candidate checks much more behavior. The full-suite fallback
+is an intentional coverage/CPU tradeoff. Compared with the old 697-case
+`npm test`, elapsed time fell 39.3%; these inventories differ, so that is not a
+same-workload speed claim.
+
+The required Actions job now installs root dependencies as well as its existing
+MCP dependency preflight, retains source/syntax/manual-release guards, and runs
+`/usr/bin/time -v npm test`. Its logs will retain elapsed, user/system CPU and
+peak RSS for subsequent remote evaluation. No new upload or artifact storage
+is needed. The PR concurrency expression was evaluated for same/different PRs,
+pushes, schedules and manual runs. Cancellation savings remain unmeasured.
+
+The Feed release command now explicitly includes `feed-native-build.spec.mjs`
+alongside Feed release and candidate-only specs, preserving the previous
+inherited native-build checks. Its release runbook matches. The MCP deploy job
+is byte-for-byte unchanged (SHA-256
+`d460f7b2456ad2fc74356830d67f984cd97260acabbe1fdb0df99f17727fd65e`
+for the bytes following the `deploy:` delimiter). These commits form one
+integration candidate; the inventory and its workflow consumers land together.
 
 No new dependency, runner provider, larger machine, matrix, prediction service,
 test-line budget or artifact cache is justified. Dependency installation is
@@ -148,3 +199,33 @@ runner time with the baseline, including failures and cancellations, before
 claiming remote latency or compute improvement. Account for per-job rounding;
 sub-minute improvements can save runner time without saving billed minutes.
 Source review and local timings do not establish a remote deployment result.
+
+## Final validation
+
+- Full final `npm test -- --test-reporter=tap`: **776 passed**, no failed,
+  skipped or cancelled cases; 34.63 s wall / 50.72 CPU s. All 772 distinct
+  baseline case names remain, plus four inventory/failure/concurrency guards.
+  The two four-worker observations span 34.63–37.02 s wall / 50.72–55.75 CPU s.
+  These are local observations, not a p50/p90 distribution or a Linux result.
+- Existing browser suite: **6 passed**, no skips, 17.90 s invocation wall.
+  A temporary config forbids reusing another server and sets this checkout as
+  the server working directory. The two optional offline comparison cases were
+  enabled with `TSR_REFRESH_EVIDENCE` and cached Leaflet 1.9.4 assets matching
+  `public/index.html`. Server environment excluded provider credentials.
+- Root/MCP clean installs, source-file checks, feed sync verification and all
+  three MCP syntax preflights passed in the rehearsal. `verify_public.mjs`,
+  runner syntax and `git diff --check` passed.
+- `actionlint` has no new findings. Baseline already contains SC2016 on an
+  intentional single-quoted deploy expression; lint with `-ignore SC2016`
+  passes. The deploy body containing it was preserved, not rewritten.
+- The first final offline rehearsal had one stale metadata workflow assertion
+  expecting the removed standalone command. Its assertion now checks the full
+  suite gate; the required inventory guard also names that metadata spec. Its
+  23 cases and the subsequent complete suite passed. Failed probes and setup
+  attempts remain in the local evidence directory.
+
+No GitHub workflow was dispatched, branch pushed, production provider called by
+a monitor/build, or release performed. Remote feedback and occupied-runner
+improvements remain **unverified** until this local candidate runs as a PR.
+The public runner's existing $0 cash price does not change. Retain the complete
+suite if future affected-test selection lacks a proven dependency boundary.

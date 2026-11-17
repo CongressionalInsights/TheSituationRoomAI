@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import vm from 'node:vm';
 import { listOfflineTests, runOfflineTests } from '../run_tests.mjs';
 
 test('offline discovery includes new/nested and connector specs but never browser specs or helpers', t => {
@@ -38,5 +39,32 @@ test('offline specs cannot import another spec and repeat its cases', () => {
   for (const file of listOfflineTests()) {
     const source = fs.readFileSync(file, 'utf8');
     assert.doesNotMatch(source, /^import\b[^;]*?['"][^'"]+\.spec\.mjs['"]/gm, file);
+  }
+});
+
+test('CI supersedes only the same PR preflight and keeps manual/push runs independent', () => {
+  const workflow = fs.readFileSync('.github/workflows/deploy-mcp-proxy.yml', 'utf8');
+  const header = workflow.split('\njobs:')[0];
+  assert.match(header, /\n  pull_request:\n    branches: \[main\]/);
+  assert.doesNotMatch(header, /^concurrency:|\n    paths(?:-ignore)?:/m);
+  const preflight = workflow.split('\n  preflight:')[1].split('\n  deploy:')[0];
+  const group = preflight.match(/\n      group: (.+)/)[1];
+  const cancel = preflight.match(/\n      cancel-in-progress: \$\{\{ (.+) \}\}/)[1];
+  const evaluate = (event_name, number, run_id) => {
+    const github = { event_name, event: { pull_request: { number } }, run_id };
+    return {
+      group: group.replace(/\$\{\{ (.+?) \}\}/g, (_, expression) => vm.runInNewContext(expression, { github })),
+      cancel: vm.runInNewContext(cancel, { github })
+    };
+  };
+  const pr = evaluate('pull_request', 123, 1);
+  assert.equal(pr.cancel, true);
+  assert.equal(pr.group, evaluate('pull_request', 123, 2).group);
+  assert.notEqual(pr.group, evaluate('pull_request', 456, 2).group);
+  for (const event of ['push', 'workflow_dispatch', 'schedule']) {
+    const first = evaluate(event, null, 1);
+    assert.equal(first.cancel, false);
+    assert.notEqual(first.group, evaluate(event, null, 2).group);
+    assert.notEqual(first.group, pr.group);
   }
 });
