@@ -3853,7 +3853,7 @@ function parseRss(text, feed) {
     let geo = null;
     const geoPoint = item.getElementsByTagName('georss:point')?.[0]?.textContent;
     if (geoPoint) {
-      const [lat, lon] = geoPoint.trim().split(/\\s+/).map(Number);
+      const [lat, lon] = geoPoint.trim().split(/\s+/).map(Number);
       if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
         geo = { lat, lon };
       }
