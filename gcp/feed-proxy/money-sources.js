@@ -489,8 +489,14 @@ export function startFecCursor(binding, notBefore = 0, retryAt = null) {
   return encodeFecCursor({ version: 1, binding, search: 0, page: 1, indexes: {}, previous: null,
     guard: fecGuard(), notBefore, retryAt, halted: null });
 }
-function fecPlan(terms, range) {
+function fecPlan(terms, range, employerOnly) {
   const cycles = fecCycles(range.startIso, range.endIso);
+  if (employerOnly) {
+    const names = terms.filter(term => !/^C\d{8}$/i.test(term));
+    return searchPlan(cycles.length * names.length, index => ({
+      cycle: cycles[Math.floor(index / names.length)], term: names[index % names.length], filter: 'contributor_employer'
+    }));
+  }
   return searchPlan(cycles.length * terms.length * 2, index => {
     const term = terms[Math.floor(index / 2) % terms.length];
     const filters = /^C\d{8}$/i.test(term) ? ['contributor_id', 'committee_id'] : ['contributor_name', 'contributor_employer'];
@@ -537,8 +543,8 @@ function readFecCursor(cursor, binding, plan) {
   return state;
 }
 
-export async function acquireFecPages({ terms, range, binding, cursor, key, runtime }) {
-  const plan = fecPlan(terms, range);
+export async function acquireFecPages({ terms, range, binding, cursor, key, runtime, employerOnly = false }) {
+  const plan = fecPlan(terms, range, employerOnly);
   let state;
   try { state = readFecCursor(cursor ?? startFecCursor(binding), binding, plan); }
   catch { return { invalidCursor: true }; }
@@ -550,7 +556,7 @@ export async function acquireFecPages({ terms, range, binding, cursor, key, runt
   else if (state.retryAt !== null && state.retryAt > ctx.now()) reason = 'provider_cooldown';
   while (!reason && state.search < plan.length) {
     const spec = plan.at(state.search), details = { filter: spec.filter, year: spec.cycle, page: state.page, pageKind: 'ordinal' };
-    if (queryPages >= ctx.budget.pages) { reason = 'page_budget'; recordDiagnostic(ctx, details, reason); break; }
+    if (queryPages >= ctx.budget.pages || (employerOnly && pagesRead >= 1)) { reason = 'page_budget'; recordDiagnostic(ctx, details, reason); break; }
     const currentKey = hash(state.indexes);
     if (cursors.has(currentKey)) { reason = 'pagination_stalled'; state.halted = reason; recordDiagnostic(ctx, details, 'repeated_cursor'); break; }
     cursors.add(currentKey);
@@ -606,7 +612,9 @@ export async function acquireFecPages({ terms, range, binding, cursor, key, runt
     retryAt: state.retryAt ? new Date(state.retryAt).toISOString() : null,
     coverage: { status: complete ? 'complete_for_queries' : (pagesRead || !error ? 'partial' : 'unavailable'), complete,
       reasons: reason ? [reason] : [], pages: pagesRead, requests: ctx.requests, searchesPlanned: plan.length, searchesRun: searched.size,
-      scope: 'Bounded Schedule A traversal batch; frozen cycle/filter plan. Completion is query exhaustion, not a snapshot, reconciliation or historical recovery.',
+      scope: employerOnly
+        ? 'One Schedule A employer page. Employer affiliation is not an employer donation. Completion covers the requested employer filters only.'
+        : 'Bounded Schedule A traversal batch; frozen cycle/filter plan. Completion is query exhaustion, not a snapshot, reconciliation or historical recovery.',
       cycles: fecCycles(range.startIso, range.endIso), diagnostics: diagnosticSnapshot(ctx) },
     traversal: { complete, blocked, requiresRestart: Boolean(state.halted), searchesPlanned: plan.length, searchesCompleted: state.search,
       page: state.page, nextRequestAt: state.notBefore, cursor: complete ? null : encodeFecCursor(state) } };

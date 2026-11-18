@@ -280,6 +280,7 @@ const state = {
   energyMapError: null,
   energyMapFetchedAt: 0,
   moneyFlowsData: null,
+  moneyEmployerSearch: null,
   moneyFlowsItems: [],
   moneyFlowsFetchedAt: 0,
   moneyFlowsLoading: false,
@@ -564,6 +565,10 @@ const elements = {
   moneyFlowsRun: document.getElementById('moneyFlowsRun'),
   moneyFlowsSummary: document.getElementById('moneyFlowsSummary'),
   moneyFlowsList: document.getElementById('moneyFlowsList'),
+  moneyEmployerResults: document.getElementById('moneyEmployerResults'),
+  moneyEmployerList: document.getElementById('moneyEmployerList'),
+  moneyEmployerMore: document.getElementById('moneyEmployerMore'),
+  moneyEmployerStatus: document.getElementById('moneyEmployerStatus'),
   moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
   moneyFlowsRateNotice: document.getElementById('moneyFlowsRateNotice'),
   moneyInMeta: document.getElementById('moneyInMeta'),
@@ -6391,8 +6396,77 @@ function renderMoneyRateNotice() {
   elements.moneyFlowsRateNotice.classList.add('active');
 }
 
+function renderMoneyEmployer(search) {
+  const { moneyEmployerResults: section, moneyEmployerList: list, moneyEmployerMore: button,
+    moneyEmployerStatus: status } = elements;
+  if (!section) return;
+  section.hidden = !search || (!search.next && !search.items.length && !search.status);
+  button.hidden = !search?.next;
+  button.disabled = Boolean(search?.loading);
+  status.textContent = search?.loading ? 'Loading one employer page…' : search?.status || '';
+  if (search?.items.length) renderList(list, search.items);
+  else list.innerHTML = '';
+}
+
+async function loadMoreMoneyEmployer() {
+  const search = state.moneyEmployerSearch;
+  const next = search?.next;
+  if (!next || search.loading) return;
+  if (Date.parse(search.retryAt) > Date.now()) {
+    search.status = `OpenFEC rate limit. Try again after ${new Date(search.retryAt).toLocaleTimeString()}.`;
+    renderMoneyEmployer(search);
+    return;
+  }
+  const params = new URLSearchParams({ q: next.query, start: next.start, end: next.end,
+    mode: next.mode, cursor: next.cursor });
+  if (next.matchMode) params.set('matchMode', next.matchMode);
+  if (next.minScore != null) params.set('minScore', next.minScore);
+  for (const entity of next.entities || []) params.append('entities', entity);
+  search.loading = true;
+  renderMoneyEmployer(search);
+  try {
+    const { data, error } = await apiJson(`/api/money-flows?${params}`, {}, 60000);
+    if (state.moneyEmployerSearch !== search) return;
+    if (error || !data?.fecTraversal) throw new Error('OpenFEC employer page could not be loaded.');
+    const traversal = data.fecTraversal;
+    const source = data.sources?.fec;
+    const seen = new Set([...state.moneyFlowsItems, ...search.items]
+      .filter(item => item.source === 'OpenFEC' && item.sourceId != null)
+      .map(item => String(item.sourceId)));
+    let added = 0;
+    for (const item of data.items || []) {
+      if (item.source !== 'OpenFEC') continue;
+      if (item.sourceId != null) {
+        const id = String(item.sourceId);
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
+      search.items.push({ ...item, url: item.url || item.externalUrl || null });
+      added++;
+    }
+    search.retryAt = source?.retryAt || null;
+    const blocked = traversal.requiresRestart || (traversal.blocked && !search.retryAt);
+    search.next = blocked ? null : traversal.next;
+    if (blocked) search.status = 'OpenFEC could not continue this search. The results shown are partial.';
+    else if (search.retryAt && Date.parse(search.retryAt) > Date.now()) {
+      search.status = `OpenFEC rate limit. Try again after ${new Date(search.retryAt).toLocaleTimeString()}.`;
+    } else if (source?.error || (source?.coverage?.reasons || []).some(reason => reason === 'deadline')) {
+      search.status = `Added ${added} new employer records. The page was interrupted and coverage is partial.`;
+    } else if (traversal.complete) search.status = `Added ${added} new employer records. The requested employer pages have finished.`;
+    else search.status = `Added ${added} new employer records. More pages may be available.`;
+  } catch (err) {
+    if (state.moneyEmployerSearch === search) search.status = err?.message || 'OpenFEC employer page could not be loaded.';
+  } finally {
+    if (state.moneyEmployerSearch === search) {
+      search.loading = false;
+      renderMoneyEmployer(search);
+    }
+  }
+}
+
 function renderMoneyFlows() {
   if (!elements.moneyFlowsList) return;
+  renderMoneyEmployer(state.moneyEmployerSearch);
   if (elements.moneyFlowsMeta) {
     if (!state.moneyFlowsQuery) {
       elements.moneyFlowsMeta.textContent = 'No query yet.';
@@ -6529,6 +6603,8 @@ function renderMoneyFlows() {
 }
 
 async function fetchMoneyFlows() {
+  const search = { next: null, retryAt: null, items: [], status: '', loading: false };
+  state.moneyEmployerSearch = search;
   const query = elements.moneyFlowsQuery?.value?.trim();
   if (!query) {
     state.moneyFlowsError = 'Enter a query to search.';
@@ -6556,24 +6632,31 @@ async function fetchMoneyFlows() {
 
   try {
     const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`, {}, 60000);
+    if (state.moneyEmployerSearch !== search) return;
     if (error) {
       throw new Error(data?.message || error);
     }
     state.moneyFlowsData = data;
+    search.next = data?.fecEmployerTraversal?.next || null;
+    search.retryAt = data?.fecEmployerTraversal?.retryAt || null;
     state.moneyFlowsItems = (data?.items || []).map((item) => ({
       ...item,
       url: item.url || item.externalUrl || null
     }));
     state.moneyFlowsFetchedAt = data?.fetchedAt || Date.now();
   } catch (err) {
-    state.moneyFlowsError = err?.message || 'Fetch failed.';
-    state.moneyFlowsData = null;
-    state.moneyFlowsItems = [];
+    if (state.moneyEmployerSearch === search) {
+      state.moneyFlowsError = err?.message || 'Fetch failed.';
+      state.moneyFlowsData = null;
+      state.moneyFlowsItems = [];
+    }
   } finally {
-    state.moneyFlowsLoading = false;
-    renderMoneyFlows();
-    updatePanelTimestamps();
-    updatePanelErrors();
+    if (state.moneyEmployerSearch === search) {
+      state.moneyFlowsLoading = false;
+      renderMoneyFlows();
+      updatePanelTimestamps();
+      updatePanelErrors();
+    }
   }
 }
 
@@ -13409,6 +13492,7 @@ function initEvents() {
       }
     });
   }
+  elements.moneyEmployerMore?.addEventListener('click', () => loadMoreMoneyEmployer());
   if (elements.moneyFlowsRun) {
     elements.moneyFlowsRun.addEventListener('click', () => fetchMoneyFlows());
   }

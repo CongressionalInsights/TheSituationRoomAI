@@ -2374,7 +2374,7 @@ server.registerTool(
   'money.flows',
   {
     title: 'Money Flows',
-    description: 'Ranked discovery sample from LDA, USAspending transactions, FEC receipts and SAM registrations. Includes source coverage; subtotals apply only to returned rows. SAM is identity evidence, not awards. Use mode lda_pages for stateless LDA traversal: follow ldaTraversal.next until complete, deduplicate source/sourceId, and retain all returned rows (limit is ignored in that mode). Use mode fec_pages for bounded FEC batches with no total traversal cap: follow fecTraversal.next, retain every returned observation, deduplicate source/sourceId/version/hash, and respect blocked/cooldown state. limit is ignored in both traversal modes. Completion is query exhaustion, not a reconciled ledger or historical recovery.',
+    description: 'Ranked discovery sample from LDA, USAspending transactions, FEC receipts and SAM registrations. Includes source coverage; subtotals apply only to returned rows. SAM is identity evidence, not awards. Use mode lda_pages for stateless LDA traversal: follow ldaTraversal.next until complete, deduplicate source/sourceId, and retain all returned rows (limit is ignored in that mode). Use mode fec_pages for bounded FEC batches with no total traversal cap: follow fecTraversal.next, retain every returned observation, deduplicate source/sourceId/version/hash, and respect blocked/cooldown state. Use fec_employer_pages for one employer-only provider page per call, using fecEmployerTraversal.next from a ranked sample and then fecTraversal.next. Limit is ignored in traversal modes. Completion is query exhaustion, not a reconciled ledger or historical recovery.',
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       query: z.string(),
@@ -2384,7 +2384,7 @@ server.registerTool(
       matchMode: z.enum(['strict', 'normal', 'loose']).optional(),
       minScore: z.number().optional(),
       entities: z.array(z.string()).optional(),
-      mode: z.enum(['sample', 'lda_pages', 'fec_pages']).optional(),
+      mode: z.enum(['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages']).optional(),
       cursor: z.string().optional()
     })
   },
@@ -2397,7 +2397,7 @@ server.registerTool(
       };
     }
     return {
-      content: [{ type: 'text', text: `Money flows: ${payload.items?.length || 0} ${mode === 'fec_pages' ? 'FEC batch' : mode === 'lda_pages' ? 'LDA page' : 'sampled'} items; returned-row subtotals only. Check sources for partial or unavailable coverage.` }],
+      content: [{ type: 'text', text: `Money flows: ${payload.items?.length || 0} ${(mode === 'fec_pages' || mode === 'fec_employer_pages') ? 'FEC batch' : mode === 'lda_pages' ? 'LDA page' : 'sampled'} items; returned-row subtotals only. Check sources for partial or unavailable coverage.` }],
       structuredContent: payload
     };
   }
@@ -2658,8 +2658,8 @@ export const httpServer = http.createServer(async (req, res) => {
         'money.flows': {
           optional: ['start', 'end', 'limit', 'matchMode', 'minScore', 'entities', 'mode', 'cursor'],
           matchModes: ['strict', 'normal', 'loose'],
-          modes: ['sample', 'lda_pages', 'fec_pages'],
-          continuation: { lda_pages: 'ldaTraversal.next', fec_pages: 'fecTraversal.next' }
+          modes: ['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages'],
+          continuation: { lda_pages: 'ldaTraversal.next', fec_pages: 'fecTraversal.next', fec_employer_pages: 'fecTraversal.next' }
         },
         'catalog.sources': {
           outputFields: ['configured', 'coveredStates', 'configuration.requiredEnv', 'configuration.optionalEnv']
