@@ -3,6 +3,11 @@ name: Deploy MCP Proxy (GCP)
 on:
   workflow_dispatch:
     inputs:
+      verify_gdacs:
+        description: Run the release-specific GDACS check on the isolated candidate
+        required: false
+        default: false
+        type: boolean
       candidate_only:
         description: Stop after isolated candidate verification; false explicitly selects full release
         required: true
@@ -165,6 +170,9 @@ jobs:
             test "${{ inputs.cisa_only }}" = false
             test "${{ inputs.sync_secret_versions }}" = false
           fi
+      - name: Install locked parser for GDACS verification
+        if: inputs.verify_gdacs
+        run: npm ci --prefix gcp/mcp-proxy --ignore-scripts
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
       - uses: google-github-actions/auth@v3
@@ -398,6 +406,8 @@ jobs:
           echo "Secret bindings preserved from rollback revision ${{ steps.current.outputs.rollback_revision }}."
       - name: Smoke test isolated MCP candidate
         if: steps.deploy.outputs.deploy_succeeded == 'true'
+        env:
+          VERIFY_GDACS: ${{ inputs.verify_gdacs }}
         run: |
           set -euo pipefail
           CANDIDATE_REVISION=${{ steps.deploy.outputs.candidate_revision }}
@@ -433,6 +443,11 @@ jobs:
               --allow-alerts
             node scripts/verify_typed_series_report.mjs analysis/monitor/latest.json "${CANDIDATE_URL}/mcp" \
               | tee /tmp/mcp-diagnostics/typed-series-candidate.json
+          fi
+          if [ "${VERIFY_GDACS:-false}" = true ]; then
+            test "${{ inputs.cisa_only }}" = false && test "${{ inputs.metadata_only }}" = false || exit 1
+            node scripts/verify_gdacs_candidate.mjs mcp "$CANDIDATE_URL" \
+              | tee /tmp/mcp-diagnostics/gdacs-candidate.json
           fi
           if [ "${{ inputs.candidate_only }}" = true ]; then
             node scripts/verify_money_candidate.mjs mcp "$CANDIDATE_URL" > /tmp/mcp-diagnostics/money-candidate.json

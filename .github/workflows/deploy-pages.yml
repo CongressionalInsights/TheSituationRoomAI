@@ -61,6 +61,8 @@ jobs:
         run: node scripts/build_frontend.mjs
       - name: Verify public bundle
         run: node scripts/verify_public.mjs
+      - name: Verify generated GDACS envelope
+        run: node scripts/verify_gdacs_candidate.mjs pages public/data/feeds/gdacs-alerts.json
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:

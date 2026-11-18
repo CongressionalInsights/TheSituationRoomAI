@@ -1,3 +1,4 @@
+import { fetchGdacsMachinePayload, gdacsMachineMime, parseGdacsMachineBody } from './gdacs-machine.js';
 import { readBuildIdentity } from './build-identity.js';
 import { fetchMoneyFlows } from './money-flows.js';
 export { attachMoneyMatch, buildMoneyQueryProfile, buildUsaspendingTransactionKey, findBestMoneyNameMatch, resolveMoneyAliasExpansion, settleMoneyTasks, summarizeMoneyEntities } from './money-flows.js';
@@ -1191,8 +1192,12 @@ function parseRss(text, feed) {
   return [];
 }
 
-function normalizeSignals(text, feed) {
+function normalizeSignals(text, feed, contentType) {
   if (!text) return [];
+  if (feed.id === 'gdacs-alerts' && contentType === gdacsMachineMime) {
+    const value = parseGdacsMachineBody(text);
+    return value ? value.items.map(item => ({ ...item, category: feed.category, observationKey: 'gdacs:' + item.id, timeSemantics: value.timeSemantics, coverage: value.coverage })) : [];
+  }
   if (feed.format === 'rss') return parseRss(text, feed);
   if (feed.format === 'csv') return normalizeCsvSignals(text, feed);
   if (feed.format === 'json' || feed.format === 'arcgis') return normalizeJsonSignals(text, feed);
@@ -1366,7 +1371,8 @@ function parseJsonBody(body, feed) {
 
 export function buildRawStructuredContent({ sourceId, feed, result, responseFormat, range = null }) {
   const contentIsJson = isJsonContentType(result.contentType);
-  const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null;
+  const machine = feed.id === 'gdacs-alerts' && result.contentType === gdacsMachineMime ? parseGdacsMachineBody(result.body) : null;
+  const parsed = machine || ((responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null);
   return {
     sourceId,
     ...(feed.id === 'gdacs-alerts' ? { primaryFailure: readGdacsPrimaryFailureDiagnostic(result.primaryFailure) } : {}),
@@ -1388,6 +1394,11 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
 
 function fallbackWarning(result) {
   if (!result.fallbackUsed) return null;
+  if (result.contentType === gdacsMachineMime) {
+    return result.proxyUsed === 'live-cache'
+      ? 'Cached GDACS recent-event updates (up to 100 events in the four-day product). Check update times; original publication is unknown.'
+      : 'GDACS recent-event updates (up to 100 events in the four-day product). Original publication is unknown.';
+  }
   if (result.proxyUsed === 'arcgis-hms-fire') return 'NASA FIRMS unavailable; returning NOAA HMS fire detections.';
   if (result.proxyUsed === 'live-cache') return 'Upstream unavailable; returning a published cache snapshot. Check record dates and source attribution.';
   return `Fetched via fallback (${result.proxyUsed || 'unknown'}).`;
@@ -1937,6 +1948,8 @@ async function fetchRawUncached(feed, options) {
   const gdacsSnapshotReserveMs = gdacsDeadline === null ? 0 : Math.floor(totalTimeoutMs * 0.25);
   const gdacsReturnReserveMs = gdacsDeadline === null ? 0 : Math.min(1000, totalTimeoutMs * 0.05);
   const gdacsRecoveryDeadline = gdacsDeadline === null ? null : gdacsDeadline - gdacsSnapshotReserveMs - gdacsReturnReserveMs;
+  // Reserve a machine attempt even if the longer RSS path exhausts its slice.
+  const gdacsMachineReserveMs = Math.min(4000, Math.floor(totalTimeoutMs * 0.2));
   const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
   const rssDirectTimeoutMs = Math.max(15000, Math.floor(rssEffectiveTimeout * 0.75));
   const rssFallbackTimeoutMs = attempts.length > 1
@@ -1949,7 +1962,8 @@ async function fetchRawUncached(feed, options) {
     : eonetDirectTimeoutMs;
 
   for (let index = 0; index < attempts.length; index += 1) {
-    const remainingGdacsMs = gdacsRecoveryDeadline === null ? Infinity : gdacsRecoveryDeadline - Date.now();
+    const remainingGdacsMs = gdacsRecoveryDeadline === null ? Infinity
+      : gdacsRecoveryDeadline - gdacsMachineReserveMs - Date.now();
     if (remainingGdacsMs <= 0) {
       lastError = { error: 'fetch_failed', message: 'GDACS upstream recovery budget exhausted.', code: 'timeout' };
       break;
@@ -2104,6 +2118,10 @@ async function fetchRawUncached(feed, options) {
         };
       }
     }
+    if (gdacsDeadline !== null) {
+      const machine = await fetchGdacsMachinePayload({ timeoutMs: Math.min(gdacsMachineReserveMs, gdacsRecoveryDeadline - Date.now()) });
+      if (machine) return { ...machine, primaryFailure: gdacsPrimaryFailure };
+    }
     const feedProxyTimeoutMs = gdacsRecoveryDeadline === null ? totalTimeoutMs : Math.max(0, gdacsRecoveryDeadline - Date.now());
     const feedProxyFallback = (feed.id === 'google-news-search' || feed.id === 'gdacs-alerts') && feedProxyTimeoutMs > 0
       ? await fetchFeedProxyFallback(feed, options, { timeoutMs: feedProxyTimeoutMs })
@@ -2116,7 +2134,8 @@ async function fetchRawUncached(feed, options) {
     const fallback = shouldUseLiveFallback(feed, options) && snapshotTimeoutMs > 0
       ? await fetchLiveFallback(feed.id, snapshotTimeoutMs)
       : null;
-    if (fallback) {
+    if (fallback && (feed.id !== 'gdacs-alerts' || fallback.contentType !== gdacsMachineMime
+      || parseGdacsMachineBody(fallback.body))) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'
         || feed.id === 'federal-register-ed'
@@ -2422,7 +2441,7 @@ server.registerTool(
       };
     }
 
-    const items = normalizeSignals(safeResult.body, feed).map((item) => ({
+    const items = normalizeSignals(safeResult.body, feed, safeResult.contentType).map((item) => ({
       ...item,
       id: createItemId(item),
       sourceId,
@@ -2481,7 +2500,7 @@ server.registerTool(
       };
     }
 
-    const items = normalizeSignals(result.body, feed).map((item) => ({
+    const items = normalizeSignals(result.body, feed, result.contentType).map((item) => ({
       ...item,
       id: createItemId(item),
       sourceId,
@@ -2557,7 +2576,7 @@ server.registerTool(
         continue;
       }
 
-      const items = normalizeSignals(result.body, feed).map((item) => ({
+      const items = normalizeSignals(result.body, feed, result.contentType).map((item) => ({
         ...item,
         id: createItemId(item),
         sourceId: feed.id,

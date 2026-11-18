@@ -1,3 +1,4 @@
+import { gdacsMachineMime, parseGdacsMachineBody } from './modules/gdacs-machine.js';
 import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy, getAcledProxy, getMcpProxy } from './services/api.js';
 import { createFocusController } from './modules/focus.js';
 import { createMcpClient } from './modules/mcp.js';
@@ -2431,8 +2432,8 @@ function openDetailModal(item) {
   }
   if (elements.detailMeta) {
     const metaParts = [
-      item.source || item.feedName || '',
-      toRelativeTime(item.publishedAt || Date.now())
+      formatItemSource(item, item.feedName || ''),
+      formatItemTime(item)
     ].filter(Boolean);
     elements.detailMeta.textContent = metaParts.join(' • ');
   }
@@ -6729,9 +6730,14 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
       payload = await res.json();
     }
     const httpStatus = payload.httpStatus || res.status || 0;
-    const error = payload.error || (httpStatus >= 400 ? `http_${httpStatus}` : null);
+    let error = payload.error || (httpStatus >= 400 ? `http_${httpStatus}` : null);
     const errorMessage = payload.message || (httpStatus >= 400 ? `HTTP ${httpStatus}` : null);
-    const items = error ? [] : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
+    const machine = feed.id === 'gdacs-alerts' && payload.contentType === gdacsMachineMime;
+    const updates = machine ? parseGdacsMachineBody(payload.body) : null;
+    if (machine && !updates) error ||= 'invalid_response';
+    const items = error ? [] : machine
+      ? (updates?.items || []).map(item => ({ ...item, category: feed.category, externalUrl: item.url, timeSemantics: 'updated' }))
+      : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
     const enriched = items.map((item) => ({
       ...item,
       tags: Array.from(new Set([...(feed.tags || []), ...((Array.isArray(item.tags) ? item.tags : []))])),
@@ -6748,7 +6754,9 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
       ...(feed.id === 'gdacs-alerts' ? {
         stale: Boolean(payload.stale || payload.fallback || payload.fallbackUsed),
         ...(payload.stale || payload.fallback || payload.fallbackUsed
-          ? { errorMessage: 'Cached GDACS data; primary freshness is unverified.' } : {})
+          ? { errorMessage: updates && payload.fallback !== 'live-cache'
+            ? 'GDACS recent updates (four-day product, up to 100 events). Original publication is unknown.'
+            : 'Cached GDACS data; primary freshness is unverified.' } : {})
       } : {}),
       reuseBlocked: Boolean(payload.stale || payload.fallback || payload.fallbackUsed || payload.warning)
     };
@@ -7145,7 +7153,7 @@ function ensurePanelUpdateBadges() {
 
 function getLatestTimestamp(items) {
   if (!items || !items.length) return null;
-  return items.reduce((max, item) => Math.max(max, item.publishedAt || 0), 0) || null;
+  return items.reduce((max, item) => Math.max(max, itemTime(item)), 0) || null;
 }
 
 function getLatestFeedTimestamp(categories) {
@@ -7375,9 +7383,28 @@ function applyLanguageFilter(items) {
   return items.filter((item) => !item.isNonEnglish);
 }
 
+function itemTime(item, missing = 0) {
+  if (item.feedId === 'gdacs-alerts' && item.timeSemantics === 'updated') {
+    return Number.isFinite(item.updatedAt) && item.updatedAt <= Date.now() ? item.updatedAt : 0;
+  }
+  return item.publishedAt || missing;
+}
+
+function formatItemSource(item, fallback = 'Source') {
+  return item.feedId === 'gdacs-alerts' && item.timeSemantics === 'updated'
+    ? 'GDACS · Recent updates (four-day product, up to 100 events)'
+    : item.source || fallback;
+}
+
+function formatItemTime(item) {
+  if (item.feedId !== 'gdacs-alerts' || item.timeSemantics !== 'updated') return toRelativeTime(item.publishedAt || Date.now());
+  const stamp = itemTime(item);
+  return stamp ? `Updated ${toRelativeTime(stamp)}` : 'Update time unavailable';
+}
+
 function applyFreshnessFilter(items) {
   const cutoff = Date.now() - state.settings.maxAgeDays * 24 * 60 * 60 * 1000;
-  return items.filter((item) => (item.publishedAt || Date.now()) >= cutoff);
+  return items.filter((item) => itemTime(item, Date.now()) >= cutoff);
 }
 
 function normalizeSearchItems(items) {
@@ -7935,9 +7962,9 @@ function renderList(container, items, { withCoverage = false, append = false } =
     const meta = document.createElement('div');
     meta.className = 'list-meta';
     const metaSource = document.createElement('span');
-    metaSource.textContent = item.source || 'Source';
+    metaSource.textContent = formatItemSource(item);
     const metaTime = document.createElement('span');
-    metaTime.textContent = toRelativeTime(item.publishedAt || Date.now());
+    metaTime.textContent = formatItemTime(item);
     meta.appendChild(metaSource);
     meta.appendChild(metaTime);
     if (item.externalUrl) {
@@ -10710,7 +10737,7 @@ function getCriticalAlertsItems() {
     return isCriticalItem(item) || (isAlertItem(item) && Boolean(item.severity || item.alertType || item.hazardType));
   });
   const deduped = dedupeItems(filtered);
-  deduped.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  deduped.sort((a, b) => itemTime(b) - itemTime(a));
   return deduped.slice(0, 60);
 }
 
@@ -12724,7 +12751,7 @@ function clusterMapPoints(points, radius = 24) {
     const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'news';
     const primary = cluster.points
       .map((point) => point.item)
-      .sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0))[0];
+      .sort((a, b) => itemTime(b) - itemTime(a))[0];
     const radiusPx = count === 1 ? 4 : Math.min(16, 4 + Math.sqrt(count) * 2);
     return {
       x: cluster.x,
@@ -13097,7 +13124,7 @@ function showMapDetail(cluster, x, y) {
     title.textContent = item.translatedTitle || item.title;
     const meta = document.createElement('div');
     meta.className = 'map-detail-meta';
-    meta.textContent = `${item.source || 'Source'} • ${toRelativeTime(item.publishedAt || Date.now())}`;
+    meta.textContent = `${formatItemSource(item)} • ${formatItemTime(item)}`;
     const badges = document.createElement('div');
     badges.className = 'map-detail-badges';
     const categoryBadge = document.createElement('span');

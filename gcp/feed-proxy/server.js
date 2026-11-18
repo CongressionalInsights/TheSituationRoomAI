@@ -1,3 +1,4 @@
+import { fetchGdacsMachinePayload, gdacsMachineMime, parseGdacsMachineBody } from './gdacs-machine.js';
 import { fetchMoneyFlows } from './money-flows.js';
 import http from 'http';
 import { readFileSync } from 'fs';
@@ -813,13 +814,12 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
   throw new Error('fetch_failed');
 }
 
-async function fetchLiveFallback(feedId) {
+async function fetchLiveFallback(feedId, timeoutMs = FETCH_TIMEOUT_MS) {
   if (!feedId) return null;
   const url = `${LIVE_BASE}/data/feeds/${feedId}.json?ts=${Date.now()}`;
   try {
-    const response = await fetchWithTimeout(url, { headers: { 'User-Agent': appConfig.userAgent } }, FETCH_TIMEOUT_MS);
-    if (!response.ok) return null;
-    const payload = await response.json();
+    const payload = await fetchWithTimeout(url, { headers: { 'User-Agent': appConfig.userAgent } }, timeoutMs,
+      response => response.ok ? response.json() : null);
     if (!payload || payload.error || !payload.body) return null;
     if (feedId === 'bls-cpi' && (payload.id !== feedId || payload.httpStatus !== 200
       || inspectBlsPayload(payload.body, 'CUUR0000SA0').error)) return null;
@@ -867,6 +867,7 @@ function isUsableStaleFeedPayload(feed, payload) {
   if (!payload.httpStatus || payload.httpStatus < 200 || payload.httpStatus >= 300) return false;
   if (!payload.body) return false;
   if (feed?.id === 'bls-cpi') return !inspectBlsPayload(payload.body, 'CUUR0000SA0').error;
+  if (feed?.id === 'gdacs-alerts' && payload.contentType === gdacsMachineMime) return Boolean(parseGdacsMachineBody(payload.body));
   if (feed?.format === 'rss') {
     return isLikelyRssPayload(payload.contentType || '', payload.body);
   }
@@ -1125,6 +1126,12 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
   const cacheKey = `${feed.id}:${query || ''}:${serializeParams(mergedParams)}${connectorRequestKey}${sourceCacheKey}`;
   const ttlMs = (feed.ttlMinutes || appConfig.defaultRefreshMinutes) * 60 * 1000;
   const timeoutMs = feed.timeoutMs || FETCH_TIMEOUT_MS;
+  // The GDACS browser caller allows 25s. Hold a bounded slot for the machine and snapshot after RSS.
+  const gdacsRssDeadline = feed.id === 'gdacs-alerts' ? Date.now() + timeoutMs - 1000 : null;
+  const gdacsMachineDeadline = gdacsRssDeadline === null ? null : gdacsRssDeadline + 3500;
+  const gdacsSnapshotDeadline = gdacsMachineDeadline === null ? null : gdacsMachineDeadline + 2000;
+  const staleSnapshot = () => gdacsSnapshotDeadline === null ? fetchLiveFallback(feed.id)
+    : gdacsSnapshotDeadline > Date.now() ? fetchLiveFallback(feed.id, gdacsSnapshotDeadline - Date.now()) : null;
   const cached = bypassOpenAqUserCache || (feed.id === 'bls-cpi' && !useBlsMcp) ? undefined : cache.get(cacheKey);
   const staleCache = cached;
   const retryStaleGoogleNews = feed.id === 'google-news-us' && cached?.stale;
@@ -1310,7 +1317,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
     } else {
       if (isRssFeed) {
         const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
-          deadlineMs: staleGoogleNewsDeadline,
+          deadlineMs: gdacsRssDeadline ?? staleGoogleNewsDeadline,
           onPrimaryFailure: feed.id === 'gdacs-alerts'
             ? failure => { gdacsPrimaryFailure = buildGdacsPrimaryFailureDiagnostic(failure); } : null
         });
@@ -1411,11 +1418,15 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       console.warn(JSON.stringify(gdacsPrimaryFailure));
     }
     if (!isEiaSeries) {
+      if (feed.id === 'gdacs-alerts') {
+        const machine = await fetchGdacsMachinePayload({ timeoutMs: Math.min(3500, gdacsMachineDeadline - Date.now()) });
+        if (machine) return withGdacsPrimaryFailure(machine);
+      }
       if (isUsableStaleFeedPayload(feed, staleCache)) {
         return withGdacsPrimaryFailure(markStaleFeedPayload(feed, staleCache));
       }
       if (allowLiveFallback) {
-        const fallback = await fetchLiveFallback(feed.id);
+        const fallback = await staleSnapshot();
         if (fallback) {
           const fallbackPayload = withGdacsPrimaryFailure(markSnapshotFallback(feed, fallback));
           cache.set(cacheKey, fallbackPayload);
@@ -1531,17 +1542,15 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       error: response.ok ? 'invalid_response' : 'fetch_failed', httpStatus: response.status
     });
     payload.primaryFailure = gdacsPrimaryFailure;
+    console.warn(JSON.stringify(gdacsPrimaryFailure));
+    const machine = await fetchGdacsMachinePayload({ timeoutMs: Math.min(3500, gdacsMachineDeadline - Date.now()) });
+    if (machine) return withGdacsPrimaryFailure(machine);
   }
   if (payload.error && allowLiveFallback) {
-    if (feed.id === 'gdacs-alerts') {
-      console.warn(JSON.stringify(gdacsPrimaryFailure || buildGdacsPrimaryFailureDiagnostic({
-        error: response.ok ? 'invalid_response' : 'fetch_failed', httpStatus: response.status
-      })));
-    }
     if (isUsableStaleFeedPayload(feed, staleCache)) {
       return withGdacsPrimaryFailure(markStaleFeedPayload(feed, staleCache));
     }
-    const fallback = await fetchLiveFallback(feed.id);
+    const fallback = await staleSnapshot();
     if (fallback) {
       const fallbackPayload = withGdacsPrimaryFailure(markSnapshotFallback(feed, fallback));
       cache.set(cacheKey, fallbackPayload);

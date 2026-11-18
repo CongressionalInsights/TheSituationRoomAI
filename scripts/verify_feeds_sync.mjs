@@ -39,10 +39,15 @@ targets.forEach((targetPath) => {
   }
 });
 
-for (const name of ['money-flows.js', 'money-sources.js', 'entity-aliases.json']) {
+for (const name of ['money-flows.js', 'money-sources.js', 'entity-aliases.json', 'gdacs-machine.js']) {
   try {
     if (readFileSync(path.join(root, 'gcp/mcp-proxy', name), 'utf8') !== readFileSync(path.join(root, 'gcp/feed-proxy', name), 'utf8')) errors.push(`Money-flow parity failed: ${name}`);
   } catch (error) { errors.push(error.message); }
+}
+
+if (readFileSync(path.join(root, 'gcp/mcp-proxy/gdacs-machine.js'), 'utf8')
+  !== readFileSync(path.join(root, 'public/modules/gdacs-machine.js'), 'utf8')) {
+  errors.push('GDACS browser adapter parity failed');
 }
 
 if (errors.length) {

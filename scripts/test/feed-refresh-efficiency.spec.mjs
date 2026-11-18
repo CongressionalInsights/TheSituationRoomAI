@@ -346,7 +346,7 @@ for (const [name, change] of [
 test('app payload fallback metadata blocks reuse without changing existing health/result flags', async () => {
   const source = appSource.slice(appSource.indexOf('async function fetchFeed('), appSource.indexOf('\nfunction getH3Lib('));
   const feed = { id: 'bbc-world', format: 'rss' };
-  const fetch = new Function('isStaticMode', 'buildStateFeedRequestParams', 'getKeyConfig', 'apiFetch', 'parseRss', 'parseJson', `${source}; return fetchFeed;`)(
+  const fetch = new Function('isStaticMode', 'buildStateFeedRequestParams', 'getKeyConfig', 'apiFetch', 'parseRss', 'parseJson', 'gdacsMachineMime', `${source}; return fetchFeed;`)(
     () => false, () => ({}), () => ({}),
     async () => ({ status: 200, json: async () => ({ httpStatus: 200, fetchedAt: 1_800_000_000_000, body: 'fixture', stale: true, fallback: 'live-cache' }) }),
     () => [], () => []
@@ -413,11 +413,11 @@ test(`multi-feed force lifetime: ${manualMode}/${automaticMode}/${completion}`, 
 const gdacsPublishedFallback = JSON.parse(fs.readFileSync(new URL('./fixtures/monitor/gdacs-published-fallback-metadata.json', import.meta.url)));
 test('GDACS published fallback remains visibly stale despite a fresh build timestamp', async (t) => {
   const source = appSource.slice(appSource.indexOf('async function fetchFeed('), appSource.indexOf('\nfunction getH3Lib('));
-  const payload = { httpStatus: 200, fetchedAt: Date.parse(gdacsPublishedFallback.generatedAt), fallback: gdacsPublishedFallback.fallback, body: 'synthetic fixture body, not retained RSS' };
+  const payload = { httpStatus: 200, fetchedAt: Date.parse(gdacsPublishedFallback.generatedAt), fallback: gdacsPublishedFallback.fallback, contentType: 'application/xml', body: 'synthetic fixture body, not retained RSS' };
   assert.equal(Object.hasOwn(payload, 'stale'), false);
-  const fetch = new Function('isStaticMode', 'buildStateFeedRequestParams', 'getKeyConfig', 'apiFetch', 'parseRss', 'parseJson', `${source}; return fetchFeed;`)(
+  const fetch = new Function('isStaticMode', 'buildStateFeedRequestParams', 'getKeyConfig', 'apiFetch', 'parseRss', 'parseJson', 'gdacsMachineMime', `${source}; return fetchFeed;`)(
     () => false, () => ({}), () => ({}), async () => ({ status: 200, json: async () => payload }),
-    () => [{ title: 'Synthetic item', publishedAt: gdacsPublishedFallback.newestTimestamp }], () => []
+    () => [{ title: 'Synthetic item', publishedAt: gdacsPublishedFallback.newestTimestamp }], () => [], 'application/vnd.tsr.gdacs-updates+json'
   );
   const result = await fetch({ id: 'gdacs-alerts', format: 'rss' });
   assert.equal(result.stale, true); assert.equal(result.error, null); assert.equal(result.reuseBlocked, true);
@@ -433,10 +433,10 @@ test('GDACS static builder explicitly marks live-cache fallback stale without ch
   const source = fs.readFileSync(new URL('../build_static_cache.mjs', import.meta.url), 'utf8');
   const start = source.indexOf('  if (payload.error && isRssFeed) {');
   const end = source.indexOf("\n  if (payload.error && feed.id === 'nasa-firms')", start);
-  const run = new Function('payload','isRssFeed','feed','fetchLiveFallback','isUsableRssSnapshot','seededFeedFallbacks',`return (async()=>{${source.slice(start,end)}})();`);
+  const run = new Function('payload','isRssFeed','feed','fetchLiveFallback','isUsableRssSnapshot','seededFeedFallbacks','fetchGdacsMachinePayload',`return (async()=>{${source.slice(start,end)}})();`);
   const original = { body: 'synthetic preserved XML', fetchedAt: Date.parse(gdacsPublishedFallback.generatedAt) };
   return Promise.all(['gdacs-alerts','bbc-world'].map(async id => {
-    const result = await run({error:'invalid_rss'},true,{id},async()=>original,()=>true,new Map());
+    const result = await run({error:'invalid_rss'},true,{id},async()=>original,()=>true,new Map(),async()=>null);
     assert.equal(result.body,original.body);assert.equal(result.fallback,'live-cache');
     assert.equal(result.stale,id==='gdacs-alerts'?true:undefined);
   }));

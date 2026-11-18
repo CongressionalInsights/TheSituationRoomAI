@@ -263,7 +263,7 @@ function parseMcpText(text) {
   }
 }
 
-async function readMcpResponseText(response) {
+export async function readMcpResponseText(response) {
   const declaredLength = Number(response?.headers?.get('content-length'));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_MCP_RESPONSE_BYTES) {
     const error = new Error('MCP response exceeded the monitor response limit.');
@@ -440,6 +440,7 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000, 
           'Accept': 'application/json, text/event-stream'
         },
         body: JSON.stringify(payload),
+        ...(options.redirect ? { redirect: options.redirect } : {}),
         signal: controller.signal
       });
       let parsed = null;
