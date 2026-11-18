@@ -1,6 +1,8 @@
 // Discovery samples plus stateless LDA page traversal. No credentials or provider URLs in cursors.
 import { createHash } from 'node:crypto';
 export const MONEY_BUDGET = Object.freeze({ requests: 12, pages: 3, deadlineMs: 45000, timeoutMs: 15000 });
+const FEC_EMPLOYER_FIRST_PAGE_TIMEOUT_MS = 25_000;
+const FEC_SAMPLE_EMPLOYER_RESERVE_MS = 20_000;
 // LDA publishes rate limits, not a total request/page limit. Keep only the HTTP
 // response deadline for aggregate sampling; page traversal has no total cap.
 const LDA_INTERVAL_MS = 4100; // Anonymous: 15 requests/minute (lda.gov/api/tos/).
@@ -66,20 +68,32 @@ function context(runtime = {}, intervalMs = 0) {
 
 async function request(ctx, url, options = {}, retry = false, details = {}) {
   // Freeze query, cursor, ordering and body across the single permitted retry.
+  const deadlineMs = details.deadlineMs ?? ctx.budget.deadlineMs;
+  const retryDelayMs = 500;
+  const firstEmployerPage = details.filter === 'contributor_employer' && details.page === 1;
+  const useRemainingBudgetForRetry = details.deadlineMs !== undefined || firstEmployerPage;
+  const canRetry = attempt => attempt === 0 && retry &&
+    (!useRemainingBudgetForRetry || ctx.now() - ctx.started + retryDelayMs < deadlineMs);
   const frozenUrl = String(url);
   const frozenOptions = { ...options, redirect: 'error', headers: { Accept: 'application/json', 'User-Agent': 'SituationRoomMoney/2.0', ...options.headers } };
   for (let attempt = 0; attempt < (retry ? 2 : 1); attempt++) {
     if (ctx.blocked) { recordDiagnostic(ctx, details, 'provider_blocked'); throw new Error(ctx.blocked); }
     if (ctx.requests >= ctx.budget.requests) { recordDiagnostic(ctx, details, 'request_budget'); ctx.stopped = 'request_budget'; throw new Error(ctx.stopped); }
     const delay = ctx.lastRequest === null ? 0 : Math.max(0, ctx.intervalMs - (ctx.now() - ctx.lastRequest));
-    if (ctx.now() - ctx.started + delay >= ctx.budget.deadlineMs) { recordDiagnostic(ctx, details, 'deadline'); ctx.stopped = 'deadline'; throw new Error(ctx.stopped); }
+    if (ctx.now() - ctx.started + delay >= deadlineMs) {
+      recordDiagnostic(ctx, details, 'deadline');
+      if (deadlineMs === ctx.budget.deadlineMs) ctx.stopped = 'deadline';
+      throw new Error('deadline');
+    }
     if (delay) await ctx.sleep(delay);
     ctx.requests++; ctx.lastRequest = ctx.now();
     recordDiagnostic(ctx, details, 'request_start', true, attempt + 1);
     let response;
+    const timeoutMs = firstEmployerPage && attempt === 0
+      ? FEC_EMPLOYER_FIRST_PAGE_TIMEOUT_MS : ctx.budget.timeoutMs;
     try {
       response = await ctx.fetch(frozenUrl, { ...frozenOptions,
-        signal: AbortSignal.timeout(Math.max(1, Math.min(ctx.budget.timeoutMs, ctx.budget.deadlineMs - (ctx.now() - ctx.started)))) });
+        signal: AbortSignal.timeout(Math.max(1, Math.min(timeoutMs, deadlineMs - (ctx.now() - ctx.started)))) });
       annotateDiagnostic(ctx, { httpStatus: Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null });
       if (response.ok) {
         const data = await response.json();
@@ -88,8 +102,8 @@ async function request(ctx, url, options = {}, retry = false, details = {}) {
       }
     } catch (error) {
       annotateDiagnostic(ctx, { branch: response?.ok ? 'decode_exception' : 'fetch_exception', exceptionCategory: exceptionCategory(error) });
-      if (attempt === 0 && retry && ['TimeoutError', 'AbortError', 'TypeError'].includes(error?.name)) {
-        await ctx.sleep(500); continue;
+      if (canRetry(attempt) && ['TimeoutError', 'AbortError', 'TypeError'].includes(error?.name)) {
+        await ctx.sleep(retryDelayMs); continue;
       }
       throw new Error(error instanceof SyntaxError ? 'invalid_json' : 'fetch_failed');
     }
@@ -103,7 +117,7 @@ async function request(ctx, url, options = {}, retry = false, details = {}) {
     }
     if ([401, 403, 429].includes(status)) ctx.blocked = `HTTP ${status}`;
     await response.body?.cancel();
-    if (attempt === 0 && retry && [502, 503, 504].includes(status)) { await ctx.sleep(500); continue; }
+    if (canRetry(attempt) && [502, 503, 504].includes(status)) { await ctx.sleep(retryDelayMs); continue; }
     throw new Error(`HTTP ${status}`);
   }
 }
@@ -257,11 +271,20 @@ export async function acquireFec({ terms, range, key, runtime }) {
     const filters = /^C\d{8}$/i.test(term) ? ['contributor_id', 'committee_id'] : ['contributor_name', 'contributor_employer'];
     return { cycle: cycles[Math.floor(index / (terms.length * 2))], term, filter: filters[index % 2] };
   });
+  let employerWindowReserved = false;
   const result = await searches(ctx, specs, ({ cycle, term, filter }) => {
+    const diagnostic = { filter, year: cycle };
+    // Bound the first named-donor search so its sibling employer filter gets
+    // an attempt within the same source budget. Keep any acquired donor rows.
+    if (filter === 'contributor_name' && !employerWindowReserved) {
+      const reserveMs = Math.min(FEC_SAMPLE_EMPLOYER_RESERVE_MS, Math.floor(ctx.budget.deadlineMs / 2));
+      diagnostic.deadlineMs = ctx.budget.deadlineMs - reserveMs;
+      employerWindowReserved = true;
+    }
     const base = new URL('https://api.open.fec.gov/v1/schedules/schedule_a/');
     base.search = new URLSearchParams({ api_key: key || 'DEMO_KEY', per_page: '100', sort: '-contribution_receipt_date',
       min_date: range.startIso, max_date: range.endIso, two_year_transaction_period: String(cycle), [filter]: term, sort_hide_null: 'false' });
-    return pages(ctx, {}, { retry: true, rows: (d) => d.results, diagnostic: { filter, year: cycle },
+    return pages(ctx, {}, { retry: true, rows: (d) => d.results, diagnostic,
       options: (cursor) => { const url = new URL(base); for (const [k, v] of Object.entries(cursor)) url.searchParams.set(k, String(v)); return { url: url.toString(), init: {} }; },
       next: (d, cursor, batch) => {
         if (!d.pagination || typeof d.pagination !== 'object') throw new Error('missing_pagination');
