@@ -91,3 +91,18 @@ test('State advisory catalog uses the RSS directory’s officially listed adviso
   assert.equal(feeds.find(x => x.id === 'state-travel-advisories').url, 'https://travel.state.gov/_res/rss/TAsTWs.xml');
   assert.equal(entriesById['state-travel-advisories'].freshnessWindowMinutes, 720);
 });
+
+test('RSS freshness excludes channel generation dates in RSS and Atom', () => {
+  const feed = entriesById['state-travel-advisories'];
+  const cases = [
+    ['<rss><channel><pubDate>Wed, 18 Nov 2026 16:00:02 GMT</pubDate><item><title>Advisory</title><pubDate>Fri, 23 Oct 2026 00:00:00 GMT</pubDate></item></channel></rss>',
+      Date.parse('2026-10-23T00:00:00Z')],
+    ['<feed><updated>2026-11-18T16:00:02Z</updated><entry><title>Advisory</title><updated>2026-10-23T15:00:00Z</updated></entry></feed>',
+      Date.parse('2026-10-23T15:00:00Z')],
+    ['<rss><channel><pubDate>Wed, 18 Nov 2026 16:00:02 GMT</pubDate></channel></rss>', null],
+    ['<rss><channel><pubDate>Wed, 18 Nov 2026 16:00:02 GMT</pubDate><item><title>Undated</title></item></channel></rss>', null]
+  ];
+  for(const [body,expected] of cases){
+    assert.equal(summarizeProxyPayload(feed,{body}).newestTimestamp,expected);
+  }
+});
