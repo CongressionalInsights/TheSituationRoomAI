@@ -130,11 +130,12 @@ function parseRssSummary(xml = '') {
   for (const match of titles) {
     identifiers.push(match[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim());
   }
-  const dateMatches = [
-    ...xml.matchAll(/<(?:pubDate|updated|published|dc:date)[^>]*>([\s\S]*?)<\/(?:pubDate|updated|published|dc:date)>/gi)
-  ];
+  // Channel generation is distinct from the publication/update time of an observation.
+  const entries = xml.matchAll(/<(item|entry)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi);
+  const dateMatches = Array.from(entries).flatMap(([, , entry]) =>
+    Array.from(entry.matchAll(/<(pubDate|updated|published|dc:date)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi), match => match[2]));
   const newestTimestamp = dateMatches
-    .map((match) => coerceTimestamp(match[1]))
+    .map(coerceTimestamp)
     .filter(Boolean)
     .sort((a, b) => b - a)[0] || null;
   return {
