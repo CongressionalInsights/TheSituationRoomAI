@@ -468,7 +468,7 @@
       "name": "Polymarket Markets (Gamma)",
       "category": "prediction",
       "format": "json",
-      "url": "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=60&order=volume24hr",
+      "url": "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=60&order=volume24hr&ascending=false",
       "ttlMinutes": 10,
       "tags": [
         "prediction",
@@ -605,7 +605,7 @@
       "category": "travel",
       "format": "rss",
       "proxy": "allorigins",
-      "url": "https://travel.state.gov/_res/rss/TAs.xml",
+      "url": "https://travel.state.gov/_res/rss/TAsTWs.xml",
       "ttlMinutes": 240,
       "tags": [
         "global",

@@ -4186,7 +4186,7 @@ for (const failure of ['403', 'transport', 'timeout']) {
       typedMonitorFeeds.find((feed) => feed.id === 'bls-cpi'),
       typedMonitorOverrides['bls-cpi']
     );
-    const url = 'https://www.bls.gov/developers/';
+    const url = 'https://blsmon1.bls.gov/developers/api_signature_v2.htm';
     assert.equal(entry.docsUrl, url);
     assert.equal(entry.supportUrl, null);
     const requests = [];
@@ -4367,13 +4367,13 @@ test('provider documentation watches use official contract markers instead of re
       'circulating_supply',
       'quotes'
     ],
-    'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': [
-      'MedWatch RSS Feed',
-      'http://www.fda.gov/AboutFDA/ContactFDA/StayInformed/RSSFeeds/MedWatch/rss.xml'
+    'docs:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/subscribe-medwatch-safety-alerts': [
+      'Subscribe to MedWatch',
+      'MedWatch RSS Feed'
     ],
-    'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed': [
-      'MedWatch RSS Feed',
-      'http://www.fda.gov/AboutFDA/ContactFDA/StayInformed/RSSFeeds/MedWatch/rss.xml'
+    'support:https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program': [
+      'MedWatch',
+      'Reporting Serious Problems'
     ],
     'docs:https://firms.modaps.eosdis.nasa.gov/api/': [
       'area Fire detection hotspots based on area, date and sensor in CSV format',

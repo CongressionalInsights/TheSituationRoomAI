@@ -2139,9 +2139,7 @@ async function fetchRawUncached(feed, options) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'
         || feed.id === 'federal-register-ed'
-        || feed.id === 'fda-medwatch'
-        || feed.id === 'gdelt-doc'
-        || feed.id === 'transport-opensky';
+        || feed.id === 'fda-medwatch';
       console.log(JSON.stringify({
         event: 'mcp_raw_fetch',
         feedId: feed.id,

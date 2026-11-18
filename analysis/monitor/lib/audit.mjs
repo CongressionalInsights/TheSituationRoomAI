@@ -1,4 +1,4 @@
-import { gdacsMachineMime, parseGdacsMachineBody } from '../../../gcp/mcp-proxy/gdacs-machine.js';
+import { gdacsMachineFallback, gdacsMachineMime, parseGdacsMachineBody, sourceUrl as gdacsMachineUrl } from '../../../gcp/mcp-proxy/gdacs-machine.js';
 import {
   callCongressDetail,
   callFeedProxy,
@@ -12,7 +12,7 @@ import { readGdacsPrimaryFailureDiagnostic } from '../../../gcp/feed-proxy/firms
 import { createAlert, applyKnownUpstreamQuirks, dedupeAlerts } from './reporting.mjs';
 import { summarizeCpiPublication } from './cpi_cadence.mjs';
 import { createHash } from 'node:crypto';
-import { isTypedSeriesFeed, normalizeTypedSeriesSignals, parseObservationPeriod } from '../../../gcp/mcp-proxy/signal-normalization.js';
+import { isTypedSeriesFeed, normalizeTypedSeriesSignals, parseGdeltSeenTime, parseObservationPeriod } from '../../../gcp/mcp-proxy/signal-normalization.js';
 
 const PRIMARY_ARRAY_PATHS = [
   ['items'],
@@ -40,7 +40,9 @@ const PRIMARY_ARRAY_PATHS = [
   ['nominations'],
   ['treaties'],
   ['amendments'],
-  ['houseVotes']
+  ['houseVotes'],
+  ['houseRollCallVotes'],
+  ['articles']
 ];
 
 const SKIPPABLE_ERRORS = new Set(['requires_config']);
@@ -272,7 +274,9 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
       stale: Boolean(payload.stale), fetchedAt: payload.fetchedAt || null, fallback: payload.fallback || null,
       primaryFailure: readGdacsPrimaryFailureDiagnostic(payload.primaryFailure), contentType: payload.contentType,
       rawItemCount: updates?.items.length ?? 0, newestTimestamp: updates?.newestUpdateAt ?? null,
-      identifiers: [], sampleItems: [], timeSemantics: 'updated', coverage: updates?.coverage ?? null
+      identifiers: [], sampleItems: [], timeSemantics: 'updated', coverage: updates?.coverage ?? null,
+      directMachineFallback: Boolean(updates && payload.fallbackUsed === true && !payload.proxyUsed
+        && payload.fallback === gdacsMachineFallback && payload.fetchedUrl === gdacsMachineUrl)
     };
   }
   if (feed.format === 'rss') {
@@ -315,7 +319,10 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
   const typed = isTypedSeriesFeed(feed);
   const items = body ? (typed ? normalizeTypedSeriesSignals(body, feed) : findPrimaryItems(body)) : [];
   const newestTimestamp = items
-    .map((item) => typed ? item.publishedAt : extractTimestamp(item))
+    .map(item => typed ? item.publishedAt : feed.id === 'gdelt-doc' ? parseGdeltSeenTime(item.seendate)
+      : feed.id === 'polymarket-markets' ? coerceTimestamp(item.updatedAt ?? item.updated_at)
+        : feed.id === 'congress-house-votes' ? coerceTimestamp(item.updateDate) ?? coerceTimestamp(item.startDate)
+        : extractTimestamp(item))
     .filter((stamp) => typed ? stamp !== null : Boolean(stamp))
     .sort((a, b) => b - a)[0] ?? null;
   const identifiers = items
@@ -354,7 +361,7 @@ function summarizeMcpRaw(feed, result) {
     message: payload.message || result?.message || null,
     primaryFailure: payload.primaryFailure
   };
-  const summary = summarizeProxyPayload(feed, rawWrapper, result || {});
+  const summary = result?.gdacsVerification ?? summarizeProxyPayload(feed, rawWrapper, result || {});
   summary.fetchedUrl = payload.fetchedUrl || null;
   if (summary.fetchedUrl) {
     summary.fetchedUrl = sanitizeObservedUrl(summary.fetchedUrl);
@@ -381,7 +388,9 @@ export function summarizeSignals(result, feed) {
     newestTimestamp: items
       .map(item => feed?.id === 'gdacs-alerts' && item?.timeSemantics === 'updated'
         ? typedSignalTimestamp(item.updatedAt)
-        : isTypedSeriesFeed(feed) ? typedSignalTimestamp(item?.publishedAt) : extractTimestamp(item))
+        : feed?.id === 'gdelt-doc' ? typedSignalTimestamp(item?.seenAt)
+          : feed?.id === 'polymarket-markets' ? typedSignalTimestamp(item?.updatedAt)
+          : isTypedSeriesFeed(feed) ? typedSignalTimestamp(item?.publishedAt) : extractTimestamp(item))
       .filter((stamp) => isTypedSeriesFeed(feed) ? stamp !== null : Boolean(stamp))
       .sort((a, b) => b - a)[0] ?? null,
     identifiers: items
@@ -697,7 +706,15 @@ export function evaluateInvariant(name, context) {
         }
       } else {
         newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp
-          || (entry.id === 'gdacs-alerts' ? null : payloadSummary?.fetchedAt);
+          || (['gdacs-alerts', 'gdelt-doc', 'polymarket-markets'].includes(entry.id) ? null : payloadSummary?.fetchedAt);
+        if (['gdelt-doc', 'polymarket-markets'].includes(entry.id) && !newest && signalSummary.count) {
+          return createAlert({
+            feedId: entry.id, regressionClass: 'observation-freshness-unknown', severity: 'info',
+            message: entry.id === 'gdelt-doc' ? 'GDELT returned articles without valid provider seen times.'
+              : 'Polymarket returned markets without valid provider update times.',
+            metadata: { identity: 'observation-freshness' }
+          });
+        }
       }
       if (isTypedSeriesFeed(entry) ? newest === null || newest === undefined || newest === '' : !newest) return null;
       const ageMinutes = (Date.now() - newest) / (1000 * 60);
@@ -933,7 +950,7 @@ export function evaluateInvariant(name, context) {
 }
 
 function shouldCompareStatic(entry) {
-  return entry.tier === 'core' && !entry.requiresConfig;
+  return (entry.tier === 'core' || entry.id === 'gdacs-alerts') && !entry.requiresConfig;
 }
 
 export function getRawFetchFormat(format) {
@@ -969,7 +986,10 @@ export async function auditEntry(entry, options) {
     ...(query ? { query } : {}),
     ...(Object.keys(params).length ? { params } : {}),
     format: rawFormat
-  }, timeoutMs);
+  }, timeoutMs, entry.id === 'gdacs-alerts' ? {
+    inspectGdacsRaw: payload => payload?.contentType === gdacsMachineMime
+      ? summarizeProxyPayload(entry, payload, { status: 200 }) : null
+  } : {});
   const rawSummary = summarizeMcpRaw(entry, rawResult);
 
   const signalResult = await callMcpTool(options.mcp, 'signals.list', {
@@ -1018,13 +1038,19 @@ export async function auditEntry(entry, options) {
     if (alert) alerts.push(alert);
   }
 
-  if (proxySummary.stale) {
+  const gdacsMachineFallbackUsed = entry.id === 'gdacs-alerts' && proxySummary.directMachineFallback;
+  const gdacsUpdateAgeMs = gdacsMachineFallbackUsed && proxySummary.newestTimestamp
+    ? Date.now() - proxySummary.newestTimestamp : NaN;
+  const gdacsCurrentUpdates = gdacsUpdateAgeMs >= 0 && gdacsUpdateAgeMs <= entry.freshnessWindowMinutes * 60_000;
+  if (proxySummary.stale || gdacsCurrentUpdates) {
     alerts.push(createAlert({
       feedId: entry.id,
-      regressionClass: 'feed-stale',
+      regressionClass: gdacsCurrentUpdates ? 'primary-feed-degraded' : 'feed-stale',
       severity: 'warning',
-      message: 'Feed proxy returned stale data.',
-      metadata: { identity: 'stale' }
+      message: gdacsCurrentUpdates
+        ? 'GDACS RSS primary is degraded. The official recent-event fallback supplies current updates.'
+        : 'Feed proxy returned stale data.',
+      metadata: { identity: gdacsCurrentUpdates ? 'gdacs-rss-primary' : 'stale' }
     }));
   }
   if (proxySummary.fallback || rawSummary.fallbackUsed || signalSummary.fallbackUsed) {
@@ -1032,7 +1058,9 @@ export async function auditEntry(entry, options) {
       feedId: entry.id,
       regressionClass: 'fallback-engaged',
       severity: 'warning',
-      message: 'Fallback data path was used for this feed.',
+      message: gdacsMachineFallbackUsed
+        ? 'The GDACS recent-event API was used. Coverage is limited to the four-day product and up to 100 events.'
+        : 'Fallback data path was used for this feed.',
       metadata: { identity: 'fallback' }
     }));
   }
