@@ -778,7 +778,7 @@ export function parseGenericJsonFeed(data, feed) {
     );
     const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
     // HMS YearDay/Time semantics are not admitted; never replace unknown time with retrieval time.
-    const publishedAt = (feed?.id === 'arcgis-hms-fire' ? parseFirstValidTimestampOrNull : parseFirstValidTimestamp)(
+    const publishedAt = (['arcgis-hms-fire', 'polymarket-markets'].includes(feed?.id) ? parseFirstValidTimestampOrNull : parseFirstValidTimestamp)(
       entry.publishedAt,
       entry.published_at,
       properties.time,
@@ -840,6 +840,7 @@ export function parseGenericJsonFeed(data, feed) {
       url,
       summary: finalSummary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      ...(feed?.id === 'polymarket-markets' ? { updatedAt: parseFirstValidTimestampOrNull(entry.updatedAt, entry.updated_at) } : {}),
       source: entry.source || feed.name,
       category: feed.category,
       geo,

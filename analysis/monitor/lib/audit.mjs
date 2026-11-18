@@ -320,7 +320,8 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
   const items = body ? (typed ? normalizeTypedSeriesSignals(body, feed) : findPrimaryItems(body)) : [];
   const newestTimestamp = items
     .map(item => typed ? item.publishedAt : feed.id === 'gdelt-doc' ? parseGdeltSeenTime(item.seendate)
-      : feed.id === 'congress-house-votes' ? coerceTimestamp(item.updateDate) ?? coerceTimestamp(item.startDate)
+      : feed.id === 'polymarket-markets' ? coerceTimestamp(item.updatedAt ?? item.updated_at)
+        : feed.id === 'congress-house-votes' ? coerceTimestamp(item.updateDate) ?? coerceTimestamp(item.startDate)
         : extractTimestamp(item))
     .filter((stamp) => typed ? stamp !== null : Boolean(stamp))
     .sort((a, b) => b - a)[0] ?? null;
@@ -388,6 +389,7 @@ export function summarizeSignals(result, feed) {
       .map(item => feed?.id === 'gdacs-alerts' && item?.timeSemantics === 'updated'
         ? typedSignalTimestamp(item.updatedAt)
         : feed?.id === 'gdelt-doc' ? typedSignalTimestamp(item?.seenAt)
+          : feed?.id === 'polymarket-markets' ? typedSignalTimestamp(item?.updatedAt)
           : isTypedSeriesFeed(feed) ? typedSignalTimestamp(item?.publishedAt) : extractTimestamp(item))
       .filter((stamp) => isTypedSeriesFeed(feed) ? stamp !== null : Boolean(stamp))
       .sort((a, b) => b - a)[0] ?? null,
@@ -704,11 +706,12 @@ export function evaluateInvariant(name, context) {
         }
       } else {
         newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp
-          || (['gdacs-alerts', 'gdelt-doc'].includes(entry.id) ? null : payloadSummary?.fetchedAt);
-        if (entry.id === 'gdelt-doc' && !newest && signalSummary.count) {
+          || (['gdacs-alerts', 'gdelt-doc', 'polymarket-markets'].includes(entry.id) ? null : payloadSummary?.fetchedAt);
+        if (['gdelt-doc', 'polymarket-markets'].includes(entry.id) && !newest && signalSummary.count) {
           return createAlert({
             feedId: entry.id, regressionClass: 'observation-freshness-unknown', severity: 'info',
-            message: 'GDELT returned articles without valid provider seen times.',
+            message: entry.id === 'gdelt-doc' ? 'GDELT returned articles without valid provider seen times.'
+              : 'Polymarket returned markets without valid provider update times.',
             metadata: { identity: 'observation-freshness' }
           });
         }

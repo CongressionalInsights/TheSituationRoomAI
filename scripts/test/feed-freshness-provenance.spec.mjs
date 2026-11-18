@@ -68,3 +68,26 @@ test('Congress monitor measures actual houseRollCallVotes records independently 
   assert.equal(report.rawItemCount,2);
   assert.equal(report.newestTimestamp, Date.parse('2025-12-03T17:00:00Z'));
 });
+
+test('Polymarket requests high day volume and measures an explicit provider update separately', () => {
+  const feed = entriesById['polymarket-markets'];
+  const url = new URL(feeds.find(x => x.id === feed.id).url);
+  assert.equal(url.searchParams.get('order'), 'volume24hr');
+  assert.equal(url.searchParams.get('ascending'), 'false');
+  const data = [
+    {title:'Sample market',startDate:'2026-11-11T12:00:00Z',updatedAt:'2026-11-18T15:50:00.000Z'},
+    {title:'Missing dates'}
+  ];
+  const items = normalizeJsonSignals(JSON.stringify(data),feed);
+  assert.equal(items[0].publishedAt,Date.parse(data[0].startDate));
+  assert.equal(items[0].updatedAt,Date.parse(data[0].updatedAt));
+  assert.equal(items[1].publishedAt,null);
+  assert.equal(items[1].updatedAt,null);
+  assert.equal(summarizeProxyPayload(feed,{body:data}).newestTimestamp,items[0].updatedAt);
+  assert.equal(summarizeSignals({data:{items}},feed).newestTimestamp,items[0].updatedAt);
+});
+
+test('State advisory catalog uses the RSS directory’s officially listed advisory route', () => {
+  assert.equal(feeds.find(x => x.id === 'state-travel-advisories').url, 'https://travel.state.gov/_res/rss/TAsTWs.xml');
+  assert.equal(entriesById['state-travel-advisories'].freshnessWindowMinutes, 720);
+});
