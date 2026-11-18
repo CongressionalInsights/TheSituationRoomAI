@@ -78,7 +78,7 @@ test('MCP tools/list preserves retrieval annotations and reviewed declarations',
   // Pin reviewed SDK declarations. Money-flow description and optional mode/cursor inputs expose LDA/FEC traversal; retrieval annotations remain unchanged.
   const declarations = emitted.map(({ annotations, ...tool }) => tool);
   assert.equal(createHash('sha256').update(JSON.stringify(declarations)).digest('hex'),
-    'aaf8104875a3dd67a6d6dd3bfbb3865b8c2c03e3b9443c3c24fdb906409061c4');
+    'c413a1365c2384462b08e64b269bb26b4c9984474e2e69e1e06ee014996d4f89');
   for (const tool of tools) {
     await t.test(tool.name, () => assert.deepEqual(tool.annotations, {
       readOnlyHint: true, destructiveHint: false, openWorldHint: tool.name !== 'catalog.sources'
@@ -2449,7 +2449,7 @@ test('money.flows MCP schema, text and discovery expose bounded FEC continuation
   t.after(async () => { await client.close(); await server.close(); });
   await server.connect(st); await client.connect(ct);
   const listed = (await client.listTools()).tools.find(tool => tool.name === 'money.flows');
-  assert.deepEqual(listed.inputSchema.properties.mode.enum, ['sample', 'lda_pages', 'fec_pages']);
+  assert.deepEqual(listed.inputSchema.properties.mode.enum, ['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages']);
   const first = await client.callTool({ name: 'money.flows', arguments: { query: 'Acme', start: '2025-01-01', end: '2026-11-03', mode: 'fec_pages', limit: 1 } });
   assert.equal(first.structuredContent.items.length, 3); assert.match(first.content[0].text, /FEC batch/);
   const next = first.structuredContent.fecTraversal.next;
@@ -2457,4 +2457,11 @@ test('money.flows MCP schema, text and discovery expose bounded FEC continuation
   assert.equal(second.structuredContent.items[0].sourceId, '4');
   const invalid = await client.callTool({ name: 'money.flows', arguments: { ...next, query: 'Other' } });
   assert.equal(invalid.structuredContent.error, 'invalid_cursor'); assert.equal(requests, 6);
+  const employer = await client.callTool({ name: 'money.flows', arguments: {
+    query: 'Acme', start: '2025-01-01', end: '2026-11-03', mode: 'fec_employer_pages'
+  } });
+  assert.deepEqual(employer.structuredContent.items.map(item => item.sourceId), ['1']);
+  const employerSecond = await client.callTool({ name: 'money.flows', arguments: employer.structuredContent.fecTraversal.next });
+  assert.deepEqual(employerSecond.structuredContent.items.map(item => item.sourceId), ['2']);
+  assert.equal(requests, 8);
 });

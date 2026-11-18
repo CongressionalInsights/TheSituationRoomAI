@@ -518,20 +518,26 @@ function summarizeMoneyTop(items) {
 }
 
 export async function fetchMoneyFlows({ query, start, end, limit, matchMode, minScore, entities, mode = 'sample', cursor }, runtime = {}) {
-  if (!['sample', 'lda_pages', 'fec_pages'].includes(mode) || (cursor && mode === 'sample')) return { error: 'invalid_mode', message: 'Use the matching lda_pages or fec_pages mode for cursors.' };
+  if (!['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages'].includes(mode) || (cursor && mode === 'sample')) return { error: 'invalid_mode', message: 'Use the matching continuation mode for cursors.' };
   if (!query) {
     return { error: 'missing_query', message: 'Query parameter q is required.' };
   }
   if ((start && !parseDateParam(start)) || (end && !parseDateParam(end))) return { error: 'invalid_range', message: 'Dates must be valid.' };
   const safeLimit = Math.min(MONEY_FLOW_MAX_LIMIT, Math.max(1, Math.floor(Number(limit) || 60)));
-  const ldaPageMode = mode === 'lda_pages', fecPageMode = mode === 'fec_pages';
+  const employerPageMode = mode === 'fec_employer_pages';
+  const ldaPageMode = mode === 'lda_pages', fecPageMode = mode === 'fec_pages' || employerPageMode;
   const pageMode = ldaPageMode || fecPageMode;
   const range = resolveMoneyFlowRange(start, end, MONEY_FLOW_DEFAULT_DAYS, !pageMode);
   if (range.startDate > range.endDate) return { error: 'invalid_range', message: 'Start must be on or before end.' };
   const queryProfile = buildMoneyQueryProfile(query, { matchMode, minScore, entities });
+  const hasEmployerFilters = queryProfile.searchTerms.some(term => !/^C\d{8}$/i.test(term));
+  if (employerPageMode && !hasEmployerFilters) {
+    return { error: 'invalid_mode', message: 'Employer traversal requires a name query.' };
+  }
   const queryVariants = pageMode ? queryProfile.searchTerms : queryProfile.searchTerms.slice(0, MONEY_QUERY_VARIANT_LIMIT);
   const binding = createHash('sha256').update(JSON.stringify([range.startIso, range.endIso, queryProfile])).digest('hex');
   const fecBinding = createHash('sha256').update(JSON.stringify([range.startIso, range.endIso, queryProfile, FEC_TRAVERSAL_ORDER])).digest('hex');
+  const employerBinding = createHash('sha256').update(JSON.stringify([fecBinding, 'fec_employer_pages'])).digest('hex');
   const nextArgs = { query, start: range.startIso, end: range.endIso, mode: 'lda_pages' };
   nextArgs.matchMode = queryProfile.matchMode;
   if (queryProfile.minScoreOverride) nextArgs.minScore = Number(minScore);
@@ -552,7 +558,8 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
   let acquired;
   if (pageMode) {
     const page = fecPageMode
-      ? await acquireFecPages({ terms: queryVariants, range, binding: fecBinding, cursor, key: process.env.DATA_GOV, runtime })
+      ? await acquireFecPages({ terms: queryVariants, range, binding: employerPageMode ? employerBinding : fecBinding,
+          cursor, key: process.env.DATA_GOV, runtime, employerOnly: employerPageMode })
       : await acquireLdaPage({ terms: queryVariants, range, binding, cursor, runtime });
     if (page.invalidCursor) return { error: 'invalid_cursor', message: 'Cursor is invalid or its source, query, date window, aliases, matching or ordering changed. Restart the matching traversal explicitly.' };
     acquired = Object.fromEntries(['lda', 'ldaContributions', 'fec', 'usaspending', 'sam'].map((name) => [name, {
@@ -573,6 +580,14 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
     results.fecTraversal = { complete: false, startsFromBeginning: true,
       note: 'Start FEC traversal from the beginning; a ranked sample cannot acknowledge omitted rows. Deduplicate receipt identity and observation hash across replayed batches.',
       next: { ...nextArgs, mode: 'fec_pages', cursor: startFecCursor(fecBinding, acquired.fec.coverage.nextRequestAt || 0, acquired.fec.retryAt ? Date.parse(acquired.fec.retryAt) : null) } };
+    const fecRetryAt = acquired.fec.retryAt ? Date.parse(acquired.fec.retryAt) : null;
+    const fecRefused = acquired.fec.coverage.reasons.some(reason => ['HTTP 401', 'HTTP 403'].includes(reason)
+      || (reason === 'HTTP 429' && !fecRetryAt));
+    if (hasEmployerFilters && !fecRefused) {
+      results.fecEmployerTraversal = { startsFromBeginning: true, retryAt: acquired.fec.retryAt || null,
+        next: { ...nextArgs, mode: 'fec_employer_pages',
+          cursor: startFecCursor(employerBinding, acquired.fec.coverage.nextRequestAt || 0, fecRetryAt) } };
+    }
   }
   for (const [source, result] of Object.entries(acquired)) {
     results.sources[source] = { count: result.items.length, countBasis: 'acquired_rows_before_deduplication_and_matching', error: result.error, coverage: result.coverage, retryAfterSeconds: result.retryAfterSeconds ?? null, retryAt: result.retryAt ?? null };
@@ -834,7 +849,9 @@ export async function fetchMoneyFlows({ query, start, end, limit, matchMode, min
     outputTruncated: !pageMode && matchedItems.length > safeLimit,
     matchedItems: matchedItems.length, returnedItems: results.items.length,
     queryVariantsTruncated: queryProfile.searchTerms.length > queryVariants.length,
-    note: fecPageMode ? 'All matching observations acquired in this bounded FEC batch; limit is ignored. Exact duplicates with known native identity are collapsed; changed versions remain visible with observationHash. Unidentified occurrences remain separate; hash alone cannot reconcile them across batches. Subtotals include the first matching observed version per identity within this batch (excluding memos), never a reconciled ledger. Follow fecTraversal.next until complete; blocked guards require explicit reconciliation/restart. Persist rows with progress and deduplicate source/sourceId/version/hash across batches or overlapping restarts. Completion covers frozen filters, not a historical snapshot. Run-history recovery is best-effort, not durable acknowledgment.' : pageMode ? 'All matching normalized rows from one LDA provider page, including all relevant LD-203 children; limit is not applied. Follow ldaTraversal.next until complete. Deduplicate by source/sourceId across pages and prior samples. Completion covers requested filters, not a historical snapshot or net ledger. Subtotals cover this response only.' : 'Ranked discovery sample. Subtotals cover returned rows only, not source-wide or net totals. Source completeness applies only to executed filters. LDA covers filing years; SAM is current identity data.'
+    note: employerPageMode
+      ? 'One employer page. Match and subtotal rules apply to this batch only. Follow fecTraversal.next and deduplicate native receipt identities across requests. Employer affiliation is not a donation by the employer.'
+      : fecPageMode ? 'All matching observations acquired in this bounded FEC batch; limit is ignored. Exact duplicates with known native identity are collapsed; changed versions remain visible with observationHash. Unidentified occurrences remain separate; hash alone cannot reconcile them across batches. Subtotals include the first matching observed version per identity within this batch (excluding memos), never a reconciled ledger. Follow fecTraversal.next until complete; blocked guards require explicit reconciliation/restart. Persist rows with progress and deduplicate source/sourceId/version/hash across batches or overlapping restarts. Completion covers frozen filters, not a historical snapshot. Run-history recovery is best-effort, not durable acknowledgment.' : pageMode ? 'All matching normalized rows from one LDA provider page, including all relevant LD-203 children; limit is not applied. Follow ldaTraversal.next until complete. Deduplicate by source/sourceId across pages and prior samples. Completion covers requested filters, not a historical snapshot or net ledger. Subtotals cover this response only.' : 'Ranked discovery sample. Subtotals cover returned rows only, not source-wide or net totals. Source completeness applies only to executed filters. LDA covers filing years; SAM is current identity data.'
   };
   for (const [source, info] of Object.entries(results.sources)) {
     info.returnedCount = results.items.filter((item) => source === 'ldaContributions' ? item.type === 'Lobbying Contribution' : source === 'lda' ? item.type === 'Lobbying Filing' : item.source === ({ fec: 'OpenFEC', usaspending: 'USAspending', sam: 'SAM.gov' })[source]).length;
