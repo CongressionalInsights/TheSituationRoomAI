@@ -482,7 +482,7 @@
   },
   "bls-cpi": {
     "tier": "core",
-    "docsUrl": "https://www.bls.gov/developers/",
+    "docsUrl": "https://blsmon1.bls.gov/developers/api_signature_v2.htm",
     "changelogUrl": null,
     "statusUrl": null,
     "supportUrl": null,
@@ -543,10 +543,10 @@
   },
   "fda-medwatch": {
     "tier": "standard",
-    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed",
+    "docsUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/subscribe-medwatch-safety-alerts",
     "changelogUrl": null,
     "statusUrl": null,
-    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed",
+    "supportUrl": "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program",
     "timeoutMs": 60000,
     "freshnessWindowMinutes": 4320,
     "sampleParams": {},
@@ -559,15 +559,15 @@
     "knownUpstreamQuirks": [],
     "requiredSurfaceMarkers": {
       "docs": {
-        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed": [
-          "MedWatch RSS Feed",
-          "http://www.fda.gov/AboutFDA/ContactFDA/StayInformed/RSSFeeds/MedWatch/rss.xml"
+        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/subscribe-medwatch-safety-alerts": [
+          "Subscribe to MedWatch",
+          "MedWatch RSS Feed"
         ]
       },
       "support": {
-        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program/medwatch-rss-feed": [
-          "MedWatch RSS Feed",
-          "http://www.fda.gov/AboutFDA/ContactFDA/StayInformed/RSSFeeds/MedWatch/rss.xml"
+        "https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program": [
+          "MedWatch",
+          "Reporting Serious Problems"
         ]
       }
     }
