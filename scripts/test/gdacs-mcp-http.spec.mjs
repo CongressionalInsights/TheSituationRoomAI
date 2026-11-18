@@ -1,0 +1,60 @@
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import fs from 'node:fs';
+import test from 'node:test';
+import { httpServer } from '../../gcp/mcp-proxy/server.js';
+import { sourceUrl } from '../../gcp/mcp-proxy/gdacs-machine.js';
+import { callMcpTool } from '../../analysis/monitor/lib/client.mjs';
+import { verifyGdacsCandidate } from '../verify_gdacs_candidate.mjs';
+
+test('GDACS release smoke verifies original event identities without exposing them in monitor output', async t => {
+  const now = Date.parse('2026-11-18T03:20:00Z');
+  const saved = process.env.TSR_GDACS_SAVED_BODY;
+  const fixture = saved ? JSON.parse(fs.readFileSync(saved)) : {
+    type: 'FeatureCollection',
+    features: [{type: 'Feature', geometry: {type: 'Point', coordinates: [20, 10]}, properties: {
+      eventname: 'Fixture earthquake', alertlevel: 'Green', eventtype: 'EQ', eventid: 123, episodeid: 456, source: 'Fixture agency',
+      datemodified: '2026-11-18T02:42:22', fromdate: '2026-11-18T01:42:22', todate: '2026-11-18T01:42:22',
+      url: {report: 'https://www.gdacs.org/report.aspx?eventtype=EQ&eventid=123&episodeid=456'}
+    }}]
+  };
+  t.mock.timers.enable({ apis: ['Date'], now });
+  httpServer.listen(0, '127.0.0.1');
+  await once(httpServer, 'listening');
+  t.after(() => new Promise(resolve => httpServer.close(resolve)));
+  const endpoint = 'http://127.0.0.1:' + httpServer.address().port + '/mcp';
+  const nativeFetch = globalThis.fetch;
+  let attempts = 0;
+  t.mock.method(globalThis, 'fetch', (url, options) => {
+    if (String(url) === endpoint) return nativeFetch(url, options);
+    if (String(url) === sourceUrl) {
+      attempts++;
+      return Promise.resolve(Response.json(fixture));
+    }
+    return Promise.resolve(new Response('<html>Fixture denied</html>', { headers: { 'content-type': 'text/html' } }));
+  });
+  const tools = [];
+  let rawProof;
+  const proof = await verifyGdacsCandidate('mcp', 'https://gha-100-1---situation-room-mcp-xtas2c6vka-uc.a.run.app', {
+    now: () => now,
+    callTool: async (_target, name, args, timeout, options) => {
+      const result = await callMcpTool(endpoint, name, args, timeout, options);
+      assert.equal(result.ok, true);
+      tools.push(name);
+      if (name === 'raw.fetch') {
+        assert.match(result.data.body, /eventid=REDACTED/);
+        assert.match(result.data.data.items[0].url, /eventid=REDACTED/);
+        rawProof = result.gdacsVerification;
+      }
+      return result;
+    }
+  });
+  assert.deepEqual(tools, ['raw.fetch', 'signals.list']);
+  assert.equal(proof.status, 'machine_fallback_verified');
+  assert.equal(rawProof?.count, fixture.features.length);
+  assert.doesNotMatch(JSON.stringify(rawProof), /eventid|episodeid|report\.aspx/);
+  assert.equal(proof.count, fixture.features.length);
+  assert.equal(proof.signalsCount, Math.min(25, fixture.features.length));
+  assert.equal(proof.newestAt, Date.parse('2026-11-18T02:42:22Z'));
+  assert.equal(attempts, 2);
+});

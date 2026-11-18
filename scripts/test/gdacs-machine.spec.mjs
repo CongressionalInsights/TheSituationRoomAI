@@ -76,14 +76,26 @@ test('GDACS Feed and Pages fetching and browser mapping preserve distinct covera
     let requests = 0;
     const context = {
       gdacsMachineMime, parseGdacsMachineBody,
-      fetchGdacsMachinePayload: () => fetchGdacsMachinePayload({ now: () => now,
-        fetchImpl: async () => { requests++; return mode === 'machine' ? machineResponse() : new Response(null, { status: 503 }); } }),
+      fetchGdacsMachinePayload: (options) => {
+        assert.ok(options && typeof options === 'object', 'GDACS fallback must pass an options object');
+        return fetchGdacsMachinePayload({
+          ...options, now: () => now,
+          fetchImpl: async () => {
+            requests++;
+            return mode === 'machine' || mode === 'rss-error'
+              ? machineResponse() : new Response(null, { status: 503 });
+          }
+        });
+      },
       cache: new Map(), seededFeedFallbacks: new Map(), SEEDED_JSON_FALLBACK_IDS: new Set(),
       appConfig: feeds.app, FETCH_TIMEOUT_MS: 20000, TIMEOUT_MS: 20000, URL, Date,
-      fetchRssWithFallbacks: async () => ({
-        response: { ok: true, status: 200 }, valid: mode === 'rss',
-        body: mode === 'rss' ? cachedRss.body : '<html>blocked</html>', contentType: mode === 'rss' ? 'application/xml' : 'text/html'
-      }),
+      fetchRssWithFallbacks: async () => {
+        if (mode === 'rss-error') throw new Error('RSS transport failed');
+        return {
+          response: { ok: true, status: 200 }, valid: mode === 'rss',
+          body: mode === 'rss' ? cachedRss.body : '<html>blocked</html>', contentType: mode === 'rss' ? 'application/xml' : 'text/html'
+        };
+      },
       fetchLiveFallback: async () => cachedRss, isUsableRssSnapshot: () => true,
       buildGdacsPrimaryFailureDiagnostic, console: { warn() {} },
       isDefaultOpenAqRequest: () => false, isStateConnectorFeed: () => false, isEiaFeed: () => false,
@@ -101,6 +113,11 @@ test('GDACS Feed and Pages fetching and browser mapping preserve distinct covera
     const payload = await acquire(feed, { force: true });
     assert.equal(payload.contentType, gdacsMachineMime);
     assert.equal(verifyGdacsEnvelope(payload, surface, now).status, 'machine_fallback_verified');
+    if (surface === 'pages') {
+      mode = 'rss-error';
+      const afterTransportFailure = await acquire(feed);
+      assert.equal(verifyGdacsEnvelope(afterTransportFailure, surface, now).status, 'machine_fallback_verified');
+    }
     const browser = extract('../../public/app.js', ['async function fetchFeed('], {
       gdacsMachineMime, parseGdacsMachineBody, URLSearchParams, Date, isStaticMode: () => surface === 'pages',
       buildStateFeedRequestParams: () => ({}), getKeyConfig: () => ({}),
@@ -125,7 +142,7 @@ test('GDACS Feed and Pages fetching and browser mapping preserve distinct covera
     const primary = await acquire(feed, { force: true });
     assert.equal(primary.body, cachedRss.body);
     assert.equal(primary.fallback, undefined);
-    assert.equal(requests, 2, 'successful primary does not call the alternate');
+    assert.equal(requests, surface === 'pages' ? 3 : 2, 'successful primary does not call the alternate');
   }
 });
 
