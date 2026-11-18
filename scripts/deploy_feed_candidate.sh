@@ -125,6 +125,9 @@ curl --fail --silent --show-error --max-time 30 "${CANDIDATE_URL}/health/build" 
 node scripts/verify_feed_release.mjs identity "$DIAG_DIR"
 cp "$DIAG_DIR/identity.json" "$DIAG_DIR/identity-candidate.json"
 node scripts/verify_feed_candidate.mjs "$CANDIDATE_URL" > "$DIAG_DIR/content-candidate.json"
+if [ "${VERIFY_GDACS:-false}" = true ]; then
+  node scripts/verify_gdacs_candidate.mjs feed "$CANDIDATE_URL" > "$DIAG_DIR/gdacs-candidate.json"
+fi
 
 snapshot
 node scripts/verify_feed_release.mjs candidate "$DIAG_DIR"

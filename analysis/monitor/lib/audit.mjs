@@ -1,3 +1,4 @@
+import { gdacsMachineMime, parseGdacsMachineBody } from '../../../gcp/mcp-proxy/gdacs-machine.js';
 import {
   callCongressDetail,
   callFeedProxy,
@@ -264,6 +265,16 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
   const body = redactCredentialFields(bls ? JSON.parse(sanitizeBlsBody(parsed.body)) : parsed.body);
   const { parseError } = parsed;
   const errorMessage = redactCredentialFields(payload?.message || transport.error || null);
+  if (feed.id === 'gdacs-alerts' && payload?.contentType === gdacsMachineMime) {
+    const updates = parseGdacsMachineBody(typeof body === 'string' ? body : JSON.stringify(body));
+    return {
+      httpStatus: payload.httpStatus ?? transport.status ?? null, error: payload.error || (updates ? null : 'invalid_response'),
+      stale: Boolean(payload.stale), fetchedAt: payload.fetchedAt || null, fallback: payload.fallback || null,
+      primaryFailure: readGdacsPrimaryFailureDiagnostic(payload.primaryFailure), contentType: payload.contentType,
+      rawItemCount: updates?.items.length ?? 0, newestTimestamp: updates?.newestUpdateAt ?? null,
+      identifiers: [], sampleItems: [], timeSemantics: 'updated', coverage: updates?.coverage ?? null
+    };
+  }
   if (feed.format === 'rss') {
     const rss = parseRssSummary(typeof body === 'string' ? body : '');
     return {
@@ -368,7 +379,9 @@ export function summarizeSignals(result, feed) {
     count: items.length,
     items,
     newestTimestamp: items
-      .map((item) => isTypedSeriesFeed(feed) ? typedSignalTimestamp(item?.publishedAt) : extractTimestamp(item))
+      .map(item => feed?.id === 'gdacs-alerts' && item?.timeSemantics === 'updated'
+        ? typedSignalTimestamp(item.updatedAt)
+        : isTypedSeriesFeed(feed) ? typedSignalTimestamp(item?.publishedAt) : extractTimestamp(item))
       .filter((stamp) => isTypedSeriesFeed(feed) ? stamp !== null : Boolean(stamp))
       .sort((a, b) => b - a)[0] ?? null,
     identifiers: items
@@ -683,7 +696,8 @@ export function evaluateInvariant(name, context) {
           });
         }
       } else {
-        newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp || payloadSummary?.fetchedAt;
+        newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp
+          || (entry.id === 'gdacs-alerts' ? null : payloadSummary?.fetchedAt);
       }
       if (isTypedSeriesFeed(entry) ? newest === null || newest === undefined || newest === '' : !newest) return null;
       const ageMinutes = (Date.now() - newest) / (1000 * 60);

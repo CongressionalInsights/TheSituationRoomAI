@@ -479,6 +479,7 @@ function rssFeedFixture(id, withTransport = false) {
   const context = {
     cache: new Map(), appConfig: { userAgent: 'fixture', defaultRefreshMinutes: 60 },
     FETCH_TIMEOUT_MS: 100, Date, URL, AbortController, setTimeout, clearTimeout,
+    gdacsMachineMime: "application/vnd.tsr.gdacs-updates+json", fetchGdacsMachinePayload: async () => null,
     buildGdacsPrimaryFailureDiagnostic, console: { warn: () => {} },
     mergeFeedParams, sanitizeParamsObject, serializeParams: () => '',
     isDefaultOpenAqRequest: () => false, isStateConnectorFeed: () => false,
