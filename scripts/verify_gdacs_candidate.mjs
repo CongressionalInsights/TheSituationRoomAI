@@ -82,9 +82,18 @@ export async function verifyGdacsCandidate(surface, target, { fetchImpl = fetch,
     return verifyGdacsEnvelope(payload, surface, now());
   }
   const endpoint = target + '/mcp';
-  const raw = await callTool(endpoint, 'raw.fetch', { sourceId, format: 'text' }, 30_000, { retry: false, redirect: 'error' });
-  assert.ok(raw.ok && raw.data?.sourceId === sourceId, 'GDACS MCP raw response unavailable.');
-  const result = verifyGdacsEnvelope(raw.data, surface, now());
+  const inspectGdacsRaw = payload => {
+    try {
+      return verifyGdacsEnvelope(payload, surface, now());
+    } catch {
+      return { status: 'verification_failed' };
+    }
+  };
+  const raw = await callTool(endpoint, 'raw.fetch', { sourceId, format: 'text' }, 30_000,
+    { retry: false, redirect: 'error', inspectGdacsRaw });
+  if (!raw.ok || raw.data?.sourceId !== sourceId) return { status: 'verification_failed', stage: 'mcp_raw' };
+  const result = raw.gdacsVerification ?? inspectGdacsRaw(raw.data);
+  if (result.status === 'verification_failed') return { ...result, stage: 'mcp_raw_envelope' };
   if (result.status !== 'machine_fallback_verified') return result;
   const list = await callTool(endpoint, 'signals.list', { sourceId, limit: 25 }, 30_000, { retry: false, redirect: 'error' });
   const items = list.data?.items;
@@ -93,13 +102,15 @@ export async function verifyGdacsCandidate(surface, target, { fetchImpl = fetch,
     && items.some(item => fresh(item.publishedAt, now()))) {
     return { ...result, status: 'machine_raw_verified_signals_primary_unexercised' };
   }
-  assert.ok(list.ok && list.data?.sourceId === sourceId && list.data?.fallbackUsed && !list.data.proxyUsed
+  if (!(list.ok && list.data?.sourceId === sourceId && list.data?.fallbackUsed && !list.data.proxyUsed
     && list.data.fetchedUrl === sourceUrl && Array.isArray(items) && items.length && items.length <= 25
     && items.every(row => row.sourceId === sourceId && row.source === 'GDACS' && row.publishedAt === null
       && row.timeSemantics === 'updated' && row.coverage?.product === 'events4app'
       && Number.isSafeInteger(row.updatedAt) && row.updatedAt <= now()
       && Number.isFinite(row.geo?.lat) && Math.abs(row.geo.lat) <= 90 && Number.isFinite(row.geo?.lon) && Math.abs(row.geo.lon) <= 180)
-    && items.some(row => fresh(row.updatedAt, now())), 'GDACS MCP typed list did not independently verify the machine source.');
+    && items.some(row => fresh(row.updatedAt, now())))) {
+    return { status: 'verification_failed', stage: 'mcp_signals', rawStatus: result.status };
+  }
   return { ...result, signalsCount: items.length, signalsNewestAt: Math.max(...items.map(row => row.updatedAt)) };
 }
 
@@ -108,7 +119,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const result = await verifyGdacsCandidate(surface, target);
     console.log(JSON.stringify(result));
-    if (surface !== 'pages' && result.status === 'cache_or_unavailable') process.exitCode = 1;
+    if (result.status === 'verification_failed' || (surface !== 'pages' && result.status === 'cache_or_unavailable')) {
+      process.exitCode = 1;
+    }
   } catch {
     console.log(JSON.stringify({ status: 'verification_failed', surface }));
     process.exitCode = 1;

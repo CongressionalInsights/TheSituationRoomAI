@@ -803,7 +803,7 @@ async function buildFeedPayload(feed) {
     }
   } catch (error) {
     if (feed.id === 'gdacs-alerts') {
-      const machine = await fetchGdacsMachinePayload();
+      const machine = await fetchGdacsMachinePayload({});
       if (machine) return machine;
     }
     const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
@@ -917,7 +917,7 @@ async function buildFeedPayload(feed) {
 
   if (payload.error && isRssFeed) {
     if (feed.id === 'gdacs-alerts') {
-      const machine = await fetchGdacsMachinePayload();
+      const machine = await fetchGdacsMachinePayload({});
       if (machine) return machine;
     }
     const fallback = await fetchLiveFallback(feed.id);
