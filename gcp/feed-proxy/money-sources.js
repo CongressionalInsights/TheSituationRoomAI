@@ -2,7 +2,6 @@
 import { createHash } from 'node:crypto';
 export const MONEY_BUDGET = Object.freeze({ requests: 12, pages: 3, deadlineMs: 45000, timeoutMs: 15000 });
 const FEC_EMPLOYER_FIRST_PAGE_TIMEOUT_MS = 25_000;
-const FEC_SAMPLE_EMPLOYER_RESERVE_MS = 20_000;
 // LDA publishes rate limits, not a total request/page limit. Keep only the HTTP
 // response deadline for aggregate sampling; page traversal has no total cap.
 const LDA_INTERVAL_MS = 4100; // Anonymous: 15 requests/minute (lda.gov/api/tos/).
@@ -277,8 +276,11 @@ export async function acquireFec({ terms, range, key, runtime }) {
     // Bound the first named-donor search so its sibling employer filter gets
     // an attempt within the same source budget. Keep any acquired donor rows.
     if (filter === 'contributor_name' && !employerWindowReserved) {
-      const reserveMs = Math.min(FEC_SAMPLE_EMPLOYER_RESERVE_MS, Math.floor(ctx.budget.deadlineMs / 2));
-      diagnostic.deadlineMs = ctx.budget.deadlineMs - reserveMs;
+      // Leave room for one donor attempt and for pacing before employer page
+      // one. Under the default budget, employer page one can use its full cap.
+      const donorDeadlineMs = Math.max(ctx.budget.timeoutMs,
+        ctx.budget.deadlineMs - FEC_EMPLOYER_FIRST_PAGE_TIMEOUT_MS - ctx.intervalMs);
+      if (donorDeadlineMs < ctx.budget.deadlineMs) diagnostic.deadlineMs = donorDeadlineMs;
       employerWindowReserved = true;
     }
     const base = new URL('https://api.open.fec.gov/v1/schedules/schedule_a/');
