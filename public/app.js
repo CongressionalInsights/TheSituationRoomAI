@@ -6745,6 +6745,11 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
       errorMessage,
       httpStatus,
       fetchedAt: payload.fetchedAt,
+      ...(feed.id === 'gdacs-alerts' ? {
+        stale: Boolean(payload.stale || payload.fallback || payload.fallbackUsed),
+        ...(payload.stale || payload.fallback || payload.fallbackUsed
+          ? { errorMessage: 'Cached GDACS data; primary freshness is unverified.' } : {})
+      } : {}),
       reuseBlocked: Boolean(payload.stale || payload.fallback || payload.fallbackUsed || payload.warning)
     };
   } catch (err) {

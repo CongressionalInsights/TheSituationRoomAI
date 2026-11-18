@@ -905,7 +905,7 @@ async function buildFeedPayload(feed) {
   if (payload.error && isRssFeed) {
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback && isUsableRssSnapshot(fallback)) {
-      return { ...fallback, fetchedAt: Date.now(), fallback: 'live-cache' };
+      return { ...fallback, fetchedAt: Date.now(), fallback: 'live-cache', ...(feed.id === 'gdacs-alerts' ? { stale: true } : {}) };
     }
     const seeded = seededFeedFallbacks.get(feed.id);
     if (seeded && isUsableRssSnapshot(seeded)) {
