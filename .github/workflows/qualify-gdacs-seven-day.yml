@@ -1,0 +1,40 @@
+name: Qualify official GDACS seven-day RSS
+on:
+  push:
+    branches: [codex/gdacs-seven-day-qualify-20261118-a]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    if: >-
+      github.repository == 'CongressionalInsights/TheSituationRoomAI' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/codex/gdacs-seven-day-qualify-20261118-a' &&
+      github.event.created == true && github.event.deleted == false &&
+      github.event.forced == false && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify branch creation and reviewed parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git show -s --format=%P HEAD)" = 25a927ea2bb1399ad1e0997d268e976b1b53aebb
+          jq -e --arg sha "$GITHUB_SHA" '
+            .created and (.deleted | not) and (.forced | not)
+            and .before == "0000000000000000000000000000000000000000"
+            and .after == $sha
+          ' "$GITHUB_EVENT_PATH" > /dev/null
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install locked Pages parser dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run one anonymous qualification
+        run: node scripts/qualify-gdacs-seven-day.mjs
