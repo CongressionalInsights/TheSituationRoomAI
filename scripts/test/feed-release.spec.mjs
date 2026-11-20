@@ -11,6 +11,7 @@ import { verifyFeedContent } from '../verify_feed_candidate.mjs';
 import { feedBuild, releaseImage } from '../feed_native_build.mjs';
 import { nativeBuildFixture } from './fixtures/feed-release/native-build-fixture.mjs';
 import { listNodeTests as listOfflineTests } from '../run_node_tests.mjs';
+import { fixtureCommand } from './fixtures/command-server.mjs';
 
 const sha = 'c'.repeat(40);
 const digest = 'sha256:' + 'a'.repeat(64);
@@ -295,7 +296,7 @@ function fakeCloud() {
 for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate-success', 'candidate-content-failure', 'candidate-feature-failure',
   'missing-proof', 'wrong-generation', 'wrong-archive-hash', 'wrong-build-image', 'resource-missing', 'wrong-upload', 'submit-failure',
   'extra-api', 'url-safe-hash', 'extra-build-image', 'wrong-bucket-location', 'bad-credential-override', 'api-disabled-at-deploy', 'missing-verification-api']) {
-  test(`Feed actual release helper executes inert ${scenario} promotion/recovery`, t => {
+  test(`Feed actual release helper executes inert ${scenario} promotion/recovery`, async t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsr-feed-release-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const bin = path.join(dir, 'bin');
@@ -318,7 +319,8 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate
     json(path.join(dir, 'state.json'), { current: f.before });
     json(path.join(dir, 'gcp/feed-proxy/build-manifest.json'), f.manifest);
     const executable = (name, body) => fs.writeFileSync(path.join(bin, name), body, { mode: 0o700 });
-    executable('gcloud', `#!${process.execPath}\n(${fakeCloud.toString()})();\n`);
+    await fixtureCommand(t, path.join(bin, 'gcloud'), fakeCloud,
+      ['FIXTURE_DIR', 'SCENARIO', 'CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API', 'GOOGLE_GHA_CREDS_PATH']);
     executable('git', `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a[0]==='show')process.stdout.write(fs.readFileSync(process.env.FIXTURE_DIR+'/gcp/feed-proxy/'+a[1].split('/').at(-1)));else if(a[0]==='ls-tree')console.log(['feeds.json','package.json','server.js'].join('\\n'));else console.log('${sha}');\n`);
     executable('curl', `#!${process.execPath}\nconst f=require(process.env.FIXTURE_DIR+'/fixtures.json');const identity={...f.identity};if(process.env.SCENARIO==='old-healthy'&&process.argv.at(-1).includes('382918878290'))identity.revision='${old}';console.log(JSON.stringify(identity));\n`);
     // Enter each real helper's CLI main in this fresh fixture process. Its argv,
