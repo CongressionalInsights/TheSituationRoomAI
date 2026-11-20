@@ -235,6 +235,12 @@ test('Feed and local HTTP routes execute fec_pages and forward frozen cursor arg
     const requests = output.match(/FIXTURE_REQUEST/g)?.length || 0;
     const invalid = await read(`${base}?${new URLSearchParams({ ...forwarded, q: 'Different' })}`);
     assert.equal(invalid.error, 'invalid_cursor'); assert.equal(output.match(/FIXTURE_REQUEST/g)?.length || 0, requests);
+    const employer = await read(`${base}?${new URLSearchParams({ ...query, mode: 'fec_employer_pages' })}`);
+    assert.deepEqual(employer.items.map(item => item.sourceId), ['1'], file);
+    const employerNext = employer.fecTraversal.next;
+    const employerForwarded = { ...employerNext, q: employerNext.query }; delete employerForwarded.query;
+    const employerSecond = await read(`${base}?${new URLSearchParams(employerForwarded)}`);
+    assert.deepEqual(employerSecond.items.map(item => item.sourceId), ['2'], file);
     child.kill();
   }
 });
@@ -302,4 +308,82 @@ test('FEC diagnostic newIdentityCount counts distinct identities while retaining
   assert.equal(data.items.length, 2);
   const parsed = data.coverage.diagnostics.attempts.find(x => x.branch === 'response_ok');
   assert.equal(parsed.rowCount, 2); assert.equal(parsed.newIdentityCount, 1);
+});
+
+test('Employer-only continuation starts at page one, binds the scope, and gives every keyset page a fresh batch', async () => {
+  let now = 1795000000000;
+  const outbound = [];
+  const target = { query: 'Acme', entities: ['Acme'], start: '2026-05-22', end: '2026-11-18' };
+  const rt = { now: () => now, enforcePacing: true, sleep: async ms => { now += ms; }, fetch: async raw => {
+    const url = new URL(raw);
+    if (url.hostname === 'lda.gov') return Response.json({ results: [], next: null, count: 0 });
+    if (url.hostname === 'api.usaspending.gov') return Response.json({ results: [], page_metadata: { hasNext: false, next: null } });
+    if (url.hostname === 'api.sam.gov') return Response.json({ entityData: [], totalRecords: 0 });
+    assert.equal(url.hostname, 'api.open.fec.gov');
+    const seek = url.searchParams.get('last_index');
+    const employer = url.searchParams.has('contributor_employer');
+    outbound.push({ employer, seek, at: now });
+    assert.equal(url.searchParams.get('min_date'), target.start);
+    assert.equal(url.searchParams.get('max_date'), target.end);
+    assert.equal(url.searchParams.get('per_page'), '100');
+    assert.equal(url.searchParams.get('sort'), '-contribution_receipt_date');
+    assert.equal(url.searchParams.get('sort_hide_null'), 'false');
+    const id = seek ? Number(seek) + 1 : 1;
+    const records = employer && id <= 3 ? [{ ...row(id), contributor_name: 'Fixture Donor', contributor_employer: 'Acme' }] : [];
+    return response(records, records.length ? indexes(id) : undefined);
+  } };
+  const sample = await fetchMoneyFlows({ ...target, limit: 1 }, rt);
+  assert.equal(sample.items.length, 1);
+  assert.equal(sample.fecEmployerTraversal.startsFromBeginning, true);
+  let next = sample.fecEmployerTraversal.next;
+  assert.equal(next.mode, 'fec_employer_pages');
+  assert.deepEqual(decode(next.cursor).indexes, {});
+  assert.equal((await fetchMoneyFlows({ ...next, end: '2026-11-17' }, rt)).error, 'invalid_cursor');
+  assert.equal((await fetchMoneyFlows({ ...next, mode: 'fec_pages' }, rt)).error, 'invalid_cursor');
+  assert.equal((await fetchMoneyFlows({ ...sample.fecTraversal.next, mode: 'fec_employer_pages' }, rt)).error, 'invalid_cursor');
+  const prior = outbound.length;
+  for (let id = 1; id <= 3; id++) {
+    const data = await fetchMoneyFlows(next, rt);
+    assert.equal(data.sources.fec.coverage.requests, 1);
+    assert.equal(data.sources.fec.coverage.pages, 1);
+    assert.equal(data.coverage.complete, false);
+    assert.equal(data.items.length, 1);
+    assert.equal(data.items[0].sourceId, String(id));
+    assert.equal(data.items[0].matchRole, 'reported_employer');
+    assert.ok(Object.values(data.sources).every(s => s === data.sources.fec || s.coverage.status === 'not_requested'));
+    next = data.fecTraversal.next;
+  }
+  const finished = await fetchMoneyFlows(next, rt);
+  assert.equal(finished.fecTraversal.complete, true);
+  assert.equal(finished.fecTraversal.next, null);
+  assert.equal(finished.items.length, 0);
+  const employerCalls = outbound.slice(prior);
+  assert.deepEqual(employerCalls.map(x => [x.employer, x.seek]), [[true, null], [true, '1'], [true, '2'], [true, '3']]);
+  assert.ok(employerCalls.every((x, i) => x.at - outbound[prior + i - 1].at >= 150));
+});
+
+test('Employer-only batches preserve the native provider deadline and Retry-After cursor', async () => {
+  let now = 1795000000000;
+  let calls = 0;
+  const initial = { query: 'Acme', start: '2026-05-22', end: '2026-11-18', mode: 'fec_employer_pages' };
+  const runtime = { now: () => now, enforcePacing: true, sleep: async ms => { now += ms; }, fetch: async raw => {
+    const url = new URL(raw);
+    assert.equal(url.searchParams.get('contributor_employer'), 'Acme');
+    assert.equal(url.searchParams.has('last_index'), false);
+    calls++;
+    return calls === 1 ? new Response('{}', { status: 429, headers: { 'retry-after': '120' } })
+      : response([{ ...row(1), contributor_employer: 'Acme' }], indexes(1));
+  } };
+  const blocked = await fetchMoneyFlows(initial, runtime);
+  assert.equal(blocked.fecTraversal.blocked, true);
+  const cooling = await fetchMoneyFlows(blocked.fecTraversal.next, runtime);
+  assert.equal(cooling.sources.fec.coverage.requests, 0);
+  assert.equal(cooling.sources.fec.retryAfterSeconds, 120);
+  assert.equal(calls, 1);
+  now += 120000;
+  const continued = await fetchMoneyFlows(cooling.fecTraversal.next, runtime);
+  assert.equal(continued.sources.fec.coverage.requests, 1);
+  assert.equal(continued.sources.fec.coverage.pages, 1);
+  assert.equal(continued.fecTraversal.next.mode, 'fec_employer_pages');
+  assert.equal(calls, 2);
 });

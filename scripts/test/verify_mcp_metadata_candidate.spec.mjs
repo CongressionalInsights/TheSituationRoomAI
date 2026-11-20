@@ -57,11 +57,16 @@ async function metadataFixture(t, transform = value => value) {
 
 test('metadata-only verifier exercises production raw entry and fingerprints candidate/canonical without providers', async (t) => {
   const fixture = await metadataFixture(t, (data, envelope, url) => {
+    if (url.pathname === '/.well-known/mcp.json') {
+      const money = data.toolInputs['money.flows'];
+      assert.deepEqual(money.modes, ['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages']);
+      assert.equal(money.continuation.fec_employer_pages, 'fecTraversal.next');
+    }
     if (envelope?.method === 'initialize') data.result.serverInfo = { name: url.host, version: String(Date.now()) };
     if (data.result?.tools) {
       const contract = structuredClone(data.result.tools).map(({ name, inputSchema, annotations }) => ({ name, inputSchema, annotations }));
       const money = contract.find(tool => tool.name === 'money.flows').inputSchema;
-      assert.deepEqual(money.properties.mode, { type: 'string', enum: ['sample', 'lda_pages', 'fec_pages'] });
+      assert.deepEqual(money.properties.mode, { type: 'string', enum: ['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages'] });
       assert.deepEqual(money.properties.cursor, { type: 'string' });
       delete money.properties.mode;
       delete money.properties.cursor;

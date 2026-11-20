@@ -78,7 +78,7 @@ test('MCP tools/list preserves retrieval annotations and reviewed declarations',
   // Pin reviewed SDK declarations. Money-flow description and optional mode/cursor inputs expose LDA/FEC traversal; retrieval annotations remain unchanged.
   const declarations = emitted.map(({ annotations, ...tool }) => tool);
   assert.equal(createHash('sha256').update(JSON.stringify(declarations)).digest('hex'),
-    'aaf8104875a3dd67a6d6dd3bfbb3865b8c2c03e3b9443c3c24fdb906409061c4');
+    'c413a1365c2384462b08e64b269bb26b4c9984474e2e69e1e06ee014996d4f89');
   for (const tool of tools) {
     await t.test(tool.name, () => assert.deepEqual(tool.annotations, {
       readOnlyHint: true, destructiveHint: false, openWorldHint: tool.name !== 'catalog.sources'
@@ -505,6 +505,10 @@ for (const spentMs of [0, 8000]) {
       const calls = [];
       t.mock.method(globalThis, 'fetch', async (url, { signal }) => {
         const target = String(url);
+        if (target.endsWith('/events4app')) {
+          calls.push({ path: 'machine', at: Date.now() });
+          return new Response(null, { status: 503 });
+        }
         if (target.includes('/data/feeds/gdacs-alerts.json')) {
           calls.push({ path: 'snapshot', at: Date.now() });
           return new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({ body: gdacsRss('Retained alert'), contentType: 'application/xml', httpStatus: 200 }))), 1000));
@@ -530,7 +534,7 @@ for (const spentMs of [0, 8000]) {
       assert.equal(outcome.result.proxyUsed, 'live-cache');
       assert.equal(outcome.result.fallbackUsed, true);
       assert.match(buildRawStructuredContent({ sourceId: gdacsFeed.id, feed: gdacsFeed, result: outcome.result, responseFormat: 'text' }).warning, /published cache snapshot/);
-      assert.deepEqual(calls.map(call => call.path), ['upstream', 'upstream', 'upstream', 'feed-proxy', 'snapshot']);
+      assert.deepEqual(calls.map(call => call.path), ['upstream', 'upstream', 'upstream', 'machine', 'feed-proxy', 'snapshot']);
       assert.equal(calls.find(call => call.path === 'snapshot').at - 1000, 14000, 'prior attempts consume the same recovery budget');
     });
   }
@@ -544,7 +548,11 @@ test('GDACS MCP snapshot deadline remains reachable when initial RSS attempts st
       calls.push('snapshot');
       return new Response(JSON.stringify({ body: gdacsRss('Retained alert'), contentType: 'application/xml', httpStatus: 200 }));
     }
-    calls.push('upstream');
+    if (String(url).endsWith('/events4app')) {
+      calls.push('machine');
+      return new Response(null, { status: 503 });
+    }
+    calls.push(String(url).endsWith('/api/feed') ? 'feed-proxy' : 'upstream');
     return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('fixture stalled', 'AbortError')), { once: true }));
   });
   const outcome = await gdacsWithinMockDeadline(t, () => fetchRaw(gdacsFeed, {}));
@@ -552,7 +560,7 @@ test('GDACS MCP snapshot deadline remains reachable when initial RSS attempts st
   assert.equal(outcome.error, undefined);
   assert.equal(outcome.result.proxyUsed, 'live-cache');
   assert.ok(outcome.elapsedMs < gdacsFeed.timeoutMs);
-  assert.deepEqual(calls, ['upstream', 'snapshot'], 'no exhausted-budget service attempt may starve the snapshot');
+  assert.deepEqual(calls, ['upstream', 'machine', 'feed-proxy', 'snapshot'], 'the machine and fallback share a separate recovery slice without starving the snapshot');
 });
 
 test('GDACS MCP snapshot body uses only its reserved deadline', async (t) => {
@@ -575,6 +583,7 @@ test('GDACS MCP service recovery still succeeds within the deadline after time a
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).endsWith('/events4app')) return new Response(null, { status: 503 });
     if (String(url).endsWith('/api/feed')) {
       calls.push('feed-proxy');
       return new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({ body: gdacsRss('Current service alert'), contentType: 'application/xml', httpStatus: 200 }))), 2000));
@@ -603,6 +612,7 @@ test('GDACS MCP raw and signals try the forced Feed Proxy before a published sna
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     const target = String(url);
+    if (target.endsWith('/events4app')) return new Response(null, { status: 503 });
     if (target.endsWith('/api/feed')) {
       calls.push('feed-proxy');
       assert.equal(options.method, 'POST');
@@ -646,6 +656,7 @@ test('GDACS MCP keeps snapshot fallback warnings when the Feed Proxy is unusable
   let direct = false;
   t.mock.method(globalThis, 'fetch', async (url) => {
     const target = String(url);
+    if (target.endsWith('/events4app')) return new Response(null, { status: 503 });
     if (target.endsWith('/api/feed')) {
       calls.push('feed-proxy');
       if (proxyPayload === 'throw') throw new Error('fixture failure');
@@ -693,6 +704,7 @@ test('GDACS MCP logs only the first bounded primary failure before service or sn
   t.mock.method(console, 'warn', value => logs.push(JSON.parse(value)));
   t.mock.method(globalThis, 'fetch', async url => {
     const target = String(url);
+    if (target.endsWith('/events4app')) return new Response(null, { status: 503 });
     if (target.endsWith('/api/feed')) {
       assert.equal(logs.length, 1, 'diagnostic precedes fallback acquisition');
       return new Response(JSON.stringify(scenario.serviceRecovery ? {
@@ -2437,7 +2449,7 @@ test('money.flows MCP schema, text and discovery expose bounded FEC continuation
   t.after(async () => { await client.close(); await server.close(); });
   await server.connect(st); await client.connect(ct);
   const listed = (await client.listTools()).tools.find(tool => tool.name === 'money.flows');
-  assert.deepEqual(listed.inputSchema.properties.mode.enum, ['sample', 'lda_pages', 'fec_pages']);
+  assert.deepEqual(listed.inputSchema.properties.mode.enum, ['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages']);
   const first = await client.callTool({ name: 'money.flows', arguments: { query: 'Acme', start: '2025-01-01', end: '2026-11-03', mode: 'fec_pages', limit: 1 } });
   assert.equal(first.structuredContent.items.length, 3); assert.match(first.content[0].text, /FEC batch/);
   const next = first.structuredContent.fecTraversal.next;
@@ -2445,4 +2457,11 @@ test('money.flows MCP schema, text and discovery expose bounded FEC continuation
   assert.equal(second.structuredContent.items[0].sourceId, '4');
   const invalid = await client.callTool({ name: 'money.flows', arguments: { ...next, query: 'Other' } });
   assert.equal(invalid.structuredContent.error, 'invalid_cursor'); assert.equal(requests, 6);
+  const employer = await client.callTool({ name: 'money.flows', arguments: {
+    query: 'Acme', start: '2025-01-01', end: '2026-11-03', mode: 'fec_employer_pages'
+  } });
+  assert.deepEqual(employer.structuredContent.items.map(item => item.sourceId), ['1']);
+  const employerSecond = await client.callTool({ name: 'money.flows', arguments: employer.structuredContent.fecTraversal.next });
+  assert.deepEqual(employerSecond.structuredContent.items.map(item => item.sourceId), ['2']);
+  assert.equal(requests, 8);
 });

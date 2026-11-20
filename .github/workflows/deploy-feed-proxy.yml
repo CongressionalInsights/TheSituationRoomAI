@@ -3,6 +3,11 @@ name: Deploy Feed Proxy (GCP)
 on:
   workflow_dispatch:
     inputs:
+      verify_gdacs:
+        description: Run the release-specific GDACS check on the isolated candidate
+        required: false
+        default: false
+        type: boolean
       candidate_only:
         description: Stop after isolated candidate verification; false explicitly selects full release
         required: true
@@ -69,6 +74,9 @@ jobs:
           fi
       - name: Sync feed registry
         run: node scripts/sync-feeds.mjs
+      - name: Install locked parser for GDACS verification
+        if: inputs.verify_gdacs
+        run: npm ci --prefix gcp/mcp-proxy --ignore-scripts
       - name: Verify Feed release fixtures and build source manifest
         run: |
           set -euo pipefail
@@ -143,6 +151,7 @@ jobs:
           if [ -n "$STATE_CONNECTOR_API_KEY" ]; then ensure_secret_version state-connector-key "$STATE_CONNECTOR_API_KEY"; fi
       - name: Deploy and verify exact Feed candidate and canonical serving revision
         env:
+          VERIFY_GDACS: ${{ inputs.verify_gdacs }}
           CANDIDATE_ONLY: ${{ inputs.candidate_only }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           SYNC_SECRET_VERSIONS: ${{ inputs.sync_secret_versions }}

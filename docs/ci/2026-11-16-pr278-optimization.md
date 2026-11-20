@@ -120,3 +120,20 @@ per-job rounded-minute proxy measure compute; Linux CPU/RSS compare only with
 the two instrumented PR #278 runs. The older historical workflow did not record
 those process metrics. No cache policy, permissions, secrets, provider, refresh
 cadence, required-check identity, merge policy or production deployment changes.
+
+## November 19 source refresh and merge authorization
+
+Ashir's November 19 instruction, "lets do it, check the repo first to make sure
+nothing changed first", authorizes the normal protected merge of PR #278 after
+fresh source and CI checks. It supersedes the earlier do-not-merge stopping
+point for this PR. Earlier qualification and no-deployment receipts remain
+historical; no Cloud Run workflow dispatch is needed for these CI-only changes.
+
+The PR head was unchanged at `2a67ea51`, while main had advanced to `f2f1d1a4`
+with changes in 47 files. Current main integrated without conflicts. The PR's
+reviewed delta is identical after removing changed hunk offsets and blob IDs;
+all newer GDACS release gates, source changes and tests are retained. Fresh
+local validation passed **832 cases**, zero failures/skips, in 32.18 s wall /
+43.44 child CPU seconds. Feed parity, workflow lint and whitespace checks pass.
+Fresh PR CI and post-merge main CI are the remaining acceptance checks; their
+exact source/run receipts are recorded in the PR description and local audit.

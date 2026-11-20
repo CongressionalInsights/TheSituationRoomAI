@@ -1,0 +1,13 @@
+{
+  "provenance": "Root immutable gh-pages artifact summary; no rawproviderbody retained. Synthetic test payload uses summary metadata only.",
+  "ghPagesCommit": "19982fafcf7b58c00c0c06f474541a668a541cfa",
+  "generatedAt": "2026-11-17T23:16:23.463Z",
+  "snapshotSHA256": "9b7c0f9e96e08d244e0b83e74fba879b403dc00a18b6876ea916d812e648c892",
+  "bodySHA256": "0af1be5c3364d016d83d5e70b55cf77d41f3831a67ed01ef283366254daeaf3a",
+  "itemCount": 230,
+  "datedCount": 230,
+  "newestTimestamp": 1794874446000,
+  "ageMinutesAtPublication": 1382.29,
+  "fallback": "live-cache",
+  "staleFieldPresent": false
+}

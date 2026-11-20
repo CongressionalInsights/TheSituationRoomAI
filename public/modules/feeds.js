@@ -129,7 +129,7 @@ export function createFeedManager({ state, elements, helpers }) {
 
   const updateFeedStatusFromResults = (results) => {
     results.forEach((result) => {
-      const stale = !result.error && isFeedStale(result.feed, result);
+      const stale = !result.error && ((result.feed.id === 'gdacs-alerts' && Boolean(result.stale)) || isFeedStale(result.feed, result));
       state.feedStatus[result.feed.id] = {
         httpStatus: result.httpStatus,
         error: result.error,
@@ -296,7 +296,7 @@ export function createFeedManager({ state, elements, helpers }) {
         const [result] = await fetchFeedBatch([feed], true, true);
         if (!result) continue;
         appliedResults.push(result);
-        const stale = !result.error && isFeedStale(result.feed, result);
+        const stale = !result.error && ((result.feed.id === 'gdacs-alerts' && Boolean(result.stale)) || isFeedStale(result.feed, result));
         state.feedStatus[result.feed.id] = {
           httpStatus: result.httpStatus,
           error: result.error,
@@ -364,7 +364,7 @@ export function createFeedManager({ state, elements, helpers }) {
         const [result] = await fetchFeedBatch([feed], true, true);
         if (!result) continue;
         appliedResults.push(result);
-        const stale = !result.error && isFeedStale(result.feed, result);
+        const stale = !result.error && ((result.feed.id === 'gdacs-alerts' && Boolean(result.stale)) || isFeedStale(result.feed, result));
         state.feedStatus[result.feed.id] = {
           httpStatus: result.httpStatus,
           error: result.error,

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fetchMoneyFlows, buildUsaspendingTransactionKey } from '../../gcp/mcp-proxy/money-flows.js';
-import { acquireFec, acquireSam, acquireUsa, acquireMoneySources, acquireLdaPage, fecCycles, MONEY_BUDGET } from '../../gcp/mcp-proxy/money-sources.js';
+import { acquireFec, acquireFecPages, acquireSam, acquireUsa, acquireMoneySources, acquireLdaPage, fecCycles, MONEY_BUDGET } from '../../gcp/mcp-proxy/money-sources.js';
 import { inspectMoneyFlows, auditMoneyFlows } from '../../analysis/monitor/lib/money_flows.mjs';
 
 const range = { startIso: '2025-01-01', endIso: '2026-11-03', years: [2025, 2026] };
@@ -46,7 +46,7 @@ test('FEC retained-shape employer timeouts keep 134 acquired rows and cumulative
   assert.equal(result.coverage.pages, 3);
   assert.equal(result.coverage.searchesRun, 2);
   assert.equal(calls.length, 5);
-  assert.deepEqual(timeouts, [15000, 15000, 15000, 15000, 15000]);
+  assert.deepEqual(timeouts, [15000, 15000, 15000, 25000, 15000]);
   assert.deepEqual(sleeps, [38, 500]);
   assert.equal(calls[3].url, calls[4].url, 'retry preserves the exact employer query');
   assert.ok(calls.every(call => call.redirect === 'error'));
@@ -61,6 +61,108 @@ test('FEC retained-shape employer timeouts keep 134 acquired rows and cumulative
     })));
   assert.equal(attempts.at(-1).remainingMs, 13366);
   assert.doesNotMatch(JSON.stringify(result.coverage.diagnostics), /private-|https?:|api_key|last_index/);
+});
+
+test('A slow first employer page fits in FEC traversal within the existing source budget', async (t) => {
+  const timeouts = new WeakMap();
+  t.mock.method(AbortSignal, 'timeout', (ms) => {
+    const { signal } = new AbortController();
+    timeouts.set(signal, ms);
+    return signal;
+  });
+  let now = 0;
+  const calls = [];
+  const result = await acquireFecPages({ terms: ['Fixture'], key: 'fixture', binding: 'fixture',
+    range: { startIso: '2026-01-01', endIso: '2026-11-18' },
+    runtime: { now: () => now, sleep: async ms => { now += ms; }, fetch: async (raw, { signal }) => {
+      const url = new URL(raw);
+      const employer = url.searchParams.has('contributor_employer');
+      const seek = url.searchParams.has('last_index');
+      const timeout = timeouts.get(signal);
+      calls.push({ employer, seek, timeout });
+      // Two donor pages use 26 seconds. The measured employer page needs a
+      // little more than 15 seconds, and its following page stays bounded.
+      const duration = !employer ? 13000 : !seek ? 15935 : 1000;
+      now += Math.min(duration, timeout);
+      if (duration > timeout) throw new DOMException('Fixture timer expired', 'TimeoutError');
+      const rows = seek ? [] : [{ sub_id: employer ? 'employer' : 'donor' }];
+      return json({ results: rows, pagination: { last_indexes: rows.length
+        ? { last_index: '1', last_contribution_receipt_date: '2026-11-18' } : null } });
+    } } });
+  assert.deepEqual(result.items.map(item => item.sub_id), ['donor', 'employer']);
+  assert.equal(result.coverage.complete, true);
+  assert.deepEqual(calls.map(call => call.timeout), [15000, 15000, 19000, 3065]);
+});
+
+for (const firstDonorTimesOut of [false, true]) {
+  test(`Ranked FEC reserves the full employer first-page deadline despite donor ${firstDonorTimesOut ? 'retry' : 'pagination'}`, async (t) => {
+    let now = 0;
+    let timeout;
+    t.mock.method(AbortSignal, 'timeout', ms => {
+      timeout = ms;
+      return new AbortController().signal;
+    });
+    const calls = [];
+    let firstDonor = true;
+    const result = await acquireFec({ terms: ['CVS Health'], key: 'fixture',
+      range: { startIso: '2026-05-22', endIso: '2026-11-18' },
+      runtime: { now: () => now, enforcePacing: true, sleep: async ms => { now += ms; }, fetch: async raw => {
+        const url = new URL(raw);
+        const employer = url.searchParams.has('contributor_employer');
+        const seek = url.searchParams.has('last_index');
+        assert.equal(url.searchParams.get('per_page'), '100');
+        assert.equal(url.searchParams.get('min_date'), '2026-05-22');
+        assert.equal(url.searchParams.get('max_date'), '2026-11-18');
+        assert.equal(url.searchParams.get('sort'), '-contribution_receipt_date');
+        assert.equal(url.searchParams.get('sort_hide_null'), 'false');
+        calls.push({ employer, seek, timeout, at: now });
+        const duration = employer ? (seek ? 1000 : 22000) : seek ? 20000 :
+          firstDonor && firstDonorTimesOut ? 16000 : 12284;
+        if (!employer) firstDonor = false;
+        now += Math.min(duration, timeout);
+        if (duration > timeout) throw new DOMException('Fixture timer expired', 'TimeoutError');
+        const rows = seek ? [] : [{ sub_id: employer ? 'employer' : 'donor' }];
+        return json({ results: rows, pagination: { last_indexes: rows.length
+          ? { last_index: '1', last_contribution_receipt_date: '2026-11-18' } : null } });
+      } } });
+    assert.deepEqual(calls[0], { employer: false, seek: false, timeout: 15000, at: 0 });
+    assert.deepEqual(calls.find(call => call.employer),
+      { employer: true, seek: false, timeout: 25000, at: 19850 });
+    assert.ok(calls.every((call, i) => i === 0 || call.at - calls[i - 1].at >= 150));
+    assert.ok(calls.every(call => call.at + call.timeout <= 45000));
+    assert.equal(result.coverage.status, 'partial');
+    assert.ok(result.items.some(row => row.sub_id === 'employer'));
+    if (!firstDonorTimesOut) assert.ok(result.items.some(row => row.sub_id === 'donor'));
+  });
+}
+
+test('A genuine slow employer timeout keeps donor rows and partial coverage', async (t) => {
+  let now = 0;
+  let timeout;
+  t.mock.method(AbortSignal, 'timeout', ms => {
+    timeout = ms;
+    return new AbortController().signal;
+  });
+  const result = await acquireFec({ terms: ['Fixture'], key: 'fixture',
+    range: { startIso: '2026-05-22', endIso: '2026-11-18' },
+    runtime: { now: () => now, sleep: async ms => { now += ms; }, fetch: async raw => {
+      const url = new URL(raw);
+      if (url.searchParams.has('contributor_employer')) {
+        now += timeout;
+        throw new DOMException('Fixture timer expired', 'TimeoutError');
+      }
+      const rows = url.searchParams.has('last_index') ? [] : [{ sub_id: 'donor' }];
+      now += Math.min(timeout, 14000);
+      if (timeout < 14000) throw new DOMException('Fixture timer expired', 'TimeoutError');
+      return json({ results: rows, pagination: { last_indexes: rows.length
+        ? { last_index: '1', last_contribution_receipt_date: '2026-11-18' } : null } });
+    } } });
+  assert.deepEqual(result.items.map(item => item.sub_id), ['donor']);
+  assert.equal(result.coverage.status, 'partial');
+  assert.equal(result.error, 'fetch_failed');
+  const attempts = result.coverage.diagnostics.attempts.filter(row => row.filter === 'contributor_employer' && row.attempted);
+  assert.ok(attempts.length >= 1);
+  assert.ok(attempts.every(row => row.branch === 'fetch_exception' && row.exceptionCategory === 'timeout' && row.httpStatus === null));
 });
 
 test('FEC six successful pages remain partial when only the employer search hits its page budget', async () => {

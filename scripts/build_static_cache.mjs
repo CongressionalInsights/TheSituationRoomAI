@@ -1,3 +1,4 @@
+import { fetchGdacsMachinePayload, gdacsMachineMime, parseGdacsMachineBody } from '../gcp/mcp-proxy/gdacs-machine.js';
 import { mkdir, readFile, writeFile, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { redactCredentialFields, sanitizeEiaBody } from '../analysis/monitor/lib/public_payload_safety.mjs';
@@ -395,14 +396,14 @@ function assertTrustedFirmsUrl(url) {
   }
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS, consumeResponse = null) {
   const hasOptions = options && typeof options === 'object' && ('headers' in options || 'method' in options || 'body' in options);
   const fetchOptions = hasOptions ? { ...options } : { headers: options };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
-    return response;
+    return consumeResponse ? await consumeResponse(response) : response;
   } finally {
     clearTimeout(timer);
   }
@@ -427,7 +428,7 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOU
   throw new Error('fetch_failed');
 }
 
-async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS) {
+async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS, { throughBody = false } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: false });
   const effectiveTimeout = Math.max(8000, timeoutMs);
   const directTimeout = Math.max(15000, Math.floor(effectiveTimeout * 0.75));
@@ -443,9 +444,15 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = TIM
     const candidate = candidates[index];
     const perAttemptTimeout = index === 0 ? directTimeout : fallbackTimeout;
     try {
-      const response = await fetchWithTimeout(candidate, headers, perAttemptTimeout);
+      let response, body;
+      if (throughBody) {
+        [response, body] = await fetchWithTimeout(candidate, headers, perAttemptTimeout,
+          async upstream => [upstream, await upstream.text()]);
+      } else {
+        response = await fetchWithTimeout(candidate, headers, perAttemptTimeout);
+        body = await response.text();
+      }
       const contentType = response.headers.get('content-type') || 'text/plain';
-      const body = await response.text();
       lastResponse = response;
       lastBody = body;
       lastContentType = contentType;
@@ -567,6 +574,7 @@ function isUsableRssSnapshot(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (payload.error) return false;
   if (!payload.body) return false;
+  if (payload.id === 'gdacs-alerts' && payload.contentType === gdacsMachineMime) return Boolean(parseGdacsMachineBody(payload.body));
   return isLikelyRssPayload(payload.contentType || '', payload.body);
 }
 
@@ -778,7 +786,8 @@ async function buildFeedPayload(feed) {
   let rssValid = true;
   try {
     if (isRssFeed) {
-      const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS);
+      const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS,
+        { throughBody: feed.id === 'gdacs-alerts' });
       response = rssResult.response;
       contentType = rssResult.contentType;
       body = rssResult.body;
@@ -793,6 +802,10 @@ async function buildFeedPayload(feed) {
       body = await response.text();
     }
   } catch (error) {
+    if (feed.id === 'gdacs-alerts') {
+      const machine = await fetchGdacsMachinePayload({});
+      if (machine) return machine;
+    }
     const fallback = await loadBestFallbackPayload(feed, { allowSeededJson: supportsSeededJsonFallback });
     if (fallback) return fallback;
     if (feed.id === 'nasa-firms') {
@@ -903,9 +916,13 @@ async function buildFeedPayload(feed) {
   }
 
   if (payload.error && isRssFeed) {
+    if (feed.id === 'gdacs-alerts') {
+      const machine = await fetchGdacsMachinePayload({});
+      if (machine) return machine;
+    }
     const fallback = await fetchLiveFallback(feed.id);
     if (fallback && isUsableRssSnapshot(fallback)) {
-      return { ...fallback, fetchedAt: Date.now(), fallback: 'live-cache' };
+      return { ...fallback, fetchedAt: Date.now(), fallback: 'live-cache', ...(feed.id === 'gdacs-alerts' ? { stale: true } : {}) };
     }
     const seeded = seededFeedFallbacks.get(feed.id);
     if (seeded && isUsableRssSnapshot(seeded)) {

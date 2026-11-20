@@ -1,3 +1,4 @@
+import { fetchGdacsMachinePayload, gdacsMachineMime, parseGdacsMachineBody } from './gdacs-machine.js';
 import { readBuildIdentity } from './build-identity.js';
 import { fetchMoneyFlows } from './money-flows.js';
 export { attachMoneyMatch, buildMoneyQueryProfile, buildUsaspendingTransactionKey, findBestMoneyNameMatch, resolveMoneyAliasExpansion, settleMoneyTasks, summarizeMoneyEntities } from './money-flows.js';
@@ -1191,8 +1192,12 @@ function parseRss(text, feed) {
   return [];
 }
 
-function normalizeSignals(text, feed) {
+function normalizeSignals(text, feed, contentType) {
   if (!text) return [];
+  if (feed.id === 'gdacs-alerts' && contentType === gdacsMachineMime) {
+    const value = parseGdacsMachineBody(text);
+    return value ? value.items.map(item => ({ ...item, category: feed.category, observationKey: 'gdacs:' + item.id, timeSemantics: value.timeSemantics, coverage: value.coverage })) : [];
+  }
   if (feed.format === 'rss') return parseRss(text, feed);
   if (feed.format === 'csv') return normalizeCsvSignals(text, feed);
   if (feed.format === 'json' || feed.format === 'arcgis') return normalizeJsonSignals(text, feed);
@@ -1366,7 +1371,8 @@ function parseJsonBody(body, feed) {
 
 export function buildRawStructuredContent({ sourceId, feed, result, responseFormat, range = null }) {
   const contentIsJson = isJsonContentType(result.contentType);
-  const parsed = (responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null;
+  const machine = feed.id === 'gdacs-alerts' && result.contentType === gdacsMachineMime ? parseGdacsMachineBody(result.body) : null;
+  const parsed = machine || ((responseFormat === 'json' || contentIsJson) ? parseJsonBody(result.body, feed) : null);
   return {
     sourceId,
     ...(feed.id === 'gdacs-alerts' ? { primaryFailure: readGdacsPrimaryFailureDiagnostic(result.primaryFailure) } : {}),
@@ -1388,6 +1394,11 @@ export function buildRawStructuredContent({ sourceId, feed, result, responseForm
 
 function fallbackWarning(result) {
   if (!result.fallbackUsed) return null;
+  if (result.contentType === gdacsMachineMime) {
+    return result.proxyUsed === 'live-cache'
+      ? 'Cached GDACS recent-event updates (up to 100 events in the four-day product). Check update times; original publication is unknown.'
+      : 'GDACS recent-event updates (up to 100 events in the four-day product). Original publication is unknown.';
+  }
   if (result.proxyUsed === 'arcgis-hms-fire') return 'NASA FIRMS unavailable; returning NOAA HMS fire detections.';
   if (result.proxyUsed === 'live-cache') return 'Upstream unavailable; returning a published cache snapshot. Check record dates and source attribution.';
   return `Fetched via fallback (${result.proxyUsed || 'unknown'}).`;
@@ -1937,6 +1948,8 @@ async function fetchRawUncached(feed, options) {
   const gdacsSnapshotReserveMs = gdacsDeadline === null ? 0 : Math.floor(totalTimeoutMs * 0.25);
   const gdacsReturnReserveMs = gdacsDeadline === null ? 0 : Math.min(1000, totalTimeoutMs * 0.05);
   const gdacsRecoveryDeadline = gdacsDeadline === null ? null : gdacsDeadline - gdacsSnapshotReserveMs - gdacsReturnReserveMs;
+  // Reserve a machine attempt even if the longer RSS path exhausts its slice.
+  const gdacsMachineReserveMs = Math.min(4000, Math.floor(totalTimeoutMs * 0.2));
   const rssEffectiveTimeout = Math.max(8000, totalTimeoutMs);
   const rssDirectTimeoutMs = Math.max(15000, Math.floor(rssEffectiveTimeout * 0.75));
   const rssFallbackTimeoutMs = attempts.length > 1
@@ -1949,7 +1962,8 @@ async function fetchRawUncached(feed, options) {
     : eonetDirectTimeoutMs;
 
   for (let index = 0; index < attempts.length; index += 1) {
-    const remainingGdacsMs = gdacsRecoveryDeadline === null ? Infinity : gdacsRecoveryDeadline - Date.now();
+    const remainingGdacsMs = gdacsRecoveryDeadline === null ? Infinity
+      : gdacsRecoveryDeadline - gdacsMachineReserveMs - Date.now();
     if (remainingGdacsMs <= 0) {
       lastError = { error: 'fetch_failed', message: 'GDACS upstream recovery budget exhausted.', code: 'timeout' };
       break;
@@ -2104,6 +2118,10 @@ async function fetchRawUncached(feed, options) {
         };
       }
     }
+    if (gdacsDeadline !== null) {
+      const machine = await fetchGdacsMachinePayload({ timeoutMs: Math.min(gdacsMachineReserveMs, gdacsRecoveryDeadline - Date.now()) });
+      if (machine) return { ...machine, primaryFailure: gdacsPrimaryFailure };
+    }
     const feedProxyTimeoutMs = gdacsRecoveryDeadline === null ? totalTimeoutMs : Math.max(0, gdacsRecoveryDeadline - Date.now());
     const feedProxyFallback = (feed.id === 'google-news-search' || feed.id === 'gdacs-alerts') && feedProxyTimeoutMs > 0
       ? await fetchFeedProxyFallback(feed, options, { timeoutMs: feedProxyTimeoutMs })
@@ -2116,13 +2134,12 @@ async function fetchRawUncached(feed, options) {
     const fallback = shouldUseLiveFallback(feed, options) && snapshotTimeoutMs > 0
       ? await fetchLiveFallback(feed.id, snapshotTimeoutMs)
       : null;
-    if (fallback) {
+    if (fallback && (feed.id !== 'gdacs-alerts' || fallback.contentType !== gdacsMachineMime
+      || parseGdacsMachineBody(fallback.body))) {
       const shouldPromotePublishedSnapshot = feed.id === 'federal-register'
         || feed.id === 'federal-register-transport'
         || feed.id === 'federal-register-ed'
-        || feed.id === 'fda-medwatch'
-        || feed.id === 'gdelt-doc'
-        || feed.id === 'transport-opensky';
+        || feed.id === 'fda-medwatch';
       console.log(JSON.stringify({
         event: 'mcp_raw_fetch',
         feedId: feed.id,
@@ -2357,7 +2374,7 @@ server.registerTool(
   'money.flows',
   {
     title: 'Money Flows',
-    description: 'Ranked discovery sample from LDA, USAspending transactions, FEC receipts and SAM registrations. Includes source coverage; subtotals apply only to returned rows. SAM is identity evidence, not awards. Use mode lda_pages for stateless LDA traversal: follow ldaTraversal.next until complete, deduplicate source/sourceId, and retain all returned rows (limit is ignored in that mode). Use mode fec_pages for bounded FEC batches with no total traversal cap: follow fecTraversal.next, retain every returned observation, deduplicate source/sourceId/version/hash, and respect blocked/cooldown state. limit is ignored in both traversal modes. Completion is query exhaustion, not a reconciled ledger or historical recovery.',
+    description: 'Ranked discovery sample from LDA, USAspending transactions, FEC receipts and SAM registrations. Includes source coverage; subtotals apply only to returned rows. SAM is identity evidence, not awards. Use mode lda_pages for stateless LDA traversal: follow ldaTraversal.next until complete, deduplicate source/sourceId, and retain all returned rows (limit is ignored in that mode). Use mode fec_pages for bounded FEC batches with no total traversal cap: follow fecTraversal.next, retain every returned observation, deduplicate source/sourceId/version/hash, and respect blocked/cooldown state. Use fec_employer_pages for one employer-only provider page per call, using fecEmployerTraversal.next from a ranked sample and then fecTraversal.next. Limit is ignored in traversal modes. Completion is query exhaustion, not a reconciled ledger or historical recovery.',
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: z.object({
       query: z.string(),
@@ -2367,7 +2384,7 @@ server.registerTool(
       matchMode: z.enum(['strict', 'normal', 'loose']).optional(),
       minScore: z.number().optional(),
       entities: z.array(z.string()).optional(),
-      mode: z.enum(['sample', 'lda_pages', 'fec_pages']).optional(),
+      mode: z.enum(['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages']).optional(),
       cursor: z.string().optional()
     })
   },
@@ -2380,7 +2397,7 @@ server.registerTool(
       };
     }
     return {
-      content: [{ type: 'text', text: `Money flows: ${payload.items?.length || 0} ${mode === 'fec_pages' ? 'FEC batch' : mode === 'lda_pages' ? 'LDA page' : 'sampled'} items; returned-row subtotals only. Check sources for partial or unavailable coverage.` }],
+      content: [{ type: 'text', text: `Money flows: ${payload.items?.length || 0} ${(mode === 'fec_pages' || mode === 'fec_employer_pages') ? 'FEC batch' : mode === 'lda_pages' ? 'LDA page' : 'sampled'} items; returned-row subtotals only. Check sources for partial or unavailable coverage.` }],
       structuredContent: payload
     };
   }
@@ -2422,7 +2439,7 @@ server.registerTool(
       };
     }
 
-    const items = normalizeSignals(safeResult.body, feed).map((item) => ({
+    const items = normalizeSignals(safeResult.body, feed, safeResult.contentType).map((item) => ({
       ...item,
       id: createItemId(item),
       sourceId,
@@ -2481,7 +2498,7 @@ server.registerTool(
       };
     }
 
-    const items = normalizeSignals(result.body, feed).map((item) => ({
+    const items = normalizeSignals(result.body, feed, result.contentType).map((item) => ({
       ...item,
       id: createItemId(item),
       sourceId,
@@ -2557,7 +2574,7 @@ server.registerTool(
         continue;
       }
 
-      const items = normalizeSignals(result.body, feed).map((item) => ({
+      const items = normalizeSignals(result.body, feed, result.contentType).map((item) => ({
         ...item,
         id: createItemId(item),
         sourceId: feed.id,
@@ -2641,8 +2658,8 @@ export const httpServer = http.createServer(async (req, res) => {
         'money.flows': {
           optional: ['start', 'end', 'limit', 'matchMode', 'minScore', 'entities', 'mode', 'cursor'],
           matchModes: ['strict', 'normal', 'loose'],
-          modes: ['sample', 'lda_pages', 'fec_pages'],
-          continuation: { lda_pages: 'ldaTraversal.next', fec_pages: 'fecTraversal.next' }
+          modes: ['sample', 'lda_pages', 'fec_pages', 'fec_employer_pages'],
+          continuation: { lda_pages: 'ldaTraversal.next', fec_pages: 'fecTraversal.next', fec_employer_pages: 'fecTraversal.next' }
         },
         'catalog.sources': {
           outputFields: ['configured', 'coveredStates', 'configuration.requiredEnv', 'configuration.optionalEnv']

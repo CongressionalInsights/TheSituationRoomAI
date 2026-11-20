@@ -5,7 +5,15 @@
 - Work inside this repository unless the task explicitly widens scope. Preserve unrelated local changes.
 - Treat checked-in code, `data/feeds.json`, current workflows, generated monitor artifacts, and live endpoint readback as source truth. Memory may provide context but does not own repo policy or current feed health.
 - Keep changes small, preserve required tests and attribution, and verify claims with commands or artifacts before reporting them as complete.
-- Production deploys, secret or permission changes, external sends, destructive cache/data actions, and paid work require explicit authorization unless the current task already grants that exact scope.
+- Production deploys, secret or permission changes, external sends, destructive cache/data actions, and paid work require explicit authorization from the current task or an applicable standing grant.
+
+## Standing TSR maintenance authority (November 17, 2026, Eastern time)
+
+- For assigned routine TSR maintenance, the owner of the pinned TSR Core may use this repository’s normal branch and PR workflow, run required CI, repair in-scope CI and verification failures, and merge through native branch protection after the exact head passes all required checks. Carry covered work through normal live verification without another phase approval.
+- The grant covers existing automatic GitHub Pages publication and releases to the existing Cloud Run services `situation-room-feed` and `situation-room-mcp` in project `situationroom-ai-20260112`, region `us-central1`, using existing settings and ordinary usage. It covers native, guarded restoration of captured serving traffic within the release’s limit and cleanup of verified temporary tags owned by that release.
+- Bind releases to the exact reviewed source. Keep source, artifact, image, configuration, and provenance gates, verify the isolated candidate before promoting traffic, and verify canonical serving and Pages artifacts afterward as applicable. Respect existing project holds and native protections. Reconcile uncertain effects before another write and never replay a spent dispatch.
+- Use existing access for routine anonymous public reads and in-scope tests. Retain evidence sufficient to validate or diagnose the result and keep credentials and private material out of shared artifacts.
+- Escalate new services or resources, rights, secrets, access, material cost or scope changes, new audiences or outreach, destructive work beyond this grant, and any requested protection bypass.
 
 ## Repository map
 

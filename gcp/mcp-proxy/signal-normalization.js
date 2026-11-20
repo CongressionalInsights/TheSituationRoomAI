@@ -647,6 +647,15 @@ function normalizeFirmsSignals(data, feed) {
   })());
 }
 
+export function parseGdeltSeenTime(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.replace(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/, '$1-$2-$3T$4:$5:$6Z');
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(normalized)) return null;
+  const instant = Date.parse(normalized);
+  return Number.isFinite(instant) && new Date(instant).toISOString().slice(0, 19) === normalized.slice(0, 19)
+    ? instant : null;
+}
+
 export function parseGenericJsonFeed(data, feed) {
   if (isTypedSeriesFeed(feed)) return normalizeTypedSeriesSignals(data, feed);
   if (feed?.id === 'nasa-firms') return normalizeFirmsSignals(data, feed);
@@ -655,7 +664,9 @@ export function parseGenericJsonFeed(data, feed) {
     return normalizeNwsSignals(data, feed);
   }
   if (feed?.id === 'transport-opensky' && Array.isArray(data?.states)) {
-    const observedAt = Number.isFinite(Number(data?.time)) ? Number(data.time) * 1000 : Date.now();
+    const epochSeconds = Number(data.time);
+    const observedAt = Number.isSafeInteger(epochSeconds) && epochSeconds > 0 && epochSeconds * 1000 <= Date.now()
+      ? epochSeconds * 1000 : null;
     return data.states.slice(0, 200).map((row) => {
       if (!Array.isArray(row)) return null;
       const icao24 = String(row[0] || '').trim();
@@ -676,6 +687,14 @@ export function parseGenericJsonFeed(data, feed) {
         geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null
       };
     }).filter(Boolean);
+  }
+
+  if (feed?.id === 'gdelt-doc') {
+    return selectList(data).slice(0, 50)
+      .filter(entry => typeof entry?.title === 'string' && entry.title.trim())
+      .map(entry => ({ title: entry.title, url: entry.url || '',
+        summary: normalizeSummary(entry.summary || entry.description || ''), publishedAt: null,
+        seenAt: parseGdeltSeenTime(entry.seendate), timeSemantics: 'seen', source: feed.name, category: feed.category }));
   }
 
   return selectList(data).slice(0, 50).map((entry) => {
@@ -759,7 +778,7 @@ export function parseGenericJsonFeed(data, feed) {
     );
     const finalSummary = isEonetEvent ? (defaultSummary || eonetSummary) : summary;
     // HMS YearDay/Time semantics are not admitted; never replace unknown time with retrieval time.
-    const publishedAt = (feed?.id === 'arcgis-hms-fire' ? parseFirstValidTimestampOrNull : parseFirstValidTimestamp)(
+    const publishedAt = (['arcgis-hms-fire', 'polymarket-markets'].includes(feed?.id) ? parseFirstValidTimestampOrNull : parseFirstValidTimestamp)(
       entry.publishedAt,
       entry.published_at,
       properties.time,
@@ -821,6 +840,7 @@ export function parseGenericJsonFeed(data, feed) {
       url,
       summary: finalSummary,
       publishedAt: Number.isNaN(publishedAt) ? Date.now() : publishedAt,
+      ...(feed?.id === 'polymarket-markets' ? { updatedAt: parseFirstValidTimestampOrNull(entry.updatedAt, entry.updated_at) } : {}),
       source: entry.source || feed.name,
       category: feed.category,
       geo,
@@ -854,6 +874,14 @@ export function normalizeJsonSignals(text, feed) {
 export function normalizeCsvSignals(text, feed) {
   const rows = toCsvObjects(text);
   if (!rows.length) return [];
+  if (feed?.id === 'gpsjam') {
+    return rows.flatMap(row => {
+      if (!/^\d{4}-\d\d-\d\d$/.test(row.date)) return [];
+      const day = Date.parse(row.date + 'T00:00:00Z');
+      if (!Number.isFinite(day) || day > Date.now() || new Date(day).toISOString().slice(0, 10) !== row.date) return [];
+      return [{ title: row.date, url: '', summary: '', publishedAt: day, source: feed.name, category: feed.category }];
+    }).sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 50);
+  }
   if (feed?.id === 'stooq-quote') {
     return rows.map((row) => {
       const symbol = String(row.Symbol || '').trim();

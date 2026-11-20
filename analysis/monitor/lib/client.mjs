@@ -263,7 +263,7 @@ function parseMcpText(text) {
   }
 }
 
-async function readMcpResponseText(response) {
+export async function readMcpResponseText(response) {
   const declaredLength = Number(response?.headers?.get('content-length'));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_MCP_RESPONSE_BYTES) {
     const error = new Error('MCP response exceeded the monitor response limit.');
@@ -440,6 +440,7 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000, 
           'Accept': 'application/json, text/event-stream'
         },
         body: JSON.stringify(payload),
+        ...(options.redirect ? { redirect: options.redirect } : {}),
         signal: controller.signal
       });
       let parsed = null;
@@ -466,6 +467,11 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000, 
       } else {
         const result = parsed.result || parsed;
         const isToolError = Boolean(result.isError || result.structuredContent?.error);
+        // The release verifier projects only safe counts and times from the original GDACS envelope.
+        // The ordinary result remains redacted, including report-link query values.
+        const gdacsVerification = response.ok && !isToolError && name === 'raw.fetch'
+          && args.sourceId === 'gdacs-alerts' && typeof options.inspectGdacsRaw === 'function'
+          ? options.inspectGdacsRaw(result.structuredContent) : null;
         const safeResult = redactEndpointPayload(result, endpoint, { errorContext: isToolError });
         const transportError = response.ok ? {} : {
           error: `http_${response.status}`,
@@ -476,6 +482,7 @@ export async function callMcpTool(endpoint, name, args = {}, timeoutMs = 30000, 
           status: response.status,
           data: safeResult.structuredContent ?? null,
           raw: safeResult,
+          ...(gdacsVerification ? { gdacsVerification } : {}),
           ...transportError,
           ...(isToolError ? normalizeMcpToolError(safeResult) : {})
         };

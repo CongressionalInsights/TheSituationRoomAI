@@ -1,3 +1,4 @@
+import { gdacsMachineMime, parseGdacsMachineBody } from './modules/gdacs-machine.js';
 import { apiFetch, apiJson, getAssetUrl, isStaticMode, getOpenAiProxy, getOpenSkyProxy, getAcledProxy, getMcpProxy } from './services/api.js';
 import { createFocusController } from './modules/focus.js';
 import { createMcpClient } from './modules/mcp.js';
@@ -279,6 +280,7 @@ const state = {
   energyMapError: null,
   energyMapFetchedAt: 0,
   moneyFlowsData: null,
+  moneyEmployerSearch: null,
   moneyFlowsItems: [],
   moneyFlowsFetchedAt: 0,
   moneyFlowsLoading: false,
@@ -563,6 +565,10 @@ const elements = {
   moneyFlowsRun: document.getElementById('moneyFlowsRun'),
   moneyFlowsSummary: document.getElementById('moneyFlowsSummary'),
   moneyFlowsList: document.getElementById('moneyFlowsList'),
+  moneyEmployerResults: document.getElementById('moneyEmployerResults'),
+  moneyEmployerList: document.getElementById('moneyEmployerList'),
+  moneyEmployerMore: document.getElementById('moneyEmployerMore'),
+  moneyEmployerStatus: document.getElementById('moneyEmployerStatus'),
   moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
   moneyFlowsRateNotice: document.getElementById('moneyFlowsRateNotice'),
   moneyInMeta: document.getElementById('moneyInMeta'),
@@ -2431,8 +2437,8 @@ function openDetailModal(item) {
   }
   if (elements.detailMeta) {
     const metaParts = [
-      item.source || item.feedName || '',
-      toRelativeTime(item.publishedAt || Date.now())
+      formatItemSource(item, item.feedName || ''),
+      formatItemTime(item)
     ].filter(Boolean);
     elements.detailMeta.textContent = metaParts.join(' • ');
   }
@@ -3853,7 +3859,7 @@ function parseRss(text, feed) {
     let geo = null;
     const geoPoint = item.getElementsByTagName('georss:point')?.[0]?.textContent;
     if (geoPoint) {
-      const [lat, lon] = geoPoint.trim().split(/\\s+/).map(Number);
+      const [lat, lon] = geoPoint.trim().split(/\s+/).map(Number);
       if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
         geo = { lat, lon };
       }
@@ -6390,8 +6396,77 @@ function renderMoneyRateNotice() {
   elements.moneyFlowsRateNotice.classList.add('active');
 }
 
+function renderMoneyEmployer(search) {
+  const { moneyEmployerResults: section, moneyEmployerList: list, moneyEmployerMore: button,
+    moneyEmployerStatus: status } = elements;
+  if (!section) return;
+  section.hidden = !search || (!search.next && !search.items.length && !search.status);
+  button.hidden = !search?.next;
+  button.disabled = Boolean(search?.loading);
+  status.textContent = search?.loading ? 'Loading one employer page…' : search?.status || '';
+  if (search?.items.length) renderList(list, search.items);
+  else list.innerHTML = '';
+}
+
+async function loadMoreMoneyEmployer() {
+  const search = state.moneyEmployerSearch;
+  const next = search?.next;
+  if (!next || search.loading) return;
+  if (Date.parse(search.retryAt) > Date.now()) {
+    search.status = `OpenFEC rate limit. Try again after ${new Date(search.retryAt).toLocaleTimeString()}.`;
+    renderMoneyEmployer(search);
+    return;
+  }
+  const params = new URLSearchParams({ q: next.query, start: next.start, end: next.end,
+    mode: next.mode, cursor: next.cursor });
+  if (next.matchMode) params.set('matchMode', next.matchMode);
+  if (next.minScore != null) params.set('minScore', next.minScore);
+  for (const entity of next.entities || []) params.append('entities', entity);
+  search.loading = true;
+  renderMoneyEmployer(search);
+  try {
+    const { data, error } = await apiJson(`/api/money-flows?${params}`, {}, 60000);
+    if (state.moneyEmployerSearch !== search) return;
+    if (error || !data?.fecTraversal) throw new Error('OpenFEC employer page could not be loaded.');
+    const traversal = data.fecTraversal;
+    const source = data.sources?.fec;
+    const seen = new Set([...state.moneyFlowsItems, ...search.items]
+      .filter(item => item.source === 'OpenFEC' && item.sourceId != null)
+      .map(item => String(item.sourceId)));
+    let added = 0;
+    for (const item of data.items || []) {
+      if (item.source !== 'OpenFEC') continue;
+      if (item.sourceId != null) {
+        const id = String(item.sourceId);
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
+      search.items.push({ ...item, url: item.url || item.externalUrl || null });
+      added++;
+    }
+    search.retryAt = source?.retryAt || null;
+    const blocked = traversal.requiresRestart || (traversal.blocked && !search.retryAt);
+    search.next = blocked ? null : traversal.next;
+    if (blocked) search.status = 'OpenFEC could not continue this search. The results shown are partial.';
+    else if (search.retryAt && Date.parse(search.retryAt) > Date.now()) {
+      search.status = `OpenFEC rate limit. Try again after ${new Date(search.retryAt).toLocaleTimeString()}.`;
+    } else if (source?.error || (source?.coverage?.reasons || []).some(reason => reason === 'deadline')) {
+      search.status = `Added ${added} new employer records. The page was interrupted and coverage is partial.`;
+    } else if (traversal.complete) search.status = `Added ${added} new employer records. The requested employer pages have finished.`;
+    else search.status = `Added ${added} new employer records. More pages may be available.`;
+  } catch (err) {
+    if (state.moneyEmployerSearch === search) search.status = err?.message || 'OpenFEC employer page could not be loaded.';
+  } finally {
+    if (state.moneyEmployerSearch === search) {
+      search.loading = false;
+      renderMoneyEmployer(search);
+    }
+  }
+}
+
 function renderMoneyFlows() {
   if (!elements.moneyFlowsList) return;
+  renderMoneyEmployer(state.moneyEmployerSearch);
   if (elements.moneyFlowsMeta) {
     if (!state.moneyFlowsQuery) {
       elements.moneyFlowsMeta.textContent = 'No query yet.';
@@ -6528,6 +6603,8 @@ function renderMoneyFlows() {
 }
 
 async function fetchMoneyFlows() {
+  const search = { next: null, retryAt: null, items: [], status: '', loading: false };
+  state.moneyEmployerSearch = search;
   const query = elements.moneyFlowsQuery?.value?.trim();
   if (!query) {
     state.moneyFlowsError = 'Enter a query to search.';
@@ -6555,24 +6632,31 @@ async function fetchMoneyFlows() {
 
   try {
     const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`, {}, 60000);
+    if (state.moneyEmployerSearch !== search) return;
     if (error) {
       throw new Error(data?.message || error);
     }
     state.moneyFlowsData = data;
+    search.next = data?.fecEmployerTraversal?.next || null;
+    search.retryAt = data?.fecEmployerTraversal?.retryAt || null;
     state.moneyFlowsItems = (data?.items || []).map((item) => ({
       ...item,
       url: item.url || item.externalUrl || null
     }));
     state.moneyFlowsFetchedAt = data?.fetchedAt || Date.now();
   } catch (err) {
-    state.moneyFlowsError = err?.message || 'Fetch failed.';
-    state.moneyFlowsData = null;
-    state.moneyFlowsItems = [];
+    if (state.moneyEmployerSearch === search) {
+      state.moneyFlowsError = err?.message || 'Fetch failed.';
+      state.moneyFlowsData = null;
+      state.moneyFlowsItems = [];
+    }
   } finally {
-    state.moneyFlowsLoading = false;
-    renderMoneyFlows();
-    updatePanelTimestamps();
-    updatePanelErrors();
+    if (state.moneyEmployerSearch === search) {
+      state.moneyFlowsLoading = false;
+      renderMoneyFlows();
+      updatePanelTimestamps();
+      updatePanelErrors();
+    }
   }
 }
 
@@ -6729,9 +6813,14 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
       payload = await res.json();
     }
     const httpStatus = payload.httpStatus || res.status || 0;
-    const error = payload.error || (httpStatus >= 400 ? `http_${httpStatus}` : null);
+    let error = payload.error || (httpStatus >= 400 ? `http_${httpStatus}` : null);
     const errorMessage = payload.message || (httpStatus >= 400 ? `HTTP ${httpStatus}` : null);
-    const items = error ? [] : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
+    const machine = feed.id === 'gdacs-alerts' && payload.contentType === gdacsMachineMime;
+    const updates = machine ? parseGdacsMachineBody(payload.body) : null;
+    if (machine && !updates) error ||= 'invalid_response';
+    const items = error ? [] : machine
+      ? (updates?.items || []).map(item => ({ ...item, category: feed.category, externalUrl: item.url, timeSemantics: 'updated' }))
+      : (feed.format === 'rss' ? parseRss(payload.body, feed) : parseJson(payload.body, feed));
     const enriched = items.map((item) => ({
       ...item,
       tags: Array.from(new Set([...(feed.tags || []), ...((Array.isArray(item.tags) ? item.tags : []))])),
@@ -6745,6 +6834,13 @@ async function fetchFeed(feed, query, force = false, requestParams = {}) {
       errorMessage,
       httpStatus,
       fetchedAt: payload.fetchedAt,
+      ...(feed.id === 'gdacs-alerts' ? {
+        stale: Boolean(payload.stale || payload.fallback || payload.fallbackUsed),
+        ...(payload.stale || payload.fallback || payload.fallbackUsed
+          ? { errorMessage: updates && payload.fallback !== 'live-cache'
+            ? 'GDACS recent updates (four-day product, up to 100 events). Original publication is unknown.'
+            : 'Cached GDACS data; primary freshness is unverified.' } : {})
+      } : {}),
       reuseBlocked: Boolean(payload.stale || payload.fallback || payload.fallbackUsed || payload.warning)
     };
   } catch (err) {
@@ -7140,7 +7236,7 @@ function ensurePanelUpdateBadges() {
 
 function getLatestTimestamp(items) {
   if (!items || !items.length) return null;
-  return items.reduce((max, item) => Math.max(max, item.publishedAt || 0), 0) || null;
+  return items.reduce((max, item) => Math.max(max, itemTime(item)), 0) || null;
 }
 
 function getLatestFeedTimestamp(categories) {
@@ -7370,9 +7466,28 @@ function applyLanguageFilter(items) {
   return items.filter((item) => !item.isNonEnglish);
 }
 
+function itemTime(item, missing = 0) {
+  if (item.feedId === 'gdacs-alerts' && item.timeSemantics === 'updated') {
+    return Number.isFinite(item.updatedAt) && item.updatedAt <= Date.now() ? item.updatedAt : 0;
+  }
+  return item.publishedAt || missing;
+}
+
+function formatItemSource(item, fallback = 'Source') {
+  return item.feedId === 'gdacs-alerts' && item.timeSemantics === 'updated'
+    ? 'GDACS · Recent updates (four-day product, up to 100 events)'
+    : item.source || fallback;
+}
+
+function formatItemTime(item) {
+  if (item.feedId !== 'gdacs-alerts' || item.timeSemantics !== 'updated') return toRelativeTime(item.publishedAt || Date.now());
+  const stamp = itemTime(item);
+  return stamp ? `Updated ${toRelativeTime(stamp)}` : 'Update time unavailable';
+}
+
 function applyFreshnessFilter(items) {
   const cutoff = Date.now() - state.settings.maxAgeDays * 24 * 60 * 60 * 1000;
-  return items.filter((item) => (item.publishedAt || Date.now()) >= cutoff);
+  return items.filter((item) => itemTime(item, Date.now()) >= cutoff);
 }
 
 function normalizeSearchItems(items) {
@@ -7930,9 +8045,9 @@ function renderList(container, items, { withCoverage = false, append = false } =
     const meta = document.createElement('div');
     meta.className = 'list-meta';
     const metaSource = document.createElement('span');
-    metaSource.textContent = item.source || 'Source';
+    metaSource.textContent = formatItemSource(item);
     const metaTime = document.createElement('span');
-    metaTime.textContent = toRelativeTime(item.publishedAt || Date.now());
+    metaTime.textContent = formatItemTime(item);
     meta.appendChild(metaSource);
     meta.appendChild(metaTime);
     if (item.externalUrl) {
@@ -10705,7 +10820,7 @@ function getCriticalAlertsItems() {
     return isCriticalItem(item) || (isAlertItem(item) && Boolean(item.severity || item.alertType || item.hazardType));
   });
   const deduped = dedupeItems(filtered);
-  deduped.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  deduped.sort((a, b) => itemTime(b) - itemTime(a));
   return deduped.slice(0, 60);
 }
 
@@ -12719,7 +12834,7 @@ function clusterMapPoints(points, radius = 24) {
     const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'news';
     const primary = cluster.points
       .map((point) => point.item)
-      .sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0))[0];
+      .sort((a, b) => itemTime(b) - itemTime(a))[0];
     const radiusPx = count === 1 ? 4 : Math.min(16, 4 + Math.sqrt(count) * 2);
     return {
       x: cluster.x,
@@ -13092,7 +13207,7 @@ function showMapDetail(cluster, x, y) {
     title.textContent = item.translatedTitle || item.title;
     const meta = document.createElement('div');
     meta.className = 'map-detail-meta';
-    meta.textContent = `${item.source || 'Source'} • ${toRelativeTime(item.publishedAt || Date.now())}`;
+    meta.textContent = `${formatItemSource(item)} • ${formatItemTime(item)}`;
     const badges = document.createElement('div');
     badges.className = 'map-detail-badges';
     const categoryBadge = document.createElement('span');
@@ -13377,6 +13492,7 @@ function initEvents() {
       }
     });
   }
+  elements.moneyEmployerMore?.addEventListener('click', () => loadMoreMoneyEmployer());
   if (elements.moneyFlowsRun) {
     elements.moneyFlowsRun.addEventListener('click', () => fetchMoneyFlows());
   }
