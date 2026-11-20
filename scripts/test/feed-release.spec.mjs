@@ -10,7 +10,7 @@ import { assertCandidate, assertReleaseState, buildProvenance } from '../verify_
 import { verifyFeedContent } from '../verify_feed_candidate.mjs';
 import { feedBuild, releaseImage } from '../feed_native_build.mjs';
 import { nativeBuildFixture } from './fixtures/feed-release/native-build-fixture.mjs';
-import { listNodeTests } from '../run_node_tests.mjs';
+import { listNodeTests as listOfflineTests } from '../run_node_tests.mjs';
 
 const sha = 'c'.repeat(40);
 const digest = 'sha256:' + 'a'.repeat(64);
@@ -321,7 +321,9 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate
     executable('gcloud', `#!${process.execPath}\n(${fakeCloud.toString()})();\n`);
     executable('git', `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a[0]==='show')process.stdout.write(fs.readFileSync(process.env.FIXTURE_DIR+'/gcp/feed-proxy/'+a[1].split('/').at(-1)));else if(a[0]==='ls-tree')console.log(['feeds.json','package.json','server.js'].join('\\n'));else console.log('${sha}');\n`);
     executable('curl', `#!${process.execPath}\nconst f=require(process.env.FIXTURE_DIR+'/fixtures.json');const identity={...f.identity};if(process.env.SCENARIO==='old-healthy'&&process.argv.at(-1).includes('382918878290'))identity.revision='${old}';console.log(JSON.stringify(identity));\n`);
-    executable('node', `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='scripts/verify_feed_candidate.mjs'||args[0]==='scripts/verify_money_candidate.mjs'){fs.appendFileSync(process.env.FIXTURE_DIR+'/verification.log',JSON.stringify(args)+'\\n');if((process.env.SCENARIO==='candidate-content-failure'&&args[0].includes('verify_feed_candidate'))||(process.env.SCENARIO==='candidate-feature-failure'&&args[0].includes('verify_money_candidate')))process.exitCode=9;else console.log('{}');}else{if(!args[0].startsWith('-'))args[0]=fs.realpathSync(args[0]);const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exitCode=r.status??1;}\n`);
+    // Enter each real helper's CLI main in this fresh fixture process. Its argv,
+    // environment and exit behavior remain real; avoid a second Node startup.
+    executable('node', `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');const args=process.argv.slice(2);if(args[0]==='scripts/verify_feed_candidate.mjs'||args[0]==='scripts/verify_money_candidate.mjs'){fs.appendFileSync(process.env.FIXTURE_DIR+'/verification.log',JSON.stringify(args)+'\\n');if((process.env.SCENARIO==='candidate-content-failure'&&args[0].includes('verify_feed_candidate'))||(process.env.SCENARIO==='candidate-feature-failure'&&args[0].includes('verify_money_candidate')))process.exitCode=9;else console.log('{}');}else if(args[0]&&!args[0].startsWith('-')){const file=fs.realpathSync(args[0]);process.argv=[process.execPath,file,...args.slice(1)];import(require('node:url').pathToFileURL(file).href).catch(error=>{console.error(error);process.exitCode=1;});}else{const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exitCode=r.status??1;}\n`);
     const result = spawnSync('bash', [path.resolve('scripts/deploy_feed_candidate.sh')], { cwd: dir, encoding: 'utf8',
       env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, FIXTURE_DIR: dir, SCENARIO: scenario,
         GOOGLE_GHA_CREDS_PATH: credentialPath, CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: credentialPath, GOOGLE_APPLICATION_CREDENTIALS: credentialPath,
@@ -374,13 +376,14 @@ for (const scenario of ['success', 'old-healthy', 'partial', 'alien', 'candidate
 
 test('Existing required preflight includes Feed release and BLS fixtures beside unchanged specialized gates', () => {
   const workflow = fs.readFileSync(new URL('../../.github/workflows/deploy-mcp-proxy.yml', import.meta.url), 'utf8').split('\n  deploy:')[0];
-  assert.match(workflow, /run: npm test/);
-  const inventory = listNodeTests();
-  for (const file of ['feed-release.spec.mjs', 'bls-acquisition.spec.mjs', 'verify_mcp_metadata_candidate.spec.mjs',
-    'verify_cisa_candidate.spec.mjs', 'mcp-native-release.spec.mjs', 'monitor.spec.mjs']) {
-    assert.ok(inventory.includes(`scripts/test/${file}`), file);
+  assert.match(workflow, /run: \/usr\/bin\/time -v npm test/);
+  const inventory = listOfflineTests();
+  for (const file of ['feed-release', 'feed-native-build', 'bls-acquisition', 'verify_mcp_metadata_candidate',
+    'verify_cisa_candidate', 'monitor', 'mcp-native-release', 'mcp-proxy', 'briefing', 'acled-pagination']) {
+    assert.ok(inventory.includes(`scripts/test/${file}.spec.mjs`), file);
   }
   const feedWorkflow = fs.readFileSync(new URL('../../.github/workflows/deploy-feed-proxy.yml', import.meta.url), 'utf8');
+  assert.match(feedWorkflow, /node --test scripts\/test\/feed-native-build\.spec\.mjs scripts\/test\/feed-release\.spec\.mjs scripts\/test\/candidate-only\.spec\.mjs/);
   assert.ok(feedWorkflow.indexOf('test "$EXPECTED_SHA" = "$ACTUAL_SHA"') < feedWorkflow.indexOf('google-github-actions/auth'));
   assert.ok(feedWorkflow.indexOf('build_feed_manifest.mjs') < feedWorkflow.indexOf('google-github-actions/auth'));
   assert.match(feedWorkflow, /cancel-in-progress: false/);

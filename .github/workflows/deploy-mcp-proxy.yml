@@ -118,7 +118,7 @@ jobs:
           node --check gcp/mcp-proxy/state-signals.js
           node --check gcp/mcp-proxy/public-payload-safety.js
       - name: Verify full offline suite including release, PID reuse and typed series contracts
-        run: npm test
+        run: /usr/bin/time -v npm test
 
   deploy:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

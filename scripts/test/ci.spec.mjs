@@ -46,7 +46,7 @@ test('required preflight runs the full suite and only cancels superseded PR vali
   assert.match(preflight, /\n  preflight:\n/);
   assert.match(preflight, /group: mcp-preflight-\$\{\{ github.event_name \}\}-\$\{\{ github.event.pull_request.number \|\| github.run_id \}\}/);
   assert.match(preflight, /cancel-in-progress: \$\{\{ github.event_name == 'pull_request' \}\}/);
-  for (const command of ['npm ci --prefix gcp/mcp-proxy', 'npm ci --prefix gcp/state-connector', 'npm test']) {
+  for (const command of ['npm ci --prefix gcp/mcp-proxy', 'npm ci --prefix gcp/state-connector', '/usr/bin/time -v npm test']) {
     assert.ok(preflight.includes(`run: ${command}\n`), command);
   }
   assert.match(deploy, /needs: preflight/);

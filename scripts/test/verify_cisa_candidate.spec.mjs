@@ -109,7 +109,9 @@ test('forensic triage matches sanitized raw Yes, No, or missing values across li
 });
 
 test('only opted-in CISA list reads a complete SSE event above the default limit', async (t) => {
+  let requests = 0;
   const server = createServer(async (request, response) => {
+    requests++;
     let body = '';
     for await (const chunk of request) body += chunk;
     const { id: requestId } = JSON.parse(body);
@@ -125,7 +127,10 @@ test('only opted-in CISA list reads a complete SSE event above the default limit
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const localEndpoint = `http://127.0.0.1:${server.address().port}/mcp`;
 
-  const ordinary = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'cisa-kev' }, 10000, { retry: false });
+  // This fixture owns payload limits; monitor.spec.mjs owns the three-attempt
+  // retry contract. Avoid paying its backoff on every deterministic rejection.
+  const ordinary = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'cisa-kev' }, 10000,
+    { retry: false });
   assert.equal(ordinary.error, 'response_too_large');
   const unrelated = await callMcpTool(localEndpoint, 'signals.list', { sourceId: 'other' }, 10000,
     { allowCompleteEvent: true, retry: false });
@@ -138,6 +143,7 @@ test('only opted-in CISA list reads a complete SSE event above the default limit
   const oversized = await callMcpTool(`http://127.0.0.1:${server.address().port}/oversize`,
     'signals.list', { sourceId: 'cisa-kev' }, 10000, { allowCompleteEvent: true, retry: false });
   assert.equal(oversized.error, 'response_too_large');
+  assert.equal(requests, 4, 'each deterministic payload case makes exactly one request');
 });
 
 test('empty and malformed catalogs fail closed', async () => {

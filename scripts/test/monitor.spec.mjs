@@ -699,7 +699,7 @@ test('typed series release report workflow gate runs after collection and before
   assert.match(smoke, /set -euo pipefail/);
   assert.match(smoke, /tee \/tmp\/mcp-diagnostics\/typed-series-candidate\.json/);
   // The full offline suite includes this spec, with no test-name filter.
-  assert.match(workflow.split('\n  deploy:')[0], /run: npm test/);
+  assert.match(workflow.split('\n  deploy:')[0], /run: \/usr\/bin\/time -v npm test/);
 });
 
 async function readJsonRequest(request) {
