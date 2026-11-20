@@ -1460,6 +1460,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // The local server runs the checkout's source. The static Pages build
+  // publishes its own generated manifest and uses the hashed artifacts.
+  if (url.pathname === '/assets/manifest.json') {
+    return sendJson(res, 200, { 'app.bundle.js': 'app.js', 'styles.css': 'styles.css' });
+  }
+
   let filePath = safePath(url.pathname);
   if (!filePath) return notFound(res);
   if (url.pathname === '/app.bundle.js' && !existsSync(filePath)) {
