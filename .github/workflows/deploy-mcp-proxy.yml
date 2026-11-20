@@ -58,6 +58,14 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+      - name: Record test runner hardware and runtime
+        run: |
+          node --input-type=module -e '
+            import os from "node:os";
+            console.log(JSON.stringify({node: process.version, v8: process.versions.v8,
+              platform: process.platform, arch: process.arch, cpu: os.cpus()[0]?.model,
+              parallelism: os.availableParallelism(), memoryBytes: os.totalmem(),
+              image: process.env.ImageOS, imageVersion: process.env.ImageVersion}));'
       - name: Bind manual release to reviewed main commit
         if: github.event_name == 'workflow_dispatch'
         env:
