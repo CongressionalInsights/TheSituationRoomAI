@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { format } from 'node:util';
@@ -12,7 +11,9 @@ export async function fixtureCommand(t, file, implementation, environmentKeys = 
   for (const key of environmentKeys) {
     if (!/^[A-Z_][A-Z_0-9]*$/.test(key)) throw Error('Invalid fixture environment key');
   }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsr-command-'));
+  // Unix sockets have a small address limit (104 bytes on macOS). TMPDIR can
+  // validly exceed it; keep this private transport under the short Unix root.
+  const dir = fs.mkdtempSync('/tmp/tsr-command-');
   const socket = path.join(dir, 'rpc.sock');
   const worker = new Worker(new URL(import.meta.url), {
     workerData: { dir, socket, source: implementation.toString(), environmentKeys }

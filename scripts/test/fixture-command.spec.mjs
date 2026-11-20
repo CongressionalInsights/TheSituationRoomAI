@@ -58,3 +58,31 @@ test('fixture commands fail closed when their private server stops', async t => 
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, '');
 });
+
+test('fixture socket transport works with a valid long TMPDIR', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsr-command-long-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const long = path.join(dir, 'long-temporary-directory-'.repeat(6));
+  fs.mkdirSync(long);
+  assert.ok(Buffer.byteLength(long) > 121);
+  const file = path.join(long, 'gcloud');
+  const script = `
+    import { fixtureCommand } from ${JSON.stringify(new URL('./fixtures/command-server.mjs', import.meta.url).href)};
+    import { spawnSync } from 'node:child_process';
+    let cleanup;
+    try {
+      await fixtureCommand({ after(fn) { cleanup = fn; } }, process.argv[2], function () { console.log('long TMPDIR success'); });
+      const result = spawnSync(process.argv[2], [], { encoding: 'utf8' });
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
+      process.exitCode = result.status ?? 1;
+    } finally { if (cleanup) await cleanup(); }
+  `;
+  const env = { ...process.env, TMPDIR: long };
+  delete env.NODE_TEST_CONTEXT;
+  const child = path.join(long, 'run-fixture.mjs');
+  fs.writeFileSync(child, script);
+  const result = spawnSync(process.execPath, [child, file], { env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'long TMPDIR success\n');
+});

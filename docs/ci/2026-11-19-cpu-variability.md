@@ -83,6 +83,19 @@ instrumented and uninstrumented measurements separate. Source, case-name,
 fixture-function and deploy-body fingerprints, complete logs and raw process
 observations remain in the ignored `analysis/ci-cpu-20261119/` audit directory.
 
+Review found that a valid long `TMPDIR` can exceed the Unix socket address
+limit. The final adapter keeps its owned private socket directory under `/tmp`;
+other fixture data still honors `TMPDIR`. A fourth adapter check executes with
+a real temporary path longer than 121 bytes. A temporary copy restoring the old
+socket location fails that check with `Unix socket path too long`; tracked
+source is untouched by this mutation proof. The final full suite passed **836
+cases**, zero failures/skips, in **25.47 s wall / 36.56 s CPU**. Keep the earlier
+835-case observation above as history. The initial advisory transcript produced
+this accepted finding, but its receipt is `execution_failed` after a blocked
+reviewer cleanup command; it is not clean acceptance. One changed-target
+verification closes the review budget, with its result retained in the PR and
+local review-chain receipt.
+
 Remote acceptance uses the normal PR event and one predeclared fresh-runner
 replication of the exact same head. Both must pass the full inventory, preserve
 required `preflight` from Actions app 15368, and skip deployment. Retain both
