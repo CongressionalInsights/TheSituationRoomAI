@@ -1,15 +1,16 @@
-# Hosted CPU variability and fixture startup
+# Hosted CPU variability and a rejected fixture optimization
 
 Base: `56b2cd80a84b890add40b170f778dbcb4794316f` (PR #278 merged).
-Scope: offline CI and its fixture harness; no merge, release, credentials,
-permissions, provider calls or required-check changes.
+The resulting change only records bounded CPU/runtime/image metadata in the
+existing preflight. Test/runtime source, fixture harnesses, dependency installs,
+worker counts, release gates and required checks remain unchanged. No merge or
+deployment is part of this task.
 
-## Why the two identical trees used different CPU
+## The host is the leading explanation for CPU variation
 
-The [refreshed PR run](https://github.com/CongressionalInsights/TheSituationRoomAI/actions/runs/44662695983)
+The [refreshed PR #278 run](https://github.com/CongressionalInsights/TheSituationRoomAI/actions/runs/44662695983)
 and [merged-main run](https://github.com/CongressionalInsights/TheSituationRoomAI/actions/runs/44663394847)
-executed the same tree, 832 tests and three file workers on Node 24.22.2.
-They ran on different hosts and image builds:
+executed identical trees, 832 cases and three file workers on Node 24.22.2:
 
 | Observation | PR | Main |
 | --- | ---: | ---: |
@@ -21,101 +22,81 @@ They ran on different hosts and image builds:
 | Involuntary context switches | 14,499 | 20,327 |
 | Occupied runner / feedback | 40 / 43 s | 39 / 41 s |
 
-Across 92 case names taking more than 30 ms in the PR run, the median main/PR
-duration ratio is 1.412. The broad slowdown, nearly identical page faults and
-identical source are evidence against a new code regression or duplicated suite.
-Host performance is the leading explanation; CPU model, frequency and contention
-were not captured, so the cloud/image observation does not establish causation.
-Faster checkout/setup on main masked the slower suite in whole-job feedback.
+Across 92 case names above 30 ms in the PR, the median main/PR duration ratio
+is 1.412. Nearly identical page faults, identical source and a broad slowdown
+argue against duplicate cases or a new code regression. Faster setup on main
+masked the slower test command in whole-job feedback. CPU model, frequency and
+contention were not captured; cloud/image causation is unproven.
 
-[GitHub documents automatic AWS/Azure scheduling](https://docs.github.com/en/actions/concepts/runners/github-hosted-runners#cloud-hosts-used-by-github-hosted-runners)
-for eligible standard Linux jobs. An OS label does not select a cloud or CPU
-model. Keep the existing standard runner. Record CPU model, parallelism, runtime,
-memory and image build in the existing preflight, without dumping environment
-variables or adding a gate. No paid or self-hosted runner is justified here.
+The experiment below also captured different CPUs within Azure on the same
+image: EPYC 7763 versus EPYC 9V74, with 65.65 versus 49.57 CPU seconds on the
+unchanged experimental head. This reinforces host performance as the leading
+explanation without isolating its components.
+[GitHub documents automatic AWS/Azure scheduling](https://docs.github.com/en/actions/concepts/runners/github-hosted-runners#cloud-hosts-used-by-github-hosted-runners).
+An OS label does not select a CPU or cloud. Keep the standard runner and log
+CPU model, parallelism, Node/V8, memory and image build without dumping the
+environment. This is diagnosis, not a speedup or a reason to buy runners.
 
-## Biggest remaining avoidable work
+## Fixture startup: promising locally, insufficient remote evidence
 
-The 21 actual Feed release scenarios are the largest sequential fixture group:
-19.71 / 27.83 seconds of case time in the two runs. Cases in different files can
-overlap; do not add these totals to wall time or to enclosing tests.
+The 21 actual Feed release scenarios took 19.71 / 27.83 s of case time in the
+base jobs. Cases in different files overlap; do not add these to suite wall.
+A temporary local Node exit probe recorded 731 Node exits, including **395
+fake `gcloud` startups using 12.42 CPU seconds**. Some MCP fixture environments
+discard Node options, so this is not an exhaustive OS trace.
 
-A temporary Node exit probe on the unchanged local release command recorded
-731 Node exits, including **395 fake `gcloud` startups consuming 12.42 CPU
-seconds**. This counts processes inheriting the probe, not an exhaustive OS
-process trace; some MCP fixture environments intentionally discard Node options.
-The full release command consumed 31.01 CPU seconds / 33.66 s wall with the probe.
-These fake CLI startups exercise no production JavaScript; their repeated
-interpreter startup is avoidable even while the real shell helper still runs.
+An adapter reused the unchanged fake-cloud implementation in a private server
+while keeping every real helper/verifier CLI, scenario, mutation and assertion.
+The release pair with the probe fell from 33.66 s wall / 31.01 s CPU to 23.61 /
+22.55 s. An uninstrumented full-suite pair fell from 31.69 / 43.67 s to 26.42 /
+36.79 s, retaining all 832 cases plus three new adapter checks.
 
-Reuse the exact `fakeCloud` function in one private worker/socket per scenario.
-A small shell shim sends NUL-framed argv and the four environment fields read by
-that function over a Unix socket with the existing system curl. It preserves
-unset versus empty values, stdout/stderr bytes and numeric exit status. Curl
-configuration and proxy lookup are disabled; transport failure is nonzero, with
-no fallback to a real executable or cloud endpoint. The worker is terminated and
-its owned temporary files removed at test cleanup. No daemon survives the test.
+Advisory review found successive actual portability regressions: long `TMPDIR`
+paths exceeded Unix socket limits, then a short global `/tmp` path failed when
+only `TMPDIR` was writable. A relative socket in an owned subprocess cwd passed
+both native sandbox reproductions, but its full suite used **30.70 s wall /
+42.76 s CPU**, erasing most of the local gain.
 
-The implementation of `fakeCloud`, all 21 scenarios, state/provenance mutations,
-cloud command logs and assertions are unchanged. Real release scripts and all
-real verifier CLI processes still execute normally. Three independent adapter
-tests cover argument framing, live exports, stream/status preservation, explicit
-exit, exceptions, per-call exit reset, and stopped-server failure. The production
-deploy job body is byte-identical to the base, as are runtime application files.
+Two declared remote prototype attempts at `02c185bee4733443856186e2b9915de18e0090dc`
+passed all 836 cases with zero skips and skipped deployment:
 
-## Local qualification
-
-Node 24.22.1 / macOS arm64, sequential before/after observations on one host:
-
-| Command | Baseline | Candidate |
+| Metric | [Attempt 1](https://github.com/CongressionalInsights/TheSituationRoomAI/actions/runs/44665629309/attempts/1) | [Attempt 2](https://github.com/CongressionalInsights/TheSituationRoomAI/actions/runs/44665629309/attempts/2) |
 | --- | ---: | ---: |
-| Release pair with exit probe: wall | 33.66 s | 23.61 s |
-| Release pair with exit probe: CPU | 31.01 s | 22.55 s |
-| Same release cases passed | 41 | 41 |
-| Full `npm test`, no probe: wall | 31.69 s | 26.42 s |
-| Full `npm test`, no probe: CPU | 43.67 s | 36.79 s |
-| Full cases passed, zero failures/skips | 832 | 835 |
+| Azure region / EPYC model | westus2 / 7763 | eastus2 / 9V74 |
+| Runner / feedback | 42 / 44 s | 29 / 32 s |
+| Test CPU / wall | 65.65 / 26.41 s | 49.57 / 21.50 s |
+| Peak RSS, KiB | 821,580 | 1,061,696 |
 
-The full-suite observation is 16.6% lower wall time and 15.7% lower CPU with all
-previous case names retained plus three adapter checks. This is a small local
-comparison, not a guaranteed remote saving. The probe adds overhead, so keep
-instrumented and uninstrumented measurements separate. Source, case-name,
-fixture-function and deploy-body fingerprints, complete logs and raw process
-observations remain in the ignored `analysis/ci-cpu-20261119/` audit directory.
+The pair used 71 runner seconds / 115.22 test CPU seconds, versus 79 / 116.64
+for the immediate base pair: only 1.2% less CPU. Host models/regions differ and
+the base lacked CPU models. This is observational, not controlled attribution;
+RSS does not prove memory savings. Each job rounds to one minute. Public
+standard-runner cash cost remains $0. The original 20-job baseline medians remain
+51.5 s occupied / 54 s feedback; that narrower suite did not record CPU.
 
-Review found that a valid long `TMPDIR` can exceed the Unix socket address
-limit. The final adapter keeps its owned private socket directory under `/tmp`;
-other fixture data still honors `TMPDIR`. A fourth adapter check executes with
-a real temporary path longer than 121 bytes. A temporary copy restoring the old
-socket location fails that check with `Unix socket path too long`; tracked
-source is untouched by this mutation proof. The final full suite passed **836
-cases**, zero failures/skips, in **25.47 s wall / 36.56 s CPU**. Keep the earlier
-835-case observation above as history. The initial advisory transcript produced
-this accepted finding, but its receipt is `execution_failed` after a blocked
-reviewer cleanup command; it is not clean acceptance. One changed-target
-verification closes the review budget, with its result retained in the PR and
-local review-chain receipt.
+**Decision: remove the adapter and retain the original fixture harness.**
+The measured result does not justify its portability and maintenance cost.
+The advisory budget is closed: initial receipt `execution_failed` after a blocked
+reviewer cleanup, verification `findings`. Both accepted findings are resolved
+by removing the socket dependency; no third model pass is used. The retained
+diagnostic code is identical to the reviewed code. All 832 baseline case names,
+source equality and fresh full-suite PR CI qualify the reduced change. Exact
+final CI results are recorded in the PR description to keep the source stable.
+Logs, sandbox/mutation proofs and review receipts remain in the ignored
+`analysis/ci-cpu-20261119/` audit directory. Published adapter prototypes remain
+in git history; the portable subprocess variant's patch is in the task transcript.
 
-Remote acceptance uses the normal PR event and one predeclared fresh-runner
-replication of the exact same head. Both must pass the full inventory, preserve
-required `preflight` from Actions app 15368, and skip deployment. Retain both
-attempts, hardware/image metadata, test-command CPU, RSS, occupied time, queue,
-feedback and per-job rounded-minute proxy. Compare with both immediate base
-runs and the original 20-job baseline (51.5 s occupied / 54 s feedback medians),
-without comparing different hosts as a controlled experiment. Attempt-specific
-results belong in the PR description so reporting them does not invalidate the
-checked source. Public standard-runner cash cost remains $0.
+## Next opportunities, in order
 
-## Lower-priority opportunities
-
-- Large real HTTP/SSE fixtures still matter: the total-byte-limit parent took
-  5.41 / 5.83 s. The monitor client repeatedly scans its growing event buffer for
-  a delimiter; incremental scanning merits a separate runtime performance study
-  with CRLF, split delimiter, UTF-8, cancellation and byte-cap regression proof.
-  Do not shrink payloads, skip real transport cases or alter that parser in this
-  fixture-only change.
-- Package installation was only a few seconds. More caches or sharding would
-  add maintenance/setup cost before addressing the larger fixture work.
-- Raising file concurrency can reduce wall time while increasing CPU and RSS.
-  Keep three workers on the existing hosted runner and the four-worker ceiling;
-  this change removes interpreter work without trading coverage for parallelism.
+1. **Profile large SSE reads.** The total-byte-limit parent still took 5.41 /
+   5.83 s in the base runs. `readMatchingMcpEvent` repeatedly scans its growing
+   buffer for a delimiter. An incremental scan merits a separate runtime
+   benchmark with CRLF, split delimiter, UTF-8, cancellation and byte/event-cap
+   proof. Preserve real payload sizes and HTTP transport cases.
+2. **Revisit fixture startup only with a simpler portable mechanism and a
+   same-host A/B measurement.** Do not promote this rejected adapter based on
+   its fastest local result or a favorable hosted run.
+3. **Leave installation and scheduling alone.** Installation took only a few
+   seconds. Caches/shards add setup and maintenance; more workers may exchange
+   wall time for CPU/RSS. Keep full discovery and the hosted three-worker policy
+   with its four-worker ceiling.
