@@ -1,0 +1,7 @@
+{
+  "id": "congress-summaries",
+  "fetchedAt": 1795295262147,
+  "contentType": "application/json",
+  "body": "{\n    \"pagination\": {\n        \"count\": 1\n    },\n    \"request\": {\n        \"contentType\": \"application/json\",\n        \"format\": \"json\"\n    },\n    \"summaries\": [\n        {\n            \"actionDate\": \"2026-01-20\",\n            \"actionDesc\": \"Introduced in House\",\n            \"bill\": {\n                \"congress\": 119,\n                \"number\": \"1010\",\n                \"originChamber\": \"House\",\n                \"originChamberCode\": \"H\",\n                \"title\": \"Recognizing 2026 as \\\"The Year of The Power of Nurses\\\" in Celebration of the 130th Anniversary of the American Nurses Association.\",\n                \"type\": \"HRES\",\n                \"updateDateIncludingText\": \"2026-11-20\",\n                \"url\": \"https://api.congress.gov/v3/bill/119/hres/1010?format=json\"\n            },\n            \"currentChamber\": \"House\",\n            \"currentChamberCode\": \"H\",\n            \"lastSummaryUpdateDate\": \"2026-11-20T21:03:30Z\",\n            \"text\": \"<p>This resolution recognizes The Year of The Power of Nurses in celebration of the 130th Anniversary of the American Nurses Association and honors the contributions of nurses to the health, safety, and prosperity of the United States.</p>\",\n            \"updateDate\": \"2026-11-20T21:03:43Z\",\n            \"versionCode\": \"00\"\n        }\n    ]\n}",
+  "httpStatus": 200
+}

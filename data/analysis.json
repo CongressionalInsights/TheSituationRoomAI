@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-11-21T21:07:45.094Z",
+  "source": "openai",
+  "text": "- **Security & politics:** A Russia-bound ship was reportedly attacked in the Gulf of Finland. Trump’s Iran claims and proposed restrictions on federal contractors’ communications with Congress are drawing attention; international talks on autonomous weapons continue without a firm agreement.\n\n- **Economy & technology:** Headlines report a tech and AI sell-off, with the S&P 500 entering correction territory. EU officials are revisiting a digital tax proposal amid budget negotiations.\n\n- **Public safety & health:** Storms on both coasts and potentially severe Southern California king tides could disrupt Thanksgiving travel. Virginia reported its first measles-associated death of 2026.",
+  "briefing": {
+    "policy": "terra-minimum-v1",
+    "requestedModel": "gpt-6.1-terra",
+    "requestedReasoningEffort": "none",
+    "maxOutputTokens": 1024,
+    "attempted": true,
+    "status": "completed",
+    "modelVerified": true,
+    "responseId": "resp_0343bb925f79aac4006b020821b7dc87d0a86fa4940e66d148",
+    "servedModel": "gpt-6.1-terra",
+    "responseStatus": "completed",
+    "servedReasoningEffort": "none",
+    "httpStatus": 200,
+    "reason": null,
+    "usage": {
+      "inputTokens": 1319,
+      "outputTokens": 129,
+      "reasoningTokens": 0
+    }
+  }
+}
