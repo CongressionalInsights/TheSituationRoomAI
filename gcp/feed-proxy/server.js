@@ -744,7 +744,7 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_
   throw new Error('fetch_failed');
 }
 
-async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { deadlineMs = null, onPrimaryFailure = null } = {}) {
+async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FETCH_TIMEOUT_MS, { deadlineMs = null, onPrimaryFailure = null, onGuardianPrimary = null } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: false });
   const effectiveTimeout = deadlineMs === null ? Math.max(8000, timeoutMs) : Math.max(0, deadlineMs - Date.now());
   const directTimeout = deadlineMs === null
@@ -762,25 +762,47 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
     const remainingMs = deadlineMs === null ? Infinity : deadlineMs - Date.now();
     if (remainingMs <= 0) break;
     const perAttemptTimeout = Math.min(index === 0 ? directTimeout : fallbackTimeout, remainingMs);
+    const diagnoseGuardian = index === 0 && onGuardianPrimary;
+    const started = diagnoseGuardian ? Date.now() : null;
+    let response;
+    let body;
+    let stage = 'fetch';
+    const report = (stage, failureCode = null) => {
+      const mime = normalizeContentType(response?.headers.get('content-type'));
+      onGuardianPrimary({
+        event: 'guardian_feed_primary', feedId: 'guardian-world', stage,
+        status: response?.status ?? null, redirected: response?.redirected ?? null,
+        type: !response ? null : mime === 'text/html' ? 'html'
+          : /(?:xml|rss|atom)/.test(mime) ? 'xml' : 'other',
+        bodyBytes: typeof body === 'string' ? Buffer.byteLength(body) : null,
+        elapsedMs: Date.now() - started, failureCode
+      });
+    };
     try {
-      let response;
-      let body;
       if (deadlineMs === null) {
         response = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout);
+        stage = 'body';
         body = await response.text();
       } else {
         [response, body] = await fetchWithTimeout(candidate, { headers }, perAttemptTimeout,
-          async (upstream) => [upstream, await upstream.text()]);
+          async (upstream) => {
+            response = upstream;
+            stage = 'body';
+            return [upstream, await upstream.text()];
+          });
       }
       const contentType = response.headers.get('content-type') || 'text/plain';
       lastResponse = response;
       lastBody = body;
       lastContentType = contentType;
       if (!response.ok) {
+        if (diagnoseGuardian) report('http');
         if (index === 0 && onPrimaryFailure) onPrimaryFailure({ httpStatus: response.status });
         continue;
       }
+      stage = 'rss';
       if (isLikelyRssPayload(contentType, body)) {
+        if (diagnoseGuardian) report('accepted');
         return {
           response,
           body,
@@ -788,6 +810,7 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
           valid: true
         };
       }
+      if (diagnoseGuardian) report('rss');
       if (index === 0 && onPrimaryFailure) {
         const normalizedType = normalizeContentType(contentType);
         onPrimaryFailure({ error: 'invalid_response', httpStatus: response.status,
@@ -798,6 +821,15 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = FET
           } : {}) });
       }
     } catch (error) {
+      if (diagnoseGuardian) {
+        const code = error?.cause?.code;
+        const known = ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT',
+          'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
+          'UND_ERR_SOCKET', 'Z_DATA_ERROR', 'Z_BUF_ERROR'];
+        const failureCode = error?.name === 'AbortError' || error?.name === 'TimeoutError' ? 'timeout'
+          : known.includes(code) ? code : 'unknown';
+        report(stage, failureCode);
+      }
       if (index === 0 && onPrimaryFailure) onPrimaryFailure(error);
       // ignore
     }
@@ -1104,7 +1136,7 @@ async function fetchStateConnectorFeed(feed, mergedParams = {}, timeoutMs = FETC
   }
 }
 
-async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params } = {}) {
+async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader, params, onGuardianPrimary } = {}) {
   // Window params are not declared for this route; do not answer them with a narrower default.
   if (feed.id === 'gdelt-conflict-geo' && (/^(timespan|start|end|startdatetime|enddatetime)$/i.test(keyParam || '')
     || Object.keys(sanitizeParamsObject(params)).some(name => /^(timespan|start|end|startdatetime|enddatetime)$/i.test(name)))) {
@@ -1318,6 +1350,7 @@ async function fetchFeed(feed, { query, force = false, key, keyParam, keyHeader,
       if (isRssFeed) {
         const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, timeoutMs, {
           deadlineMs: gdacsRssDeadline ?? staleGoogleNewsDeadline,
+          onGuardianPrimary,
           onPrimaryFailure: feed.id === 'gdacs-alerts'
             ? failure => { gdacsPrimaryFailure = buildGdacsPrimaryFailureDiagnostic(failure); } : null
         });
@@ -1947,10 +1980,17 @@ const server = http.createServer(async (req, res) => {
     if (!feed) {
       return sendJson(res, 404, { error: 'unknown_feed', id }, origin);
     }
+    // Keep this attempt's diagnostic outside the cached envelope.
+    let guardianPrimary;
+    const onGuardianPrimary = id === 'guardian-world' ? diagnostic => {
+      guardianPrimary = diagnostic;
+      console.log(JSON.stringify(diagnostic));
+    } : null;
+    const withGuardianPrimary = payload => guardianPrimary ? { ...payload, guardianPrimary } : payload;
     try {
       const payload = sanitizeEiaPayload(
         feed,
-        await fetchFeed(feed, { query, force, key, keyParam, keyHeader, params })
+        await fetchFeed(feed, { query, force, key, keyParam, keyHeader, params, onGuardianPrimary })
       );
       console.log(JSON.stringify({
         event: 'feed_fetch',
@@ -1959,7 +1999,7 @@ const server = http.createServer(async (req, res) => {
         httpStatus: payload.httpStatus || null,
         elapsedMs: Date.now() - startedAt
       }));
-      return sendJson(res, id === 'gdelt-conflict-geo' && payload.error === 'unsupported_geo_window' ? 400 : 200, payload, origin);
+      return sendJson(res, id === 'gdelt-conflict-geo' && payload.error === 'unsupported_geo_window' ? 400 : 200, withGuardianPrimary(payload), origin);
     } catch (error) {
       const message = error?.message || 'fetch failed';
       console.log(JSON.stringify({
@@ -1970,8 +2010,8 @@ const server = http.createServer(async (req, res) => {
         elapsedMs: Date.now() - startedAt,
         error: message
       }));
-      return sendJson(res, 502, { error: 'fetch_failed', message,
-        ...(id === 'gdacs-alerts' ? { primaryFailure: readGdacsPrimaryFailureDiagnostic(error.primaryFailure) } : {}) }, origin);
+      return sendJson(res, 502, withGuardianPrimary({ error: 'fetch_failed', message,
+        ...(id === 'gdacs-alerts' ? { primaryFailure: readGdacsPrimaryFailureDiagnostic(error.primaryFailure) } : {}) }), origin);
     }
   }
 
