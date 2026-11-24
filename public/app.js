@@ -281,12 +281,12 @@ const state = {
   energyMapFetchedAt: 0,
   moneyFlowsData: null,
   moneyEmployerSearch: null,
+  moneyFlowsRequest: null,
   moneyFlowsItems: [],
   moneyFlowsFetchedAt: 0,
   moneyFlowsLoading: false,
   moneyFlowsError: null,
   moneyFlowsQuery: '',
-  moneyFlowsRangeDays: MONEY_FLOW_DEFAULT_DAYS,
   lastBuildAt: null,
   refreshTimer: null,
   lastFetch: null,
@@ -567,6 +567,7 @@ const elements = {
   moneyFlowsList: document.getElementById('moneyFlowsList'),
   moneyEmployerResults: document.getElementById('moneyEmployerResults'),
   moneyEmployerList: document.getElementById('moneyEmployerList'),
+  moneyEmployerStart: document.getElementById('moneyEmployerStart'),
   moneyEmployerMore: document.getElementById('moneyEmployerMore'),
   moneyEmployerStatus: document.getElementById('moneyEmployerStatus'),
   moneyFlowsMeta: document.getElementById('moneyFlowsMeta'),
@@ -6352,7 +6353,8 @@ function renderFinanceSpotlight() {
 function resolveMoneyFlowRange(days = MONEY_FLOW_DEFAULT_DAYS) {
   const end = new Date();
   const start = new Date(end);
-  start.setDate(end.getDate() - Number(days || MONEY_FLOW_DEFAULT_DAYS));
+  if (days === 'ytd') start.setUTCMonth(0, 1);
+  else start.setDate(end.getDate() - Number(days || MONEY_FLOW_DEFAULT_DAYS));
   return {
     start: start.toISOString().slice(0, 10),
     end: end.toISOString().slice(0, 10)
@@ -6396,16 +6398,56 @@ function renderMoneyRateNotice() {
   elements.moneyFlowsRateNotice.classList.add('active');
 }
 
+function getMoneyFlowSelection() {
+  const query = elements.moneyFlowsQuery?.value?.trim();
+  const rangeDays = elements.moneyFlowsRange?.value || MONEY_FLOW_DEFAULT_DAYS;
+  return { query, ...resolveMoneyFlowRange(rangeDays) };
+}
+
+function sameMoneyFlowSelection(first, second) {
+  return Boolean(first && first.query === second.query && first.start === second.start && first.end === second.end);
+}
+
+function rankedFecIds(selection) {
+  return new Set((sameMoneyFlowSelection(state.moneyFlowsRequest, selection) && !state.moneyFlowsLoading
+    ? state.moneyFlowsItems : [])
+    .filter(item => item.source === 'OpenFEC' && item.sourceId != null)
+    .map(item => String(item.sourceId)));
+}
+
 function renderMoneyEmployer(search) {
-  const { moneyEmployerResults: section, moneyEmployerList: list, moneyEmployerMore: button,
-    moneyEmployerStatus: status } = elements;
+  const { moneyEmployerResults: section, moneyEmployerList: list, moneyEmployerStart: start,
+    moneyEmployerMore: more, moneyEmployerStatus: status } = elements;
   if (!section) return;
-  section.hidden = !search || (!search.next && !search.items.length && !search.status);
-  button.hidden = !search?.next;
-  button.disabled = Boolean(search?.loading);
+  start.hidden = Boolean(search?.hasPage || (search && !search.next));
+  start.disabled = !elements.moneyFlowsQuery?.value?.trim() || Boolean(search?.loading);
+  section.hidden = !search;
+  more.hidden = !search?.hasPage || !search.next;
+  more.disabled = Boolean(search?.loading);
   status.textContent = search?.loading ? 'Loading one employer page…' : search?.status || '';
-  if (search?.items.length) renderList(list, search.items);
+  const rankedIds = search ? rankedFecIds(search.selection) : new Set();
+  const visible = search?.items.filter(item => item.sourceId == null || !rankedIds.has(String(item.sourceId)));
+  if (visible?.length) renderList(list, visible);
   else list.innerHTML = '';
+}
+
+function clearMoneyEmployerSearch() {
+  state.moneyEmployerSearch = null;
+  renderMoneyEmployer(null);
+}
+
+function startMoneyEmployer() {
+  const selection = getMoneyFlowSelection();
+  if (!selection.query) return;
+  if (!sameMoneyFlowSelection(state.moneyEmployerSearch?.selection, selection)) {
+    const retryAt = sameMoneyFlowSelection(state.moneyFlowsRequest, selection)
+      ? state.moneyFlowsData?.fecEmployerTraversal?.retryAt : null;
+    state.moneyEmployerSearch = {
+      selection, next: { ...selection, mode: 'fec_employer_pages' }, retryAt,
+      items: [], status: '', loading: false, hasPage: false
+    };
+  }
+  return loadMoreMoneyEmployer();
 }
 
 async function loadMoreMoneyEmployer() {
@@ -6418,7 +6460,8 @@ async function loadMoreMoneyEmployer() {
     return;
   }
   const params = new URLSearchParams({ q: next.query, start: next.start, end: next.end,
-    mode: next.mode, cursor: next.cursor });
+    mode: next.mode });
+  if (next.cursor) params.set('cursor', next.cursor);
   if (next.matchMode) params.set('matchMode', next.matchMode);
   if (next.minScore != null) params.set('minScore', next.minScore);
   for (const entity of next.entities || []) params.append('entities', entity);
@@ -6430,21 +6473,23 @@ async function loadMoreMoneyEmployer() {
     if (error || !data?.fecTraversal) throw new Error('OpenFEC employer page could not be loaded.');
     const traversal = data.fecTraversal;
     const source = data.sources?.fec;
-    const seen = new Set([...state.moneyFlowsItems, ...search.items]
-      .filter(item => item.source === 'OpenFEC' && item.sourceId != null)
-      .map(item => String(item.sourceId)));
+    const seen = new Set(search.items.filter(item => item.sourceId != null).map(item => String(item.sourceId)));
+    const rankedIds = rankedFecIds(search.selection);
     let added = 0;
     for (const item of data.items || []) {
-      if (item.source !== 'OpenFEC') continue;
+      if (item.source !== 'OpenFEC' || item.matchRole !== 'reported_employer') continue;
       if (item.sourceId != null) {
         const id = String(item.sourceId);
         if (seen.has(id)) continue;
         seen.add(id);
       }
       search.items.push({ ...item, url: item.url || item.externalUrl || null });
-      added++;
+      if (item.sourceId == null || !rankedIds.has(String(item.sourceId))) added++;
     }
-    search.retryAt = source?.retryAt || null;
+    search.hasPage ||= Boolean(source?.coverage?.pages || traversal.complete);
+    const retryAt = source?.retryAt;
+    if (Date.parse(retryAt) > (Date.parse(search.retryAt) || 0)) search.retryAt = retryAt;
+    if (!(Date.parse(search.retryAt) > Date.now())) search.retryAt = null;
     const blocked = traversal.requiresRestart || (traversal.blocked && !search.retryAt);
     search.next = blocked ? null : traversal.next;
     if (blocked) search.status = 'OpenFEC could not continue this search. The results shown are partial.';
@@ -6452,8 +6497,10 @@ async function loadMoreMoneyEmployer() {
       search.status = `OpenFEC rate limit. Try again after ${new Date(search.retryAt).toLocaleTimeString()}.`;
     } else if (source?.error || (source?.coverage?.reasons || []).some(reason => reason === 'deadline')) {
       search.status = `Added ${added} new employer records. The page was interrupted and coverage is partial.`;
-    } else if (traversal.complete) search.status = `Added ${added} new employer records. The requested employer pages have finished.`;
-    else search.status = `Added ${added} new employer records. More pages may be available.`;
+    } else if (traversal.complete) {
+      search.status = added ? `Added ${added} new employer records. The requested employer pages have finished.`
+        : 'No additional matching employer records. The requested employer pages have finished.';
+    } else search.status = `Added ${added} new employer records. More pages may be available.`;
   } catch (err) {
     if (state.moneyEmployerSearch === search) search.status = err?.message || 'OpenFEC employer page could not be loaded.';
   } finally {
@@ -6603,9 +6650,10 @@ function renderMoneyFlows() {
 }
 
 async function fetchMoneyFlows() {
-  const search = { next: null, retryAt: null, items: [], status: '', loading: false };
-  state.moneyEmployerSearch = search;
-  const query = elements.moneyFlowsQuery?.value?.trim();
+  const selection = getMoneyFlowSelection();
+  const { query, start, end } = selection;
+  state.moneyFlowsRequest = selection;
+  if (!sameMoneyFlowSelection(state.moneyEmployerSearch?.selection, selection)) clearMoneyEmployerSearch();
   if (!query) {
     state.moneyFlowsError = 'Enter a query to search.';
     state.moneyFlowsLoading = false;
@@ -6614,11 +6662,7 @@ async function fetchMoneyFlows() {
     return;
   }
 
-  const rangeDays = Number(elements.moneyFlowsRange?.value) || MONEY_FLOW_DEFAULT_DAYS;
-  state.moneyFlowsRangeDays = rangeDays;
   state.moneyFlowsQuery = query;
-
-  const { start, end } = resolveMoneyFlowRange(rangeDays);
   const params = new URLSearchParams({
     q: query,
     start,
@@ -6632,26 +6676,28 @@ async function fetchMoneyFlows() {
 
   try {
     const { data, error } = await apiJson(`/api/money-flows?${params.toString()}`, {}, 60000);
-    if (state.moneyEmployerSearch !== search) return;
+    if (state.moneyFlowsRequest !== selection) return;
     if (error) {
       throw new Error(data?.message || error);
     }
     state.moneyFlowsData = data;
-    search.next = data?.fecEmployerTraversal?.next || null;
-    search.retryAt = data?.fecEmployerTraversal?.retryAt || null;
+    const employer = state.moneyEmployerSearch;
+    const retryAt = data?.fecEmployerTraversal?.retryAt;
+    if (retryAt && sameMoneyFlowSelection(employer?.selection, selection)
+      && Date.parse(retryAt) > (Date.parse(employer.retryAt) || 0)) employer.retryAt = retryAt;
     state.moneyFlowsItems = (data?.items || []).map((item) => ({
       ...item,
       url: item.url || item.externalUrl || null
     }));
     state.moneyFlowsFetchedAt = data?.fetchedAt || Date.now();
   } catch (err) {
-    if (state.moneyEmployerSearch === search) {
+    if (state.moneyFlowsRequest === selection) {
       state.moneyFlowsError = err?.message || 'Fetch failed.';
       state.moneyFlowsData = null;
       state.moneyFlowsItems = [];
     }
   } finally {
-    if (state.moneyEmployerSearch === search) {
+    if (state.moneyFlowsRequest === selection) {
       state.moneyFlowsLoading = false;
       renderMoneyFlows();
       updatePanelTimestamps();
@@ -13492,11 +13538,13 @@ function initEvents() {
       }
     });
   }
+  elements.moneyEmployerStart?.addEventListener('click', () => startMoneyEmployer());
   elements.moneyEmployerMore?.addEventListener('click', () => loadMoreMoneyEmployer());
   if (elements.moneyFlowsRun) {
     elements.moneyFlowsRun.addEventListener('click', () => fetchMoneyFlows());
   }
   if (elements.moneyFlowsQuery) {
+    elements.moneyFlowsQuery.addEventListener('input', clearMoneyEmployerSearch);
     elements.moneyFlowsQuery.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -13506,7 +13554,7 @@ function initEvents() {
   }
   if (elements.moneyFlowsRange) {
     elements.moneyFlowsRange.addEventListener('change', () => {
-      state.moneyFlowsRangeDays = Number(elements.moneyFlowsRange.value) || MONEY_FLOW_DEFAULT_DAYS;
+      clearMoneyEmployerSearch();
       if (state.moneyFlowsQuery) {
         fetchMoneyFlows();
       } else {

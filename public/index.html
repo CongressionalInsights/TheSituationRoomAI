@@ -1129,8 +1129,10 @@
                 <option value="90">90 days</option>
                 <option value="180" selected>180 days</option>
                 <option value="365">12 months</option>
+                <option value="ytd">Year to date</option>
               </select>
               <button class="btn primary" id="moneyFlowsRun" type="button">Run</button>
+              <button class="btn" id="moneyEmployerStart" type="button" disabled>Search OpenFEC employer records</button>
             </div>
             <div class="money-meta" id="moneyFlowsMeta">No query yet.</div>
             <div class="settings-note">Discovery samples, not net totals. The date range applies to transactions and receipts; LDA searches filing years and SAM shows current registrations.</div>
@@ -1168,10 +1170,10 @@
             </details>
           </div>
           <div class="list" id="moneyFlowsList"></div>
-          <section id="moneyEmployerResults" aria-label="Additional OpenFEC employer records" hidden>
-            <div class="settings-note">Additional employer records are separate from the ranked sample and its subtotals. Reported employer means affiliation only.</div>
+          <section id="moneyEmployerResults" aria-label="OpenFEC employer records" hidden>
+            <div class="settings-note">Employer search results are separate from the ranked sample and its subtotals. Reported employer means affiliation only.</div>
             <div class="list" id="moneyEmployerList"></div>
-            <button class="btn" id="moneyEmployerMore" type="button">Load more employer records</button>
+            <button class="btn" id="moneyEmployerMore" type="button" hidden>Load more employer records</button>
             <div class="settings-note" id="moneyEmployerStatus" role="status"></div>
           </section>
         </div>
