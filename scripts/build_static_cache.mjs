@@ -428,7 +428,7 @@ async function fetchWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOU
   throw new Error('fetch_failed');
 }
 
-async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS, { throughBody = false } = {}) {
+async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = TIMEOUT_MS, { throughBody = false, diagnoseGuardian = false } = {}) {
   const candidates = buildFetchCandidates(url, proxies, { includeHttpFallback: false });
   const effectiveTimeout = Math.max(8000, timeoutMs);
   const directTimeout = Math.max(15000, Math.floor(effectiveTimeout * 0.75));
@@ -443,21 +443,45 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = TIM
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index];
     const perAttemptTimeout = index === 0 ? directTimeout : fallbackTimeout;
+    const diagnostic = diagnoseGuardian && index === 0;
+    const started = diagnostic ? Date.now() : null;
+    let response, body;
+    let stage = 'fetch';
+    const report = (stage, failureCode = null) => {
+      const mime = normalizeContentType(response?.headers.get('content-type'));
+      console.log(JSON.stringify({
+        event: 'guardian_pages_primary', feedId: 'guardian-world', stage,
+        status: response?.status ?? null, redirected: response?.redirected ?? null,
+        type: !response ? null : mime === 'text/html' ? 'html'
+          : /(?:xml|rss|atom)/.test(mime) ? 'xml' : 'other',
+        bodyBytes: typeof body === 'string' ? Buffer.byteLength(body) : null,
+        elapsedMs: Date.now() - started, failureCode
+      }));
+    };
     try {
-      let response, body;
       if (throughBody) {
         [response, body] = await fetchWithTimeout(candidate, headers, perAttemptTimeout,
-          async upstream => [upstream, await upstream.text()]);
+          async upstream => {
+            response = upstream;
+            stage = 'body';
+            return [upstream, await upstream.text()];
+          });
       } else {
         response = await fetchWithTimeout(candidate, headers, perAttemptTimeout);
+        stage = 'body';
         body = await response.text();
       }
       const contentType = response.headers.get('content-type') || 'text/plain';
       lastResponse = response;
       lastBody = body;
       lastContentType = contentType;
-      if (!response.ok) continue;
+      if (!response.ok) {
+        if (diagnostic) report('http');
+        continue;
+      }
+      stage = 'rss';
       if (isLikelyRssPayload(contentType, body)) {
+        if (diagnostic) report('accepted');
         return {
           response,
           contentType,
@@ -465,8 +489,18 @@ async function fetchRssWithFallbacks(url, headers, proxies = [], timeoutMs = TIM
           valid: true
         };
       }
+      if (diagnostic) report('rss');
     } catch (err) {
       lastError = err;
+      if (diagnostic) {
+        const code = err?.cause?.code;
+        const known = ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT',
+          'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
+          'UND_ERR_SOCKET', 'Z_DATA_ERROR', 'Z_BUF_ERROR'];
+        const failureCode = err?.name === 'AbortError' || err?.name === 'TimeoutError' ? 'timeout'
+          : known.includes(code) ? code : 'unknown';
+        report(stage, failureCode);
+      }
     }
   }
 
@@ -787,7 +821,7 @@ async function buildFeedPayload(feed) {
   try {
     if (isRssFeed) {
       const rssResult = await fetchRssWithFallbacks(applied.url, headers, proxyList, feed.timeoutMs || TIMEOUT_MS,
-        { throughBody: feed.id === 'gdacs-alerts' });
+        { throughBody: feed.id === 'gdacs-alerts', diagnoseGuardian: feed.id === 'guardian-world' });
       response = rssResult.response;
       contentType = rssResult.contentType;
       body = rssResult.body;
