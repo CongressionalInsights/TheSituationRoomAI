@@ -32,28 +32,108 @@ test('money sample UI preserves zero, negative, unknown and registration semanti
   expect(errors).toEqual([]);
 });
 
-test('Employer Load more follows the server cursor, skips visible duplicates, and resets on a new search', async ({ page }) => {
+test('Employer search starts independently and keeps cursor results separate from the ranked sample', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-11-23T17:00:00Z'));
+  let releaseRanked;
+  const ranked = new Promise(resolve => { releaseRanked = resolve; });
   let releaseOld;
   const old = new Promise(resolve => { releaseOld = resolve; });
-  const moreCalls = [];
-  const row = (id, title) => ({ source: 'OpenFEC', sourceId: id, title, publishedAt: null });
-  const next = (query, cursor) => ({ query, start: '2026-05-22', end: '2026-11-18', mode: 'fec_employer_pages', cursor });
+  const calls = [];
+  const row = (sourceId, title) => ({ source: 'OpenFEC', sourceId, title, publishedAt: null,
+    matchRole: 'reported_employer', attribution: 'Reported employer is affiliation only.' });
+  const next = (query, cursor) => ({ query, start: '2026-01-01', end: '2026-11-23', mode: 'fec_employer_pages', cursor });
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (!['localhost', '127.0.0.1'].includes(url.hostname)) return route.abort();
     if (url.pathname === '/api/money-flows') {
       const q = url.searchParams.get('q');
+      const mode = url.searchParams.get('mode');
       const cursor = url.searchParams.get('cursor');
-      if (!cursor) return route.fulfill({ json: {
-        items: [row('1', 'Initial ' + q)], summary: { totalItems: 1, buckets: {} }, sources: {},
-        fecEmployerTraversal: { startsFromBeginning: true, next: next(q, q+'-one') }
-      }});
-      moreCalls.push([q, cursor, url.searchParams.get('mode'), url.searchParams.get('start')]);
+      calls.push([q, mode, cursor, url.searchParams.get('start'), url.searchParams.get('end')]);
+      if (!mode) {
+        await ranked;
+        return route.fulfill({ json: {
+          items: [row('1', 'Ranked match')], summary: { totalItems: 1, buckets: {} },
+          sources: { fec: { count: 1, coverage: { status: 'partial' } } },
+          fecEmployerTraversal: { startsFromBeginning: true, next: next(q, 'ignore-ranked-cursor') }
+        }});
+      }
       if (cursor === 'Acme-two') await old;
+      const items = cursor === 'Acme-two' ? [row('3', 'Old pending result')]
+        : cursor === 'Acme-one' ? [row('1', 'Repeated first record'), row('2', 'Distinct later result')]
+        : q === 'Acme' ? [row('1', 'Independent first record')] : [];
       return route.fulfill({ json: {
-        items: cursor.endsWith('-one') ? [row('1', 'Duplicate initial'), row('2', 'Additional ' + q)] : [row('3', 'Old pending result')],
-        fecTraversal: { next: cursor.endsWith('-one') ? next(q, q+'-two') : null, complete: !cursor.endsWith('-one') }
+        items,
+        sources: { fec: { coverage: { pages: 1 } } },
+        fecTraversal: { next: !cursor && q === 'Acme' ? next(q, 'Acme-one')
+          : cursor === 'Acme-one' ? next(q, 'Acme-two') : null, complete: q !== 'Acme' || cursor === 'Acme-two' }
       }});
+    }
+    if (url.pathname === '/api/feeds') return route.fulfill({ json: { app: {}, feeds: [] } });
+    if (url.pathname.startsWith('/api/')) return route.fulfill({ json: { results: [], items: [] } });
+    return route.continue();
+  });
+
+  await page.goto('/');
+  await page.waitForFunction(() => window.__SR_READY__ === true);
+  const input = page.locator('#moneyFlowsQuery');
+  const run = page.locator('#moneyFlowsRun');
+  const start = page.getByRole('button', { name: 'Search OpenFEC employer records' });
+  const more = page.getByRole('button', { name: 'Load more employer records' });
+  await page.locator('#moneyFlowsRange').selectOption('ytd');
+  await input.fill('Acme');
+  await run.click();
+  await expect.poll(() => calls.length).toBe(1);
+  await expect(more).toHaveCount(0);
+  await start.click();
+  await expect(page.getByText('Independent first record', { exact: true })).toBeVisible();
+  await expect(page.locator('#moneyEmployerResults')).toContainText('affiliation only');
+  await expect(page.locator('#moneyFlowsMeta')).toContainText('Fetching money flows');
+  await expect(start).toHaveCount(0);
+  await more.click();
+  await expect(page.getByText('Distinct later result', { exact: true })).toBeVisible();
+  await expect(page.getByText('Repeated first record', { exact: true })).toHaveCount(0);
+
+  releaseRanked();
+  await expect(page.getByText('Ranked match', { exact: true })).toBeVisible();
+  await expect(page.getByText('Independent first record', { exact: true })).toHaveCount(0);
+  await expect(page.locator('#moneyFlowsMeta')).toContainText('partial sample');
+  await expect(page.locator('#moneyFlowsSummary .summary-value').first()).toHaveText('1');
+  await more.click();
+  await expect.poll(() => calls.length).toBe(4);
+  await input.fill('Other');
+  await expect(page.getByText('Distinct later result', { exact: true })).toHaveCount(0);
+  const oldCompleted = page.waitForResponse(r => new URL(r.url()).searchParams.get('cursor') === 'Acme-two');
+  releaseOld();
+  await oldCompleted;
+  await start.click();
+  await expect(page.getByRole('status').filter({ hasText: 'No additional matching employer records' })).toBeVisible();
+  await expect(page.getByText('Old pending result', { exact: true })).toHaveCount(0);
+  expect(calls).toEqual([
+    ['Acme', null, null], ['Acme', 'fec_employer_pages', null], ['Acme', 'fec_employer_pages', 'Acme-one'],
+    ['Acme', 'fec_employer_pages', 'Acme-two'], ['Other', 'fec_employer_pages', null]
+  ].map(call => [...call, '2026-01-01', '2026-11-23']));
+});
+
+test('Employer first-page error and rate limit keep a retry on the same page', async ({ page }) => {
+  let requests = 0;
+  const now = new Date('2026-11-23T17:00:00Z').getTime();
+  await page.clock.setFixedTime(now);
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (!['localhost', '127.0.0.1'].includes(url.hostname)) return route.abort();
+    if (url.pathname === '/api/money-flows') {
+      expect(url.searchParams.get('mode')).toBe('fec_employer_pages');
+      requests++;
+      if (requests === 1) return route.fulfill({ status: 502, json: { error: 'fetch_failed' } });
+      if (requests === 2) return route.fulfill({ json: {
+        items: [], sources: { fec: { retryAt: new Date(now + 60000).toISOString(), coverage: { pages: 0 } } },
+        fecTraversal: { blocked: true, next: { query: 'Acme', start: '2026-01-01', end: '2026-11-23',
+          mode: 'fec_employer_pages', cursor: 'retry-one' } }
+      }});
+      expect(url.searchParams.get('cursor')).toBe('retry-one');
+      return route.fulfill({ json: { items: [], sources: { fec: { coverage: { pages: 1 } } },
+        fecTraversal: { complete: true, next: null } } });
     }
     if (url.pathname === '/api/feeds') return route.fulfill({ json: { app: {}, feeds: [] } });
     if (url.pathname.startsWith('/api/')) return route.fulfill({ json: { results: [], items: [] } });
@@ -61,26 +141,19 @@ test('Employer Load more follows the server cursor, skips visible duplicates, an
   });
   await page.goto('/');
   await page.waitForFunction(() => window.__SR_READY__ === true);
-  const input = page.locator('#moneyFlowsQuery');
-  const run = page.locator('#moneyFlowsRun');
-  const load = page.getByRole('button', { name: 'Load more employer records' });
-  await input.fill('Acme'); await run.click();
-  await expect(page.getByText('Initial Acme', { exact: true })).toBeVisible();
-  expect(moreCalls).toEqual([]);
-  await load.click();
-  await expect(page.getByText('Additional Acme', { exact: true })).toBeVisible();
-  await expect(page.getByText('Duplicate initial', { exact: true })).toHaveCount(0);
-  await expect(page.locator('#moneyFlowsSummary .summary-value').first()).toHaveText('1');
-  await load.click();
-  await expect.poll(() => moreCalls.length).toBe(2);
-  await input.fill('Other'); await run.click();
-  await expect(page.getByText('Initial Other', { exact: true })).toBeVisible();
-  await expect(page.getByText('Additional Acme', { exact: true })).toHaveCount(0);
-  const oldCompleted = page.waitForResponse(r => new URL(r.url()).searchParams.get('cursor') === 'Acme-two');
-  releaseOld();
-  await oldCompleted;
-  await load.click();
-  await expect(page.getByText('Additional Other', { exact: true })).toBeVisible();
-  await expect(page.getByText('Old pending result', { exact: true })).toHaveCount(0);
-  expect(moreCalls).toEqual(['Acme-one', 'Acme-two', 'Other-one'].map((c, i) => [i === 2 ? 'Other' : 'Acme', c, 'fec_employer_pages', '2026-05-22']));
+  await page.locator('#moneyFlowsRange').selectOption('ytd');
+  await page.locator('#moneyFlowsQuery').fill('Acme');
+  const start = page.getByRole('button', { name: 'Search OpenFEC employer records' });
+  const status = page.locator('#moneyEmployerStatus');
+  await start.click();
+  await expect(status).toContainText('could not be loaded');
+  await start.click();
+  await expect(status).toContainText('rate limit');
+  await start.click();
+  expect(requests).toBe(2);
+  await expect(page.getByRole('button', { name: 'Load more employer records' })).toHaveCount(0);
+  await page.clock.setFixedTime(now + 61000);
+  await start.click();
+  await expect(status).toContainText('requested employer pages have finished');
+  expect(requests).toBe(3);
 });
