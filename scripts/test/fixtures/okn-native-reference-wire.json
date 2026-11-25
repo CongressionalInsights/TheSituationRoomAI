@@ -1,0 +1,325 @@
+{
+  "schema": "tsr-okn-native-reference-fixture/1",
+  "captureMode": "native_mcp_tool_in_memory_only_not_local_http_or_deployed",
+  "egressAttempts": 0,
+  "cases": [
+    {
+      "name": "kennebec",
+      "request": {
+        "name": "raw.fetch",
+        "arguments": {
+          "sourceId": "okn-kennebec-reference",
+          "format": "json",
+          "params": {
+            "placeKey": "kennebec:waterville:below-lockwood-dam"
+          }
+        }
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Scoped historical reference fixture (offline only)."
+          }
+        ],
+        "structuredContent": {
+          "sourceId": "okn-kennebec-reference",
+          "dataKind": "reference",
+          "verifiedZeroResults": false,
+          "available": true,
+          "coverageStatus": "SCOPED_REFERENCE",
+          "freshness": null,
+          "cacheAgeMs": null,
+          "evidenceMode": "pinned_publisher_fixture",
+          "graphCoverageVerified": false,
+          "items": [
+            {
+              "id": "tsr-fixture:kennebec:waterville:below-lockwood-dam:2023:pfos",
+              "title": "Kennebec River below Lockwood Dam, Waterville",
+              "dataKind": "reference",
+              "kind": "historical_fish_tissue_reference",
+              "geography": {
+                "placeKey": "kennebec:waterville:below-lockwood-dam",
+                "precision": "named_sampling_location_only"
+              },
+              "reference": {
+                "mode": "official_reference_fixture_not_live_graph",
+                "graphCoverageVerified": false,
+                "graphSampleJoins": [],
+                "facilityAttribution": null,
+                "currentSafety": null,
+                "drinkingWater": null,
+                "earthquakeImpact": null,
+                "historicalObservations": [
+                  {
+                    "waterbody": "Kennebec River",
+                    "location": "Below Lockwood Dam, Waterville",
+                    "sampleYear": 2023,
+                    "analyte": "PFOS",
+                    "matrix": "Fish tissue",
+                    "species": "Smallmouth bass",
+                    "compositeFish": 5,
+                    "unit": "ng/g",
+                    "value": 11.8,
+                    "sourceUrl": "https://www1.maine.gov/dhhs/mecdc/sites/maine.gov.dhhs.mecdc/files/pfas-fish-scientific-brief-06182024.pdf#page=12"
+                  },
+                  {
+                    "waterbody": "Kennebec River",
+                    "location": "Below Lockwood Dam, Waterville",
+                    "sampleYear": 2023,
+                    "analyte": "PFOS",
+                    "matrix": "Fish tissue",
+                    "species": "Smallmouth bass",
+                    "compositeFish": 5,
+                    "unit": "ng/g",
+                    "value": 20.4,
+                    "sourceUrl": "https://www1.maine.gov/dhhs/mecdc/sites/maine.gov.dhhs.mecdc/files/pfas-fish-scientific-brief-06182024.pdf#page=12"
+                  }
+                ],
+                "status": "REFERENCE_ONLY",
+                "location": "Below Lockwood Dam, Waterville",
+                "publishedGraphDemo": {
+                  "sourceUrl": "https://sawgraph.com/tracing.html",
+                  "role": "context_only",
+                  "underlyingSampleLineageVerified": false
+                }
+              }
+            }
+          ],
+          "provenance": {
+            "sourceDataset": "https://www1.maine.gov/dhhs/mecdc/sites/maine.gov.dhhs.mecdc/files/pfas-fish-scientific-brief-06182024.pdf#page=12",
+            "graphDemoUrl": "https://sawgraph.com/tracing.html",
+            "graphDemoRole": "context_only",
+            "upstreamAsOf": null,
+            "retrievedAt": null,
+            "rightsScope": "pinned_offline_reference_only"
+          }
+        }
+      }
+    },
+    {
+      "name": "himeji",
+      "request": {
+        "name": "raw.fetch",
+        "arguments": {
+          "sourceId": "okn-wikidata-heritage",
+          "format": "json",
+          "params": {
+            "entityId": "Q188754"
+          }
+        }
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Scoped historical reference fixture (offline only)."
+          }
+        ],
+        "structuredContent": {
+          "sourceId": "okn-wikidata-heritage",
+          "dataKind": "reference",
+          "verifiedZeroResults": false,
+          "available": true,
+          "coverageStatus": "SCOPED_REFERENCE",
+          "freshness": null,
+          "cacheAgeMs": null,
+          "evidenceMode": "pinned_publisher_fixture",
+          "graphCoverageVerified": false,
+          "items": [
+            {
+              "id": "https://whc.unesco.org/en/list/661/",
+              "title": "Himeji-jo",
+              "dataKind": "reference",
+              "kind": "world_heritage_designation",
+              "designationId": "661",
+              "geography": {
+                "countryCode": "JP",
+                "precision": "country_only"
+              },
+              "category": "cultural",
+              "event": {
+                "kind": "inscription",
+                "year": 1993,
+                "precision": "year"
+              },
+              "observedAt": null,
+              "publishedAt": null,
+              "crosswalk": {
+                "entityId": "Q188754",
+                "subject": "http://www.wikidata.org/entity/Q188754",
+                "property": "P757",
+                "statementId": "q188754$82738E96-1260-4BCF-A32C-F96D2C2DE2B3"
+              }
+            }
+          ],
+          "provenance": {
+            "graph": "https://registry.okn.us/registry/kgs/wikidata/",
+            "graphVersion": null,
+            "subject": "http://www.wikidata.org/entity/Q188754",
+            "publisherDataUrl": "https://www.wikidata.org/wiki/Special:EntityData/Q188754.json",
+            "entityRevision": "2568222523",
+            "entityModifiedAt": "2026-11-12T08:52:18Z",
+            "retrievedAt": null,
+            "upstreamAsOf": null,
+            "contentSha256": "ce28ee6b2c0a57bbf3680aa3b22d8063d69474b4af765e068c5b1e585abf6f91",
+            "publisherTransportOrigin": "dot_cloud_direct_publisher",
+            "sourceRightsUrl": "https://www.wikidata.org/wiki/Wikidata:Licensing",
+            "rightsScope": "wikidata_cc0_structured_id_mapping_only",
+            "designationLineage": {
+              "authority": "UNESCO World Heritage Committee",
+              "recordUrl": "https://whc.unesco.org/en/list/661/",
+              "decisionUrl": "https://whc.unesco.org/en/decisions/3337/"
+            },
+            "crosswalkRole": "identifier_link_only",
+            "crosswalkReferenceProperty": "P143"
+          }
+        }
+      }
+    },
+    {
+      "name": "wrong_place",
+      "request": {
+        "name": "raw.fetch",
+        "arguments": {
+          "sourceId": "okn-kennebec-reference",
+          "format": "json",
+          "params": {
+            "placeKey": "kennebec:waterville"
+          }
+        }
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Scoped historical reference fixture unavailable."
+          }
+        ],
+        "structuredContent": {
+          "sourceId": "okn-kennebec-reference",
+          "dataKind": "reference",
+          "available": false,
+          "freshness": "unavailable",
+          "coverageStatus": "UNSUPPORTED",
+          "verifiedZeroResults": false,
+          "items": [],
+          "error": "unsupported_reference_selector"
+        },
+        "isError": true
+      }
+    },
+    {
+      "name": "wrong_entity",
+      "request": {
+        "name": "raw.fetch",
+        "arguments": {
+          "sourceId": "okn-wikidata-heritage",
+          "format": "json",
+          "params": {
+            "entityId": "Q42"
+          }
+        }
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Scoped historical reference fixture unavailable."
+          }
+        ],
+        "structuredContent": {
+          "sourceId": "okn-wikidata-heritage",
+          "dataKind": "reference",
+          "verifiedZeroResults": false,
+          "available": false,
+          "freshness": "unavailable",
+          "coverageStatus": "UNSUPPORTED",
+          "items": [],
+          "error": "unsupported_reference_selector"
+        },
+        "isError": true
+      }
+    },
+    {
+      "name": "bad_receipt",
+      "request": {
+        "name": "raw.fetch",
+        "arguments": {
+          "sourceId": "okn-wikidata-heritage",
+          "format": "json",
+          "params": {
+            "entityId": "Q188754"
+          }
+        }
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Scoped historical reference fixture unavailable."
+          }
+        ],
+        "structuredContent": {
+          "sourceId": "okn-wikidata-heritage",
+          "dataKind": "reference",
+          "verifiedZeroResults": false,
+          "available": false,
+          "freshness": "unavailable",
+          "coverageStatus": "UNKNOWN",
+          "items": [],
+          "error": "invalid_publisher_fixture"
+        },
+        "isError": true
+      }
+    },
+    {
+      "name": "kennebec_default_off",
+      "request": {
+        "name": "raw.fetch",
+        "arguments": {
+          "sourceId": "okn-kennebec-reference",
+          "format": "json",
+          "params": {
+            "placeKey": "kennebec:waterville:below-lockwood-dam"
+          }
+        }
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Unknown source: okn-kennebec-reference"
+          }
+        ],
+        "structuredContent": {
+          "error": "unknown_source"
+        }
+      }
+    },
+    {
+      "name": "himeji_default_off",
+      "request": {
+        "name": "raw.fetch",
+        "arguments": {
+          "sourceId": "okn-wikidata-heritage",
+          "format": "json",
+          "params": {
+            "entityId": "Q188754"
+          }
+        }
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Unknown source: okn-wikidata-heritage"
+          }
+        ],
+        "structuredContent": {
+          "error": "unknown_source"
+        }
+      }
+    }
+  ]
+}
