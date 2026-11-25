@@ -1,6 +1,7 @@
 // Private dependency for explicit local MCP contract tests. Never load fixture files or networks here.
 import { buildKennebecReference } from './okn-kennebec-reference-fixture.js';
 import { buildHimejiReferenceFixture } from './okn-wikidata-himeji-fixture.js';
+import { readPinnedHimejiPublisherReceipt } from './okn-himeji-publisher-receipt.js';
 
 const KENNEBEC = 'okn-kennebec-reference';
 const HIMEJI = 'okn-wikidata-heritage';
@@ -16,6 +17,7 @@ function absent(sourceId, coverageStatus, error) {
 
 export function createFixtureReferenceReader(inputs) {
   const himeji = inputs?.himeji ?? null;
+  const hasPublisherReceipt = inputs && Object.hasOwn(inputs, 'himejiPublisherReceipt');
   const kennebec = inputs?.kennebec ? buildKennebecReference(inputs.kennebec) : null;
   return function read({ sourceId, query, start, end, params, format }) {
     if ((sourceId !== HIMEJI || !himeji) && (sourceId !== KENNEBEC || !kennebec)) return null;
@@ -23,7 +25,10 @@ export function createFixtureReferenceReader(inputs) {
       return absent(sourceId, 'UNSUPPORTED', 'unsupported_reference_selector');
     }
     if (sourceId === HIMEJI) {
-      return buildHimejiReferenceFixture({ sourceId, format, params }, himeji);
+      const request = { sourceId, format, params };
+      return hasPublisherReceipt
+        ? readPinnedHimejiPublisherReceipt(request, himeji, inputs.himejiPublisherReceipt)
+        : buildHimejiReferenceFixture(request, himeji);
     }
     if (!isExactRecord(params, 'placeKey') || params.placeKey !== PLACE_KEY) {
       return absent(sourceId, 'UNSUPPORTED', 'unsupported_reference_selector');
