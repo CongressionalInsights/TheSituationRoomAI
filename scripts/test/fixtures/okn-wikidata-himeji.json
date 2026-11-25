@@ -1,0 +1,31 @@
+{
+  "fixtureVersion": "tsr-okn-wikidata-himeji/1",
+  "evidenceMode": "pinned_publisher_fixture",
+  "publisherReceipt": {
+    "subject": "http://www.wikidata.org/entity/Q188754",
+    "url": "https://www.wikidata.org/wiki/Special:EntityData/Q188754.json",
+    "revision": "2568222523",
+    "graphModifiedAt": "2026-11-12T08:52:18Z",
+    "httpStatus": 200,
+    "bytes": 83954,
+    "contentSha256": "ce28ee6b2c0a57bbf3680aa3b22d8063d69474b4af765e068c5b1e585abf6f91",
+    "transportOrigin": "dot_cloud_direct_publisher",
+    "claims": [
+      {
+        "statementId": "q188754$82738E96-1260-4BCF-A32C-F96D2C2DE2B3",
+        "property": "P757",
+        "value": "661",
+        "referenceProperty": "P143"
+      }
+    ]
+  },
+  "designation": {
+    "id": "661",
+    "recordUrl": "https://whc.unesco.org/en/list/661/",
+    "decisionUrl": "https://whc.unesco.org/en/decisions/3337/",
+    "title": "Himeji-jo",
+    "countryCode": "JP",
+    "category": "cultural",
+    "inscriptionYear": 1993
+  }
+}

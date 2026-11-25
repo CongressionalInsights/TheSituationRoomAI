@@ -1,0 +1,46 @@
+{
+  "status": "reference_only",
+  "provider": {
+    "name": "SAWGraph publisher demo",
+    "url": "https://sawgraph.com/tracing.html",
+    "observed": "publisher demonstration",
+    "liveTransportVerified": false,
+    "claim": "Demo connects classified facilities, directed stream reaches and historical sample locations; facility causation not established"
+  },
+  "primary": {
+    "name": "Maine CDC 2024 scientific brief",
+    "url": "https://www1.maine.gov/dhhs/mecdc/sites/maine.gov.dhhs.mecdc/files/pfas-fish-scientific-brief-06182024.pdf#page=12",
+    "observations": [
+      {
+        "waterbody": "Kennebec River",
+        "location": "Below Lockwood Dam, Waterville",
+        "sampleYear": 2023,
+        "analyte": "PFOS",
+        "matrix": "Fish tissue",
+        "species": "Smallmouth bass",
+        "compositeFish": 5,
+        "value": 11.8,
+        "unit": "ng/g"
+      },
+      {
+        "waterbody": "Kennebec River",
+        "location": "Below Lockwood Dam, Waterville",
+        "sampleYear": 2023,
+        "analyte": "PFOS",
+        "matrix": "Fish tissue",
+        "species": "Smallmouth bass",
+        "compositeFish": 5,
+        "value": 20.4,
+        "unit": "ng/g"
+      }
+    ]
+  },
+  "scope": "Contextual overlap only. No exact graph-to-state sample IDs verified; neither dataset is independent corroboration until original lineage is established.",
+  "withhold": [
+    "facility causation",
+    "drinking-water inference or ng/L conversion",
+    "claims of current safety or conditions",
+    "exact graph sample join",
+    "earthquake-related cause, damage, or risk"
+  ]
+}

@@ -1,5 +1,6 @@
 import { fetchGdacsMachinePayload, gdacsMachineMime, parseGdacsMachineBody } from './gdacs-machine.js';
 import { readBuildIdentity } from './build-identity.js';
+import { createFixtureReferenceReader } from './okn-fixture-reference-reader.js';
 import { fetchMoneyFlows } from './money-flows.js';
 export { attachMoneyMatch, buildMoneyQueryProfile, buildUsaspendingTransactionKey, findBestMoneyNameMatch, resolveMoneyAliasExpansion, settleMoneyTasks, summarizeMoneyEntities } from './money-flows.js';
 import http from 'http';
@@ -2209,7 +2210,12 @@ async function fetchRawUncached(feed, options) {
   return successResult;
 }
 
-export function buildMcpServer() {
+export function buildMcpServer({ scopedReferenceFixtures } = {}) {
+  // Deliberately programmatic only: HTTP startup passes no options. No env var, request,
+  // catalog, or registry knob can enable the local pinned fixture transport.
+  const readScopedReferenceFixture = scopedReferenceFixtures
+    ? createFixtureReferenceReader(structuredClone(scopedReferenceFixtures))
+    : null;
   const server = new McpServer({
     name: 'Situation Room MCP',
     version: '0.1.0'
@@ -2281,6 +2287,16 @@ server.registerTool(
     if (retired) return retired;
     const feed = feeds.find((entry) => entry.id === sourceId);
     if (!feed) {
+      const fixture = readScopedReferenceFixture?.({ sourceId, query, start, end, params, format });
+      if (fixture) {
+        return {
+          content: [{ type: 'text', text: fixture.available
+            ? 'Scoped historical reference fixture (offline only).'
+            : 'Scoped historical reference fixture unavailable.' }],
+          structuredContent: fixture,
+          ...(!fixture.available && { isError: true }),
+        };
+      }
       return {
         content: [{ type: 'text', text: `Unknown source: ${sourceId}` }],
         structuredContent: { error: 'unknown_source' }
