@@ -12,14 +12,14 @@ test('root dev tooling pins manifest and lockfile versions together', () => {
   const lockfile = readJson('package-lock.json');
 
   assert.deepEqual(manifest.devDependencies, {
-    '@playwright/test': '^1.64.1',
+    '@playwright/test': '^1.65.1',
     esbuild: '^0.28.2',
-    playwright: '^1.64.1'
+    playwright: '^1.65.1'
   });
 
   assert.deepEqual(lockfile.packages[''].devDependencies, manifest.devDependencies);
-  assert.equal(lockfile.packages['node_modules/@playwright/test'].version, '1.64.1');
-  assert.equal(lockfile.packages['node_modules/playwright'].version, '1.64.1');
+  assert.equal(lockfile.packages['node_modules/@playwright/test'].version, '1.65.1');
+  assert.equal(lockfile.packages['node_modules/playwright'].version, '1.65.1');
   assert.equal(lockfile.packages['node_modules/esbuild'].version, '0.28.2');
 });
 
@@ -29,12 +29,12 @@ test('root runtime dependencies pin manifest and lockfile versions together', ()
 
   assert.deepEqual(manifest.dependencies, {
     '@modelcontextprotocol/sdk': '^1.32.2',
-    'fast-xml-parser': '^5.12.0',
+    'fast-xml-parser': '^5.12.1',
     zod: '^4.6.7'
   });
 
   assert.deepEqual(lockfile.packages[''].dependencies, manifest.dependencies);
   assert.equal(lockfile.packages['node_modules/@modelcontextprotocol/sdk'].version, '1.32.2');
-  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.12.0');
+  assert.equal(lockfile.packages['node_modules/fast-xml-parser'].version, '5.12.1');
   assert.equal(lockfile.packages['node_modules/zod'].version, '4.6.7');
 });
