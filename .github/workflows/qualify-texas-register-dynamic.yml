@@ -1,0 +1,31 @@
+name: Verify Texas Register automatic issue discovery
+
+on:
+  push:
+    branches: [codex/qualify-texas-register-dynamic-20261126-a]
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    if: github.event.created && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Verify locked client and stock Chrome
+        run: |
+          google-chrome --version
+          npm ci --ignore-scripts --no-audit --no-fund
+          node --test scripts/test/texas-register-evidence.spec.mjs
+      - name: Verify automatically discovered issue
+        run: |
+          set -euo pipefail
+          timeout 85s env -i PATH="$PATH" HOME="$HOME" GITHUB_SHA="$GITHUB_SHA" node scripts/build_texas_register_search.mjs "$RUNNER_TEMP/texas-issue.json"
+          jq -e --arg sha "$GITHUB_SHA" '.status == "available" and .sourceSha == $sha' "$RUNNER_TEMP/texas-issue.json" >/dev/null
