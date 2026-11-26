@@ -2,7 +2,7 @@ import { absoluteUrl, cleanText, isoDate, makeSignal, uniqueSignals } from './he
 
 const state = 'TX';
 const stateName = 'Texas';
-const currentIssueUrl = 'https://www.sos.texas.gov/texreg/sos/index.html';
+export const currentIssueUrl = 'https://www.sos.texas.gov/texreg/sos/index.html';
 const executiveOrdersUrl = 'https://lrl.texas.gov/legeLeaders/governors/searchproc.cfm?govdoctypeID=5&governorID=45';
 const minimumRegisterIssueYear = 2024;
 

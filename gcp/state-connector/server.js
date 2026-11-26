@@ -1,6 +1,8 @@
 import http from 'http';
 import { pathToFileURL } from 'url';
 import { adaptersForState } from './adapters/index.js';
+import { currentIssueUrl } from './adapters/tx.js';
+import { describeTexasRegisterFailure } from './texas-register-diagnostic.js';
 import { coveredStates, SIGNAL_TYPES } from './constants.js';
 import { parseSignalsRequest, signalFetchStatus, sortAndLimitSignals } from './request.js';
 
@@ -55,6 +57,10 @@ async function fetchText(url) {
       },
       signal: controller.signal
     });
+    if (url === currentIssueUrl && !response.ok) {
+      console.log(JSON.stringify(await describeTexasRegisterFailure(response)));
+      throw new Error(`HTTP ${response.status} for ${url}`);
+    }
     const text = await response.text();
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} for ${url}`);
