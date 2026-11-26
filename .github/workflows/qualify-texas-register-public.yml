@@ -1,0 +1,32 @@
+name: Qualify Texas Register public acquisition
+
+on:
+  push:
+    branches: [codex/qualify-texas-register-public-20261126-a]
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    if: github.event.created && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Verify stock browser and locked client
+        run: |
+          set -euo pipefail
+          node -v
+          google-chrome --version
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Read one official directory and submit one public UI search
+        run: |
+          set -euo pipefail
+          node scripts/qualify_texas_register_directory.mjs
+          timeout 80s node scripts/qualify_texas_register_public_ui.mjs
