@@ -281,28 +281,42 @@ function assertDatePart(row, expectedDate) {
   assert.equal(row.updatedAt.slice(0, 10), expectedDate);
 }
 
-test('Texas rulemaking uses the official dated issue table of contents, with no RSS retry', async () => {
+test('Texas rulemaking uses only the verified Pages issue and truthfully links the official search', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-26T18:00:00Z'));
+  const snapshot = {
+    schema: 'tsr-texas-register-search/v1', status: 'available',
+    sourceUrl: 'https://texas-sos.appianportalsgov.com/rules-and-meetings?interface=SEARCH_TEXAS_REGISTER',
+    sourceSha: '1234567890abcdef1234567890abcdef12345678',
+    observedAt: '2026-11-26T17:55:11.017Z',
+    window: { start: '2026-11-18', end: '2026-11-27' },
+    issueDate: '2026-11-27', latestProof: 'upper_bound_row', sampleRows: 20
+  };
   const calls = [];
-  const page = `<html><head><title>Texas Register July 3, 2026</title></head><body>
-    <h1>Texas Register <span name="headerDate">July 3, 2026</span></h1>
-    <main><a href="../archive/July32026/Proposed Rules/index.html">Proposed rules</a></main>
-    </body></html>`;
-  const rows = await texas.fetchRulemaking({ fetchText: async url => { calls.push(url); return page; } });
-  assert.deepEqual(calls, ['https://www.sos.texas.gov/texreg/sos/index.html']);
-  assert.deepEqual(rows.map(row => ({ ...pickStable(row), updatedAt: row.updatedAt, source: row.source })), [{
-    id: 'TX:rulemaking:July 3, 2026', title: 'Texas Register issue for July 3, 2026',
-    url: 'https://www.sos.texas.gov/texreg/archive/July32026/index.html',
-    agency: 'Texas Secretary of State', updatedAt: '2026-07-03T00:00:00.000Z', source: 'Texas Register'
+  const rows = await texas.fetchRulemaking({ fetchText: async (url, options) => {
+    calls.push({ url, options });
+    return JSON.stringify(snapshot);
+  } });
+  assert.deepEqual(calls, [{
+    url: 'https://congressionalinsights.github.io/TheSituationRoomAI/data/feeds/texas-register-current-issue.json',
+    options: { maxBytes: 4096, redirect: 'error' }
   }]);
-  for (const incomplete of [
-    '<html><title>Method Not Allowed</title></html>',
-    page.replace('July32026', 'July102026'),
-    page.replaceAll('July 3, 2026', 'February 30, 2026').replace('July32026', 'February302026'),
-    page.replace('../archive/July32026/', 'https://example.com/texreg/archive/July32026/'),
-    fixture('tx-rulemaking.xml'),
+  assert.deepEqual(rows.map(row => ({ ...pickStable(row), updatedAt: row.updatedAt, source: row.source })), [{
+    id: 'TX:rulemaking:November 27, 2026', title: 'Texas Register issue for November 27, 2026',
+    url: snapshot.sourceUrl, agency: 'Texas Secretary of State', updatedAt: '2026-11-27T00:00:00.000Z',
+    source: 'Texas Register'
+  }]);
+  assert.match(rows[0].summary, /official Texas Register public search/);
+  for (const altered of [
+    { observedAt: '2026-11-26T14:00:00.000Z' }, { observedAt: '2026-11-26T18:01:00.000Z' },
+    { observedAt: { toString: 0 } },
+    { issueDate: '2026-11-17' }, { issueDate: '2026-11-26' }, { status: 'unavailable' },
+    { sourceUrl: 'https://example.com' }, { sourceSha: 'not-a-sha' }, { sampleRows: 21 },
+    { window: { ...snapshot.window, end: '2026-11-28' } }, { schema: 'other' }
   ]) {
-    await assert.rejects(texas.fetchRulemaking({ fetchText: async () => incomplete }), /no dated issue table of contents/);
+    await assert.rejects(texas.fetchRulemaking({ fetchText: async () => JSON.stringify({ ...snapshot, ...altered }) }),
+      /evidence is unavailable or stale/);
   }
-  const methodRefusal = new Error('HTTP 405');
-  await assert.rejects(texas.fetchRulemaking({ fetchText: async () => { throw methodRefusal; } }), methodRefusal);
+  await assert.rejects(texas.fetchRulemaking({ fetchText: async () => '<html>Denied</html>' }), /evidence is unavailable or stale/);
+  const refused = new Error('HTTP 503');
+  await assert.rejects(texas.fetchRulemaking({ fetchText: async () => { throw refused; } }), refused);
 });
