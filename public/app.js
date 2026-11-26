@@ -5589,6 +5589,9 @@ const feedParsers = {
     });
   },
   'foia-api': (data, feed) => {
+    const sourceDate = (...values) => values
+      .map(value => typeof value === 'string' ? Date.parse(value) : NaN)
+      .find(Number.isFinite) ?? null;
     const resolveDescription = (value) => {
       if (!value) return '';
       if (typeof value === 'object') {
@@ -5602,21 +5605,24 @@ const feedParsers = {
         title: coerceTextValue(entry.title || entry.name || 'FOIA Dataset') || 'FOIA Dataset',
         url: coerceTextValue(entry.url || (entry.name ? `https://catalog.data.gov/dataset/${entry.name}` : '')),
         summary: resolveDescription(entry.notes),
-        publishedAt: entry.metadata_modified ? Date.parse(entry.metadata_modified) : Date.now(),
+        publishedAt: sourceDate(entry.metadata_modified),
         source: coerceTextValue(entry.organization?.title || 'Data.gov') || 'Data.gov',
         category: feed.category
       }));
     }
     const foiaRows = Array.isArray(data?.data) ? data.data : [];
     if (!foiaRows.length) return [];
-    return foiaRows.slice(0, 12).map((entry) => ({
-      title: coerceTextValue(entry.attributes?.name || entry.attributes?.title || 'FOIA Component') || 'FOIA Component',
-      url: coerceTextValue(entry.links?.self || 'https://www.foia.gov/developer/'),
-      summary: resolveDescription(entry.attributes?.description),
-      publishedAt: Date.parse(entry.attributes?.updated_at || entry.attributes?.created_at) || Date.now(),
-      source: 'FOIA.gov',
-      category: feed.category
-    }));
+    return foiaRows.slice(0, 12).map((entry) => {
+      const self = coerceTextValue(entry.links?.self?.href || entry.links?.self);
+      return {
+        title: coerceTextValue(entry.attributes?.name || entry.attributes?.title || 'FOIA Component') || 'FOIA Component',
+        url: /^https?:\/\//i.test(self) ? self.split(/[?#]/, 1)[0] : 'https://www.foia.gov/developer/',
+        summary: resolveDescription(entry.attributes?.description),
+        publishedAt: sourceDate(entry.attributes?.updated_at, entry.attributes?.created_at),
+        source: 'FOIA.gov',
+        category: feed.category
+      };
+    });
   },
   'treasury-debt': (data, feed) => (data.data || []).map((row) => ({
     title: `Debt to the Penny (${row.record_date})`,
@@ -7385,8 +7391,10 @@ function getPanelTimestamp(panelId) {
     case 'local':
       return getLatestTimestamp(getLocalItems()) || state.lastFetch || null;
     case 'policy': {
-      const policyStamp = getLatestTimestamp(getFederalPolicyItems());
+      const policyItems = getFederalPolicyItems();
+      const policyStamp = getLatestTimestamp(policyItems);
       if (policyStamp) return policyStamp;
+      if (policyItems.length && policyItems.every(item => item.feedId === 'foia-api')) return null;
       return getLatestFeedTimestampByIds(getFederalPolicyFeedIds()) || state.lastFetch || null;
     }
     case 'state-gov': {
@@ -7526,6 +7534,7 @@ function formatItemSource(item, fallback = 'Source') {
 }
 
 function formatItemTime(item) {
+  if (item.feedId === 'foia-api' && item.publishedAt === null) return 'Record date unavailable';
   if (item.feedId !== 'gdacs-alerts' || item.timeSemantics !== 'updated') return toRelativeTime(item.publishedAt || Date.now());
   const stamp = itemTime(item);
   return stamp ? `Updated ${toRelativeTime(stamp)}` : 'Update time unavailable';
@@ -7533,7 +7542,8 @@ function formatItemTime(item) {
 
 function applyFreshnessFilter(items) {
   const cutoff = Date.now() - state.settings.maxAgeDays * 24 * 60 * 60 * 1000;
-  return items.filter((item) => itemTime(item, Date.now()) >= cutoff);
+  return items.filter((item) => (item.feedId === 'foia-api' && item.publishedAt === null)
+    || itemTime(item, Date.now()) >= cutoff);
 }
 
 function normalizeSearchItems(items) {
