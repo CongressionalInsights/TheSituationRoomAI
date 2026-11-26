@@ -2,7 +2,7 @@ import { absoluteUrl, cleanText, makeSignal, rssItems, uniqueSignals } from './h
 
 const state = 'TX';
 const stateName = 'Texas';
-const registerFeedUrl = 'https://www.sos.state.tx.us/texreg/texreg.xml';
+const registerFeedUrl = 'https://www.sos.texas.gov/texreg/texreg.xml';
 const executiveOrdersUrl = 'https://lrl.texas.gov/legeLeaders/governors/searchproc.cfm?govdoctypeID=5&governorID=45';
 const minimumRegisterIssueYear = 2024;
 
@@ -90,7 +90,9 @@ export default {
   stateName,
   async fetchRulemaking(ctx) {
     const text = await ctx.fetchText(registerFeedUrl);
-    return parseRulemakingFeed(text);
+    const issues = parseRulemakingFeed(text).filter(issue => issue.updatedAt);
+    if (!issues.length) throw new Error('Texas Register RSS has no dated HTML issue.');
+    return issues;
   },
   async fetchExecutiveOrders(ctx) {
     const html = await ctx.fetchText(executiveOrdersUrl);

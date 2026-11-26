@@ -23,7 +23,7 @@ import {
   parseRegisterIssues as parseNorthCarolinaRulemaking
 } from '../adapters/nc.js';
 import northCarolina from '../adapters/nc.js';
-import {
+import texas, {
   parseExecutiveOrders as parseTexasExecutiveOrders,
   parseRulemakingFeed as parseTexasRulemaking
 } from '../adapters/tx.js';
@@ -298,3 +298,18 @@ function pickStable(row) {
 function assertDatePart(row, expectedDate) {
   assert.equal(row.updatedAt.slice(0, 10), expectedDate);
 }
+
+test('Texas rulemaking fetches the publisher RSS directory link and preserves the official issue date', async () => {
+  const calls = [];
+  const rows = await texas.fetchRulemaking({ fetchText: async (url) => {
+    calls.push(url);
+    return fixture('tx-rulemaking.xml');
+  } });
+  assert.deepEqual(calls, ['https://www.sos.texas.gov/texreg/texreg.xml']);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source, 'Texas Register');
+  assert.equal(rows[0].updatedAt, '2026-07-03T00:00:00.000Z');
+  await assert.rejects(texas.fetchRulemaking({ fetchText: async () => '<rss><channel /></rss>' }), /no dated HTML issue/);
+  const methodRefusal = new Error('HTTP 405');
+  await assert.rejects(texas.fetchRulemaking({ fetchText: async () => { throw methodRefusal; } }), methodRefusal);
+});
