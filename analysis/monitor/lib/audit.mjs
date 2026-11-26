@@ -706,6 +706,12 @@ export function evaluateInvariant(name, context) {
             metadata: { identity: 'observation-freshness' }
           });
         }
+      } else if (entry.id === 'foia-api') {
+        return signalSummary.count ? createAlert({
+          feedId: entry.id, regressionClass: 'observation-freshness-unknown', severity: 'info',
+          message: 'FOIA agency components have no source publication timestamps.',
+          metadata: { identity: 'observation-freshness' }
+        }) : null;
       } else {
         newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp
           || (['gdacs-alerts', 'gdelt-doc', 'polymarket-markets', 'warspotting-losses'].includes(entry.id) ? null : payloadSummary?.fetchedAt);

@@ -696,6 +696,24 @@ function normalizeWarspottingLosses(data, feed) {
 
 export function parseGenericJsonFeed(data, feed) {
   if (feed?.id === 'warspotting-losses') return normalizeWarspottingLosses(data, feed);
+  if (feed?.id === 'foia-api') {
+    const ids = new Set();
+    return selectList(data).slice(0, 50).flatMap(entry => {
+      const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
+      const title = typeof entry?.attributes?.title === 'string' ? entry.attributes.title.trim() : '';
+      if (entry?.type !== 'agency_component' || !/^[a-z0-9-]+$/i.test(id) || !title || ids.has(id)) return [];
+      ids.add(id);
+      return [{
+        title,
+        url: `https://api.foia.gov/api/agency_components/${id}`,
+        summary: '',
+        publishedAt: null,
+        observationKey: `foia-api:${id}`,
+        source: feed.name,
+        category: feed.category
+      }];
+    });
+  }
   if (isTypedSeriesFeed(feed)) return normalizeTypedSeriesSignals(data, feed);
   if (feed?.id === 'nasa-firms') return normalizeFirmsSignals(data, feed);
   if (feed?.id === 'cisa-kev') return normalizeCisaKevSignals(data, feed);
