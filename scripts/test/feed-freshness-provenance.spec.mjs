@@ -106,3 +106,20 @@ test('RSS freshness excludes channel generation dates in RSS and Atom', () => {
     assert.equal(summarizeProxyPayload(feed,{body}).newestTimestamp,expected);
   }
 });
+
+test('FOIA agency components retain their titles and identity without inventing publication dates', () => {
+  const feed = entriesById['foia-api'];
+  const first = { type: 'agency_component', id: 'component-one', attributes: { title: 'First office', request_data_year: 2025 } };
+  const second = { type: 'agency_component', id: 'component-two', attributes: { title: 'Second office' } };
+  const body = JSON.stringify({ data: [first, second, first, { ...first, id: '..' }] });
+  const items = normalizeJsonSignals(body, feed);
+  assert.deepEqual(items.map(item => item.title), ['First office', 'Second office']);
+  assert.deepEqual(items.map(item => item.observationKey), ['foia-api:component-one', 'foia-api:component-two']);
+  assert.equal(items[0].url, 'https://api.foia.gov/api/agency_components/component-one');
+  assert.ok(items.every(item => item.publishedAt === null));
+  const summary = summarizeSignals({ data: { items } }, feed);
+  assert.equal(summary.newestTimestamp, null);
+  const proxy = summarizeProxyPayload(feed, { body, fetchedAt: Date.now(), httpStatus: 200 });
+  const finding = evaluateInvariant('freshness', { entry: feed, proxySummary: proxy, rawSummary: proxy, signalSummary: summary });
+  assert.equal(finding.regressionClass, 'observation-freshness-unknown');
+});
