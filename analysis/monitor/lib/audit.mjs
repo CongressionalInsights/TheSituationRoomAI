@@ -12,7 +12,7 @@ import { readGdacsPrimaryFailureDiagnostic } from '../../../gcp/feed-proxy/firms
 import { createAlert, applyKnownUpstreamQuirks, dedupeAlerts } from './reporting.mjs';
 import { summarizeCpiPublication } from './cpi_cadence.mjs';
 import { createHash } from 'node:crypto';
-import { isTypedSeriesFeed, normalizeTypedSeriesSignals, parseGdeltSeenTime, parseObservationPeriod } from '../../../gcp/mcp-proxy/signal-normalization.js';
+import { isTypedSeriesFeed, normalizeTypedSeriesSignals, parseGdeltSeenTime, parseObservationPeriod, parseWarspottingDate } from '../../../gcp/mcp-proxy/signal-normalization.js';
 
 const PRIMARY_ARRAY_PATHS = [
   ['items'],
@@ -253,7 +253,8 @@ function parseBody(feed, payload) {
   }
 }
 
-function findPrimaryItems(body) {
+function findPrimaryItems(body, feed) {
+  if (feed?.id === 'warspotting-losses') return Array.isArray(body?.losses) ? body.losses : [];
   if (Array.isArray(body)) return body;
   for (const path of PRIMARY_ARRAY_PATHS) {
     const value = getPath(body, path);
@@ -318,9 +319,9 @@ export function summarizeProxyPayload(feed, payload, transport = {}) {
   }
 
   const typed = isTypedSeriesFeed(feed);
-  const items = body ? (typed ? normalizeTypedSeriesSignals(body, feed) : findPrimaryItems(body)) : [];
+  const items = body ? (typed ? normalizeTypedSeriesSignals(body, feed) : findPrimaryItems(body, feed)) : [];
   const newestTimestamp = items
-    .map(item => typed ? item.publishedAt : feed.id === 'gdelt-doc' ? parseGdeltSeenTime(item.seendate)
+    .map(item => typed ? item.publishedAt : feed.id === 'warspotting-losses' ? parseWarspottingDate(item?.date) : feed.id === 'gdelt-doc' ? parseGdeltSeenTime(item.seendate)
       : feed.id === 'polymarket-markets' ? coerceTimestamp(item.updatedAt ?? item.updated_at)
         : feed.id === 'congress-house-votes' ? coerceTimestamp(item.updateDate) ?? coerceTimestamp(item.startDate)
         : extractTimestamp(item))
@@ -707,7 +708,7 @@ export function evaluateInvariant(name, context) {
         }
       } else {
         newest = signalSummary.newestTimestamp || payloadSummary?.newestTimestamp
-          || (['gdacs-alerts', 'gdelt-doc', 'polymarket-markets'].includes(entry.id) ? null : payloadSummary?.fetchedAt);
+          || (['gdacs-alerts', 'gdelt-doc', 'polymarket-markets', 'warspotting-losses'].includes(entry.id) ? null : payloadSummary?.fetchedAt);
         if (['gdelt-doc', 'polymarket-markets'].includes(entry.id) && !newest && signalSummary.count) {
           return createAlert({
             feedId: entry.id, regressionClass: 'observation-freshness-unknown', severity: 'info',
