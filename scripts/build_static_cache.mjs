@@ -5,6 +5,7 @@ import { redactCredentialFields, sanitizeEiaBody } from '../analysis/monitor/lib
 import { nasaFirmsCoordinates, normalizeNasaFirmsItems, parseFirmsTimestamp, parseNasaFirmsRows, selectNewestFirmsItems } from './firms-csv.js';
 import { getBlsApiError, sanitizeBlsBody } from '../gcp/feed-proxy/bls.js';
 import { generateBriefing } from '../gcp/openai-proxy/briefing.js';
+import texas from '../gcp/state-connector/adapters/tx.js';
 
 const ROOT = process.cwd();
 const FEEDS_PATH = join(ROOT, 'data', 'feeds.json');
@@ -1089,10 +1090,57 @@ async function buildEnergyMarket() {
   return buildRetiredQuotePayload('energy-market');
 }
 
+async function buildTexasRegisterIssue() {
+  const sourceUrl = 'https://www.sos.texas.gov/texreg/sos/index.html';
+  const provenance = { schema: 'tsr-texas-register-issue/v1', producer: 'tsr-pages-static-cache', sourceUrl };
+  let httpStatus = null;
+  let failure = 'transport_failed';
+  try {
+    const [issue] = await texas.fetchRulemaking({
+      fetchText: async (url) => {
+        if (url !== sourceUrl) throw new Error('Unexpected Texas Register source.');
+        return fetchWithTimeout(url, { headers: { Accept: 'text/html', 'User-Agent': appConfig.userAgent },
+          redirect: 'error' }, TIMEOUT_MS, async (response) => {
+          httpStatus = response.status;
+          failure = 'source_http_error';
+          if (!response.ok) throw new Error('Texas Register HTTP response failed.');
+          failure = 'invalid_issue';
+          if (!/^text\/html(?:;|$)/i.test(response.headers.get('content-type') || '') || !response.body) {
+            throw new Error('Texas Register response was not HTML.');
+          }
+          failure = 'body_read_failed';
+          const chunks = [];
+          let bytes = 0;
+          for await (const chunk of response.body) {
+            bytes += chunk.byteLength;
+            if (bytes > 512 * 1024) {
+              failure = 'body_limit';
+              throw new Error('Texas Register response was too large.');
+            }
+            chunks.push(chunk);
+          }
+          failure = 'invalid_issue';
+          return Buffer.concat(chunks).toString('utf8');
+        });
+      }
+    });
+    return { ...provenance, status: 'available', acquiredAt: new Date().toISOString(), httpStatus,
+      issue: { title: issue.title, issueDate: issue.updatedAt.slice(0, 10), url: issue.url } };
+  } catch {
+    return { ...provenance, status: 'unavailable', attemptedAt: new Date().toISOString(), httpStatus, failure };
+  }
+}
+
 async function main() {
   await loadSeedFeedFallbacks();
   await rm(OUT_DIR, { recursive: true, force: true });
   await mkdir(FEED_DIR, { recursive: true });
+
+  const texasIssue = await buildTexasRegisterIssue();
+  await writeJson(join(FEED_DIR, 'texas-register-current-issue.json'), texasIssue);
+  if (texasIssue.status === 'unavailable') {
+    console.warn('Texas Register current issue unavailable:', texasIssue.failure, texasIssue.httpStatus);
+  }
 
   const feedPayloads = [];
   const analysisInputs = [];
