@@ -11,6 +11,8 @@ on:
       - README.md
       - public/config.js
       - scripts/build_static_cache.mjs
+      - scripts/build_texas_register_search.mjs
+      - scripts/texas-register-evidence.mjs
       - gcp/openai-proxy/briefing.js
   schedule:
     - cron: '0 * * * *'
@@ -29,6 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
@@ -55,6 +59,8 @@ jobs:
           OPENSKY_CLIENTID: ${{ secrets.OPENSKY_CLIENTID }}
           OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
         run: node scripts/build_static_cache.mjs
+      - name: Capture the verified Texas Register issue
+        run: timeout 85s env -i PATH="$PATH" HOME="$HOME" GITHUB_SHA="$GITHUB_SHA" node scripts/build_texas_register_search.mjs
       - name: Build Denario insights
         run: node scripts/build_denario.mjs
       - name: Build frontend bundle
