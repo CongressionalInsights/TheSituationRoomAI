@@ -24,8 +24,7 @@ import {
 } from '../adapters/nc.js';
 import northCarolina from '../adapters/nc.js';
 import texas, {
-  parseExecutiveOrders as parseTexasExecutiveOrders,
-  parseRulemakingFeed as parseTexasRulemaking
+  parseExecutiveOrders as parseTexasExecutiveOrders
 } from '../adapters/tx.js';
 import {
   parseExecutiveOrders as parseVirginiaExecutiveOrders,
@@ -232,23 +231,6 @@ test('Texas executive order table keeps title, URL, date, and agency scoped to o
   assertDatePart(rows[0], '2025-09-10');
 });
 
-test('Texas rulemaking parser emits one canonical dated issue and drops PDF/archive navigation', () => {
-  const rows = parseTexasRulemaking(fixture('tx-rulemaking.xml'));
-  assert.equal(rows.length, 1);
-  assert.deepEqual(
-    pickStable(rows[0]),
-    {
-      id: 'TX:rulemaking:July 3, 2026',
-      title: 'Texas Register issue for July 3, 2026',
-      url: 'http://www.sos.state.tx.us/texreg/archive/July32026/index.html',
-      agency: 'Texas Secretary of State'
-    }
-  );
-  assert.equal(rows[0].updatedAt, '2026-07-03T00:00:00.000Z');
-  assert.match(rows[0].summary, /PDF rendering: http:\/\/www\.sos\.state\.tx\.us\/texreg\/pdf\/backview\/0703\/index\.shtml/);
-  assert.ok(!rows.some((row) => /PDF format|available electronically|1976/i.test(`${row.title} ${row.updatedAt}`)));
-});
-
 test('Virginia executive order listing keeps title, URL, date, and agency scoped to one entry', () => {
   const rows = parseVirginiaExecutiveOrders(fixture('va-executive-orders.html'));
   assert.equal(rows.length, 2);
@@ -299,17 +281,28 @@ function assertDatePart(row, expectedDate) {
   assert.equal(row.updatedAt.slice(0, 10), expectedDate);
 }
 
-test('Texas rulemaking fetches the publisher RSS directory link and preserves the official issue date', async () => {
+test('Texas rulemaking uses the official dated issue table of contents, with no RSS retry', async () => {
   const calls = [];
-  const rows = await texas.fetchRulemaking({ fetchText: async (url) => {
-    calls.push(url);
-    return fixture('tx-rulemaking.xml');
-  } });
-  assert.deepEqual(calls, ['https://www.sos.texas.gov/texreg/texreg.xml']);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].source, 'Texas Register');
-  assert.equal(rows[0].updatedAt, '2026-07-03T00:00:00.000Z');
-  await assert.rejects(texas.fetchRulemaking({ fetchText: async () => '<rss><channel /></rss>' }), /no dated HTML issue/);
+  const page = `<html><head><title>Texas Register July 3, 2026</title></head><body>
+    <h1>Texas Register <span name="headerDate">July 3, 2026</span></h1>
+    <main><a href="../archive/July32026/Proposed Rules/index.html">Proposed rules</a></main>
+    </body></html>`;
+  const rows = await texas.fetchRulemaking({ fetchText: async url => { calls.push(url); return page; } });
+  assert.deepEqual(calls, ['https://www.sos.texas.gov/texreg/sos/index.html']);
+  assert.deepEqual(rows.map(row => ({ ...pickStable(row), updatedAt: row.updatedAt, source: row.source })), [{
+    id: 'TX:rulemaking:July 3, 2026', title: 'Texas Register issue for July 3, 2026',
+    url: 'https://www.sos.texas.gov/texreg/archive/July32026/index.html',
+    agency: 'Texas Secretary of State', updatedAt: '2026-07-03T00:00:00.000Z', source: 'Texas Register'
+  }]);
+  for (const incomplete of [
+    '<html><title>Method Not Allowed</title></html>',
+    page.replace('July32026', 'July102026'),
+    page.replaceAll('July 3, 2026', 'February 30, 2026').replace('July32026', 'February302026'),
+    page.replace('../archive/July32026/', 'https://example.com/texreg/archive/July32026/'),
+    fixture('tx-rulemaking.xml'),
+  ]) {
+    await assert.rejects(texas.fetchRulemaking({ fetchText: async () => incomplete }), /no dated issue table of contents/);
+  }
   const methodRefusal = new Error('HTTP 405');
   await assert.rejects(texas.fetchRulemaking({ fetchText: async () => { throw methodRefusal; } }), methodRefusal);
 });

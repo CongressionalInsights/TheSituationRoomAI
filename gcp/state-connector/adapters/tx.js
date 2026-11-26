@@ -1,8 +1,8 @@
-import { absoluteUrl, cleanText, makeSignal, rssItems, uniqueSignals } from './helpers.js';
+import { absoluteUrl, cleanText, isoDate, makeSignal, uniqueSignals } from './helpers.js';
 
 const state = 'TX';
 const stateName = 'Texas';
-const registerFeedUrl = 'https://www.sos.texas.gov/texreg/texreg.xml';
+const currentIssueUrl = 'https://www.sos.texas.gov/texreg/sos/index.html';
 const executiveOrdersUrl = 'https://lrl.texas.gov/legeLeaders/governors/searchproc.cfm?govdoctypeID=5&governorID=45';
 const minimumRegisterIssueYear = 2024;
 
@@ -34,64 +34,52 @@ export function parseExecutiveOrders(html) {
   return uniqueSignals(results);
 }
 
-export function parseRulemakingFeed(text) {
-  const byIssueDate = new Map();
-  for (const item of rssItems(text)) {
-    const issueDate = issueDateFromTexasRegisterItem(item);
-    if (!issueDate) continue;
-    const current = byIssueDate.get(issueDate) || {
-      issueDate,
-      htmlUrl: '',
-      pdfUrl: '',
-      summary: `Texas Register issue for ${issueDate}.`
-    };
-    if (/pdf format/i.test(item.title)) {
-      current.pdfUrl = absoluteUrl(item.url, registerFeedUrl);
-    } else {
-      current.htmlUrl = absoluteUrl(item.url, registerFeedUrl);
+function parseCurrentIssue(html) {
+  const header = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '';
+  const issueDate = cleanText(header.match(/<span\b[^>]*\bname=["']headerDate["'][^>]*>([\s\S]*?)<\/span>/i)?.[1] || '');
+  const title = cleanText(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '');
+  const publishedDate = isoDate(issueDate);
+  const normalizedDate = publishedDate && new Date(publishedDate).toLocaleDateString('en-US', {
+    timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric'
+  });
+  if (!issueDate || issueDate !== normalizedDate || title !== `Texas Register ${issueDate}`
+      || Number(publishedDate.slice(0, 4)) < minimumRegisterIssueYear) return [];
+
+  const folder = `/texreg/archive/${issueDate.replace(/[ ,]/g, '')}/`;
+  const officialOrigin = new URL(currentIssueUrl).origin;
+  const links = html.matchAll(/<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi);
+  const hasIssueContents = Array.from(links).some(([, href]) => {
+    try {
+      const url = new URL(href, currentIssueUrl);
+      return url.origin === officialOrigin && url.pathname.startsWith(folder)
+        && url.pathname !== `${folder}index.html` && url.pathname.endsWith('.html');
+    } catch {
+      return false;
     }
-    byIssueDate.set(issueDate, current);
-  }
+  });
+  if (!hasIssueContents) return [];
 
-  const results = [];
-  for (const issue of byIssueDate.values()) {
-    if (!issue.htmlUrl) continue;
-    const summary = issue.pdfUrl
-      ? `${issue.summary} PDF rendering: ${issue.pdfUrl}`
-      : issue.summary;
-    results.push(makeSignal({
-      id: `${state}:rulemaking:${issue.issueDate}`,
-      title: `Texas Register issue for ${issue.issueDate}`,
-      summary,
-      url: issue.htmlUrl,
-      updatedAt: issue.issueDate,
-      state,
-      agency: 'Texas Secretary of State',
-      status: 'published',
-      source: 'Texas Register',
-      signalType: 'rulemaking'
-    }));
-  }
-  return uniqueSignals(results);
-}
-
-function issueDateFromTexasRegisterItem(item) {
-  const text = `${item.title || ''} ${item.summary || ''}`;
-  const match = text.match(/\bTexas Register issue for (?<date>[A-Z][a-z]+\s+\d{1,2},\s+\d{4})\b/i);
-  const issueDate = cleanText(match?.groups?.date || '');
-  if (!issueDate) return '';
-  const year = Number(issueDate.match(/\b(?<year>\d{4})$/)?.groups?.year || 0);
-  if (!Number.isFinite(year) || year < minimumRegisterIssueYear) return '';
-  return issueDate;
+  return [makeSignal({
+    id: `${state}:rulemaking:${issueDate}`,
+    title: `Texas Register issue for ${issueDate}`,
+    summary: `Texas Register issue for ${issueDate}.`,
+    url: new URL(`${folder}index.html`, currentIssueUrl).href,
+    updatedAt: publishedDate,
+    state,
+    agency: 'Texas Secretary of State',
+    status: 'published',
+    source: 'Texas Register',
+    signalType: 'rulemaking'
+  })];
 }
 
 export default {
   state,
   stateName,
   async fetchRulemaking(ctx) {
-    const text = await ctx.fetchText(registerFeedUrl);
-    const issues = parseRulemakingFeed(text).filter(issue => issue.updatedAt);
-    if (!issues.length) throw new Error('Texas Register RSS has no dated HTML issue.');
+    const html = await ctx.fetchText(currentIssueUrl);
+    const issues = parseCurrentIssue(html);
+    if (!issues.length) throw new Error('Texas Register has no dated issue table of contents.');
     return issues;
   },
   async fetchExecutiveOrders(ctx) {
