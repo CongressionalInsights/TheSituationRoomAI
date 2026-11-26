@@ -656,7 +656,64 @@ export function parseGdeltSeenTime(value) {
     ? instant : null;
 }
 
+export function parseWarspottingDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = parseObservationPeriod(value);
+  return date !== null && date <= Date.now() ? date : null;
+}
+
+function normalizeWarspottingLosses(data, feed) {
+  if (!Array.isArray(data?.losses)) return [];
+  const seen = new Set();
+  const text = value => typeof value === 'string' ? value.trim() : '';
+  return data.losses.slice(0, 50).flatMap(loss => {
+    if (!Number.isSafeInteger(loss?.id) || loss.id < 1 || seen.has(loss.id)) return [];
+    seen.add(loss.id);
+    const type = text(loss.type);
+    const model = text(loss.model);
+    const status = text(loss.status) || 'Loss';
+    const location = text(loss.nearest_location);
+    const coords = text(loss.geo).split(',').map(value => normalizeFiniteNumber(value.trim()));
+    const [lat, lon] = coords;
+    const geo = coords.length === 2 && lat !== null && lon !== null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+      ? { lat, lon } : null;
+    const publishedAt = parseWarspottingDate(loss.date);
+    return [{
+      title: `${status} — ${model || type || 'Equipment'}`,
+      url: 'https://ukr.warspotting.net/',
+      summary: normalizeSummary([type, location].filter(Boolean).join(' · ')),
+      source: feed.name,
+      category: feed.category,
+      observationKey: `warspotting-losses:${loss.id}`,
+      observationDate: publishedAt === null ? null : loss.date,
+      timeSemantics: 'event-date',
+      publishedAt,
+      location,
+      geo
+    }];
+  });
+}
+
 export function parseGenericJsonFeed(data, feed) {
+  if (feed?.id === 'warspotting-losses') return normalizeWarspottingLosses(data, feed);
+  if (feed?.id === 'foia-api') {
+    const ids = new Set();
+    return selectList(data).slice(0, 50).flatMap(entry => {
+      const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
+      const title = typeof entry?.attributes?.title === 'string' ? entry.attributes.title.trim() : '';
+      if (entry?.type !== 'agency_component' || !/^[a-z0-9-]+$/i.test(id) || !title || ids.has(id)) return [];
+      ids.add(id);
+      return [{
+        title,
+        url: `https://api.foia.gov/api/agency_components/${id}`,
+        summary: '',
+        publishedAt: null,
+        observationKey: `foia-api:${id}`,
+        source: feed.name,
+        category: feed.category
+      }];
+    });
+  }
   if (isTypedSeriesFeed(feed)) return normalizeTypedSeriesSignals(data, feed);
   if (feed?.id === 'nasa-firms') return normalizeFirmsSignals(data, feed);
   if (feed?.id === 'cisa-kev') return normalizeCisaKevSignals(data, feed);
