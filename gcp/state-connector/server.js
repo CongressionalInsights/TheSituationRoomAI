@@ -1,8 +1,6 @@
 import http from 'http';
 import { pathToFileURL } from 'url';
 import { adaptersForState } from './adapters/index.js';
-import { currentIssueUrl } from './adapters/tx.js';
-import { describeTexasRegisterFailure } from './texas-register-diagnostic.js';
 import { coveredStates, SIGNAL_TYPES } from './constants.js';
 import { parseSignalsRequest, signalFetchStatus, sortAndLimitSignals } from './request.js';
 
@@ -41,7 +39,18 @@ function isAuthorized(req) {
   return String(req.headers['x-api-key'] || '').trim() === API_KEY;
 }
 
-async function fetchText(url) {
+async function readBoundedText(response, maxBytes) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.byteLength;
+    if (size > maxBytes) throw new Error('State snapshot exceeds the response limit.');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function fetchText(url, { maxBytes, redirect } = {}) {
   const cached = upstreamCache.get(url);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return cached.text;
@@ -55,13 +64,14 @@ async function fetchText(url) {
         'Accept-Language': 'en-US,en;q=0.9',
         'User-Agent': USER_AGENT
       },
-      signal: controller.signal
+      signal: controller.signal,
+      redirect
     });
-    if (url === currentIssueUrl && !response.ok) {
-      console.log(JSON.stringify(await describeTexasRegisterFailure(response)));
+    if (maxBytes && (!response.ok || !response.body)) {
+      void response.body?.cancel().catch(() => {});
       throw new Error(`HTTP ${response.status} for ${url}`);
     }
-    const text = await response.text();
+    const text = maxBytes ? await readBoundedText(response, maxBytes) : await response.text();
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} for ${url}`);
     }
