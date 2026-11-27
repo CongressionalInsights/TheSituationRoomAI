@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { chromium } from 'playwright';
-import { isDate, observeIssue, searchUrl } from './texas-register-evidence.mjs';
+import { isDate, observeIssue, readPublishedIssue, searchUrl } from './texas-register-evidence.mjs';
 
 const origin = new URL(searchUrl).origin;
 const output = process.argv[2] || 'public/data/feeds/texas-register-current-issue.json';
@@ -23,14 +23,25 @@ function parseDate(value) {
   return isDate(date) ? date : null;
 }
 
-async function readSearch(browser, { start, end }) {
+async function readSearch(browser, { start, end }, trace) {
   const page = await browser.newPage({ acceptDownloads: false });
   page.setDefaultTimeout(6500);
   try {
+    trace.phase('navigation');
     const response = await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
-    if (!response?.ok() || new URL(page.url()).origin !== origin) throw new Error('public navigation failed');
+    trace.httpStatus = response?.status() ?? null;
+    if (!response?.ok()) {
+      trace.category = 'http_refusal';
+      throw new Error('public navigation failed');
+    }
+    if (new URL(page.url()).origin !== origin) {
+      trace.category = 'unexpected_origin';
+      throw new Error('public navigation origin changed');
+    }
+    trace.phase('controls');
     await page.getByRole('combobox').filter({ hasText: /^Rule$/ }).waitFor();
     for (const [index, date] of [start, end].entries()) {
+      trace.phase(index ? 'calendar_to' : 'calendar_from');
       const field = page.getByLabel(index ? 'Issue Date To' : 'Issue Date From', { exact: true });
       await field.locator('xpath=ancestor::*[.//button][1]').getByRole('button', { name: 'Open Calendar', exact: true }).click();
       const day = page.getByRole('button', { name: dateControl(date), exact: true });
@@ -44,9 +55,11 @@ async function readSearch(browser, { start, end }) {
       await day.click();
       if (parseDate(await field.inputValue()) !== date) throw new Error('date selection mismatch');
     }
+    trace.phase('submit');
     const grid = page.locator('table').filter({ has: page.getByRole('columnheader', { name: 'Issue', exact: true }) });
     if (await grid.isVisible()) throw new Error('search results were present before submission');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
+    trace.phase('results');
     await grid.waitFor({ state: 'visible', timeout: 14000 });
     const observation = await grid.evaluate((table, officialOrigin) => {
       const column = [...table.querySelectorAll('thead th')].findIndex(el => el.innerText.trim() === 'Issue');
@@ -66,12 +79,45 @@ async function readSearch(browser, { start, end }) {
   }
 }
 
+function searchTrace(search) {
+  const started = performance.now();
+  let phaseStarted = started;
+  let phase = 'launch';
+  const timingsMs = {};
+  return {
+    phase(next) {
+      timingsMs[phase] = Math.round(performance.now() - phaseStarted);
+      phase = next;
+      phaseStarted = performance.now();
+    },
+    finish(error) {
+      timingsMs[phase] = Math.round(performance.now() - phaseStarted);
+      console.log(JSON.stringify({
+        event: 'texas_register_search_trace', search, phase, timingsMs, httpStatus: this.httpStatus ?? null,
+        outcome: error ? 'failed' : 'completed',
+        category: error ? this.category ?? (error.name === 'TimeoutError' ? 'timeout' : 'unexpected_browser_or_page_state') : null
+      }));
+    }
+  };
+}
+
 let browser;
+let searches = 0;
 const envelope = await observeIssue({
   now: new Date(), sourceSha: process.env.GITHUB_SHA,
+  readPrevious: readPublishedIssue,
   readSearch: async window => {
-    browser ??= await chromium.launch({ executablePath: process.env.TSR_CHROME_BIN || '/usr/bin/google-chrome', headless: true, timeout: 8000 });
-    return readSearch(browser, window);
+    const trace = searchTrace(++searches);
+    let failure;
+    try {
+      browser ??= await chromium.launch({ executablePath: process.env.TSR_CHROME_BIN || '/usr/bin/google-chrome', headless: true, timeout: 8000 });
+      return await readSearch(browser, window, trace);
+    } catch (error) {
+      failure = error;
+      throw error;
+    } finally {
+      trace.finish(failure);
+    }
   }
 });
 await browser?.close();

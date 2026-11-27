@@ -1,4 +1,6 @@
-export const searchUrl = 'https://texas-sos.appianportalsgov.com/rules-and-meetings?interface=SEARCH_TEXAS_REGISTER';
+import { officialSearchUrl, pagesIssueUrl, parsePagesIssue } from '../gcp/state-connector/adapters/tx-search-issue.js';
+
+export const searchUrl = officialSearchUrl;
 export const schema = 'tsr-texas-register-search/v1';
 export const shiftDate = (date, offset) => new Date(Date.parse(date + 'T00:00:00Z') + offset * 86400000).toISOString().slice(0, 10);
 
@@ -38,7 +40,41 @@ export async function discoverIssue(window, readSearch) {
   return null;
 }
 
-export async function observeIssue({ now, sourceSha, readSearch }) {
+export async function readPublishedIssue(fetchImpl = fetch) {
+  const response = await fetchImpl(pagesIssueUrl, {
+    redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(8000),
+    headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
+  });
+  if (!response.ok || response.redirected || !response.body) {
+    void response.body?.cancel().catch(() => {});
+    return '';
+  }
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of response.body) {
+    bytes += chunk.byteLength;
+    if (bytes > 4096) return '';
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function retainVerifiedIssue(failure, readPrevious, clock) {
+  try {
+    const previousBody = await readPrevious();
+    if (!parsePagesIssue(previousBody, clock())) return failure;
+    const { sourceSha, observedAt, window, issueDate, latestProof, sampleRows } = JSON.parse(previousBody);
+    return {
+      schema, sourceUrl: searchUrl, sourceSha, observedAt, window, issueDate, latestProof, sampleRows,
+      status: 'available', observationStatus: 'retained',
+      acquisition: { status: 'failed', reason: failure.reason, attemptedAt: failure.observedAt, sourceSha: failure.sourceSha }
+    };
+  } catch {
+    return failure;
+  }
+}
+
+export async function observeIssue({ now, sourceSha, readSearch, readPrevious, clock = Date.now }) {
   if (!/^[0-9a-f]{40}$/.test(sourceSha ?? '')) throw new Error('invalid source commit');
   const window = searchWindow(now);
   const envelope = { schema, sourceUrl: searchUrl, sourceSha, observedAt: now.toISOString(), window };
@@ -46,7 +82,8 @@ export async function observeIssue({ now, sourceSha, readSearch }) {
     const issue = await discoverIssue(window, readSearch);
     if (issue) return { ...envelope, status: 'available', ...issue };
   } catch {
-    return { ...envelope, status: 'unavailable', reason: 'search_read_failed' };
+    const failure = { ...envelope, status: 'unavailable', reason: 'search_read_failed' };
+    return readPrevious ? retainVerifiedIssue(failure, readPrevious, clock) : failure;
   }
   return { ...envelope, status: 'unavailable', reason: 'current_issue_unverified' };
 }
