@@ -79,10 +79,9 @@ async function readSearch(browser, { start, end }, trace) {
   }
 }
 
-function searchTrace(search) {
-  const started = performance.now();
-  let phaseStarted = started;
-  let phase = 'launch';
+function searchTrace(search, initialPhase) {
+  let phaseStarted = performance.now();
+  let phase = initialPhase;
   const timingsMs = {};
   return {
     phase(next) {
@@ -107,11 +106,14 @@ const envelope = await observeIssue({
   now: new Date(), sourceSha: process.env.GITHUB_SHA,
   readPrevious: readPublishedIssue,
   readSearch: async window => {
-    const trace = searchTrace(++searches);
+    const trace = searchTrace(++searches, browser ? 'page_setup' : 'launch');
     let failure;
     try {
       // Hosted Chrome has hit the old 8s limit before navigation. Keep this budget specific to launch.
-      browser ??= await chromium.launch({ executablePath: process.env.TSR_CHROME_BIN || '/usr/bin/google-chrome', headless: true, timeout: 20_000 });
+      if (!browser) {
+        browser = await chromium.launch({ executablePath: process.env.TSR_CHROME_BIN || '/usr/bin/google-chrome', headless: true, timeout: 20_000 });
+        trace.phase('page_setup');
+      }
       return await readSearch(browser, window, trace);
     } catch (error) {
       failure = error;

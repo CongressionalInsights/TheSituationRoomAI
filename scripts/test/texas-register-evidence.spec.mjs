@@ -202,9 +202,15 @@ test('Texas producer finishes a modeled 12-second Chrome startup with the new la
     export const chromium = { launch: async options => {
       if (options.timeout <= chromeStartupMs) throw Object.assign(new Error('modeled startup exceeds budget'), { name: 'TimeoutError' });
       if (options.timeout !== 20000 || options.headless !== true) throw new Error('unexpected launch policy');
-      return { newPage: async () => page, close: async () => {} };
+      globalThis.fixtureElapsedMs += chromeStartupMs;
+      return { newPage: async () => {
+        globalThis.fixtureElapsedMs += 1500;
+        return page;
+      }, close: async () => {} };
     } };`;
   const { trace, report } = runProducerFixture(t, browserFixture, `
+    globalThis.fixtureElapsedMs = 0;
+    Object.defineProperty(performance, 'now', { value: () => globalThis.fixtureElapsedMs });
     const RealDate = Date;
     globalThis.Date = class extends RealDate {
       constructor(...args) { super(...(args.length ? args : [${now.valueOf()}])); }
@@ -213,6 +219,8 @@ test('Texas producer finishes a modeled 12-second Chrome startup with the new la
     globalThis.fetch = async () => { throw new Error('unexpected live or retention request'); };`);
   assert.equal(trace.outcome, 'completed');
   assert.equal(trace.httpStatus, 200);
+  assert.equal(trace.timingsMs.launch, 12000);
+  assert.equal(trace.timingsMs.page_setup, 1500);
   assert.equal(report.status, 'available');
   assert.equal(report.issueDate, window.end);
   assert.equal(report.observationStatus, undefined);
