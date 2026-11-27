@@ -178,22 +178,35 @@ test('Texas production entrypoint logs a bounded browser timeout and retains onl
   assert.doesNotMatch(stdout, /synthetic private browser error|browserType/);
 });
 
-test('Texas producer finishes a modeled 12-second Chrome startup with the new launch budget', (t) => {
+test('Texas producer keeps Chrome startup and form readiness budgets separate', (t) => {
   const window = searchWindow(now);
   const display = date => [date.slice(5, 7), date.slice(8), date.slice(0, 4)].join('/');
   const browserFixture = `
     const chromeStartupMs = 12000;
+    const ruleReadinessMs = 9366;
+    const ruleControl = {
+      filter: () => ruleControl,
+      waitFor: async options => {
+        if ((options?.timeout ?? 6500) <= ruleReadinessMs) {
+          throw Object.assign(new Error('modeled form hydration exceeds wait'), { name: 'TimeoutError' });
+        }
+        if (options.timeout !== 14000) throw new Error('unexpected form readiness budget');
+        globalThis.fixtureElapsedMs += ruleReadinessMs;
+      }
+    };
     const role = { filter: () => role, waitFor: async () => {}, click: async () => {}, count: async () => 1 };
     const grid = { filter: () => grid, isVisible: async () => false,
       waitFor: async () => {}, evaluate: async () => ({ displayed: [${JSON.stringify(display(window.end))}], officialRowCount: 1 }) };
     const page = {
-      setDefaultTimeout: () => {},
+      setDefaultTimeout: timeout => {
+        if (timeout !== 6500) throw new Error('unrelated page action budget changed');
+      },
       goto: async url => {
         if (url !== ${JSON.stringify(searchUrl)}) throw new Error('unexpected navigation');
         return { ok: () => true, status: () => 200 };
       },
       url: () => ${JSON.stringify(searchUrl)},
-      getByRole: () => role,
+      getByRole: name => name === 'combobox' ? ruleControl : role,
       getByLabel: label => ({ locator: () => ({ getByRole: () => role }),
         inputValue: async () => label === 'Issue Date From' ? ${JSON.stringify(display(window.start))} : ${JSON.stringify(display(window.end))} }),
       locator: () => grid,
@@ -221,6 +234,7 @@ test('Texas producer finishes a modeled 12-second Chrome startup with the new la
   assert.equal(trace.httpStatus, 200);
   assert.equal(trace.timingsMs.launch, 12000);
   assert.equal(trace.timingsMs.page_setup, 1500);
+  assert.equal(trace.timingsMs.controls, 9366);
   assert.equal(report.status, 'available');
   assert.equal(report.issueDate, window.end);
   assert.equal(report.observationStatus, undefined);

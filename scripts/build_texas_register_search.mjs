@@ -39,7 +39,8 @@ async function readSearch(browser, { start, end }, trace) {
       throw new Error('public navigation origin changed');
     }
     trace.phase('controls');
-    await page.getByRole('combobox').filter({ hasText: /^Rule$/ }).waitFor();
+    // The Appian form may populate after the initial HTML has loaded.
+    await page.getByRole('combobox').filter({ hasText: /^Rule$/ }).waitFor({ timeout: 14_000 });
     for (const [index, date] of [start, end].entries()) {
       trace.phase(index ? 'calendar_to' : 'calendar_from');
       const field = page.getByLabel(index ? 'Issue Date To' : 'Issue Date From', { exact: true });
