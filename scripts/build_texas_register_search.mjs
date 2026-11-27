@@ -110,7 +110,8 @@ const envelope = await observeIssue({
     const trace = searchTrace(++searches);
     let failure;
     try {
-      browser ??= await chromium.launch({ executablePath: process.env.TSR_CHROME_BIN || '/usr/bin/google-chrome', headless: true, timeout: 8000 });
+      // Hosted Chrome has hit the old 8s limit before navigation. Keep this budget specific to launch.
+      browser ??= await chromium.launch({ executablePath: process.env.TSR_CHROME_BIN || '/usr/bin/google-chrome', headless: true, timeout: 20_000 });
       return await readSearch(browser, window, trace);
     } catch (error) {
       failure = error;

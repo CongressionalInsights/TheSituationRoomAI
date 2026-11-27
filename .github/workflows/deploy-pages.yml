@@ -60,7 +60,8 @@ jobs:
           OPENSKY_CLIENTSECRET: ${{ secrets.OPENSKY_CLIENTSECRET }}
         run: node scripts/build_static_cache.mjs
       - name: Capture the verified Texas Register issue
-        run: timeout 85s env -i PATH="$PATH" HOME="$HOME" GITHUB_SHA="$GITHUB_SHA" node scripts/build_texas_register_search.mjs
+        # Previous 85s budget plus 12s for startup, 8s for retention, and 5s for cleanup.
+        run: timeout 110s env -i PATH="$PATH" HOME="$HOME" GITHUB_SHA="$GITHUB_SHA" node scripts/build_texas_register_search.mjs
       - name: Build Denario insights
         run: node scripts/build_denario.mjs
       - name: Build frontend bundle
