@@ -136,11 +136,17 @@ test('the previous issue read is fixed, anonymous, bounded, and rejects redirect
   assert.equal(await readPublishedIssue(async () => new Response('not found', { status: 404 })), '');
 });
 
-test('Texas production entrypoint logs a bounded launch failure and retains only the verified observation', (t) => {
+test('Texas production entrypoint logs a bounded browser timeout and retains only the verified observation', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'tsr-tx-entrypoint-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const previous = verifiedArtifact(new Date(Date.now() - 5000));
-  const preload = `globalThis.fetch = async (url, options) => {
+  const browserFixture = "export const chromium = { launch: async () => { throw Object.assign(new Error('synthetic private browser error'), { name: 'TimeoutError' }); } };";
+  const preload = `import { registerHooks } from 'node:module';
+  registerHooks({ resolve(specifier, context, nextResolve) {
+    if (specifier === 'playwright') return { url: ${JSON.stringify('data:text/javascript,' + encodeURIComponent(browserFixture))}, shortCircuit: true };
+    return nextResolve(specifier, context);
+  }});
+  globalThis.fetch = async (url, options) => {
     if (url !== ${JSON.stringify(pagesIssueUrl)} || options.redirect !== 'error' || options.credentials !== 'omit')
       throw new Error('unexpected fixture request');
     return new Response(${JSON.stringify(JSON.stringify(previous))});
@@ -148,14 +154,14 @@ test('Texas production entrypoint logs a bounded launch failure and retains only
   const output = join(directory, 'issue.json');
   const command = fileURLToPath(new URL('../build_texas_register_search.mjs', import.meta.url));
   const stdout = execFileSync(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), command, output], {
-    env: { ...process.env, GITHUB_SHA: 'a'.repeat(40), TSR_CHROME_BIN: join(directory, 'absent-chrome') },
+    env: { ...process.env, GITHUB_SHA: 'a'.repeat(40) },
     encoding: 'utf8', timeout: 15000
   });
   const [trace, report] = stdout.trim().split('\n').map(JSON.parse);
   assert.equal(trace.event, 'texas_register_search_trace');
   assert.equal(trace.phase, 'launch');
   assert.equal(trace.outcome, 'failed');
-  assert.equal(trace.category, 'unexpected_browser_or_page_state');
+  assert.equal(trace.category, 'timeout');
   assert.equal(trace.httpStatus, null);
   assert.equal(typeof trace.timingsMs.launch, 'number');
   assert.equal(report.status, 'available');
@@ -164,5 +170,5 @@ test('Texas production entrypoint logs a bounded launch failure and retains only
   assert.equal(report.sourceSha, previous.sourceSha);
   assert.equal(report.acquisition.status, 'failed');
   assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), report);
-  assert.doesNotMatch(stdout, /absent-chrome|executable|browserType/);
+  assert.doesNotMatch(stdout, /synthetic private browser error|browserType/);
 });
