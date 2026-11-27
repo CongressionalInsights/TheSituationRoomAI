@@ -136,21 +136,15 @@ test('the previous issue read is fixed, anonymous, bounded, and rejects redirect
   assert.equal(await readPublishedIssue(async () => new Response('not found', { status: 404 })), '');
 });
 
-test('Texas production entrypoint logs a bounded browser timeout and retains only the verified observation', (t) => {
+function runProducerFixture(t, browserFixture, fetchFixture) {
   const directory = mkdtempSync(join(tmpdir(), 'tsr-tx-entrypoint-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const previous = verifiedArtifact(new Date(Date.now() - 5000));
-  const browserFixture = "export const chromium = { launch: async () => { throw Object.assign(new Error('synthetic private browser error'), { name: 'TimeoutError' }); } };";
   const preload = `import { registerHooks } from 'node:module';
   registerHooks({ resolve(specifier, context, nextResolve) {
     if (specifier === 'playwright') return { url: ${JSON.stringify('data:text/javascript,' + encodeURIComponent(browserFixture))}, shortCircuit: true };
     return nextResolve(specifier, context);
   }});
-  globalThis.fetch = async (url, options) => {
-    if (url !== ${JSON.stringify(pagesIssueUrl)} || options.redirect !== 'error' || options.credentials !== 'omit')
-      throw new Error('unexpected fixture request');
-    return new Response(${JSON.stringify(JSON.stringify(previous))});
-  };`;
+  ${fetchFixture}`;
   const output = join(directory, 'issue.json');
   const command = fileURLToPath(new URL('../build_texas_register_search.mjs', import.meta.url));
   const stdout = execFileSync(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), command, output], {
@@ -158,6 +152,18 @@ test('Texas production entrypoint logs a bounded browser timeout and retains onl
     encoding: 'utf8', timeout: 15000
   });
   const [trace, report] = stdout.trim().split('\n').map(JSON.parse);
+  assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), report);
+  return { trace, report, stdout };
+}
+
+test('Texas production entrypoint logs a bounded browser timeout and retains only the verified observation', (t) => {
+  const previous = verifiedArtifact(new Date(Date.now() - 5000));
+  const browserFixture = "export const chromium = { launch: async () => { throw Object.assign(new Error('synthetic private browser error'), { name: 'TimeoutError' }); } };";
+  const { trace, report, stdout } = runProducerFixture(t, browserFixture, `globalThis.fetch = async (url, options) => {
+    if (url !== ${JSON.stringify(pagesIssueUrl)} || options.redirect !== 'error' || options.credentials !== 'omit')
+      throw new Error('unexpected fixture request');
+    return new Response(${JSON.stringify(JSON.stringify(previous))});
+  };`);
   assert.equal(trace.event, 'texas_register_search_trace');
   assert.equal(trace.phase, 'launch');
   assert.equal(trace.outcome, 'failed');
@@ -169,6 +175,46 @@ test('Texas production entrypoint logs a bounded browser timeout and retains onl
   assert.equal(report.observedAt, previous.observedAt);
   assert.equal(report.sourceSha, previous.sourceSha);
   assert.equal(report.acquisition.status, 'failed');
-  assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), report);
   assert.doesNotMatch(stdout, /synthetic private browser error|browserType/);
+});
+
+test('Texas producer finishes a modeled 12-second Chrome startup with the new launch budget', (t) => {
+  const window = searchWindow(now);
+  const display = date => [date.slice(5, 7), date.slice(8), date.slice(0, 4)].join('/');
+  const browserFixture = `
+    const chromeStartupMs = 12000;
+    const role = { filter: () => role, waitFor: async () => {}, click: async () => {}, count: async () => 1 };
+    const grid = { filter: () => grid, isVisible: async () => false,
+      waitFor: async () => {}, evaluate: async () => ({ displayed: [${JSON.stringify(display(window.end))}], officialRowCount: 1 }) };
+    const page = {
+      setDefaultTimeout: () => {},
+      goto: async url => {
+        if (url !== ${JSON.stringify(searchUrl)}) throw new Error('unexpected navigation');
+        return { ok: () => true, status: () => 200 };
+      },
+      url: () => ${JSON.stringify(searchUrl)},
+      getByRole: () => role,
+      getByLabel: label => ({ locator: () => ({ getByRole: () => role }),
+        inputValue: async () => label === 'Issue Date From' ? ${JSON.stringify(display(window.start))} : ${JSON.stringify(display(window.end))} }),
+      locator: () => grid,
+      close: async () => {}
+    };
+    export const chromium = { launch: async options => {
+      if (options.timeout <= chromeStartupMs) throw Object.assign(new Error('modeled startup exceeds budget'), { name: 'TimeoutError' });
+      if (options.timeout !== 20000 || options.headless !== true) throw new Error('unexpected launch policy');
+      return { newPage: async () => page, close: async () => {} };
+    } };`;
+  const { trace, report } = runProducerFixture(t, browserFixture, `
+    const RealDate = Date;
+    globalThis.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [${now.valueOf()}])); }
+      static now() { return ${now.valueOf()}; }
+    };
+    globalThis.fetch = async () => { throw new Error('unexpected live or retention request'); };`);
+  assert.equal(trace.outcome, 'completed');
+  assert.equal(trace.httpStatus, 200);
+  assert.equal(report.status, 'available');
+  assert.equal(report.issueDate, window.end);
+  assert.equal(report.observationStatus, undefined);
+  assert.equal(report.sourceSha, 'a'.repeat(40));
 });
