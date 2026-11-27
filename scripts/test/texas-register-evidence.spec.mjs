@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { observeIssue, searchUrl } from '../texas-register-evidence.mjs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { pagesIssueUrl, parsePagesIssue } from '../../gcp/state-connector/adapters/tx-search-issue.js';
+import { observeIssue, readPublishedIssue, searchUrl, searchWindow } from '../texas-register-evidence.mjs';
 const now = new Date('2026-11-26T17:48:14Z');
 const sourceSha = '3e5aa9c2f61958b6ed55b2620746ea36fa00bed8';
 const rows = (date, count = 20) => ({ issueDates: Array(count).fill(date), officialRowCount: count });
@@ -52,4 +58,111 @@ test('transport failure cannot expose upstream content or reuse old evidence', a
   assert.equal(outcome.status, 'unavailable');
   assert.equal(outcome.reason, 'search_read_failed');
   assert.doesNotMatch(JSON.stringify(outcome), /private upstream/);
+});
+
+function verifiedArtifact(stamp) {
+  const window = searchWindow(stamp);
+  return {
+    schema: 'tsr-texas-register-search/v1', status: 'available', sourceUrl: searchUrl,
+    sourceSha, observedAt: stamp.toISOString(), window, issueDate: window.end,
+    latestProof: 'upper_bound_row', sampleRows: 20
+  };
+}
+
+test('a transient timeout retains the verified issue without renewing its provenance or expiry', async () => {
+  const previous = verifiedArtifact(new Date(now.valueOf() - 3599000));
+  const current = 'a'.repeat(40);
+  let reads = 0;
+  const retained = await observeIssue({
+    now, sourceSha: current, clock: () => now.valueOf(),
+    readSearch: async () => { throw new Error('synthetic browser timeout'); },
+    readPrevious: async () => { reads++; return JSON.stringify(previous); }
+  });
+  assert.equal(reads, 1);
+  assert.deepEqual(retained, {
+    ...previous, observationStatus: 'retained',
+    acquisition: { status: 'failed', reason: 'search_read_failed', attemptedAt: now.toISOString(), sourceSha: current }
+  });
+  const atExpiry = Date.parse(previous.observedAt) + 3 * 60 * 60 * 1000;
+  assert.equal(parsePagesIssue(JSON.stringify(retained), atExpiry), previous.issueDate);
+  assert.equal(parsePagesIssue(JSON.stringify(retained), atExpiry + 1), null);
+});
+
+test('expiry, future observations, invalid provenance and unavailable prior bytes fail closed', async () => {
+  const valid = verifiedArtifact(now);
+  for (const previous of [
+    verifiedArtifact(new Date(now.valueOf() - 10800001)), verifiedArtifact(new Date(now.valueOf() + 1)),
+    { ...valid, sourceUrl: 'https://example.org' }, { ...valid, status: 'unavailable' }, { ...valid, latestProof: 'other' },
+    { ...valid, window: { ...valid.window, start: '2026-11-17' } }, null
+  ]) {
+    const result = await observeIssue({
+      now, sourceSha, clock: () => now.valueOf(),
+      readSearch: async () => { throw new Error('synthetic browser failure'); },
+      readPrevious: async () => JSON.stringify(previous)
+    });
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.issueDate, undefined);
+  }
+});
+
+test('a fresh or unverified search does not read the prior snapshot', async () => {
+  for (const search of [rows('2026-11-27'), rows('2026-11-17')]) {
+    let readCount = 0;
+    await observeIssue({
+      now, sourceSha, readSearch: async () => search,
+      readPrevious: async () => { readCount++; return ''; }
+    });
+    assert.equal(readCount, 0);
+  }
+});
+
+test('the previous issue read is fixed, anonymous, bounded, and rejects redirects', async () => {
+  let reads = 0;
+  const body = await readPublishedIssue(async (url, options) => {
+    reads++;
+    assert.equal(url, pagesIssueUrl);
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.credentials, 'omit');
+    assert.ok(options.signal instanceof AbortSignal);
+    assert.equal(new Headers(options.headers).has('Authorization'), false);
+    assert.equal(new Headers(options.headers).has('Cookie'), false);
+    return new Response('x'.repeat(4097));
+  });
+  assert.equal(reads, 1);
+  assert.equal(body, '');
+  const redirected = new Response('{}');
+  Object.defineProperty(redirected, 'redirected', { value: true });
+  assert.equal(await readPublishedIssue(async () => redirected), '');
+  assert.equal(await readPublishedIssue(async () => new Response('not found', { status: 404 })), '');
+});
+
+test('Texas production entrypoint logs a bounded launch failure and retains only the verified observation', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'tsr-tx-entrypoint-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const previous = verifiedArtifact(new Date(Date.now() - 5000));
+  const preload = `globalThis.fetch = async (url, options) => {
+    if (url !== ${JSON.stringify(pagesIssueUrl)} || options.redirect !== 'error' || options.credentials !== 'omit')
+      throw new Error('unexpected fixture request');
+    return new Response(${JSON.stringify(JSON.stringify(previous))});
+  };`;
+  const output = join(directory, 'issue.json');
+  const command = fileURLToPath(new URL('../build_texas_register_search.mjs', import.meta.url));
+  const stdout = execFileSync(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), command, output], {
+    env: { ...process.env, GITHUB_SHA: 'a'.repeat(40), TSR_CHROME_BIN: join(directory, 'absent-chrome') },
+    encoding: 'utf8', timeout: 15000
+  });
+  const [trace, report] = stdout.trim().split('\n').map(JSON.parse);
+  assert.equal(trace.event, 'texas_register_search_trace');
+  assert.equal(trace.phase, 'launch');
+  assert.equal(trace.outcome, 'failed');
+  assert.equal(trace.category, 'unexpected_browser_or_page_state');
+  assert.equal(trace.httpStatus, null);
+  assert.equal(typeof trace.timingsMs.launch, 'number');
+  assert.equal(report.status, 'available');
+  assert.equal(report.observationStatus, 'retained');
+  assert.equal(report.observedAt, previous.observedAt);
+  assert.equal(report.sourceSha, previous.sourceSha);
+  assert.equal(report.acquisition.status, 'failed');
+  assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), report);
+  assert.doesNotMatch(stdout, /absent-chrome|executable|browserType/);
 });
