@@ -1,0 +1,4 @@
+{
+  "error": "static_mode",
+  "message": "This endpoint requires a server-side proxy in static deployments."
+}

@@ -1,0 +1,7 @@
+{
+  "id": "usgs-quakes-hour",
+  "fetchedAt": 1795871228094,
+  "contentType": "application/json; charset=utf-8",
+  "body": "{\"type\":\"FeatureCollection\",\"metadata\":{\"generated\":1795871220000,\"url\":\"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson\",\"title\":\"USGS All Earthquakes, Past Hour\",\"status\":200,\"api\":\"2.8.2\",\"count\":1},\"features\":[{\"type\":\"Feature\",\"properties\":{\"mag\":0.44,\"place\":\"6 km SSW of Idyllwild, CA\",\"time\":1795868309480,\"updated\":1795868513578,\"tz\":null,\"url\":\"https://earthquake.usgs.gov/earthquakes/eventpage/ci41581032\",\"detail\":\"https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/ci41581032.geojson\",\"felt\":null,\"cdi\":null,\"mmi\":null,\"alert\":null,\"status\":\"automatic\",\"tsunami\":0,\"sig\":3,\"net\":\"ci\",\"code\":\"41581032\",\"ids\":\",ci41581032,\",\"sources\":\",ci,\",\"types\":\",nearby-cities,origin,phase-data,\",\"nst\":22,\"dmin\":0.02944,\"rms\":0.1,\"gap\":65,\"magType\":\"ml\",\"type\":\"earthquake\",\"title\":\"M 0.4 - 6 km SSW of Idyllwild, CA\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-116.735,33.68733,14.99]},\"id\":\"ci41581032\"}]}",
+  "httpStatus": 200
+}

@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-11-28T13:08:12.657Z",
+  "source": "openai",
+  "text": "- **Conflict:** Headlines report two aid workers killed in a Gaza clinic strike and at least six students killed in an Afghanistan school blast. CBS reports a U.S. action against a ship allegedly attempting to breach a blockade of Iranian ports.\n\n- **Domestic risks:** Severe Thanksgiving weather left hundreds of thousands without power; record high tides threaten coastal areas. Wisconsin reported a third measles death, while a headline reports 12,000 Ebola cases in Congo.\n\n- **Politics and technology:** Democratic attorneys general and voter priorities could shape the next Congress and justice system. Reports also flag scrutiny of Nvidia chip sales and allegedly banned chips at a Chinese data center.",
+  "briefing": {
+    "policy": "terra-minimum-v1",
+    "requestedModel": "gpt-6.1-terra",
+    "requestedReasoningEffort": "none",
+    "maxOutputTokens": 1024,
+    "attempted": true,
+    "status": "completed",
+    "modelVerified": true,
+    "responseId": "resp_01b6e8e3c23b3b93006b0ad23d3a7c87d0b7608d6224688d87",
+    "servedModel": "gpt-6.1-terra",
+    "responseStatus": "completed",
+    "servedReasoningEffort": "none",
+    "httpStatus": 200,
+    "reason": null,
+    "usage": {
+      "inputTokens": 1262,
+      "outputTokens": 133,
+      "reasoningTokens": 0
+    }
+  }
+}

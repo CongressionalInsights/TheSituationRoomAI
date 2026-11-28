@@ -1,0 +1,14 @@
+{
+  "schema": "tsr-texas-register-search/v1",
+  "sourceUrl": "https://texas-sos.appianportalsgov.com/rules-and-meetings?interface=SEARCH_TEXAS_REGISTER",
+  "sourceSha": "d7d20aaf3892f469e4ce09ad208fe64e039c4bf0",
+  "observedAt": "2026-11-28T13:08:17.160Z",
+  "window": {
+    "start": "2026-11-20",
+    "end": "2026-11-29"
+  },
+  "status": "available",
+  "issueDate": "2026-11-27",
+  "latestProof": "explicit_empty_newer_window",
+  "sampleRows": 20
+}

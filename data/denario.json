@@ -1,0 +1,122 @@
+{
+  "kind": "source-highlights",
+  "summary": "Source records for review. 9 records; 0 sources unavailable; 0 using fallback data.",
+  "coverage": [
+    {
+      "sourceId": "bbc-world",
+      "sourceName": "BBC World",
+      "ok": true,
+      "configured": true,
+      "count": 24,
+      "fetchedUrl": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "federal-register",
+      "sourceName": "Federal Register",
+      "ok": true,
+      "configured": true,
+      "count": 20,
+      "fetchedUrl": "https://www.federalregister.gov/api/v1/documents?format=json&per_page=20&order=newest",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "eonet-events",
+      "sourceName": "NASA EONET Events",
+      "ok": true,
+      "configured": true,
+      "count": 38,
+      "fetchedUrl": "https://eonet.gsfc.nasa.gov/api/v3/events?days=30&limit=200",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    },
+    {
+      "sourceId": "arxiv-rss-ai",
+      "sourceName": "arXiv RSS (cs.AI)",
+      "ok": true,
+      "configured": true,
+      "count": 0,
+      "fetchedUrl": "https://rss.arxiv.org/rss/cs.AI",
+      "proxyUsed": null,
+      "fallbackUsed": false
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "title": "Argentina's bid to stop Falklands oil drilling rejected",
+      "summary": "A joint venture between UK-Israeli companies is set to start exploring for oil and gas, but Argentina sought to block it as part of its claim to sovereignty.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/c84gnq3qq9rno?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1795870959000
+    },
+    {
+      "title": "Two staff killed in Israeli strike on Gaza medical clinic, MSF says",
+      "summary": "The Israeli military says it targeted \"Hamas terrorists\" in the strike which has been condemned by the World Health Organization.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/cm5y10yydln3o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1795862098000
+    },
+    {
+      "title": "Afghanistan explosion kills 10 students and injures more than 100, official says",
+      "summary": "A spokesman for Afghanistan's interior ministry says the blast was caused by carelessness at an explosives depot nearby.",
+      "source": "BBC World",
+      "url": "https://www.bbc.co.uk/news/articles/ckp80jyz6dl8o?at_medium=RSS&at_campaign=rss",
+      "category": "news",
+      "publishedAt": 1795870184000
+    },
+    {
+      "title": "Truth in Lending (Regulation Z)",
+      "summary": "The Board and the Bureau (collectively, Agencies) are publishing final rules amending the official interpretations for the Agencies' regulations that implement the Truth in Lending Act (TILA). The Dodd-Frank Wall Street Reform and Consumer Protection Act (Dodd- Frank Act) amended TILA to require that the dollar threshold for exempt consumer credit transactions be adjusted annually by the annual percentage increase in the Consumer Price Index for Urban Wage Earners and Clerical Workers (CPI-W)...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/30/2026-24346/truth-in-lending-regulation-z",
+      "category": "gov",
+      "publishedAt": 1795996800000
+    },
+    {
+      "title": "Consumer Leasing (Regulation M)",
+      "summary": "The Board and the Bureau (collectively, Agencies) are finalizing amendments to the official interpretations for the Agencies' regulations that implement the Consumer Leasing Act (CLA). The Dodd- Frank Wall Street Reform and Consumer Protection Act (Dodd-Frank Act) amended the CLA to require that the dollar threshold for exempt consumer leases be adjusted annually by the annual percentage increase in the Consumer Price Index for Urban Wage Earners and Clerical Workers (CPI-W). Based on the ann...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/30/2026-24345/consumer-leasing-regulation-m",
+      "category": "gov",
+      "publishedAt": 1795996800000
+    },
+    {
+      "title": "Appraisals for Higher-Priced Mortgage Loans Exemption Threshold",
+      "summary": "The OCC, the Board, and the Bureau are finalizing amendments to the official interpretations for their regulations that implement section 129H of the Truth in Lending Act (TILA). Section 129H of TILA establishes special appraisal requirements for \"higher-risk mortgages,\" termed \"higher-priced mortgage loans\" or \"HPMLs\" in the agencies' regulations. The regulations provide that transactions of $25,000 or less are exempt from these requirements, adjusted annually based on any annual percentage ...",
+      "source": "Federal Register",
+      "url": "https://www.federalregister.gov/documents/2026/11/30/2026-24344/appraisals-for-higher-priced-mortgage-loans-exemption-threshold",
+      "category": "gov",
+      "publishedAt": 1795996800000
+    },
+    {
+      "title": "Wildfire Little Ridge, Highland, Virginia",
+      "summary": "12 Miles SW from Monterey, VA",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_26661",
+      "category": "disaster",
+      "publishedAt": 1795302900000
+    },
+    {
+      "title": "Wildfire White Oak Flat, Alleghany, Virginia",
+      "summary": "2 Miles NW from Clifton Forge, VA",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_26662",
+      "category": "disaster",
+      "publishedAt": 1795180560000
+    },
+    {
+      "title": "Iceberg A76C",
+      "summary": "Sea and Lake Ice • Magnitude 112 NM^2",
+      "source": "NASA EONET Events",
+      "url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_5359",
+      "category": "disaster",
+      "publishedAt": 1795132800000
+    }
+  ],
+  "generatedAt": "2026-11-28T13:08:55.121Z"
+}
